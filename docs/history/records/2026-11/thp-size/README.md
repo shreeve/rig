@@ -1,7 +1,7 @@
 # Rig allocator: where huge pages start, measured: a speed-for-memory trade with no free point (2026-11-23)
 
 Measured first, nothing landed. Rig base 383a1b2b5 (Trig's pin). Trig d78aa3f3, read only. The arm is on
-the scratch branch `scratch/thp-size` (kept as it is; patches here). pup: Meteor Lake E-cores, 4 KiB pages,
+the scratch branch `scratch/thp-size` (kept as it is; patches here). pup: Meteor Lake (P-cores 0-11, E-cores 12-19), 4 KiB pages,
 THP `enabled=madvise`, `defrag=madvise`.
 
 ## Result in one paragraph
@@ -75,7 +75,8 @@ sha256 b84853ebce3a01dbd42d44663b7c095c93a01300407825e963a89b796358f4c5.
 ## 3. Race (pup slot 738)
 
 harness/slot-thp.sh and harness/phases-sweepBC6.sh: 17 projects at c1/c2/c4/c8, four arms interleaved and
-shuffled each round, 10 rounds, quiet honoured, E-cores 12-19. M = main's b1r (Rig 383a1b2b5); B = the knob binary
+shuffled each round, 10 rounds, quiet honoured, c1 on P-core 3 and c2-c8 on cores 0-11 (the harness's
+defaults; the census and the A/A instruction counts above ran on E-cores). M = main's b1r (Rig 383a1b2b5); B = the knob binary
 unset (N=2, the A/A arm); X = N=8; Y = N=32. Wall from the shell's clock, peak RSS from `/usr/bin/time`. The
 summed rows are over 16 projects (mui-docs left out, as in Rig's summary of the slot). Per project and count:
 data/race-738.md (made by harness/table.py from data/race-738-runs.txt). stdout and statistics were
