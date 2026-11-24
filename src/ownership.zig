@@ -9100,19 +9100,22 @@ pub const Checker = struct {
     /// Whether `ty` holds a type parameter by value and so may hold a view
     /// in an instance, though a generic body tracks no loan in a value of
     /// it (SPEC "Generic bodies"): what reaches one is recorded for the
-    /// body check instead (`taintGeneric`, `noteGenericStore`).
+    /// body check instead (`taintGeneric`, `noteGenericStore`). A type
+    /// parameter whose bounds give `Owned` holds none in any instance
+    /// (`sema.holdsUnownedParam`).
     fn genericType(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema;
         const t = ty orelse return false;
-        return !self.mayCarryLoan(t) and sema.holdsTypeParam(ctx, t);
+        return !self.mayCarryLoan(t) and sema.holdsUnownedParam(ctx, t);
     }
 
     /// Whether a value of `ty` may hold a value of a type parameter's
-    /// type (`sema.holdsTypeParam`), which a generic body tracks no loan
+    /// type that may hold a view in an instance
+    /// (`sema.holdsUnownedParam`), which a generic body tracks no loan
     /// in.
     fn holdsGeneric(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema;
-        return sema.holdsTypeParam(ctx, ty orelse return false);
+        return sema.holdsUnownedParam(ctx, ty orelse return false);
     }
 
     /// `v`'s loans reach a value of type `ty`, which a generic body keeps

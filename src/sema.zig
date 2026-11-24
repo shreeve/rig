@@ -8517,21 +8517,33 @@ pub const HeldParts = struct {
     }
 };
 
-/// Whether a value of `ty` may hold a value of a type parameter: the
-/// parameter itself, or a type built from it (`List[T]`, `T?`, `Bag[T]`),
-/// but no function, and not a compile-time value (`Simd[U8, n]`).
-pub fn holdsTypeParam(ctx: *const SemContext, ty: TypeId) bool {
+/// Whether a value of `ty` may hold a value of a type parameter that may
+/// hold a view in an instance, one whose bounds do not give `Owned`
+/// (`boundOwned`): the parameter itself, or a type built from it
+/// (`List[T]`, `T?`, `Bag[T]`), but no function, and not a compile-time
+/// value (`Simd[U8, n]`).
+pub fn holdsUnownedParam(ctx: *const SemContext, ty: TypeId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return false;
     const t = ctx.types.get(ty);
     switch (t) {
         // A set parameter's value is an error, whatever set binds it.
-        .type_var => |sym| return !ctx.symbols.items[sym].flags.set_param,
+        .type_var => |id| {
+            const sym = ctx.symbols.items[id];
+            return !sym.flags.set_param and !boundOwned(ctx, sym);
+        },
         .function, .ct_param => return false,
         else => {},
     }
     var it: TypeChildren = .{ .ty = t };
-    while (it.next()) |c| if (holdsTypeParam(ctx, c)) return true;
+    while (it.next()) |c| if (holdsUnownedParam(ctx, c)) return true;
     return false;
+}
+
+/// Whether type parameter `sym`'s bounds, those its signature implies
+/// included, give `Owned`: no instance holds a view (SPEC "Bounds").
+pub fn boundOwned(ctx: *const SemContext, sym: Symbol) bool {
+    if (sym.apis.contains(.Owned) or sym.implied.contains(.Owned)) return true;
+    return sym.user_apis.len > 0 and boundApis(ctx, sym).contains(.Owned);
 }
 
 pub fn typeChildren(ctx: *const SemContext, ty: TypeId) TypeChildren {

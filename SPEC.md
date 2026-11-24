@@ -3602,16 +3602,18 @@ a `T` (even one it puts nothing in), cannot be instantiated with a
 view, since those hold no view; a body checked by its bounds needs
 `T: Owned` for each ([Bounds](#bounds)); write `?T`
 in the signature to take a view that is only read. In an instance a `T`
-may hold a view, so the check of a body against its signature counts a
-parameter whose views reach a value of a type that holds a type
-parameter (an element of `xs: []T`, `f(s)` with `f` returning a `T`, a
+may hold a view, unless its bounds give `Owned`, so the check of a body
+against its signature counts a parameter whose views reach a value of a
+type that holds such a type parameter (an element of `xs: []T`, `f(s)` with `f` returning a `T`, a
 `T` taken by value, a `match` payload of type `T` that views its
 subject) as returned wherever the body returns such a value, or a value
 that holds one (`P[T]`), and as stored in what a parameter leads to
 wherever the body stores one there: `fun pick[T](f: ?fun(?String) -> T,
 a: ?String, b: ?String) -> T from b` cannot return `f(a)`, and `sub
 run[T](f: ?*sub(!T, ?String), k: !T, s: ?String)` that calls `f(!k, s)`
-says `keeps s`.
+says `keeps s`. With `T: Owned` neither counts: `sub move[T:
+Owned](dst: !List[T], src: !List[T])` that pushes onto `dst` what it
+pops from `src` keeps nothing, as the same body over `String` does.
 
 ```rig
 fun same[T](x: T) -> T
