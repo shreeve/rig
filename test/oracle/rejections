@@ -3392,6 +3392,7 @@ test/reject/ownership/keeps_body_store_forms.rig link
 test/reject/ownership/keeps_drop_while_kept.rig main
 test/reject/ownership/keeps_function_value_by_type.rig call
 test/reject/ownership/keeps_generic_field_text.rig main
+test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig views
 test/reject/ownership/keeps_generic_param_stored.rig Bag.put
 test/reject/ownership/keeps_into_write_arg_unsaid.rig collect
 test/reject/ownership/keeps_kept_view_conflicts.rig main
