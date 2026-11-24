@@ -1,0 +1,527 @@
+tools/mac-claim: waiting 1 min for the Mac to go quiet (125% of a core in use, under 150% wanted). Busiest:
+  PID 54963 at 100.0%: /opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Content
+  PID 720 at 4.9%: /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/
+  PID 96167 at 2.4%: /Users/shreeve/Library/Application Support/Claude/claude-code/2.1.330/4262a1273231/claude.app/Contents/MacOS/c
+tools/mac-claim: waiting 3 min for the Mac to go quiet (217% of a core in use, under 150% wanted). Busiest:
+  PID 54963 at 99.4%: /opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Content
+  PID 97954 at 88.9%: (pairedsyncd)
+  PID 411 at 7.5%: /System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow console
+
+Compiler-Unions/map1.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit             93128         1.77         1.70         1.15         1.26         1.16         2.00         2.09         1.37         1.47         1.14                   559966
+                              1.53x         1.48x         1.00x         1.10x         1.00x         1.74x         1.82x         1.19x         1.28x         0.99x
+miss            76251         1.36         1.35         0.98         0.99         0.97         1.91         1.90         1.03         1.04         0.97                        0
+                              1.39x         1.38x         1.00x         1.02x         1.00x         1.95x         1.95x         1.06x         1.07x         0.99x
+mixed           81616         2.37         2.27         1.87         1.90         1.87         2.82         3.04         2.50         1.97         1.87                   583298
+                              1.27x         1.22x         1.00x         1.02x         1.00x         1.51x         1.63x         1.34x         1.05x         1.00x
+total          250995         1.85         1.79         1.34         1.39         1.33         2.23         2.32         1.64         1.50         1.33                  1143264
+                              1.38x         1.34x         1.00x         1.04x         0.99x         1.66x         1.74x         1.22x         1.12x         0.99x
+A/A (hb-fx against itself): total 0.9%, largest kind 0.9%
+spread of total (max-min)/min: rig-map 3.5%, rig-hash 6.7%, hb-fx 137.0%, hb-fold 2.9%, std-fx 143.6%, idx-fx 52.4%, idx-fold 22.6%, zig-ordered 184.5%, zig-compact 278.7%, hb-fx' 3.7%
+
+Compiler-Unions/map2.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit              2459         2.13         2.69         1.51         1.68         1.51         2.41         2.58         1.81         1.98         1.47                 10135418
+                              1.42x         1.79x         1.00x         1.11x         1.00x         1.60x         1.71x         1.20x         1.31x         0.98x
+miss              307         1.49         1.49         1.63         1.22         1.49         2.31         2.04         1.36         1.36         1.63                        0
+                              0.92x         0.92x         1.00x         0.75x         0.92x         1.42x         1.25x         0.83x         0.83x         1.00x
+mixed          162961         4.94         4.74         4.42         5.02         4.53         5.26         5.90         4.47         4.43         4.41                248854535
+                              1.12x         1.07x         1.00x         1.14x         1.03x         1.19x         1.34x         1.01x         1.00x         1.00x
+total          165727         4.89         4.70         4.37         4.96         4.48         5.21         5.85         4.43         4.39         4.36                258989953
+                              1.12x         1.08x         1.00x         1.14x         1.03x         1.19x         1.34x         1.01x         1.00x         1.00x
+A/A (hb-fx against itself): total 0.1%, largest kind 2.3%
+spread of total (max-min)/min: rig-map 3.7%, rig-hash 1.3%, hb-fx 5.3%, hb-fold 7.2%, std-fx 6.1%, idx-fx 17.9%, idx-fold 33.4%, zig-ordered 2.8%, zig-compact 13.5%, hb-fx' 4.9%
+
+Compiler-Unions/map3.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit             87549         1.81         1.82         1.15         1.29         1.15         1.97         2.13         1.53         1.58         1.14                 26541660
+                              1.58x         1.59x         1.00x         1.13x         1.00x         1.72x         1.86x         1.33x         1.38x         1.00x
+mixed             603        15.68        14.65        14.10        14.17        17.97        20.18        17.07        19.14        15.41        14.03                    45453
+                              1.11x         1.04x         1.00x         1.00x         1.27x         1.43x         1.21x         1.36x         1.09x         1.00x
+total           88152         1.91         1.95         1.24         1.37         1.26         2.12         2.25         1.65         1.68         1.23                 26587113
+                              1.54x         1.57x         1.00x         1.10x         1.02x         1.70x         1.81x         1.32x         1.35x         0.99x
+A/A (hb-fx against itself): total 0.9%, largest kind 0.9%
+spread of total (max-min)/min: rig-map 5.8%, rig-hash 80.4%, hb-fx 11.0%, hb-fold 28.1%, std-fx 9.0%, idx-fx 11.3%, idx-fold 27.2%, zig-ordered 16.2%, zig-compact 14.3%, hb-fx' 3.7%
+
+Compiler-Unions/map4.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit             87219         1.92         1.79         1.15         1.26         1.17         2.05         2.13         1.62         1.63         1.16                 26374378
+                              1.66x         1.55x         1.00x         1.09x         1.01x         1.77x         1.85x         1.40x         1.41x         1.00x
+mixed             601        15.95        14.42        14.56        13.24        18.02        21.77        17.61        19.48        16.01        14.28                    45152
+                              1.10x         0.99x         1.00x         0.91x         1.24x         1.50x         1.21x         1.34x         1.10x         0.98x
+total           87820         2.01         1.87         1.24         1.35         1.28         2.17         2.24         1.75         1.73         1.25                 26419530
+                              1.62x         1.50x         1.00x         1.08x         1.03x         1.74x         1.80x         1.41x         1.39x         1.01x
+A/A (hb-fx against itself): total 0.9%, largest kind 2.0%
+spread of total (max-min)/min: rig-map 66.2%, rig-hash 15.8%, hb-fx 120.6%, hb-fold 14.8%, std-fx 10.3%, idx-fx 27.0%, idx-fold 159.6%, zig-ordered 194.6%, zig-compact 36.5%, hb-fx' 12.0%
+
+Compiler-Unions/map5.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit             87218         1.99         1.96         1.36         1.28         1.25         3.00         2.52         4.21         1.79         1.61                 26374946
+                              1.47x         1.44x         1.00x         0.94x         0.92x         2.21x         1.85x         3.09x         1.32x         1.18x
+mixed             601        17.75        15.53        16.08        16.36        19.48        24.61        30.16        34.94        18.58        20.59                    45152
+                              1.10x         0.97x         1.00x         1.02x         1.21x         1.53x         1.87x         2.17x         1.16x         1.28x
+total           87819         2.09         2.05         1.46         1.38         1.37         3.19         2.63         4.44         1.90         1.74                 26420098
+                              1.44x         1.41x         1.00x         0.95x         0.94x         2.19x         1.81x         3.05x         1.31x         1.19x
+A/A (hb-fx against itself): total 16.2%, largest kind 21.9%
+spread of total (max-min)/min: rig-map 68.9%, rig-hash 223.9%, hb-fx 195.1%, hb-fold 218.5%, std-fx 190.4%, idx-fx 185.3%, idx-fold 214.3%, zig-ordered 211.2%, zig-compact 315.8%, hb-fx' 190.3%
+
+Compiler-Unions/site1.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+insert            767        15.21        16.19        16.03        18.25        17.44        23.41        25.15        18.80        15.81        15.54                   164486
+                              0.95x         1.01x         1.00x         1.14x         1.09x         1.46x         1.57x         1.17x         0.99x         0.97x
+hit            610098         1.91         1.87         1.32         1.43         1.36         2.29         2.27         1.70         1.89         1.35              15881493406
+                              1.45x         1.42x         1.00x         1.08x         1.03x         1.73x         1.72x         1.29x         1.43x         1.02x
+miss           188900         1.44         1.50         1.25         1.28         1.31         2.38         2.00         1.25         1.48         1.40                        0
+                              1.15x         1.19x         1.00x         1.02x         1.04x         1.90x         1.60x         1.00x         1.18x         1.12x
+drop              313         5.59         5.33        29.95        29.28        30.48        47.79        44.60        10.25         5.86        30.22                    11440
+                              0.19x         0.18x         1.00x         0.98x         1.02x         1.60x         1.49x         0.34x         0.20x         1.01x
+mixed          448387         3.30         3.33         3.07         3.13         3.25         4.20         4.10         3.02         3.19         3.13              14219912823
+                              1.07x         1.08x         1.00x         1.02x         1.06x         1.37x         1.34x         0.98x         1.04x         1.02x
+total         1248465         2.36         2.38         1.95         2.03         2.04         3.00         2.91         2.12         2.29         2.01              30101582155
+                              1.21x         1.22x         1.00x         1.04x         1.05x         1.54x         1.49x         1.09x         1.17x         1.03x
+A/A (hb-fx against itself): total 2.8%, largest kind 10.3%
+spread of total (max-min)/min: rig-map 21.3%, rig-hash 16.2%, hb-fx 17.9%, hb-fold 16.4%, std-fx 16.6%, idx-fx 26.8%, idx-fold 11.9%, zig-ordered 28.7%, zig-compact 19.0%, hb-fx' 13.9%
+
+Compiler-Unions/site2.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit           1020093         1.89         1.74         1.25         1.33         1.19         2.04         2.12         1.54         1.75         1.20             488170421081
+                              1.52x         1.40x         1.00x         1.07x         0.96x         1.63x         1.71x         1.24x         1.40x         0.96x
+mixed           14012         5.09         5.51         7.23         7.46         7.54        10.25         9.79         5.42         6.55         7.11               1139918847
+                              0.70x         0.76x         1.00x         1.03x         1.04x         1.42x         1.35x         0.75x         0.91x         0.98x
+total         1034105         1.94         1.79         1.33         1.42         1.28         2.14         2.24         1.60         1.81         1.28             489310339928
+                              1.46x         1.35x         1.00x         1.07x         0.96x         1.62x         1.69x         1.21x         1.37x         0.96x
+A/A (hb-fx against itself): total 3.8%, largest kind 3.9%
+spread of total (max-min)/min: rig-map 78.6%, rig-hash 59.7%, hb-fx 93.6%, hb-fold 8.6%, std-fx 7.0%, idx-fx 16.2%, idx-fold 8.1%, zig-ordered 6.3%, zig-compact 83.6%, hb-fx' 71.9%
+
+Compiler-Unions/site3.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit              8130         1.99         2.25         1.47         1.55         1.46         2.35         2.41         1.68         1.89         1.45                 96658899
+                              1.35x         1.53x         1.00x         1.05x         0.99x         1.60x         1.64x         1.14x         1.28x         0.99x
+miss             1364         1.50         1.53         2.26         2.17         2.23         2.81         2.72         1.34         1.47         2.17                        0
+                              0.66x         0.68x         1.00x         0.96x         0.99x         1.24x         1.20x         0.60x         0.65x         0.96x
+mixed          438404         4.83         4.57         4.73         4.99         4.82         5.67         5.89         4.43         4.50         4.72               3522272044
+                              1.02x         0.97x         1.00x         1.06x         1.02x         1.20x         1.25x         0.94x         0.95x         1.00x
+total          447898         4.77         4.52         4.66         4.92         4.75         5.60         5.82         4.37         4.44         4.65               3618930943
+                              1.02x         0.97x         1.00x         1.06x         1.02x         1.20x         1.25x         0.94x         0.95x         1.00x
+A/A (hb-fx against itself): total 0.1%, largest kind 4.2%
+spread of total (max-min)/min: rig-map 3.6%, rig-hash 4.4%, hb-fx 3.5%, hb-fold 3.6%, std-fx 9.0%, idx-fx 11.9%, idx-fold 2.0%, zig-ordered 3.7%, zig-compact 33.8%, hb-fx' 3.4%
+
+Compiler-Unions/site4.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+insert          67302         5.79         5.90         9.05        10.34         9.38        11.24        11.88         7.79        10.15         9.07                  9951832
+                              0.64x         0.65x         1.00x         1.14x         1.04x         1.24x         1.31x         0.86x         1.12x         1.00x
+hit             65100         1.90         1.84         1.25         1.35         1.22         2.13         2.18         1.63         1.66         1.24               5084546313
+                              1.52x         1.48x         1.00x         1.09x         0.98x         1.71x         1.75x         1.30x         1.33x         1.00x
+miss             2401         1.77         1.58         2.59         2.06         2.50         3.42         2.93         1.27         1.54         2.55                        0
+                              0.68x         0.61x         1.00x         0.80x         0.97x         1.32x         1.13x         0.49x         0.60x         0.99x
+mixed           32042         4.68         5.39         7.04         7.76         7.43        10.11        10.14         4.67         6.49         7.04               1394696171
+                              0.67x         0.77x         1.00x         1.10x         1.06x         1.44x         1.44x         0.66x         0.92x         1.00x
+total          166845         3.99         4.14         5.53         6.23         5.72         7.35         7.59         4.71         6.01         5.52               6489194316
+                              0.72x         0.75x         1.00x         1.13x         1.04x         1.33x         1.37x         0.85x         1.09x         1.00x
+A/A (hb-fx against itself): total 0.1%, largest kind 1.4%
+spread of total (max-min)/min: rig-map 29.3%, rig-hash 10.7%, hb-fx 13.5%, hb-fold 11.9%, std-fx 9.5%, idx-fx 30.5%, idx-fold 63.0%, zig-ordered 6.8%, zig-compact 7.6%, hb-fx' 55.6%
+
+Compiler-Unions/site5.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit              6413         2.18         2.12         1.36         1.52         1.36         2.30         2.38         1.91         2.25         1.36                 42049310
+                              1.60x         1.55x         1.00x         1.11x         1.00x         1.69x         1.74x         1.40x         1.65x         1.00x
+drop              917         4.04         3.73        13.63        13.50        14.36        21.49        21.36         4.77         5.27        13.95                    16467
+                              0.30x         0.27x         1.00x         0.99x         1.05x         1.58x         1.57x         0.35x         0.39x         1.02x
+mixed          130903         6.40         6.18         6.04         6.54         6.20         7.60         7.80         5.90         6.44         6.05                612141642
+                              1.06x         1.02x         1.00x         1.08x         1.03x         1.26x         1.29x         0.98x         1.07x         1.00x
+total          138233         6.19         5.97         5.89         6.36         6.03         7.45         7.65         5.71         6.23         5.88                654207419
+                              1.05x         1.02x         1.00x         1.08x         1.02x         1.27x         1.30x         0.97x         1.06x         1.00x
+A/A (hb-fx against itself): total 0.1%, largest kind 2.3%
+spread of total (max-min)/min: rig-map 2.3%, rig-hash 5.2%, hb-fx 2.2%, hb-fold 4.0%, std-fx 2.5%, idx-fx 5.2%, idx-fold 3.7%, zig-ordered 2.8%, zig-compact 6.4%, hb-fx' 6.3%
+
+supabase-studio/map1.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+clear           12738         1.16         6.56         0.55         0.57         0.56         0.56         0.56         1.87         0.55         0.57                    12780
+                              2.11x        11.94x         1.00x         1.03x         1.02x         1.02x         1.02x         3.40x         1.00x         1.04x
+mixed         6837936         3.18         2.85         2.43         2.57         2.31         2.89         2.88         6.00         3.37         2.35             233003571887
+                              1.31x         1.17x         1.00x         1.06x         0.95x         1.19x         1.18x         2.47x         1.39x         0.97x
+total         6850674         3.18         2.85         2.43         2.57         2.31         2.88         2.88         5.99         3.37         2.35             233003584667
+                              1.31x         1.18x         1.00x         1.06x         0.95x         1.19x         1.18x         2.47x         1.39x         0.97x
+A/A (hb-fx against itself): total 3.5%, largest kind 4.0%
+spread of total (max-min)/min: rig-map 13.0%, rig-hash 25.3%, hb-fx 30.3%, hb-fold 68.8%, std-fx 31.3%, idx-fx 18.5%, idx-fold 24.4%, zig-ordered 18.5%, zig-compact 24.3%, hb-fx' 33.3%
+
+supabase-studio/map2.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+clear           11655         1.03         2.96         0.53         0.54         0.51         0.51         0.52         1.81         0.53         0.53                    11801
+                              1.94x         5.60x         1.00x         1.01x         0.97x         0.97x         0.99x         3.43x         0.99x         0.99x
+mixed         3519361         3.01         2.59         2.14         2.41         2.15         2.73         2.89         4.99         3.12         2.14              60270779145
+                              1.41x         1.21x         1.00x         1.13x         1.01x         1.28x         1.35x         2.34x         1.46x         1.00x
+total         3531016         3.00         2.59         2.13         2.41         2.15         2.73         2.89         4.98         3.11         2.14              60270790946
+                              1.41x         1.22x         1.00x         1.13x         1.01x         1.28x         1.35x         2.34x         1.46x         1.00x
+A/A (hb-fx against itself): total 0.3%, largest kind 0.6%
+spread of total (max-min)/min: rig-map 27.3%, rig-hash 25.5%, hb-fx 15.3%, hb-fold 60.5%, std-fx 12.5%, idx-fx 20.1%, idx-fold 15.8%, zig-ordered 13.2%, zig-compact 27.9%, hb-fx' 15.8%
+
+supabase-studio/map3.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+clear          130145         1.02         4.41         0.49         0.49         0.50         0.49         0.50         1.77         0.50         0.49                   130651
+                              2.08x         9.02x         1.00x         1.01x         1.01x         1.00x         1.02x         3.61x         1.03x         1.01x
+mixed         3239506         2.63         3.49         2.35         2.46         2.41         2.98         2.93         3.60         2.40         2.35             399637288417
+                              1.12x         1.49x         1.00x         1.05x         1.03x         1.27x         1.25x         1.54x         1.02x         1.00x
+total         3369651         2.57         3.52         2.28         2.38         2.34         2.88         2.83         3.53         2.33         2.28             399637419068
+                              1.13x         1.55x         1.00x         1.05x         1.03x         1.27x         1.24x         1.55x         1.02x         1.00x
+A/A (hb-fx against itself): total 0.1%, largest kind 0.6%
+spread of total (max-min)/min: rig-map 23.1%, rig-hash 22.9%, hb-fx 6.9%, hb-fold 10.2%, std-fx 8.7%, idx-fx 14.6%, idx-fold 9.6%, zig-ordered 8.8%, zig-compact 24.4%, hb-fx' 8.1%
+
+supabase-studio/map4.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit            135424         2.75         2.77         2.32         2.33         2.28         2.97         2.97         2.45         2.56         2.28              47423964729
+                              1.19x         1.19x         1.00x         1.00x         0.98x         1.28x         1.28x         1.05x         1.10x         0.98x
+mixed         2020081         7.67         8.48        10.33         9.46         9.88        11.07        10.66         6.88         9.09        10.22             622696356736
+                              0.74x         0.82x         1.00x         0.92x         0.96x         1.07x         1.03x         0.67x         0.88x         0.99x
+total         2155505         7.36         8.13         9.84         9.01         9.41        10.56        10.18         6.60         8.69         9.72             670120321465
+                              0.75x         0.83x         1.00x         0.92x         0.96x         1.07x         1.03x         0.67x         0.88x         0.99x
+A/A (hb-fx against itself): total 1.2%, largest kind 1.7%
+spread of total (max-min)/min: rig-map 17.3%, rig-hash 13.8%, hb-fx 15.2%, hb-fold 17.1%, std-fx 10.2%, idx-fx 37.0%, idx-fold 19.5%, zig-ordered 8.4%, zig-compact 13.3%, hb-fx' 11.4%
+
+supabase-studio/map5.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit               400         2.40         2.40         1.88         1.88         1.88         2.50         2.60         2.81         2.81         1.88                931707400
+                              1.28x         1.28x         1.00x         1.00x         1.00x         1.33x         1.39x         1.50x         1.50x         1.00x
+clear          165898         1.03         5.97         0.51         0.51         0.51         0.52         0.51         1.80         0.52         0.51                   168012
+                              2.00x        11.64x         1.00x         1.00x         0.99x         1.01x         1.00x         3.50x         1.01x         1.00x
+mixed         2316226         2.24         4.39         2.35         2.38         2.33         2.81         2.83         2.58         2.01         2.33             344402278497
+                              0.95x         1.87x         1.00x         1.01x         0.99x         1.20x         1.20x         1.10x         0.86x         0.99x
+total         2482524         2.16         4.50         2.23         2.25         2.21         2.66         2.67         2.53         1.91         2.21             345334153909
+                              0.97x         2.02x         1.00x         1.01x         0.99x         1.19x         1.20x         1.14x         0.86x         0.99x
+A/A (hb-fx against itself): total 0.9%, largest kind 0.9%
+spread of total (max-min)/min: rig-map 131.3%, rig-hash 8.3%, hb-fx 14.7%, hb-fold 6.7%, std-fx 10.9%, idx-fx 10.8%, idx-fold 7.6%, zig-ordered 15.6%, zig-compact 44.0%, hb-fx' 13.7%
+
+supabase-studio/site1.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit               600         2.36         2.22         1.80         2.57         1.87         2.64         3.33         2.64         2.98         1.88               9684897400
+                              1.31x         1.23x         1.00x         1.42x         1.04x         1.46x         1.85x         1.46x         1.65x         1.04x
+clear          244552         1.19         5.70         0.56         0.55         0.57         0.55         0.57         1.78         0.53         0.60                   245673
+                              2.13x        10.24x         1.00x         0.99x         1.02x         0.99x         1.02x         3.19x         0.96x         1.09x
+mixed        16660357         2.97         3.30         2.41         2.55         2.61         2.85         3.04         4.87         3.06         2.48            3516900665615
+                              1.23x         1.37x         1.00x         1.06x         1.08x         1.18x         1.26x         2.02x         1.27x         1.03x
+total        16905509         2.94         3.33         2.38         2.53         2.58         2.82         3.00         4.83         3.02         2.46            3526585808688
+                              1.23x         1.40x         1.00x         1.06x         1.08x         1.18x         1.26x         2.03x         1.27x         1.03x
+A/A (hb-fx against itself): total 2.9%, largest kind 7.9%
+spread of total (max-min)/min: rig-map 19.7%, rig-hash 18.5%, hb-fx 13.8%, hb-fold 12.8%, std-fx 16.7%, idx-fx 18.4%, idx-fold 85.6%, zig-ordered 14.1%, zig-compact 16.6%, hb-fx' 21.0%
+
+supabase-studio/site2.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+insert         250981         7.39         9.28        10.59        13.22        11.29        14.16        15.80         9.17        11.63        10.66                 67990809
+                              0.70x         0.88x         1.00x         1.25x         1.07x         1.34x         1.49x         0.87x         1.10x         1.01x
+hit           2966424         2.05         1.90         1.36         1.55         1.35         2.17         2.38         1.82         2.19         1.34            3437888453524
+                              1.51x         1.40x         1.00x         1.14x         0.99x         1.59x         1.75x         1.33x         1.61x         0.99x
+miss          1326343         1.34         1.33         0.87         1.44         0.87         1.80         1.93         0.78         0.76         0.84                        0
+                              1.54x         1.53x         1.00x         1.66x         1.00x         2.07x         2.22x         0.90x         0.88x         0.97x
+drop             6700        10.41         7.27        24.35        25.61        22.21        51.85        51.80        12.56        17.39        24.28                   698809
+                              0.43x         0.30x         1.00x         1.05x         0.91x         2.13x         2.13x         0.52x         0.71x         1.00x
+mixed         2080705         4.73         4.79         5.01         5.69         5.22         6.54         6.99         4.57         5.45         4.98            1626867635610
+                              0.95x         0.96x         1.00x         1.14x         1.04x         1.31x         1.40x         0.91x         1.09x         0.99x
+total         6631153         2.97         2.99         2.78         3.29         2.86         3.96         4.30         2.76         3.31         2.77            5064824778752
+                              1.07x         1.07x         1.00x         1.18x         1.03x         1.42x         1.54x         0.99x         1.19x         1.00x
+A/A (hb-fx against itself): total 0.4%, largest kind 3.1%
+spread of total (max-min)/min: rig-map 19.3%, rig-hash 15.0%, hb-fx 9.5%, hb-fold 19.1%, std-fx 21.9%, idx-fx 24.9%, idx-fold 11.0%, zig-ordered 10.8%, zig-compact 8.0%, hb-fx' 8.6%
+
+supabase-studio/site4.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit            202831         2.30         2.33         1.51         1.79         1.53         2.57         2.77         2.04         2.15         1.61              67756533110
+                              1.52x         1.54x         1.00x         1.19x         1.01x         1.70x         1.83x         1.35x         1.43x         1.07x
+miss            40427         1.85         1.60         2.00         2.27         2.02         3.00         3.09         1.53         1.87         2.17                        0
+                              0.92x         0.80x         1.00x         1.13x         1.01x         1.50x         1.54x         0.76x         0.93x         1.08x
+drop            41453         4.66         5.42        12.91        13.24        12.41        34.92        36.24         6.40        14.15        13.25                   572283
+                              0.36x         0.42x         1.00x         1.03x         0.96x         2.70x         2.81x         0.50x         1.10x         1.03x
+mixed         1449851         5.86         6.34         7.77         8.57         8.19        10.91        11.19         5.29         6.49         7.85             160660705705
+                              0.75x         0.82x         1.00x         1.10x         1.05x         1.40x         1.44x         0.68x         0.84x         1.01x
+total         1734562         5.31         5.75         7.02         7.74         7.36        10.29        10.64         4.83         6.08         7.14             228417811098
+                              0.76x         0.82x         1.00x         1.10x         1.05x         1.47x         1.52x         0.69x         0.87x         1.02x
+A/A (hb-fx against itself): total 1.7%, largest kind 7.7%
+spread of total (max-min)/min: rig-map 8.5%, rig-hash 5.7%, hb-fx 7.3%, hb-fold 20.3%, std-fx 14.6%, idx-fx 71.1%, idx-fold 29.5%, zig-ordered 14.8%, zig-compact 17.9%, hb-fx' 9.5%
+
+supabase-studio/site5.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+insert           3083         9.34        17.29        18.88        20.62        19.45        17.53        17.43        11.38         7.41        19.10                 15442201
+                              0.49x         0.92x         1.00x         1.09x         1.03x         0.93x         0.92x         0.60x         0.39x         1.01x
+hit             60383         1.83         1.70         1.22         1.33         1.21         1.97         2.07         1.50         1.61         1.22               5322876677
+                              1.49x         1.39x         1.00x         1.09x         0.99x         1.62x         1.69x         1.23x         1.32x         1.00x
+miss           518325         1.77         1.50         2.12         1.92         2.00         2.90         2.75         1.51         1.43         2.01                        0
+                              0.84x         0.71x         1.00x         0.90x         0.94x         1.36x         1.29x         0.71x         0.67x         0.95x
+mixed          747219         3.14         2.87         3.03         3.24         3.09         4.03         4.03         2.84         2.87         3.03              62144373910
+                              1.04x         0.95x         1.00x         1.07x         1.02x         1.33x         1.33x         0.94x         0.95x         1.00x
+total         1329010         2.57         2.31         2.61         2.68         2.62         3.54         3.48         2.28         2.27         2.61              67482692788
+                              0.98x         0.88x         1.00x         1.02x         1.00x         1.36x         1.33x         0.87x         0.87x         1.00x
+A/A (hb-fx against itself): total 0.2%, largest kind 5.8%
+spread of total (max-min)/min: rig-map 9.7%, rig-hash 3.3%, hb-fx 13.1%, hb-fold 9.5%, std-fx 5.7%, idx-fx 12.3%, idx-fold 4.2%, zig-ordered 4.4%, zig-compact 5.0%, hb-fx' 4.9%
+
+typeorm/map1.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit            168442         2.43         2.66         1.88         2.08         1.90         2.77         3.08         2.11         1.99         1.88              21889120074
+                              1.29x         1.41x         1.00x         1.10x         1.01x         1.47x         1.63x         1.12x         1.06x         1.00x
+mixed          149855         5.18         5.01         4.94         5.48         5.17         6.06         6.23         4.29         4.43         4.92              18388321344
+                              1.05x         1.01x         1.00x         1.11x         1.05x         1.23x         1.26x         0.87x         0.90x         1.00x
+total          318297         3.72         3.75         3.32         3.67         3.43         4.37         4.56         3.14         3.13         3.31              40277441418
+                              1.12x         1.13x         1.00x         1.10x         1.03x         1.32x         1.37x         0.94x         0.94x         1.00x
+A/A (hb-fx against itself): total 0.4%, largest kind 0.4%
+spread of total (max-min)/min: rig-map 67.1%, rig-hash 7.0%, hb-fx 6.4%, hb-fold 5.2%, std-fx 10.9%, idx-fx 8.1%, idx-fold 9.1%, zig-ordered 11.2%, zig-compact 13.8%, hb-fx' 3.6%
+
+typeorm/map2.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit              8050         2.47         2.66         2.19         1.85         2.19         2.99         2.52         2.33         2.26         2.18                288956934
+                              1.13x         1.21x         1.00x         0.84x         1.00x         1.36x         1.15x         1.06x         1.03x         1.00x
+mixed          207751         7.01         8.31         9.66         9.69         9.81        10.63        10.60         7.01         8.67         9.79               5671757328
+                              0.73x         0.86x         1.00x         1.00x         1.02x         1.10x         1.10x         0.73x         0.90x         1.01x
+total          215801         6.84         8.10         9.38         9.39         9.53        10.34        10.30         6.83         8.43         9.51               5960714262
+                              0.73x         0.86x         1.00x         1.00x         1.02x         1.10x         1.10x         0.73x         0.90x         1.01x
+A/A (hb-fx against itself): total 1.3%, largest kind 1.3%
+spread of total (max-min)/min: rig-map 4.7%, rig-hash 6.7%, hb-fx 8.9%, hb-fold 72.3%, std-fx 69.4%, idx-fx 18.1%, idx-fold 52.3%, zig-ordered 15.2%, zig-compact 19.7%, hb-fx' 8.0%
+
+typeorm/map3.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit            206700         1.85         1.82         1.51         1.28         1.50         2.43         2.21         1.43         1.54         1.49                  4944155
+                              1.22x         1.21x         1.00x         0.85x         1.00x         1.61x         1.46x         0.95x         1.02x         0.99x
+mixed             749         9.84         9.24         7.28         7.51         8.85        10.40        10.12         9.13        10.13         7.34                    11760
+                              1.35x         1.27x         1.00x         1.03x         1.21x         1.43x         1.39x         1.25x         1.39x         1.01x
+total          207449         1.88         1.85         1.53         1.30         1.53         2.46         2.24         1.46         1.57         1.51                  4955915
+                              1.23x         1.21x         1.00x         0.85x         1.00x         1.61x         1.46x         0.96x         1.03x         0.99x
+A/A (hb-fx against itself): total 1.3%, largest kind 1.5%
+spread of total (max-min)/min: rig-map 22.7%, rig-hash 63.0%, hb-fx 7.2%, hb-fold 7.9%, std-fx 6.7%, idx-fx 7.5%, idx-fold 40.9%, zig-ordered 8.4%, zig-compact 58.8%, hb-fx' 13.1%
+
+typeorm/map4.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+clear           12341         1.07         2.78         0.55         0.54         0.52         0.55         0.53         1.91         0.60         0.52                    12491
+                              1.95x         5.04x         1.00x         0.99x         0.94x         0.99x         0.96x         3.48x         1.10x         0.95x
+mixed          288574         2.52         3.21         2.59         2.51         2.65         2.96         2.92         3.24         2.22         2.57               2734134403
+                              0.97x         1.24x         1.00x         0.97x         1.02x         1.14x         1.13x         1.25x         0.86x         0.99x
+total          300915         2.46         3.19         2.51         2.43         2.57         2.86         2.82         3.18         2.16         2.48               2734146894
+                              0.98x         1.27x         1.00x         0.97x         1.02x         1.14x         1.13x         1.27x         0.86x         0.99x
+A/A (hb-fx against itself): total 0.9%, largest kind 5.2%
+spread of total (max-min)/min: rig-map 3.2%, rig-hash 64.7%, hb-fx 7.4%, hb-fold 12.3%, std-fx 4.9%, idx-fx 5.2%, idx-fold 12.4%, zig-ordered 6.9%, zig-compact 4.6%, hb-fx' 24.5%
+
+typeorm/map5.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit             27776         3.14         2.87         2.85         2.71         2.84         3.61         3.42         2.97         2.35         2.91               1381650088
+                              1.10x         1.01x         1.00x         0.95x         1.00x         1.27x         1.20x         1.04x         0.82x         1.02x
+mixed          107474         6.72         7.17         7.50         7.44         7.57         7.99         7.85         6.62         6.82         7.60               3315676829
+                              0.90x         0.96x         1.00x         0.99x         1.01x         1.07x         1.05x         0.88x         0.91x         1.01x
+total          135250         5.99         6.29         6.56         6.47         6.61         7.09         6.93         5.87         5.90         6.65               4697326917
+                              0.91x         0.96x         1.00x         0.99x         1.01x         1.08x         1.06x         0.90x         0.90x         1.01x
+A/A (hb-fx against itself): total 1.3%, largest kind 2.0%
+spread of total (max-min)/min: rig-map 2.5%, rig-hash 3.8%, hb-fx 5.9%, hb-fold 4.5%, std-fx 7.6%, idx-fx 21.5%, idx-fold 9.2%, zig-ordered 10.9%, zig-compact 5.7%, hb-fx' 10.2%
+
+typeorm/site1.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+insert           4574        10.07        11.73        12.99        13.83        13.70        18.83        18.73        11.73        13.98        12.93                   381930
+                              0.77x         0.90x         1.00x         1.06x         1.05x         1.45x         1.44x         0.90x         1.08x         1.00x
+hit            323558         2.01         2.07         1.49         1.42         1.48         2.34         2.18         1.73         2.12         1.48              12001166550
+                              1.35x         1.38x         1.00x         0.95x         0.99x         1.57x         1.46x         1.16x         1.42x         0.99x
+miss             2248         1.78         1.67         1.80         1.87         1.74         2.50         2.73         1.46         1.67         1.76                        0
+                              0.99x         0.93x         1.00x         1.04x         0.97x         1.39x         1.52x         0.81x         0.93x         0.98x
+drop             1073         6.76         7.18        14.37        15.49        13.82        24.77        24.93        10.56         6.25        13.47                    43376
+                              0.47x         0.50x         1.00x         1.08x         0.96x         1.72x         1.74x         0.74x         0.44x         0.94x
+mixed          304826         4.77         4.86         4.96         5.32         5.11         6.31         6.48         4.44         5.19         4.92              11548819203
+                              0.96x         0.98x         1.00x         1.07x         1.03x         1.27x         1.31x         0.90x         1.05x         0.99x
+total          636279         3.39         3.49         3.26         3.40         3.33         4.40         4.39         3.11         3.68         3.24              23550411059
+                              1.04x         1.07x         1.00x         1.04x         1.02x         1.35x         1.35x         0.96x         1.13x         0.99x
+A/A (hb-fx against itself): total 0.7%, largest kind 6.6%
+spread of total (max-min)/min: rig-map 24.3%, rig-hash 18.9%, hb-fx 26.7%, hb-fold 90.7%, std-fx 13.2%, idx-fx 17.1%, idx-fold 55.1%, zig-ordered 14.3%, zig-compact 17.4%, hb-fx' 16.2%
+
+typeorm/site2.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit              6721         2.06         2.28         1.54         1.67         1.58         2.44         2.63         1.75         1.78         1.55                213260709
+                              1.34x         1.48x         1.00x         1.08x         1.02x         1.58x         1.70x         1.14x         1.15x         1.00x
+drop             3123         3.76         3.55         9.79        10.33        10.61        15.77        16.57         4.66         5.51        10.79                    21675
+                              0.38x         0.36x         1.00x         1.05x         1.08x         1.61x         1.69x         0.48x         0.56x         1.10x
+mixed          613899         4.23         4.12         4.08         4.32         4.34         5.13         5.28         4.02         3.84         4.17              12254883234
+                              1.04x         1.01x         1.00x         1.06x         1.06x         1.26x         1.29x         0.98x         0.94x         1.02x
+total          623743         4.20         4.11         4.08         4.32         4.34         5.18         5.30         4.00         3.82         4.17              12468165618
+                              1.03x         1.01x         1.00x         1.06x         1.06x         1.27x         1.30x         0.98x         0.94x         1.02x
+A/A (hb-fx against itself): total 2.1%, largest kind 9.3%
+spread of total (max-min)/min: rig-map 7.0%, rig-hash 24.7%, hb-fx 12.0%, hb-fold 7.0%, std-fx 17.2%, idx-fx 9.5%, idx-fold 41.0%, zig-ordered 57.4%, zig-compact 5.4%, hb-fx' 31.3%
+
+typeorm/site4.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit             39228         2.25         1.94         1.34         1.49         1.35         2.19         2.30         1.94         2.09         1.35               1935099988
+                              1.68x         1.45x         1.00x         1.11x         1.01x         1.63x         1.71x         1.44x         1.56x         1.01x
+miss             1283         2.24         1.56         1.33         2.18         1.33         2.01         2.60         2.01         2.18         1.30                        0
+                              1.68x         1.17x         1.00x         1.63x         1.00x         1.51x         1.95x         1.51x         1.63x         0.97x
+drop             6471         3.63         3.24         9.81         9.97         9.77        16.05        16.10         4.37         4.97         9.83                    67082
+                              0.37x         0.33x         1.00x         1.02x         1.00x         1.64x         1.64x         0.45x         0.51x         1.00x
+mixed          238556         5.14         5.32         6.50         7.10         6.82         8.97         9.08         4.41         5.12         6.51               4104626117
+                              0.79x         0.82x         1.00x         1.09x         1.05x         1.38x         1.40x         0.68x         0.79x         1.00x
+total          285538         4.69         4.80         5.87         6.38         6.15         8.21         8.29         4.06         4.71         5.85               6039793187
+                              0.80x         0.82x         1.00x         1.09x         1.05x         1.40x         1.41x         0.69x         0.80x         1.00x
+A/A (hb-fx against itself): total 0.3%, largest kind 2.6%
+spread of total (max-min)/min: rig-map 7.4%, rig-hash 6.0%, hb-fx 5.6%, hb-fold 5.4%, std-fx 13.1%, idx-fx 5.5%, idx-fold 8.6%, zig-ordered 5.0%, zig-compact 5.9%, hb-fx' 7.0%
+
+typeorm/site5.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+clear           14706         1.12         2.91         0.53         0.54         0.53         0.53         0.54         1.90         0.63         0.53                    14868
+                              2.11x         5.47x         1.00x         1.02x         1.00x         0.99x         1.01x         3.57x         1.19x         1.00x
+mixed          477345         2.48         3.48         2.51         2.43         2.63         2.91         2.88         3.18         2.19         2.53               6496020035
+                              0.99x         1.39x         1.00x         0.97x         1.05x         1.16x         1.15x         1.27x         0.87x         1.01x
+total          492051         2.43         3.47         2.45         2.37         2.56         2.84         2.81         3.14         2.14         2.47               6496034903
+                              0.99x         1.41x         1.00x         0.97x         1.05x         1.16x         1.14x         1.28x         0.87x         1.01x
+A/A (hb-fx against itself): total 0.6%, largest kind 0.6%
+spread of total (max-min)/min: rig-map 9.0%, rig-hash 7.9%, hb-fx 6.3%, hb-fold 7.4%, std-fx 8.6%, idx-fx 8.7%, idx-fold 6.8%, zig-ordered 7.0%, zig-compact 11.0%, hb-fx' 8.2%
+
+webpack/map1.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+insert             67         8.72         8.70         5.60         4.99         4.97         6.21         6.84         8.07         6.22         4.99                   346390
+                              1.56x         1.55x         1.00x         0.89x         0.89x         1.11x         1.22x         1.44x         1.11x         0.89x
+hit             22388         2.79         2.80         2.20         2.26         2.22         2.93         2.89         2.59         2.35         2.19               2454080149
+                              1.27x         1.27x         1.00x         1.03x         1.01x         1.33x         1.32x         1.18x         1.07x         1.00x
+mixed          496264         7.79        11.59         9.78         9.30         9.92        10.57        10.21         7.33         8.56         9.74              43470818324
+                              0.80x         1.18x         1.00x         0.95x         1.01x         1.08x         1.04x         0.75x         0.88x         1.00x
+total          518719         7.58        11.22         9.46         8.99         9.58        10.24         9.90         7.13         8.29         9.41              45925244863
+                              0.80x         1.19x         1.00x         0.95x         1.01x         1.08x         1.05x         0.75x         0.88x         0.99x
+A/A (hb-fx against itself): total 0.5%, largest kind 12.3%
+spread of total (max-min)/min: rig-map 5.4%, rig-hash 21.2%, hb-fx 9.8%, hb-fold 11.1%, std-fx 10.6%, idx-fx 8.3%, idx-fold 15.9%, zig-ordered 15.6%, zig-compact 9.5%, hb-fx' 6.5%
+
+webpack/map2.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+clear           41082         1.05         3.26         0.49         0.50         0.49         0.50         0.50         1.84         0.55         0.50                    41682
+                              2.16x         6.71x         1.00x         1.02x         1.01x         1.03x         1.03x         3.79x         1.12x         1.02x
+mixed          593478         2.58         3.17         2.44         2.45         2.47         2.86         2.87         3.22         2.41         2.45              14210758384
+                              1.06x         1.30x         1.00x         1.00x         1.01x         1.17x         1.18x         1.32x         0.99x         1.00x
+total          634560         2.48         3.17         2.31         2.32         2.34         2.71         2.72         3.13         2.29         2.32              14210800066
+                              1.07x         1.37x         1.00x         1.00x         1.01x         1.17x         1.17x         1.35x         0.99x         1.00x
+A/A (hb-fx against itself): total 0.2%, largest kind 2.4%
+spread of total (max-min)/min: rig-map 6.2%, rig-hash 2.0%, hb-fx 3.2%, hb-fold 2.4%, std-fx 2.9%, idx-fx 5.1%, idx-fold 6.2%, zig-ordered 3.8%, zig-compact 3.8%, hb-fx' 4.2%
+
+webpack/map3.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit            133124         1.91         1.85         1.89         1.62         1.91         2.51         2.28         1.57         1.55         1.91              16124611855
+                              1.01x         0.98x         1.00x         0.86x         1.01x         1.33x         1.21x         0.83x         0.82x         1.01x
+mixed          137499         3.60         3.58         3.84         3.86         3.99         4.39         4.27         3.05         3.35         3.85              13783874366
+                              0.94x         0.93x         1.00x         1.01x         1.04x         1.14x         1.11x         0.79x         0.87x         1.00x
+total          270623         2.78         2.73         2.87         2.75         2.95         3.46         3.29         2.32         2.47         2.89              29908486221
+                              0.97x         0.95x         1.00x         0.96x         1.03x         1.20x         1.15x         0.81x         0.86x         1.01x
+A/A (hb-fx against itself): total 0.8%, largest kind 1.3%
+spread of total (max-min)/min: rig-map 5.4%, rig-hash 14.5%, hb-fx 7.7%, hb-fold 8.8%, std-fx 9.4%, idx-fx 9.3%, idx-fold 5.4%, zig-ordered 7.7%, zig-compact 9.6%, hb-fx' 9.4%
+
+webpack/map4.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+insert           3976        10.16        13.81        15.38        15.84        16.02        19.16        18.95        12.54        16.33        15.33                 15025420
+                              0.66x         0.90x         1.00x         1.03x         1.04x         1.25x         1.23x         0.82x         1.06x         1.00x
+hit              7784         2.04         2.05         2.14         2.10         2.16         2.93         2.93         1.74         1.80         2.13                222382622
+                              0.96x         0.96x         1.00x         0.98x         1.01x         1.37x         1.37x         0.81x         0.84x         0.99x
+miss             9230         1.62         1.46         1.91         2.43         1.89         2.95         3.30         1.39         1.34         1.91                        0
+                              0.85x         0.77x         1.00x         1.27x         0.99x         1.55x         1.73x         0.73x         0.70x         1.00x
+mixed          172737         3.50         3.35         3.70         4.03         3.84         4.77         4.78         3.15         3.33         3.71               4651638311
+                              0.94x         0.90x         1.00x         1.09x         1.04x         1.29x         1.29x         0.85x         0.90x         1.00x
+total          193727         3.49         3.43         3.80         4.14         3.93         4.90         4.94         3.21         3.44         3.80               4889046353
+                              0.92x         0.90x         1.00x         1.09x         1.03x         1.29x         1.30x         0.84x         0.91x         1.00x
+A/A (hb-fx against itself): total 0.1%, largest kind 0.5%
+spread of total (max-min)/min: rig-map 3.8%, rig-hash 4.6%, hb-fx 9.6%, hb-fold 6.5%, std-fx 5.8%, idx-fx 9.5%, idx-fold 4.3%, zig-ordered 7.5%, zig-compact 3.5%, hb-fx' 8.9%
+
+webpack/map5.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit             29167         2.73         2.41         2.21         2.22         2.18         2.87         2.83         2.53         2.36         2.19                986427017
+                              1.24x         1.09x         1.00x         1.00x         0.99x         1.30x         1.28x         1.15x         1.07x         0.99x
+mixed          160610         6.65         7.20         8.02         7.80         8.01         8.30         8.25         6.38         7.25         8.08               4781263520
+                              0.83x         0.90x         1.00x         0.97x         1.00x         1.03x         1.03x         0.80x         0.90x         1.01x
+total          189777         6.05         6.47         7.12         6.94         7.12         7.46         7.43         5.79         6.51         7.18               5767690537
+                              0.85x         0.91x         1.00x         0.97x         1.00x         1.05x         1.04x         0.81x         0.91x         1.01x
+A/A (hb-fx against itself): total 0.8%, largest kind 0.9%
+spread of total (max-min)/min: rig-map 8.5%, rig-hash 5.1%, hb-fx 11.4%, hb-fold 5.4%, std-fx 4.9%, idx-fx 4.0%, idx-fold 3.4%, zig-ordered 6.2%, zig-compact 6.4%, hb-fx' 4.5%
+
+webpack/site1.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+insert          20857         8.38        11.71        12.63        14.64        13.44        16.76        17.91        10.89        13.56        12.95                  7297957
+                              0.66x         0.93x         1.00x         1.16x         1.06x         1.33x         1.42x         0.86x         1.07x         1.03x
+hit            808418         2.07         2.08         1.43         1.55         1.46         2.33         2.43         1.75         2.21         1.50             296694358012
+                              1.45x         1.45x         1.00x         1.09x         1.02x         1.63x         1.70x         1.23x         1.55x         1.05x
+miss            16186         1.79         1.55         1.69         1.75         1.74         2.49         2.39         1.44         1.69         1.74                        0
+                              1.06x         0.92x         1.00x         1.03x         1.03x         1.47x         1.41x         0.85x         1.00x         1.03x
+drop             3243         7.09         5.88        15.02        15.56        16.65        26.40        31.41         9.80         7.67        16.07                   163898
+                              0.47x         0.39x         1.00x         1.04x         1.11x         1.76x         2.09x         0.65x         0.51x         1.07x
+mixed          468624         5.53         5.79         6.33         7.15         6.67         8.29         8.80         5.28         6.53         6.48             135463070730
+                              0.87x         0.91x         1.00x         1.13x         1.05x         1.31x         1.39x         0.83x         1.03x         1.02x
+total         1317328         3.41         3.57         3.38         3.79         3.53         4.74         5.03         3.18         3.93         3.53             432164890597
+                              1.01x         1.06x         1.00x         1.12x         1.05x         1.40x         1.49x         0.94x         1.16x         1.04x
+A/A (hb-fx against itself): total 4.2%, largest kind 6.6%
+spread of total (max-min)/min: rig-map 43.9%, rig-hash 11.9%, hb-fx 25.1%, hb-fold 6.2%, std-fx 12.6%, idx-fx 28.4%, idx-fold 11.7%, zig-ordered 91.6%, zig-compact 77.5%, hb-fx' 14.7%
+
+webpack/site2.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+hit              5381         1.97         2.10         1.44         1.51         1.43         2.26         2.20         1.73         1.77         1.46                220687709
+                              1.37x         1.46x         1.00x         1.05x         0.99x         1.57x         1.53x         1.20x         1.23x         1.01x
+miss               64         1.95         1.95         5.86         7.17         5.86         6.52         7.16         1.95         1.95         5.86                        0
+                              0.33x         0.33x         1.00x         1.22x         1.00x         1.11x         1.22x         0.33x         0.33x         1.00x
+drop              807         5.89         5.16        14.46        14.97        14.71        25.09        23.54         7.23         5.63        15.02                    23228
+                              0.41x         0.36x         1.00x         1.04x         1.02x         1.74x         1.63x         0.50x         0.39x         1.04x
+mixed          739382         4.84         4.49         4.76         4.99         4.84         5.77         5.84         4.47         4.53         4.77              20095571893
+                              1.02x         0.94x         1.00x         1.05x         1.02x         1.21x         1.23x         0.94x         0.95x         1.00x
+total          745634         4.82         4.47         4.75         4.97         4.83         5.76         5.83         4.46         4.51         4.76              20316282830
+                              1.02x         0.94x         1.00x         1.05x         1.02x         1.21x         1.23x         0.94x         0.95x         1.00x
+A/A (hb-fx against itself): total 0.3%, largest kind 3.8%
+spread of total (max-min)/min: rig-map 4.3%, rig-hash 9.4%, hb-fx 4.5%, hb-fold 4.9%, std-fx 4.6%, idx-fx 11.5%, idx-fold 7.0%, zig-ordered 6.3%, zig-compact 11.3%, hb-fx' 24.4%
+
+webpack/site3.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+insert            100        12.08        12.92        13.34        13.75        13.33        15.00        15.41        12.50        14.16        13.33                     5050
+                              0.91x         0.97x         1.00x         1.03x         1.00x         1.12x         1.16x         0.94x         1.06x         1.00x
+hit             43723         2.33         1.98         1.38         1.54         1.40         2.29         2.41         2.03         2.29         1.39               4328485278
+                              1.69x         1.43x         1.00x         1.11x         1.01x         1.66x         1.75x         1.47x         1.66x         1.00x
+miss            17198         1.52         1.48         1.57         1.43         1.52         2.23         2.19         1.22         1.32         1.51                        0
+                              0.97x         0.94x         1.00x         0.91x         0.97x         1.42x         1.40x         0.78x         0.84x         0.97x
+drop             9397         4.19         3.66        11.73        11.67        11.40        19.21        20.13         4.84         5.99        11.78                   145753
+                              0.36x         0.31x         1.00x         1.00x         0.97x         1.64x         1.72x         0.41x         0.51x         1.00x
+mixed          674074         5.27         5.15         5.88         6.40         6.20         7.94         8.15         4.77         5.61         5.93              29705683763
+                              0.90x         0.88x         1.00x         1.09x         1.05x         1.35x         1.38x         0.81x         0.95x         1.01x
+total          744492         5.00         4.88         5.60         6.06         5.89         7.63         7.84         4.53         5.32         5.63              34034319844
+                              0.89x         0.87x         1.00x         1.08x         1.05x         1.36x         1.40x         0.81x         0.95x         1.01x
+A/A (hb-fx against itself): total 0.5%, largest kind 3.5%
+spread of total (max-min)/min: rig-map 5.8%, rig-hash 5.0%, hb-fx 4.0%, hb-fold 4.0%, std-fx 33.8%, idx-fx 22.9%, idx-fold 8.6%, zig-ordered 8.5%, zig-compact 7.4%, hb-fx' 7.0%
+
+webpack/site5.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'                    check
+clear           40893         1.08         3.34         0.51         0.50         0.50         0.52         0.50         1.82         0.55         0.51                    41502
+                              2.09x         6.50x         1.00x         0.98x         0.97x         1.01x         0.98x         3.54x         1.06x         0.99x
+mixed          605045         2.61         3.23         2.49         2.50         2.53         2.92         2.93         3.25         2.42         2.48              14616960184
+                              1.05x         1.30x         1.00x         1.00x         1.02x         1.17x         1.18x         1.30x         0.97x         1.00x
+total          645938         2.51         3.24         2.37         2.37         2.41         2.77         2.78         3.16         2.30         2.36              14617001686
+                              1.06x         1.37x         1.00x         1.00x         1.02x         1.17x         1.18x         1.33x         0.97x         1.00x
+A/A (hb-fx against itself): total 0.3%, largest kind 1.3%
+spread of total (max-min)/min: rig-map 8.6%, rig-hash 17.0%, hb-fx 5.3%, hb-fold 5.1%, std-fx 6.0%, idx-fx 6.3%, idx-fold 4.3%, zig-ordered 9.7%, zig-compact 4.3%, hb-fx' 6.0%
+
+summary: ns per op over each whole trace (ratio to hb-fx)
+trace                            ops   walks       at      rig-map     rig-hash        hb-fx      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'       rig-map     rig-hash      hb-fold       std-fx       idx-fx     idx-fold  zig-ordered  zig-compact       hb-fx'
+Compiler-Unions/map1.rpl      250995       0     6406         1.85         1.79         1.34         1.39         1.33         2.23         2.32         1.64         1.50         1.33          1.38x         1.34x         1.04x         0.99x         1.66x         1.74x         1.22x         1.12x         0.99x
+Compiler-Unions/map2.rpl      165727       0        0         4.89         4.70         4.37         4.96         4.48         5.21         5.85         4.43         4.39         4.36          1.12x         1.08x         1.14x         1.03x         1.19x         1.34x         1.01x         1.00x         1.00x
+Compiler-Unions/map3.rpl       88152       0        0         1.91         1.95         1.24         1.37         1.26         2.12         2.25         1.65         1.68         1.23          1.54x         1.57x         1.10x         1.02x         1.70x         1.81x         1.32x         1.35x         0.99x
+Compiler-Unions/map4.rpl       87820       0        0         2.01         1.87         1.24         1.35         1.28         2.17         2.24         1.75         1.73         1.25          1.62x         1.50x         1.08x         1.03x         1.74x         1.80x         1.41x         1.39x         1.01x
+Compiler-Unions/map5.rpl       87819       0        0         2.09         2.05         1.46         1.38         1.37         3.19         2.63         4.44         1.90         1.74          1.44x         1.41x         0.95x         0.94x         2.19x         1.81x         3.05x         1.31x         1.19x
+Compiler-Unions/site1.rpl    1248465      64    68030         2.36         2.38         1.95         2.03         2.04         3.00         2.91         2.12         2.29         2.01          1.21x         1.22x         1.04x         1.05x         1.54x         1.49x         1.09x         1.17x         1.03x
+Compiler-Unions/site2.rpl    1034105       0        0         1.94         1.79         1.33         1.42         1.28         2.14         2.24         1.60         1.81         1.28          1.46x         1.35x         1.07x         0.96x         1.62x         1.69x         1.21x         1.37x         0.96x
+Compiler-Unions/site3.rpl     447898       0        0         4.77         4.52         4.66         4.92         4.75         5.60         5.82         4.37         4.44         4.65          1.02x         0.97x         1.06x         1.02x         1.20x         1.25x         0.94x         0.95x         1.00x
+Compiler-Unions/site4.rpl     166845       0        0         3.99         4.14         5.53         6.23         5.72         7.35         7.59         4.71         6.01         5.52          0.72x         0.75x         1.13x         1.04x         1.33x         1.37x         0.85x         1.09x         1.00x
+Compiler-Unions/site5.rpl     138233       0    14731         6.19         5.97         5.89         6.36         6.03         7.45         7.65         5.71         6.23         5.88          1.05x         1.02x         1.08x         1.02x         1.27x         1.30x         0.97x         1.06x         1.00x
+supabase-studio/map1.rpl     6850674       0        0         3.18         2.85         2.43         2.57         2.31         2.88         2.88         5.99         3.37         2.35          1.31x         1.18x         1.06x         0.95x         1.19x         1.18x         2.47x         1.39x         0.97x
+supabase-studio/map2.rpl     3531016       0        0         3.00         2.59         2.13         2.41         2.15         2.73         2.89         4.98         3.11         2.14          1.41x         1.22x         1.13x         1.01x         1.28x         1.35x         2.34x         1.46x         1.00x
+supabase-studio/map3.rpl     3369651       0        0         2.57         3.52         2.28         2.38         2.34         2.88         2.83         3.53         2.33         2.28          1.13x         1.55x         1.05x         1.03x         1.27x         1.24x         1.55x         1.02x         1.00x
+supabase-studio/map4.rpl     2155505       0        0         7.36         8.13         9.84         9.01         9.41        10.56        10.18         6.60         8.69         9.72          0.75x         0.83x         0.92x         0.96x         1.07x         1.03x         0.67x         0.88x         0.99x
+supabase-studio/map5.rpl     2482524       0        0         2.16         4.50         2.23         2.25         2.21         2.66         2.67         2.53         1.91         2.21          0.97x         2.02x         1.01x         0.99x         1.19x         1.20x         1.14x         0.86x         0.99x
+supabase-studio/site1.rpl   16905509       0        0         2.94         3.33         2.38         2.53         2.58         2.82         3.00         4.83         3.02         2.46          1.23x         1.40x         1.06x         1.08x         1.18x         1.26x         2.03x         1.27x         1.03x
+supabase-studio/site2.rpl    6631153    5418  5037873         2.97         2.99         2.78         3.29         2.86         3.96         4.30         2.76         3.31         2.77          1.07x         1.07x         1.18x         1.03x         1.42x         1.54x         0.99x         1.19x         1.00x
+supabase-studio/site4.rpl    1734562       0  1512398         5.31         5.75         7.02         7.74         7.36        10.29        10.64         4.83         6.08         7.14          0.76x         0.82x         1.10x         1.05x         1.47x         1.52x         0.69x         0.87x         1.02x
+supabase-studio/site5.rpl    1329010       0        0         2.57         2.31         2.61         2.68         2.62         3.54         3.48         2.28         2.27         2.61          0.98x         0.88x         1.02x         1.00x         1.36x         1.33x         0.87x         0.87x         1.00x
+typeorm/map1.rpl              318297       0        0         3.72         3.75         3.32         3.67         3.43         4.37         4.56         3.14         3.13         3.31          1.12x         1.13x         1.10x         1.03x         1.32x         1.37x         0.94x         0.94x         1.00x
+typeorm/map2.rpl              215801       0        0         6.84         8.10         9.38         9.39         9.53        10.34        10.30         6.83         8.43         9.51          0.73x         0.86x         1.00x         1.02x         1.10x         1.10x         0.73x         0.90x         1.01x
+typeorm/map3.rpl              207449       0     1565         1.88         1.85         1.53         1.30         1.53         2.46         2.24         1.46         1.57         1.51          1.23x         1.21x         0.85x         1.00x         1.61x         1.46x         0.96x         1.03x         0.99x
+typeorm/map4.rpl              300915       0        0         2.46         3.19         2.51         2.43         2.57         2.86         2.82         3.18         2.16         2.48          0.98x         1.27x         0.97x         1.02x         1.14x         1.13x         1.27x         0.86x         0.99x
+typeorm/map5.rpl              135250       0        0         5.99         6.29         6.56         6.47         6.61         7.09         6.93         5.87         5.90         6.65          0.91x         0.96x         0.99x         1.01x         1.08x         1.06x         0.90x         0.90x         1.01x
+typeorm/site1.rpl             636279     720   443439         3.39         3.49         3.26         3.40         3.33         4.40         4.39         3.11         3.68         3.24          1.04x         1.07x         1.04x         1.02x         1.35x         1.35x         0.96x         1.13x         0.99x
+typeorm/site2.rpl             623743       0        0         4.20         4.11         4.08         4.32         4.34         5.18         5.30         4.00         3.82         4.17          1.03x         1.01x         1.06x         1.06x         1.27x         1.30x         0.98x         0.94x         1.02x
+typeorm/site4.rpl             285538       0   117720         4.69         4.80         5.87         6.38         6.15         8.21         8.29         4.06         4.71         5.85          0.80x         0.82x         1.09x         1.05x         1.40x         1.41x         0.69x         0.80x         1.00x
+typeorm/site5.rpl             492051       0        0         2.43         3.47         2.45         2.37         2.56         2.84         2.81         3.14         2.14         2.47          0.99x         1.41x         0.97x         1.05x         1.16x         1.14x         1.28x         0.87x         1.01x
+webpack/map1.rpl              518719       0        0         7.58        11.22         9.46         8.99         9.58        10.24         9.90         7.13         8.29         9.41          0.80x         1.19x         0.95x         1.01x         1.08x         1.05x         0.75x         0.88x         0.99x
+webpack/map2.rpl              634560       0        0         2.48         3.17         2.31         2.32         2.34         2.71         2.72         3.13         2.29         2.32          1.07x         1.37x         1.00x         1.01x         1.17x         1.17x         1.35x         0.99x         1.00x
+webpack/map3.rpl              270623       0        0         2.78         2.73         2.87         2.75         2.95         3.46         3.29         2.32         2.47         2.89          0.97x         0.95x         0.96x         1.03x         1.20x         1.15x         0.81x         0.86x         1.01x
+webpack/map4.rpl              193727       0        0         3.49         3.43         3.80         4.14         3.93         4.90         4.94         3.21         3.44         3.80          0.92x         0.90x         1.09x         1.03x         1.29x         1.30x         0.84x         0.91x         1.00x
+webpack/map5.rpl              189777       0        0         6.05         6.47         7.12         6.94         7.12         7.46         7.43         5.79         6.51         7.18          0.85x         0.91x         0.97x         1.00x         1.05x         1.04x         0.81x         0.91x         1.01x
+webpack/site1.rpl            1317328    1507  1799092         3.41         3.57         3.38         3.79         3.53         4.74         5.03         3.18         3.93         3.53          1.01x         1.06x         1.12x         1.05x         1.40x         1.49x         0.94x         1.16x         1.04x
+webpack/site2.rpl             745634       0        0         4.82         4.47         4.75         4.97         4.83         5.76         5.83         4.46         4.51         4.76          1.02x         0.94x         1.05x         1.02x         1.21x         1.23x         0.94x         0.95x         1.00x
+webpack/site3.rpl             744492       0   285565         5.00         4.88         5.60         6.06         5.89         7.63         7.84         4.53         5.32         5.63          0.89x         0.87x         1.08x         1.05x         1.36x         1.40x         0.81x         0.95x         1.01x
+webpack/site5.rpl             645938       0        0         2.51         3.24         2.37         2.37         2.41         2.77         2.78         3.16         2.30         2.36          1.06x         1.37x         1.00x         1.02x         1.17x         1.18x         1.33x         0.97x         1.00x
+all                         57181784                          3.29         3.60         3.10         3.27         3.18         3.88         3.99         4.28         3.43         3.12          1.06x         1.16x         1.05x         1.02x         1.25x         1.28x         1.38x         1.11x         1.00x
+exit 0
