@@ -1,0 +1,84 @@
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 42a05d335..daecc6a4d 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -3067,10 +3067,17 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+     if (memory.len >= map_min and isMapped(memory.ptr)) return null;
+     if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;
+     if (classOf(memory.len, alignment) != null or classOf(new_len, alignment) != null) return null;
+-    if (new_len < memory.len) return null;
+     const h = heap() orelse return null;
+     const old_size = largeSize(memory.len);
+     const new_size = largeSize(new_len);
++    if (new_len < memory.len) {
++        // Scratch (remap ceiling, arm c): a span that shrinks, and stays
++        // large, gives its tail back where it lies.
++        if (!isSpan(@intFromPtr(memory.ptr))) return null;
++        shrinkSpan(h, @intFromPtr(memory.ptr), old_size, new_size);
++        if (counts) h.count(-@as(isize, @intCast(old_size - new_size)), 0);
++        return memory.ptr;
++    }
+     if (isSpan(@intFromPtr(memory.ptr))) {
+         // A span grows where it lies into a free span whose pages are
+         // resident; else it is copied into such a span of its heap's,
+@@ -3153,6 +3160,24 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+     return @ptrFromInt(rc);
+ }
+ 
++/// Scratch (arm c): the span of `old_size` bytes at `p` cut to
++/// `new_size` where it lies: its tail is handed out on its own, then
++/// freed as any span is (`freeSpan`), so it joins the free spans beside
++/// it, warm or cold.
++fn shrinkSpan(h: *Heap, p: usize, old_size: usize, new_size: usize) void {
++    const seg = spanSegmentOf(p);
++    const sp = &seg.heap.spans;
++    const s = spanIndex(seg, p);
++    const n = spanUnits(old_size);
++    const m = spanUnits(new_size);
++    if (m >= n) return;
++    sp.lock.lock();
++    handOutSpan(seg, s, m);
++    handOutSpan(seg, s + m, n - m);
++    sp.lock.unlock();
++    freeSpan(h, spanAt(seg, s + m), (n - m) * span_unit);
++}
++
+ /// What `free`'s fast path leaves: a block of another thread's heap, a
+ /// larger or more aligned one, or a thread with no heap yet.
+ noinline fn freeSlow(memory: []u8, alignment: std.mem.Alignment) void {
+diff --git i/src/resolve.zig w/src/resolve.zig
+index 83decdb34..c08044654 100644
+--- i/src/resolve.zig
++++ w/src/resolve.zig
+@@ -5336,6 +5336,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
+             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id, null),
+             try method(ctx, "keep", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
+             try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
++            try method(ctx, "fit", .write, &.{write_self}, ctx.types.void_id, null),
+             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t, &list_get),
+             // It compares, so it keeps nothing it is given.
+             copiesArgs(try method(ctx, "index_of", .read, &.{ read_self, try ctx.intern(.{ .read_view = t }) }, try ctx.intern(.{ .optional = ctx.types.int_id }), &list_index_of)),
+diff --git i/src/runtime.zig w/src/runtime.zig
+index fbefc847c..64645217b 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -3601,6 +3601,19 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
+ 
+         /// `!v.reserve(n)`: room for `n` more elements; the length is
+         /// unchanged. Panics when `n` is negative.
++        /// Scratch (arm c): the buffer cut to the List's length, where
++        /// it lies when the allocator can (a span gives back its tail).
++        pub fn fit(self: *Self) void {
++            if (comptime inline_len != 0 or @sizeOf(T) == 0) return;
++            if (self.len == self.buf.len) return;
++            if (self.len == 0) {
++                freeSlice(T, self.buf);
++                self.buf = &.{};
++                return;
++            }
++            self.buf = reallocSlice(T, self.buf, self.len);
++        }
++
+         pub fn reserve(self: *Self, n: Int) void {
+             const extra = std.math.cast(usize, n) orelse @panic("negative size");
+             self.reserveTotal(self.len +| extra);

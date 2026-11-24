@@ -1,0 +1,66 @@
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 42a05d335..67559b552 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -3081,9 +3081,14 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+         var fresh = false;
+         const p: [*]u8 = blk: {
+             if (new_size < span_max) {
+-                if (growSpan(h, at, old_size, new_size, false)) break :blk memory.ptr;
+-                if (takeSpan(h, false, spanUnits(new_size))) |q| break :blk @ptrFromInt(q);
+                 if (growSpan(h, at, old_size, new_size, true)) break :blk memory.ptr;
++                if (builtin.os.tag == .linux and old_size >= move_span) {
++                    if (moveSpan(h, at, old_size, new_size)) |q| {
++                        if (counts) h.count(@intCast(new_size - old_size), 0);
++                        return q;
++                    }
++                }
++                if (takeSpan(h, false, spanUnits(new_size))) |q| break :blk @ptrFromInt(q);
+             }
+             break :blk allocLargeFrom(h, new_len, alignment.toByteUnits(), &fresh) orelse return null;
+         };
+@@ -3153,6 +3158,44 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+     return @ptrFromInt(rc);
+ }
+ 
++/// Scratch (remap ceiling, arm b): a span of at least this many bytes
++/// that cannot grow where it lies moves its pages into a new span
++/// (`moveSpan`) rather than being copied.
++const move_span: usize = @as(usize, move_span_pages) * 4096;
++const move_span_pages = 16;
++
++/// Linux: the span of `old_size` bytes at `at` moved, its pages and not
++/// its bytes, into a span of `new_size` bytes whose pages are not
++/// resident (cold, or never carved; a warm one last), by
++/// `mremap(MREMAP_MAYMOVE | MREMAP_FIXED | MREMAP_DONTUNMAP)`, which
++/// leaves the old range mapped and reading zero, as a span segment's
++/// units must stay mapped. Null, with nothing moved, when no span is
++/// free or the system refuses.
++fn moveSpan(h: *Heap, at: usize, old_size: usize, new_size: usize) ?[*]u8 {
++    const n = spanUnits(new_size);
++    const cold = takeSpan(h, true, n);
++    var carved = false;
++    const q = cold orelse if (carveSpan(h, n)) |c| blk: {
++        carved = true;
++        break :blk c;
++    } else takeSpan(h, false, n) orelse return null;
++    if (carved) {
++        h.took(n * span_unit);
++        _ = coolSpans(h, false);
++    }
++    const linux = std.os.linux;
++    const whole = spanUnits(old_size) * span_unit;
++    const rc = linux.mremap(@ptrFromInt(at), whole, whole, .{ .MAYMOVE = true, .FIXED = true, .DONTUNMAP = true }, @ptrFromInt(q));
++    if (@as(isize, @bitCast(rc)) < 0 and @as(isize, @bitCast(rc)) > -4096) {
++        freeSpan(h, q, new_size);
++        return null;
++    }
++    if (cold != null) recommit(q, n * span_unit);
++    freeSpan(h, at, old_size);
++    prefault(h, q + whole, likelyFilled((n * span_unit - whole) / 2));
++    return @ptrFromInt(q);
++}
++
+ /// What `free`'s fast path leaves: a block of another thread's heap, a
+ /// larger or more aligned one, or a thread with no heap yet.
+ noinline fn freeSlow(memory: []u8, alignment: std.mem.Alignment) void {

@@ -1,0 +1,40 @@
+--- /Users/shreeve/Data/Code/trig/src/ast/ast.rig	2026-11-16 10:06:45.651323862 -0700
++++ /Users/shreeve/Data/Code/Claude/rig/rig/remap/overlay-nofit/ast/ast.rig	2026-11-23 18:35:04.825477734 -0700
+@@ -271,6 +271,23 @@
+     @name_ids = +@name_ids
+     @name_slots = List()
+ 
++  # Scratch (remap census, arm c): each list cut to its length where it
++  # lies (`List.fit`, an in-place shrink of a span), the name slots let go.
++  pub sub fit_in_place(!@)
++    !@recs.fit()
++    !@locs.fit()
++    !@words.fit()
++    !@lists.fit()
++    !@list_nodes.fit()
++    !@texts.fit()
++    !@text_lists.fit()
++    !@name_ids.fit()
++    @name_slots = List()
++
++  # Scratch: the name slots let go, the lists left as they grew.
++  pub sub drop_name_slots(!@)
++    @name_slots = List()
++
+   # Trig: a copy of this arena with each list at its length, as `fit`
+   # makes, and this one emptied to its nil entries with its room kept, to
+   # parse the next file into (parser.parse_source_file_into): one copy of
+--- /Users/shreeve/Data/Code/trig/src/parser/parser.rig	2026-11-22 11:13:02.731133241 -0700
++++ /Users/shreeve/Data/Code/Claude/rig/rig/remap/overlay-nofit/parser/parser.rig	2026-11-23 18:35:04.822023454 -0700
+@@ -6686,9 +6686,8 @@
+   file = parse_text(file_name, ?source.get(), script_kind, opts, true, tree_in: swap(!scratch, ast.Ast.empty()))
+   file.source = <source
+   if file.reads_own_text()
+-    fitted = (!file.ast).take_fitted()
+-    grown = swap(!file.ast, <fitted)
+-    _ = swap(!scratch, <grown)
++    (!file.ast).drop_name_slots()
++    _ = swap(!scratch, ast.Ast.new())
+   else
+     _ = swap(!scratch, ast.Ast.new())
+   file

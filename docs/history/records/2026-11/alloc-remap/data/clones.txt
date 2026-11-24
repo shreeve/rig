@@ -1,0 +1,48 @@
+
+### webpack.c1.census
+take_fitted: clones=12454 copied=79.8 MiB, room held=6424.2 MiB; room a span (>32 KiB): 8848 clones, 6352.1 MiB room, 77.8 MiB live; live a span too (shrink in place, no copy): 449 clones 52.6 MiB; span bytes a shrink gives back: 6298.6 MiB; slack in small blocks: 70.2 MiB
+all other clones: clones=330992 copied=30.6 MiB, room held=41.0 MiB; room a span (>32 KiB): 120 clones, 14.0 MiB room, 9.4 MiB live; live a span too (shrink in place, no copy): 82 clones 8.5 MiB; span bytes a shrink gives back: 5.5 MiB; slack in small blocks: 5.8 MiB
+     34.2 MiB copied, 2813.8 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+     18.0 MiB copied,   26.8 MiB room  binder.bind_source_file < compiler.new_program
+     17.1 MiB copied, 1406.9 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+     16.7 MiB copied, 1406.9 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      5.8 MiB copied,  351.8 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      2.6 MiB copied,  175.9 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      2.5 MiB copied,  206.0 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      1.9 MiB copied,    1.9 MiB room  compiler.LoaderConfig.find_import < compiler.LoaderConfig.resolve_imports_and_module_augmentations < compiler.LoaderConfig.load_task
+
+### typeorm.c1.census
+take_fitted: clones=28106 copied=47.3 MiB, room held=3917.2 MiB; room a span (>32 KiB): 17055 clones, 3761.3 MiB room, 44.0 MiB live; live a span too (shrink in place, no copy): 215 clones 15.3 MiB; span bytes a shrink gives back: 3745.6 MiB; slack in small blocks: 152.5 MiB
+all other clones: clones=775358 copied=61.6 MiB, room held=69.2 MiB; room a span (>32 KiB): 40 clones, 2.7 MiB room, 1.9 MiB live; live a span too (shrink in place, no copy): 27 clones 1.5 MiB; span bytes a shrink gives back: 1.2 MiB; slack in small blocks: 6.8 MiB
+     20.0 MiB copied, 1674.0 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+     10.4 MiB copied,   14.8 MiB room  binder.bind_source_file < compiler.new_program
+     10.3 MiB copied,  837.0 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+     10.0 MiB copied,  837.0 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      7.6 MiB copied,    7.8 MiB room  module.DefaultResolver.resolve_node_like
+      6.3 MiB copied,    6.3 MiB room  compiler.FileLoader.load < compiler.FileLoader.run_work < compiler.FileLoader.parse
+      5.8 MiB copied,    5.8 MiB room  compiler.LoaderConfig.find_import < compiler.LoaderConfig.resolve_imports_and_module_augmentations < compiler.LoaderConfig.load_task
+      3.6 MiB copied,  209.5 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+
+### nuxt.c1.census
+take_fitted: clones=29102 copied=83.9 MiB, room held=17778.4 MiB; room a span (>32 KiB): 21818 clones, 17609.1 MiB room, 82.7 MiB live; live a span too (shrink in place, no copy): 365 clones 43.4 MiB; span bytes a shrink gives back: 17564.9 MiB; slack in small blocks: 168.1 MiB
+all other clones: clones=737431 copied=73.2 MiB, room held=88.4 MiB; room a span (>32 KiB): 134 clones, 14.1 MiB room, 7.5 MiB live; live a span too (shrink in place, no copy): 80 clones 6.3 MiB; span bytes a shrink gives back: 7.9 MiB; slack in small blocks: 8.6 MiB
+     35.9 MiB copied, 7265.1 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+     19.8 MiB copied,   33.1 MiB room  binder.bind_source_file < compiler.new_program
+     18.0 MiB copied, 3632.6 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+     16.9 MiB copied, 3630.8 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      6.3 MiB copied,    6.3 MiB room  compiler.LoaderConfig.find_import < compiler.LoaderConfig.resolve_imports_and_module_augmentations < compiler.LoaderConfig.load_task
+      5.9 MiB copied, 1263.8 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      5.7 MiB copied,    5.7 MiB room  compiler.FileLoader.load < compiler.FileLoader.run_work < compiler.FileLoader.parse
+      4.8 MiB copied,    5.0 MiB room  module.DefaultResolver.resolve_node_like
+
+### Compiler.c1.census
+take_fitted: clones=320 copied=15.1 MiB, room held=212.2 MiB; room a span (>32 KiB): 216 clones, 210.5 MiB room, 14.7 MiB live; live a span too (shrink in place, no copy): 81 clones 13.4 MiB; span bytes a shrink gives back: 196.9 MiB; slack in small blocks: 1.3 MiB
+all other clones: clones=26421 copied=3.8 MiB, room held=5.9 MiB; room a span (>32 KiB): 27 clones, 3.7 MiB room, 2.4 MiB live; live a span too (shrink in place, no copy): 23 clones 2.3 MiB; span bytes a shrink gives back: 1.3 MiB; slack in small blocks: 0.7 MiB
+      6.6 MiB copied,   93.2 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      3.4 MiB copied,    5.1 MiB room  binder.bind_source_file < compiler.new_program
+      3.3 MiB copied,   46.6 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      3.3 MiB copied,   46.6 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      1.1 MiB copied,   12.6 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      0.5 MiB copied,    5.8 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      0.2 MiB copied,    6.3 MiB room  ast.Ast.take_fitted < parser.parse_source_file_into
+      0.1 MiB copied,    1.0 MiB room  cloneValue__func_2773 < ast.Ast.take_fitted < parser.parse_source_file_into

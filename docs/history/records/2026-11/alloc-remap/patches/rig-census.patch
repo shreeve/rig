@@ -1,0 +1,473 @@
+diff --git i/src/alloc.zig w/src/alloc.zig
+index 42a05d335..a4d7395e5 100644
+--- i/src/alloc.zig
++++ w/src/alloc.zig
+@@ -911,25 +911,35 @@ inline fn allocLargeFrom(h: *Heap, len: usize, alignment: usize, mapped: ?*bool)
+     // 16 KiB page, is a mapping, as is one the region has no room for.
+     const n = if (units < span_max and alignment <= span_unit) spanUnits(units) else 0;
+     const size = mappedSize(len);
+-    if (n != 0) if (takeSpan(h, false, n)) |p| return @ptrFromInt(p);
++    if (n != 0) if (takeSpan(h, false, n)) |p| {
++        census.src = .warm;
++        return @ptrFromInt(p);
++    };
+     if (takeKept(&h.kept, size)) |p| {
++        census.src = .kept;
+         handedOut(h, size);
+         return p;
+     }
+     if (n != 0) {
+-        if (stealSpan(h, n)) |p| return @ptrFromInt(p);
++        if (stealSpan(h, n)) |p| {
++            census.src = .steal;
++            return @ptrFromInt(p);
++        }
+         if (takeSpan(h, true, n)) |p| {
++            census.src = .cold;
+             recommit(p, n * span_unit);
+             return @ptrFromInt(p);
+         }
+     }
+     if (takeKept(&h.cold, size)) |p| {
++        census.src = .cold_kept;
+         recommit(@intFromPtr(p), size);
+         handedOut(h, size);
+         return p;
+     }
+     if (n != 0) if (carveSpan(h, n)) |p| {
+         if (mapped) |f| f.* = true;
++        census.src = .carve;
+         h.took(n * span_unit);
+         _ = coolSpans(h, false);
+         prefault(h, p, likelyFilled(units - units / 4));
+@@ -937,6 +947,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, alignment: usize, mapped: ?*bool)
+     };
+     const got = mapLarge(size) orelse return null;
+     if (mapped) |f| f.* = true;
++    census.src = .map;
+     if (size >= huge_page) _ = ask(got, size, .huge);
+     h.took(size);
+     handedOut(h, size);
+@@ -3062,42 +3073,78 @@ extern "c" fn mach_vm_remap(target_task: std.c.mach_port_t, target_address: *u64
+ /// grows by moving its pages (`mremap` on Linux, `movePages` on macOS). Anything else, or a block that
+ /// shrinks, is left to the caller, which copies it into a new block.
+ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
++    var c: census.Rec = .{ .ret = ret, .old = memory.len, .new = new_len };
++    const r = remapIn(ctx, memory, alignment, new_len, ret, &c);
++    census.add(&c);
++    return r;
++}
++
++fn remapIn(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize, c: *census.Rec) ?[*]u8 {
+     // A mapped run is not this heap's: the caller copies it into a new
+     // block and frees it (`mapRun`).
+-    if (memory.len >= map_min and isMapped(memory.ptr)) return null;
+-    if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;
+-    if (classOf(memory.len, alignment) != null or classOf(new_len, alignment) != null) return null;
+-    if (new_len < memory.len) return null;
+-    const h = heap() orelse return null;
++    if (memory.len >= map_min and isMapped(memory.ptr)) {
++        c.set(.mapped_run, @min(memory.len, new_len));
++        return null;
++    }
++    if (resize(ctx, memory, alignment, new_len, ret)) {
++        c.set(.same, 0);
++        return memory.ptr;
++    }
++    const old_small = classOf(memory.len, alignment) != null;
++    const new_small = classOf(new_len, alignment) != null;
++    if (old_small or new_small) {
++        c.set(if (new_len < memory.len) .shrink_small else if (old_small and new_small) .small_small else .small_large, @min(memory.len, new_len));
++        return null;
++    }
++    if (new_len < memory.len) {
++        c.set(.shrink_large, new_len);
++        return null;
++    }
++    const h = heap() orelse {
++        c.set(.fail, memory.len);
++        return null;
++    };
+     const old_size = largeSize(memory.len);
+     const new_size = largeSize(new_len);
+     if (isSpan(@intFromPtr(memory.ptr))) {
+-        // A span grows where it lies into a free span whose pages are
+-        // resident; else it is copied into such a span of its heap's,
+-        // which costs less than faulting in new pages; else it grows
+-        // where it lies into pages that fault in; else it is copied
+-        // into a new block.
+         const at = @intFromPtr(memory.ptr);
++        census.peek(c, at, old_size, new_size);
+         var fresh = false;
++        var path: census.Path = .span_copy_new;
+         const p: [*]u8 = blk: {
+             if (new_size < span_max) {
+-                if (growSpan(h, at, old_size, new_size, false)) break :blk memory.ptr;
+-                if (takeSpan(h, false, spanUnits(new_size))) |q| break :blk @ptrFromInt(q);
+-                if (growSpan(h, at, old_size, new_size, true)) break :blk memory.ptr;
++                if (growSpan(h, at, old_size, new_size, false)) {
++                    path = .span_grow_warm;
++                    break :blk memory.ptr;
++                }
++                if (takeSpan(h, false, spanUnits(new_size))) |q| {
++                    path = .span_copy_warm;
++                    break :blk @ptrFromInt(q);
++                }
++                if (growSpan(h, at, old_size, new_size, true)) {
++                    path = .span_grow_fresh;
++                    break :blk memory.ptr;
++                }
+             }
+-            break :blk allocLargeFrom(h, new_len, alignment.toByteUnits(), &fresh) orelse return null;
++            census.src = .none;
++            break :blk allocLargeFrom(h, new_len, alignment.toByteUnits(), &fresh) orelse {
++                c.set(.fail, memory.len);
++                return null;
++            };
+         };
++        var copied: usize = 0;
+         if (p != memory.ptr) {
+-            // Into a fresh mapping of its own on macOS, the span's whole
+-            // pages move rather than copy (`movePages`), when it starts on
+-            // a page. A span it grew into, though fresh, is never one.
+             const into_mapping = fresh and !isSpan(@intFromPtr(p)) and at % std.heap.pageSize() == 0;
+             const whole = if (into_mapping) std.mem.alignBackward(usize, memory.len, std.heap.pageSize()) else 0;
+             const moved = whole >= move_large and movePages(at, @intFromPtr(p), whole, .refresh);
+             const from: usize = if (moved) whole else 0;
+             @memcpy(p[from..memory.len], memory[from..]);
++            copied = memory.len - from;
++            if (moved) path = .span_move_pages;
+             freeSpan(h, at, old_size);
+         }
++        if (path == .span_copy_new) c.src = census.src;
++        c.set(path, copied);
+         if (counts) h.count(@intCast(new_size - old_size), 0);
+         return p;
+     }
+@@ -3109,50 +3156,275 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+         @memcpy(p[0..memory.len], memory);
+         freeLarge(h, memory.ptr, memory.len);
+         if (counts) h.count(@intCast(new_size - old_size), 0);
++        c.set(.map_copy_kept, memory.len);
+         return p;
+     }
+-    if (memory.len < move_large) return null;
++    if (memory.len < move_large) {
++        c.set(.map_small_null, memory.len);
++        return null;
++    }
+     if (builtin.os.tag == .macos) {
+-        // macOS has no `mremap`: the block's pages move into a fresh
+-        // mapping (`movePages`), where the room past them faults in as
+-        // it is written.
+-        const to = mapLarge(new_pages) orelse return null;
++        const to = mapLarge(new_pages) orelse {
++            c.set(.fail, memory.len);
++            return null;
++        };
+         if (!movePages(@intFromPtr(memory.ptr), to, old_pages, .unmap)) {
+             unmapLarge(to, new_pages);
++            c.set(.fail, memory.len);
+             return null;
+         }
+         h.took(new_pages - old_pages);
+         handedOut(h, new_pages - old_pages);
+         trimKept(h);
+         if (counts) h.count(@intCast(new_size - old_size), 0);
++        c.set(.map_move, 0);
+         return @ptrFromInt(to);
+     }
+-    if (builtin.os.tag != .linux) return null;
++    if (builtin.os.tag != .linux) {
++        c.set(.fail, memory.len);
++        return null;
++    }
+     const linux = std.os.linux;
+-    // A block grown to `huge_large` moves to pages aligned for huge ones.
+-    const to = if (new_pages >= huge_large) mapLarge(new_pages) orelse return null else 0;
++    const to = if (new_pages >= huge_large) mapLarge(new_pages) orelse {
++        c.set(.fail, memory.len);
++        return null;
++    } else 0;
+     if (builtin.is_test) calls_for_test.mremap += 1;
+     const rc = linux.mremap(@alignCast(memory.ptr), old_pages, new_pages, .{ .MAYMOVE = true, .FIXED = to != 0 }, if (to != 0) @ptrFromInt(to) else null);
+     if (@as(isize, @bitCast(rc)) < 0 and @as(isize, @bitCast(rc)) > -4096) {
+         if (to != 0) unmapLarge(to, new_pages);
++        c.set(.fail, memory.len);
+         return null;
+     }
+-    // A block that grows to `huge_page` or more asks for huge pages, as
+-    // one taken afresh does. The range keeps the advice of the block it
+-    // grew from, so a block that had asked asks again only as it moves
+-    // to pages aligned for huge ones, as the system may have had no free
+-    // 2 MiB blocks for it when it asked.
+     if (new_pages >= huge_page and (to != 0 or old_pages < huge_page)) _ = ask(rc, new_pages, .huge);
+-    // The pages moved stay; of the new ones, those a List is likely to
+-    // fill are faulted in at once.
+     h.took(new_pages - old_pages);
+     handedOut(h, new_pages - old_pages);
+     trimKept(h);
+     prefault(h, rc + old_pages, likelyFilled((new_pages - old_pages) / 2));
+     if (counts) h.count(@intCast(new_size - old_size), 0);
++    c.set(.map_move, 0);
+     return @ptrFromInt(rc);
+ }
+ 
++/// Scratch: the census of `remap`, by path, written to stderr at exit
++/// (`report`) when `RIG_REMAP_CENSUS` is set.
++pub const census = struct {
++    pub const Path = enum(u8) { same, small_small, small_large, shrink_small, shrink_large, mapped_run, span_grow_warm, span_copy_warm, span_grow_fresh, span_copy_new, span_move_pages, map_copy_kept, map_move, map_small_null, fail };
++    pub const Src = enum(u8) { none, warm, kept, steal, cold, cold_kept, carve, map };
++    const np = @typeInfo(Path).@"enum".field_names.len;
++    const ns = @typeInfo(Src).@"enum".field_names.len;
++    const nb = 40;
++    pub threadlocal var src: Src = .none;
++    pub const Rec = struct {
++        ret: usize,
++        old: usize,
++        new: usize,
++        path: Path = .fail,
++        copied: usize = 0,
++        src: Src = .none,
++        // Of a span: the free units after it, warm or cold, and the
++        // units of its segment never carved when that free span (or
++        // the span itself) ends at `used`; the units it needs more.
++        after: usize = 0,
++        rest: usize = 0,
++        cold: bool = false,
++        extra: usize = 0,
++        page_off: usize = 0,
++        fn set(r: *Rec, p: Path, copied: usize) void {
++            r.path = p;
++            r.copied = copied;
++        }
++    };
++    const Pair = struct { n: u64 = 0, b: u64 = 0 };
++    const Caller = struct { ret: usize = 0, n: [np]u64 = @splat(0), b: [np]u64 = @splat(0) };
++    const ncallers = 8192;
++    var lock: SpinLock = .{};
++    var by_path: [np]Pair = @splat(.{});
++    var hist: [np][nb]Pair = @splat(@splat(.{}));
++    var by_src: [ns]Pair = @splat(.{});
++    // Copying span remaps (span_copy_warm, span_copy_new): could the
++    // span have grown where it lies into fresh pages? [0] warm copy,
++    // [1] new copy. follow: after+rest >= extra; cold_after: of those,
++    // a cold free span alone was enough; end: needs the segment's end.
++    var follow: [2]Pair = @splat(.{});
++    var follow_cold: [2]Pair = @splat(.{});
++    var follow_end: [2]Pair = @splat(.{});
++    // Copies (all copying paths of large blocks: span copies) of at
++    // least N system pages, N = 4, 16, 64; and also page-aligned.
++    const ns_pages = [_]usize{ 4, 16, 64 };
++    var ge: [2][3]Pair = @splat(@splat(.{}));
++    var ge_aligned: [2][3]Pair = @splat(@splat(.{}));
++    var ge_follow: [2][3]Pair = @splat(@splat(.{}));
++    var callers: [ncallers]Caller = @splat(.{});
++    var callers_full: u64 = 0;
++
++    fn peek(r: *Rec, p: usize, old_size: usize, new_size: usize) void {
++        const seg = spanSegmentOf(p);
++        const sp = &seg.heap.spans;
++        const s = spanIndex(seg, p);
++        const n = spanUnits(old_size);
++        r.extra = spanUnits(new_size) - n;
++        r.page_off = p % std.heap.pageSize();
++        const next = s + n;
++        sp.lock.lock();
++        defer sp.lock.unlock();
++        const tag = if (next < seg.used) seg.tags[next] else 0;
++        r.after = if (tag & tag_free != 0) tag & tag_len else 0;
++        r.rest = if (next + r.after == seg.used) span_units - seg.used else 0;
++        r.cold = tag & tag_cold != 0;
++    }
++
++    fn bucket(x: usize) usize {
++        if (x == 0) return 0;
++        return @min(nb - 1, std.math.log2_int(usize, x) + 1);
++    }
++
++    fn add(r: *const Rec) void {
++        const pi = @intFromEnum(r.path);
++        lock.lock();
++        defer lock.unlock();
++        by_path[pi].n += 1;
++        by_path[pi].b += r.copied;
++        hist[pi][bucket(r.copied)].n += 1;
++        hist[pi][bucket(r.copied)].b += r.copied;
++        if (r.path == .span_copy_new) {
++            by_src[@intFromEnum(r.src)].n += 1;
++            by_src[@intFromEnum(r.src)].b += r.copied;
++        }
++        if (r.path == .span_copy_warm or r.path == .span_copy_new) {
++            const k: usize = if (r.path == .span_copy_warm) 0 else 1;
++            const ok = r.after + r.rest >= r.extra;
++            if (ok) {
++                follow[k].n += 1;
++                follow[k].b += r.copied;
++                if (r.after >= r.extra) {
++                    follow_cold[k].n += 1;
++                    follow_cold[k].b += r.copied;
++                } else {
++                    follow_end[k].n += 1;
++                    follow_end[k].b += r.copied;
++                }
++            }
++            for (ns_pages, 0..) |np_, j| {
++                if (r.old < np_ * std.heap.pageSize()) continue;
++                ge[k][j].n += 1;
++                ge[k][j].b += r.copied;
++                if (r.page_off == 0) {
++                    ge_aligned[k][j].n += 1;
++                    ge_aligned[k][j].b += r.copied;
++                }
++                if (ok) {
++                    ge_follow[k][j].n += 1;
++                    ge_follow[k][j].b += r.copied;
++                }
++            }
++        }
++        if (r.path == .same) return;
++        var i = (r.ret *% 0x9E3779B97F4A7C15) >> 51;
++        var tries: usize = 0;
++        while (tries < ncallers) : (tries += 1) {
++            const e = &callers[i];
++            if (e.ret == 0) e.ret = r.ret;
++            if (e.ret == r.ret) {
++                e.n[pi] += 1;
++                e.b[pi] += r.copied;
++                return;
++            }
++            i = (i + 1) % ncallers;
++        }
++        callers_full += 1;
++    }
++
++    // Clones of Lists and Strings (`+v`), by caller: count, bytes held
++    // (capacity) and bytes live (length); and of those whose capacity is
++    // a span (past max_small): live bytes that are a span too (an in-place
++    // shrink keeps them where they lie, no copy) and the span units an
++    // in-place shrink would give back.
++    const Clone = struct { ret: usize = 0, n: u64 = 0, cap: u64 = 0, len: u64 = 0, span_n: u64 = 0, span_cap: u64 = 0, span_len: u64 = 0, span_keep_n: u64 = 0, span_keep_len: u64 = 0, span_free: u64 = 0, small_slack: u64 = 0 };
++    const nclones = 4096;
++    var clones: [nclones]Clone = @splat(.{});
++    pub fn cloned(ret: usize, cap: usize, len: usize) void {
++        if (len == 0) return;
++        lock.lock();
++        defer lock.unlock();
++        var i = (ret *% 0x9E3779B97F4A7C15) >> 52;
++        var tries: usize = 0;
++        while (tries < nclones) : (tries += 1) {
++            const e = &clones[i];
++            if (e.ret == 0) e.ret = ret;
++            if (e.ret == ret) {
++                e.n += 1;
++                e.cap += cap;
++                e.len += len;
++                if (cap > max_small) {
++                    e.span_n += 1;
++                    e.span_cap += cap;
++                    e.span_len += len;
++                    if (len > max_small) {
++                        e.span_keep_n += 1;
++                        e.span_keep_len += len;
++                        e.span_free += (spanUnits(largeSize(cap)) - spanUnits(largeSize(len))) * span_unit;
++                    } else e.span_free += spanUnits(largeSize(cap)) * span_unit;
++                } else e.small_slack += cap - len;
++                return;
++            }
++            i = (i + 1) % nclones;
++        }
++    }
++
++    fn print(comptime fmt: []const u8, args: anytype) void {
++        var buf: [1024]u8 = undefined;
++        const line = std.fmt.bufPrint(&buf, fmt, args) catch return;
++        _ = std.posix.system.write(2, line.ptr, line.len);
++    }
++
++    var reported: bool = false;
++
++    pub fn report() void {
++        if (reported) return;
++        reported = true;
++        lock.lock();
++        defer lock.unlock();
++        const slide: usize = if (builtin.os.tag == .macos) @bitCast(std.c._dyld_get_image_vmaddr_slide(0)) else 0;
++        print("remap-census: page={d} span_unit={d} span_max={d} max_small={d} slide=0x{x} remap_at=0x{x}\n", .{ std.heap.pageSize(), span_unit, span_max, max_small, slide, @intFromPtr(&remap) });
++        inline for (@typeInfo(Path).@"enum".field_names, 0..) |f, i| {
++            print("remap-census: path {s} n={d} copied={d}\n", .{ f, by_path[i].n, by_path[i].b });
++            for (hist[i], 0..) |h, b| if (h.n != 0) print("remap-census: hist {s} log2<{d} n={d} copied={d}\n", .{ f, b, h.n, h.b });
++        }
++        inline for (@typeInfo(Src).@"enum".field_names, 0..) |f, i| print("remap-census: src {s} n={d} copied={d}\n", .{ f, by_src[i].n, by_src[i].b });
++        const kinds = [_][]const u8{ "copy_warm", "copy_new" };
++        for (kinds, 0..) |kn, k| {
++            print("remap-census: follow {s} any n={d} copied={d}\n", .{ kn, follow[k].n, follow[k].b });
++            print("remap-census: follow {s} cold n={d} copied={d}\n", .{ kn, follow_cold[k].n, follow_cold[k].b });
++            print("remap-census: follow {s} end n={d} copied={d}\n", .{ kn, follow_end[k].n, follow_end[k].b });
++            for (ns_pages, 0..) |np_, j| {
++                print("remap-census: ge {s} pages>={d} n={d} copied={d} aligned_n={d} aligned_copied={d} follow_n={d} follow_copied={d}\n", .{ kn, np_, ge[k][j].n, ge[k][j].b, ge_aligned[k][j].n, ge_aligned[k][j].b, ge_follow[k][j].n, ge_follow[k][j].b });
++            }
++        }
++        for (clones) |e| if (e.ret != 0) print("remap-census: clone 0x{x} n={d} cap={d} len={d} span_n={d} span_cap={d} span_len={d} span_keep_n={d} span_keep_len={d} span_free={d} small_slack={d}\n", .{ e.ret, e.n, e.cap, e.len, e.span_n, e.span_cap, e.span_len, e.span_keep_n, e.span_keep_len, e.span_free, e.small_slack });
++        print("remap-census: callers_full={d}\n", .{callers_full});
++        for (callers) |e| {
++            if (e.ret == 0) continue;
++            var tn: u64 = 0;
++            var tb: u64 = 0;
++            for (e.n, e.b) |n, b| {
++                tn += n;
++                tb += b;
++            }
++            if (tb == 0) continue;
++            var buf: [1024]u8 = undefined;
++            var w: usize = 0;
++            inline for (@typeInfo(Path).@"enum".field_names, 0..) |f, i| {
++                if (e.b[i] != 0) {
++                    const t = std.fmt.bufPrint(buf[w..], " {s}={d}/{d}", .{ f, e.n[i], e.b[i] }) catch break;
++                    w += t.len;
++                }
++            }
++            print("remap-census: caller 0x{x} n={d} copied={d}{s}\n", .{ e.ret, tn, tb, buf[0..w] });
++        }
++    }
++};
++
+ /// What `free`'s fast path leaves: a block of another thread's heap, a
+ /// larger or more aligned one, or a thread with no heap yet.
+ noinline fn freeSlow(memory: []u8, alignment: std.mem.Alignment) void {
+diff --git i/src/runtime.zig w/src/runtime.zig
+index fbefc847c..a233067ab 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -3574,6 +3574,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
+         /// one `@memcpy`, anything else cloned into each slot.
+         pub fn clone(self: *const Self) Self {
+             const src = self.items();
++            if (comptime inline_len == 0 and @sizeOf(T) != 0) fast_alloc.census.cloned(@returnAddress(), self.buf.len * @sizeOf(T), self.len * @sizeOf(T));
+             if (comptime !needsDrop(T)) return fromSlice(src);
+             var out = initCapacity(@intCast(src.len));
+             for (src, out.mem()[0..src.len]) |*e, *d| d.* = cloneValue(e);
+@@ -4362,6 +4363,7 @@ pub const String = struct {
+ 
+     /// `+t`: a new String holding the same bytes.
+     pub fn clone(self: String) String {
++        fast_alloc.census.cloned(@returnAddress(), self.list.capacity, self.list.items.len);
+         var t: String = .empty;
+         if (self.list.items.len == 0) return t;
+         const buf = allocSlice(u8, self.list.items.len);
+@@ -8674,6 +8676,7 @@ pub fn exitNow(code: Int) noreturn {
+     // profile here, where the optimized one's writer does nothing, before
+     // the teardown unmaps what the program holds, and both tear down.
+     if (pgo) writeProfile();
++    fast_alloc.census.report();
+     if (scheduled) sched.tearDown();
+     endProcess(status);
+ }
+@@ -8694,6 +8697,7 @@ pub fn finish() void {
+     if (scheduled) sched.settleLeftCalls();
+     if (pgo) writeProfile();
+     if (map_trace) map_tracer.close();
++    fast_alloc.census.report();
+     releaseProcess();
+     lockOutput();
+     flush();
