@@ -10,6 +10,9 @@
 # narrow parks its worker, and twenty widen/narrow cycles. Each runs
 # several times with RIG_WIDE=1 and once without, where the worker count
 # never moves, and once in a debug build under RIG_SANITIZE=1.
+# NARROW-PLACE (scratch): every release run repeats under each arm's
+# switches (RIG_SPREAD, RIG_PIN, RIG_GIVE), and on Linux a held program
+# shows each worker on pinned to a core of its own after a narrow.
 source "$ROOT/test/cli/_lib.sh"
 
 cat > common.rig <<'RIG'
@@ -179,6 +182,29 @@ sub main()
   print(n, task.worker_count())
 RIG
 
+cat > hold.rig <<'RIG'
+use std.task
+use common
+
+fun spin(k: Int) -> Int
+  s = 0
+  for i in 0..1000000000
+    s = (s +% i *% k) & 1048575
+  s
+
+sub main()
+  task.workers(2)
+  task.widen()
+  total = common.batch(16)
+  task.narrow()
+  ts = Tasks[Int]()
+  for k in 0..2
+    !ts.add(spin(k + 1)&)
+  for x in >ts
+    total += x
+  print(total > 0, task.worker_count())
+RIG
+
 cat > cycles.rig <<'RIG'
 use std.task
 use common
@@ -200,18 +226,38 @@ expect() {
     expect_eq "$out" "$want " "$prog ($env)"
 }
 
-for p in tasks actor chan naps par loop cycles; do
+for p in tasks actor chan naps par loop cycles hold; do
     "$RIG" build --release -o $p $p.rig >build.txt 2>&1 || fail "build $p.rig: $(cat build.txt)"
 done
-for run in 1 2 3 4 5; do
-    expect tasks "true true 2" RIG_WIDE=1
-    expect actor "32 160000 2" RIG_WIDE=1
-    expect chan "31996000 2" RIG_WIDE=1
-    expect naps "200 2" RIG_WIDE=1
-    expect par "20000 true 2" RIG_WIDE=1
-    expect loop "8 2" RIG_WIDE=1
-    expect cycles "true 2" RIG_WIDE=1
+arms=("RIG_WIDE=1" "RIG_WIDE=1 RIG_SPREAD=1" "RIG_WIDE=1 RIG_SPREAD=1 RIG_PIN=1" "RIG_WIDE=1 RIG_SPREAD=1 RIG_PIN=1 RIG_GIVE=1" "RIG_WIDE=1 RIG_GIVE=1" "RIG_PIN=1")
+for arm in "${arms[@]}"; do
+    for run in 1 2 3; do
+        n=2
+        expect tasks "true true $n" "$arm"
+        expect actor "32 160000 $n" "$arm"
+        expect chan "31996000 $n" "$arm"
+        expect naps "200 $n" "$arm"
+        expect par "20000 true $n" "$arm"
+        expect loop "8 $n" "$arm"
+        expect cycles "true $n" "$arm"
+    done
 done
+# Pinned after a narrow (Linux): the two workers on each run on one
+# physical core's threads alone, different cores.
+if [[ $(uname -s) == Linux ]]; then
+    for arm in "RIG_WIDE=1 RIG_SPREAD=1 RIG_PIN=1" "RIG_WIDE=1 RIG_SPREAD=1 RIG_PIN=1 RIG_GIVE=1" "RIG_PIN=1"; do
+        env $arm ./hold >hold.txt 2>&1 &
+        pid=$!
+        sleep 0.4
+        all=$(grep Cpus_allowed_list /proc/$pid/status | awk '{print $2}')
+        lists=$(for t in /proc/$pid/task/*; do grep Cpus_allowed_list $t/status | awk '{print $2}'; done | grep -vx "$all" | sort)
+        wait $pid || fail "hold ($arm): $(cat hold.txt)"
+        expect_eq "$(tr '\n' ' ' < hold.txt)" "true 2 " "hold ($arm)"
+        pinned=$(echo "$lists" | grep -c . || true)
+        distinct=$(echo "$lists" | sort -u | grep -c . || true)
+        (( pinned >= 2 && distinct == pinned )) || fail "hold ($arm): workers not pinned one per core: all=$all pinned=[$(echo $lists)]"
+    done
+fi
 # Off, the count never moves and the results are the same.
 expect tasks "true true 2" RIG_WIDE=0
 expect actor "32 160000 2" RIG_WIDE=0

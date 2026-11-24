@@ -31,6 +31,9 @@ comptime {
         workers_on,
         wide_on,
         wide_before,
+        spread_on,
+        pin_on,
+        give_on,
         connecting,
         zva_64,
         workers_override,
@@ -277,6 +280,12 @@ const Worker = struct {
     /// workers tasks run on, as `narrow` leaves it (`setWorkers`): it takes
     /// no task and waits parked (`parkWorker`).
     off: std.atomic.Value(bool) = .init(false),
+    /// NARROW-PLACE (scratch): its thread's Linux id, once it runs; its
+    /// thread's heap, in a build with the runtime's allocator; and the
+    /// physical core it is pinned to (`place`), -1 for none.
+    tid: std.atomic.Value(i32) = .init(0),
+    heap: std.atomic.Value(?*rt.fast_alloc.Heap) = .init(null),
+    core: std.atomic.Value(i32) = .init(-1),
     thread: ?std.Thread align(std.atomic.cache_line) = null,
     /// On the Mac, its fibers' lengths and the batch it keeps
     /// (`keeps_short`); nothing on Linux, whose workers keep none.
@@ -369,6 +378,118 @@ var wide_on_var: bool = false;
 const wide_on = split.cell(&wide_on_var, "sched.wide_on");
 var wide_before_var: usize = 0;
 const wide_before = split.cell(&wide_before_var, "sched.wide_before");
+
+/// NARROW-PLACE (scratch, measurement only), read as the workers start:
+/// `RIG_SPREAD=1`, a `narrow` keeps one worker per physical core, by the
+/// CPU each last ran on (`chooseKept`); `RIG_PIN=1`, while the workers
+/// tasks run on are no more than the physical cores, each is pinned to a
+/// core of its own (`place`), from the start as after every change;
+/// `RIG_GIVE=1`, a worker that parks gives its heap's segments to the
+/// heaps of the workers that go on (`alloc.giveSegments`).
+var spread_on_var: bool = false;
+const spread_on = split.cell(&spread_on_var, "sched.spread_on");
+var pin_on_var: bool = false;
+const pin_on = split.cell(&pin_on_var, "sched.pin_on");
+var give_on_var: bool = false;
+const give_on = split.cell(&give_on_var, "sched.give_on");
+
+fn envOn(name: []const u8) bool {
+    const p = rt.process.* orelse return false;
+    const v = p.environ.getPosix(name) orelse return false;
+    return std.mem.eql(u8, v, "1");
+}
+
+/// NARROW-PLACE: record the running thread's id and heap on `w`, its
+/// worker, and pin it to the core `place` gave it, if any.
+fn noteThread(w: *Worker) void {
+    if (builtin.os.tag != .linux) return;
+    if (own_records) w.heap.store(rt.fast_alloc.heapNow(), .release);
+    w.tid.store(std.os.linux.gettid(), .seq_cst);
+    const c = w.core.load(.seq_cst);
+    if (c >= 0) rt.pinThread(0, &rt.physicalCores().sets[@intCast(c)]);
+}
+
+/// NARROW-PLACE: under `RIG_PIN=1`, while the workers tasks run on are no
+/// more than the physical cores, pin each to a core of its own, the core
+/// it last ran on where no other worker has it; otherwise, and for each
+/// worker off, let it run anywhere again. A worker whose thread has not
+/// run yet pins itself as it starts (`noteThread`). Under `grow_lock`, or
+/// as the workers start.
+fn place() void {
+    if (builtin.os.tag != .linux or !pin_on.* or deterministic.*) return;
+    const cores = rt.physicalCores();
+    if (cores.n == 0) return;
+    const ws = all_workers.*[0..workers_len.load(.acquire)];
+    var on: usize = 0;
+    for (ws) |*w| {
+        if (!w.off.load(.seq_cst)) on += 1;
+    }
+    if (on > cores.n) {
+        for (ws) |*w| unplace(w);
+        return;
+    }
+    var got: [max_workers]i32 = @splat(-1);
+    var taken: u64 = 0;
+    for (ws, 0..) |*w, i| {
+        if (w.off.load(.seq_cst)) continue;
+        const cpu = rt.threadCpu(w.tid.load(.seq_cst)) orelse continue;
+        const c = cores.of_cpu[cpu];
+        if (c == rt.Cores.no_core or taken & (@as(u64, 1) << @intCast(c)) != 0) continue;
+        taken |= @as(u64, 1) << @intCast(c);
+        got[i] = c;
+    }
+    for (ws, 0..) |*w, i| {
+        if (w.off.load(.seq_cst) or got[i] >= 0) continue;
+        const c: u6 = @intCast(@ctz(~taken));
+        taken |= @as(u64, 1) << c;
+        got[i] = c;
+    }
+    for (ws, 0..) |*w, i| {
+        if (w.off.load(.seq_cst)) {
+            unplace(w);
+            continue;
+        }
+        w.core.store(got[i], .seq_cst);
+        const tid = w.tid.load(.seq_cst);
+        if (tid != 0) rt.pinThread(tid, &cores.sets[@intCast(got[i])]);
+    }
+}
+
+fn unplace(w: *Worker) void {
+    if (w.core.swap(-1, .seq_cst) < 0) return;
+    const tid = w.tid.load(.seq_cst);
+    if (tid != 0) rt.pinThread(tid, null);
+}
+
+/// NARROW-PLACE: which `n` of the workers on to keep as a `narrow` lowers
+/// them, in `kept`: under `RIG_SPREAD=1`, worker 0 and then one per
+/// physical core, by the CPU each last ran on, the lowest first, and the
+/// lowest others after; otherwise the lowest.
+fn chooseKept(ws: []Worker, n: usize, kept: *[max_workers]bool) void {
+    var left = n;
+    if (builtin.os.tag == .linux and spread_on.*) {
+        const cores = rt.physicalCores();
+        var taken: u64 = 0;
+        for (ws, 0..) |*w, i| {
+            if (left == 0) break;
+            if (w.off.load(.seq_cst)) continue;
+            const cpu = rt.threadCpu(w.tid.load(.seq_cst));
+            const c = if (cpu) |x| cores.of_cpu[x] else rt.Cores.no_core;
+            if (i != 0) {
+                if (c == rt.Cores.no_core or taken & (@as(u64, 1) << @intCast(c)) != 0) continue;
+            }
+            if (c != rt.Cores.no_core) taken |= @as(u64, 1) << @intCast(c);
+            kept[i] = true;
+            left -= 1;
+        }
+    }
+    for (ws, 0..) |*w, i| {
+        if (left == 0) break;
+        if (w.off.load(.seq_cst) or kept[i]) continue;
+        kept[i] = true;
+        left -= 1;
+    }
+}
 
 /// The workers, worker 0 first. Their number can grow under a reader, so
 /// a reader calls this once and keeps the slice for its whole walk. A
@@ -4311,6 +4432,13 @@ fn startWorkers() void {
     if (rt.process.*) |p| if (p.environ.getPosix("RIG_WIDE")) |v| {
         wide_on.* = std.mem.eql(u8, v, "1");
     };
+    spread_on.* = envOn("RIG_SPREAD");
+    pin_on.* = envOn("RIG_PIN");
+    give_on.* = envOn("RIG_GIVE");
+    if (!deterministic.*) {
+        place();
+        noteThread(&ws[0]);
+    }
     if (n == 1) {
         if (preempt and !deterministic.*) startMonitor();
         return;
@@ -4478,31 +4606,46 @@ fn setWorkers(n: usize) bool {
     const on = workers_on.load(.monotonic);
     if (n == on) return true;
     if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) return false;
+    const have = workers_len.load(.monotonic);
+    const ws = all_workers.*[0..have];
     if (n < on) {
+        // NARROW-PLACE: which to keep (`chooseKept`); on main's path,
+        // the lowest.
+        var kept: [max_workers]bool = @splat(false);
+        chooseKept(ws, n, &kept);
         workers_on.store(n, .seq_cst);
         // Off before the sleepers are looked at: a worker going to sleep
         // lists itself, then reads `off` (`sleep`), so either it sees it
         // or this finds it listed.
-        for (all_workers.*[n..on]) |*w| w.off.store(true, .seq_cst);
-        for (all_workers.*[n..on]) |*w| if (sleepers.remove(w)) wakeWorker(w);
+        for (ws, 0..) |*w, i| if (!kept[i]) w.off.store(true, .seq_cst);
+        for (ws, 0..) |*w, i| if (!kept[i]) if (sleepers.remove(w)) wakeWorker(w);
         // A fiber running on one of them in a loop or recursion stops at
         // its next check (`tickCall`).
         waiting.store(1, .monotonic);
+        place();
         return true;
     }
-    const have = workers_len.load(.monotonic);
-    for (all_workers.*[on..@min(n, have)]) |*w| {
+    var more = n - on;
+    for (ws) |*w| {
+        if (more == 0) break;
+        if (!w.off.load(.seq_cst)) continue;
         w.off.store(false, .seq_cst);
         w.poller.kick();
+        more -= 1;
     }
-    if (n > have) {
-        const fresh = all_workers.*[have..n];
-        for (have..n) |i| initWorker(i);
+    if (more > 0) {
+        const fresh_n = have + more;
+        const fresh = all_workers.*[have..fresh_n];
+        for (have..fresh_n) |i| initWorker(i);
         for (fresh) |*w| w.poller.open();
-        workers_len.store(n, .release);
+        workers_len.store(fresh_n, .release);
+        workers_on.store(n, .release);
+        place();
         for (fresh) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{ w, 0 }) catch rt.oom();
+        return true;
     }
     workers_on.store(n, .release);
+    place();
     return true;
 }
 
@@ -4548,6 +4691,7 @@ fn workerMain(w: *Worker, n: usize) void {
     if (n > 0) startRest(n);
     if (claimed) stopForExit(w, true);
     if (started_ahead.*) takeFirstSegment();
+    noteThread(w);
     loop(w);
 }
 
@@ -4626,6 +4770,7 @@ fn parkWorker(w: *Worker) void {
     forwardQueued(w);
     _ = rt.fast_alloc.trimIdle();
     defer rt.fast_alloc.wakeIdle();
+    if (own_records and give_on.*) giveHeap();
     w.idle.store(1, .seq_cst);
     defer w.idle.store(0, .seq_cst);
     while (w.off.load(.seq_cst) and !stopping.load(.seq_cst)) {
@@ -4643,6 +4788,20 @@ fn parkWorker(w: *Worker) void {
         _ = w.timers.fire(nowNs());
         forwardQueued(w);
     }
+}
+
+/// NARROW-PLACE: the running worker parks: its heap's segments go to the
+/// heaps of the workers still on (`alloc.giveSegments`).
+fn giveHeap() void {
+    var heirs: [max_workers]*rt.fast_alloc.Heap = undefined;
+    var k: usize = 0;
+    for (workersNow()) |*v| {
+        if (v.off.load(.seq_cst)) continue;
+        const h = v.heap.load(.acquire) orelse continue;
+        heirs[k] = h;
+        k += 1;
+    }
+    rt.fast_alloc.giveSegments(heirs[0..k]);
 }
 
 /// PHASE-WIDE: move the fibers in the parked worker `w`'s "run next"

@@ -12009,6 +12009,91 @@ pub fn fastThreads() Int {
     return @intCast(@max(1, @min(logical, found)));
 }
 
+/// NARROW-PLACE (scratch, measurement only): the physical cores this
+/// process may run on, the fast ones where the system names a fast set,
+/// each as the set of its threads it may run on, and the core of each
+/// CPU (`no_core` for none). Worked out once (`physicalCores`).
+pub const Cores = struct {
+    pub const no_core: u8 = 0xff;
+    n: usize = 0,
+    sets: [64]CpuSet = undefined,
+    of_cpu: [CpuSet.bit_length]u8 = @splat(no_core),
+    allowed: CpuSet = .empty,
+};
+var cores_var: Cores = .{};
+var cores_read: bool = false;
+
+/// NARROW-PLACE: the process's physical cores (`Cores`), read from
+/// `/sys` the first time; none off Linux or where a file cannot be read.
+pub fn physicalCores() *const Cores {
+    if (cores_read) return &cores_var;
+    cores_read = true;
+    if (builtin.os.tag != .linux) return &cores_var;
+    const linux = std.os.linux;
+    var c: Cores = .{};
+    if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(c.allowed.masks)), &c.allowed.masks)) != .SUCCESS) return &cores_var;
+    var buffer: [512]u8 = undefined;
+    var wanted = c.allowed;
+    if ((LinuxCpuFiles{}).fast(&buffer)) |text| {
+        if (parseCpuList(text)) |fast_set| {
+            var fast = fast_set;
+            fast.setIntersection(c.allowed);
+            if (fast.count() > 0) wanted = fast;
+        }
+    } else |_| {}
+    var it = wanted.iterator(.{});
+    while (it.next()) |cpu| {
+        if (c.of_cpu[cpu] != Cores.no_core) continue;
+        if (c.n == c.sets.len) break;
+        const text = (LinuxCpuFiles{}).siblings(cpu, &buffer) catch return &cores_var;
+        var set = parseCpuList(text) orelse return &cores_var;
+        set.setIntersection(wanted);
+        set.set(cpu);
+        var members = set.iterator(.{});
+        while (members.next()) |m| c.of_cpu[m] = @intCast(c.n);
+        c.sets[c.n] = set;
+        c.n += 1;
+    }
+    cores_var = c;
+    return &cores_var;
+}
+
+/// NARROW-PLACE: the CPU thread `tid` of this process last ran on, from
+/// `/proc/self/task/TID/stat` (its 39th field), or null.
+pub fn threadCpu(tid: i32) ?usize {
+    if (builtin.os.tag != .linux or tid <= 0) return null;
+    var path: [64]u8 = undefined;
+    const name = std.fmt.bufPrintSentinel(&path, "/proc/self/task/{d}/stat", .{tid}, 0) catch return null;
+    var buffer: [1024]u8 = undefined;
+    const linux = std.os.linux;
+    const rc = linux.openat(linux.AT.FDCWD, name, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    if (linux.errno(rc) != .SUCCESS) return null;
+    const fd: i32 = @intCast(rc);
+    defer _ = linux.close(fd);
+    const got = linux.read(fd, &buffer, buffer.len);
+    if (linux.errno(got) != .SUCCESS) return null;
+    const text = buffer[0..got];
+    const paren = std.mem.lastIndexOfScalar(u8, text, ')') orelse return null;
+    var fields = std.mem.tokenizeScalar(u8, text[paren + 1 ..], ' ');
+    // After the name come field 3 (the state) onward: field 39 is the 37th.
+    var k: usize = 3;
+    while (fields.next()) |f| : (k += 1) {
+        if (k == 39) return std.fmt.parseInt(usize, f, 10) catch null;
+    }
+    return null;
+}
+
+/// NARROW-PLACE: let thread `tid` (0: the running thread) run only on
+/// `set`, or on every CPU the process could at its start when `set` is
+/// null.
+pub fn pinThread(tid: i32, set: ?*const CpuSet) void {
+    if (builtin.os.tag != .linux) return;
+    const c = physicalCores();
+    const want = if (set) |x| x else &c.allowed;
+    const linux = std.os.linux;
+    _ = linux.syscall3(.sched_setaffinity, @as(u32, @bitCast(tid)), @sizeOf(@TypeOf(want.masks)), @intFromPtr(&want.masks));
+}
+
 /// The fast cores by the system's own account, within the logical CPUs
 /// this process may use; those logical CPUs when the system does not say.
 fn detectFastCores() usize {
@@ -12034,7 +12119,7 @@ fn sysctlCount(name: [*:0]const u8) ?u32 {
 }
 
 /// Linux's CPUs by number, as wide as its affinity mask.
-const CpuSet = std.bit_set.Static(1024);
+pub const CpuSet = std.bit_set.Static(1024);
 
 /// The mask's own count stands in for `getCpuCount`, which a mask wider
 /// than `CpuSet` would crash; such a mask gives 1.

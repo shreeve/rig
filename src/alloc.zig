@@ -337,6 +337,9 @@ const Segment = struct {
     /// any (`Heap.released`).
     released: u64 = 0,
     next_released: ?*Segment = null,
+    /// NARROW-PLACE (scratch): the heap's segment made before it
+    /// (`Heap.owned`), for `giveSegments`.
+    next_owned: ?*Segment = null,
     /// Whether it gets huge pages, on Linux: it asked for them, or gets
     /// them unasked (`ask`). Its first write to each 2 MiB then faults
     /// all of it in, so none of it is faulted in ahead (`faultFresh`).
@@ -398,6 +401,8 @@ pub const Heap = struct {
     start_small: bool = false,
     /// Its first segment with pages `trimIdle` gave back.
     released: ?*Segment = null,
+    /// NARROW-PLACE (scratch): the segments it made, newest first.
+    owned: ?*Segment = null,
     /// How many times `trimIdle` has counted its free blocks.
     trims: u32 = 0,
     /// What it had taken from the system (`taken`) at its last trim
@@ -495,7 +500,8 @@ pub const Heap = struct {
         // as its class takes it (`faultFresh`).
         const windows = h.taken >= prefault_windows_from;
         if (!huge) prefault(h, @intFromPtr(s), if (windows) prefault_window else std.heap.pageSize());
-        s.* = .{ .heap = h, .used = 2, .huge = huge, .faulted = if (windows) window_pages else 0 };
+        s.* = .{ .heap = h, .used = 2, .huge = huge, .faulted = if (windows) window_pages else 0, .next_owned = h.owned };
+        h.owned = s;
         h.segment = s;
         h.faultFresh(s, @intFromPtr(s) + page_size, fill);
         return @intFromPtr(s) + page_size;
@@ -2584,6 +2590,83 @@ fn takeDonated(h: *Heap, c: usize) ?*Block {
         if (d.remote[c].swap(null, .acquire)) |list| return list;
     }
     return null;
+}
+
+/// NARROW-PLACE (scratch, measurement only): the running thread's heap,
+/// made if it has none, for a worker to record (`sched.Worker.heap`).
+pub fn heapNow() ?*Heap {
+    return heap();
+}
+
+/// NARROW-PLACE (scratch, measurement only): the running thread parks
+/// for good, as far as it knows, after `trimIdle`: give each of its heap's
+/// small-block segments to one of `heirs` in turn, so a block of them
+/// freed on an heir's thread takes `free`'s fast path, and move the free
+/// blocks its remote lists hold to their segment's heir's remote lists,
+/// where that heir's next allocation of the class takes them. Its heap is
+/// no donor after. Its pages given back are not handed out again (its
+/// `released` list is dropped). Blocks freed into it by a thread that
+/// read a segment's old heap stay on its remote lists until it runs
+/// again. Spans and large blocks stay its own.
+pub fn giveSegments(heirs: []const *Heap) void {
+    const h = my_heap().* orelse return;
+    if (heirs.len == 0) return;
+    mustOwn(h);
+    var s = h.released;
+    while (s) |seg| {
+        s = seg.next_released;
+        seg.released = 0;
+        seg.next_released = null;
+    }
+    h.released = null;
+    var k: usize = 0;
+    var it = h.owned;
+    while (it) |seg| : (it = seg.next_owned) {
+        const heir = heirs[k % heirs.len];
+        k += 1;
+        if (heir == h) continue;
+        // Never matches a trim's count, which skips 0 (`trimHeap`).
+        seg.trim = 0;
+        @atomicStore(*Heap, &seg.heap, heir, .release);
+    }
+    const max_heirs = 64;
+    for (0..class_count) |c| {
+        var heads: [max_heirs]?*Block = @splat(null);
+        var tails: [max_heirs]?*Block = @splat(null);
+        var list = h.remote[c].swap(null, .acquire);
+        var kept: ?*Block = null;
+        while (list) |b| {
+            list = b.next;
+            const owner = segmentOf(@ptrCast(b)).heap;
+            const j = for (heirs, 0..) |x, i| {
+                if (x == owner) break i;
+            } else null;
+            if (j == null or j.? >= max_heirs) {
+                b.next = kept;
+                kept = b;
+                continue;
+            }
+            b.next = heads[j.?];
+            if (heads[j.?] == null) tails[j.?] = b;
+            heads[j.?] = b;
+        }
+        for (heirs[0..@min(heirs.len, max_heirs)], 0..) |heir, j| {
+            const first = heads[j] orelse continue;
+            const last = tails[j].?;
+            var top = heir.remote[c].load(.monotonic);
+            while (true) {
+                last.next = top;
+                top = heir.remote[c].cmpxchgWeak(top, first, .release, .monotonic) orelse break;
+            }
+        }
+        // A block another heap gave it (`takeDonated`), or of a segment it
+        // kept, stays its own.
+        h.free[c] = kept;
+    }
+    if (h.donor.load(.monotonic)) {
+        h.donor.store(false, .monotonic);
+        _ = donors.fetchSub(1, .monotonic);
+    }
 }
 
 /// The running thread wakes from the sleep it trimmed its heap in
