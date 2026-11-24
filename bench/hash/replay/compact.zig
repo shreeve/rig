@@ -59,28 +59,40 @@ pub fn Compact(comptime K: type, comptime V: type, comptime Context: type) type 
             return @ptrCast(self.block.?);
         }
 
-        fn etagBytes(cap: usize) usize {
-            return @max(cap, small);
-        }
+        /// The first 16 tags sit at a fixed place after the header and
+        /// the entries at a fixed place after them, so a small map's
+        /// lookup reads no field of the header to find either.
+        const eoff = std.mem.alignForward(usize, @sizeOf(Header) + small, @alignOf(E));
 
-        fn entriesOffset(cap: usize) usize {
-            return std.mem.alignForward(usize, @sizeOf(Header) + etagBytes(cap), @alignOf(E));
+        /// A block past `small` entries keeps a tag for every entry after
+        /// them, used while it is indexed.
+        fn bigTagsOffset(cap: usize) usize {
+            return eoff + cap * @sizeOf(E);
         }
 
         fn ctrlOffset(cap: usize) usize {
-            return std.mem.alignForward(usize, entriesOffset(cap) + cap * @sizeOf(E), 16);
+            return std.mem.alignForward(usize, bigTagsOffset(cap) + (if (cap > small) cap else 0), 16);
         }
 
         fn blockBytes(cap: usize, groups: usize) usize {
             return ctrlOffset(cap) + groups * 16 * (1 + 4);
         }
 
-        inline fn etags(self: *const Self) [*]u8 {
+        inline fn smallTags(self: *const Self) [*]u8 {
             return self.block.? + @sizeOf(Header);
         }
 
+        inline fn bigTags(self: *const Self) [*]u8 {
+            return self.block.? + bigTagsOffset(self.hdr().cap);
+        }
+
+        /// The entries' tags: the fixed 16 until the index is in use.
+        inline fn etags(self: *const Self) [*]u8 {
+            return if (self.hdr().indexed != 0) self.bigTags() else self.smallTags();
+        }
+
         inline fn entries(self: *const Self) [*]E {
-            return @ptrCast(@alignCast(self.block.? + entriesOffset(self.hdr().cap)));
+            return @ptrCast(@alignCast(self.block.? + eoff));
         }
 
         inline fn ctrl(self: *const Self) [*]u8 {
@@ -128,7 +140,7 @@ pub fn Compact(comptime K: type, comptime V: type, comptime Context: type) type 
             const es = self.entries();
             const t = tagOf(h);
             if (hd.indexed == 0) {
-                var m = match16(self.etags(), t);
+                var m = match16(self.smallTags(), t);
                 while (m != 0) : (m &= m - 1) {
                     const i = @ctz(m);
                     if (ctx.eql(es[i].key, k)) return i;
@@ -211,6 +223,13 @@ pub fn Compact(comptime K: type, comptime V: type, comptime Context: type) type 
         fn reindex(self: *Self) void {
             const hd = self.hdr();
             self.compactInPlace();
+            if (hd.indexed == 0) @memcpy(self.bigTags()[0..hd.len], self.smallTags()[0..hd.len]);
+            self.buildIndex();
+        }
+
+        /// Index the entries, compacted, whose tags are the big ones.
+        fn buildIndex(self: *Self) void {
+            const hd = self.hdr();
             @memset(self.ctrl()[0 .. hd.groups * 16], 0);
             hd.room = hd.groups * 16 * 7 / 8;
             hd.indexed = 1;
@@ -246,14 +265,15 @@ pub fn Compact(comptime K: type, comptime V: type, comptime Context: type) type 
             const nh: *Header = @ptrCast(nb.ptr);
             nh.* = .{ .cap = @intCast(cap), .len = 0, .live = 0, .groups = @intCast(groups), .indexed = 0, .room = 0, .shift = 0 };
             if (groups != 0) nh.shift = @intCast(64 - @as(u32, std.math.log2_int(usize, groups)));
-            const net = nb.ptr + @sizeOf(Header);
-            @memset(net[0..etagBytes(cap)], 0);
             var next: Self = .{ .block = nb.ptr };
+            @memset(next.smallTags()[0..small], 0);
             if (self.block) |_| {
                 const hd = self.hdr();
                 const es = self.entries();
                 const et = self.etags();
                 const nes = next.entries();
+                const big = hd.live >= small and groups != 0;
+                const net = if (big) next.bigTags() else next.smallTags();
                 var j: u32 = 0;
                 for (0..hd.len) |i| {
                     if (et[i] == 0) continue;
@@ -264,9 +284,11 @@ pub fn Compact(comptime K: type, comptime V: type, comptime Context: type) type 
                 nh.len = j;
                 nh.live = j;
                 self.deinit(gpa);
+                self.* = next;
+                if (big) self.buildIndex();
+                return;
             }
             self.* = next;
-            if (nh.len >= small and groups != 0) self.reindex();
         }
 
         pub fn put(self: *Self, gpa: Allocator, k: K, v: V) Allocator.Error!void {
@@ -378,7 +400,7 @@ pub fn Compact(comptime K: type, comptime V: type, comptime Context: type) type 
             _ = gpa;
             if (self.block == null) return;
             const hd = self.hdr();
-            @memset(self.etags()[0..small], 0);
+            @memset(self.smallTags()[0..small], 0);
             hd.len = 0;
             hd.live = 0;
             hd.indexed = 0;
