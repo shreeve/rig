@@ -106,6 +106,7 @@ fn instrumentType(a: std.mem.Allocator, zig: []const u8, t: Traced, what: *[]con
     try w.writeAll(zig[0..start]);
     try w.writeAll(body[0..at]);
     try w.writeAll("        __rig_trace: u32 = 0,\n");
+    try w.writeAll("        __rig_census: u8 = 0,\n");
     try w.writeAll(body[at..line_end]);
     for (t.methods) |m| try writeWrapper(w, m, t.value);
     try w.writeAll(body[line_end..]);

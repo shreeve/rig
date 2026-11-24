@@ -67,6 +67,7 @@ const locals_named = [_][]const u8{
     "runtime.profile_next",
     "runtime.profile_scope",
     "runtime.trace_thread",
+    "runtime.census_owner",
     "runtime.across_trace",
 };
 /// A slot's bytes: its variable's, then, last, whether its thread set it.

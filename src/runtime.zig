@@ -1824,7 +1824,9 @@ pub fn dropElement(comptime T: type, value: *T) void {
             }
         },
         .@"struct" => {
-            if (comptime map_trace and @hasField(T, "__rig_trace")) mapTraceDrop(value);
+            if (comptime map_trace and @hasField(T, "__rig_trace")) {
+                if (map_tracer.census) mapCensusDrop(T, value) else mapTraceDrop(value);
+            }
             if (@hasDecl(T, "__rig_drop")) value.__rig_drop() else dropFields(value);
         },
         .@"union" => if (@hasDecl(T, "__rig_drop")) {
@@ -1854,11 +1856,19 @@ pub inline fn drop(ptr: anytype) void {
 /// Drop every field of the struct `ptr` points to, last field first.
 /// A type's own `__rig_drop` calls this after its user-written body.
 pub fn dropFields(ptr: anytype) void {
-    const s = @typeInfo(@TypeOf(ptr.*)).@"struct";
+    const P = @TypeOf(ptr.*);
+    const s = @typeInfo(P).@"struct";
     comptime var i = s.field_names.len;
     inline while (i > 0) {
         i -= 1;
-        drop(&@field(ptr, s.field_names[i]));
+        if (comptime map_trace and censusHolds(@FieldType(P, s.field_names[i]))) {
+            // The census names a Map it drops by the field that held it.
+            const owner = censusOwner();
+            const before = owner.*;
+            owner.* = comptime traceName(P) ++ "." ++ s.field_names[i];
+            drop(&@field(ptr, s.field_names[i]));
+            owner.* = before;
+        } else drop(&@field(ptr, s.field_names[i]));
     }
 }
 
@@ -2939,6 +2949,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
             if (comptime @hasDecl(T, "__rig_weak")) return value.cloneWeak();
             var out: T = undefined;
             inline for (s.field_names) |f| @field(out, f) = if (comptime outOfLine(@FieldType(T, f))) @call(.never_inline, cloneValue, .{&@field(value, f)}) else cloneValue(&@field(value, f));
+            if (comptime map_trace and @hasField(T, "__rig_trace")) mapCensusClone(T, &out);
             return out;
         },
         .@"union" => switch (value.*) {
@@ -7223,7 +7234,7 @@ pub fn MapTraceResult(comptime f: anytype) type {
 /// only read so far (`self` read-only) is known by its address until a
 /// write stores the id in it.
 pub noinline fn mapTraceSee(comptime K: type, comptime V: type, self: anytype) void {
-    if (self.__rig_trace != 0) return;
+    if (map_tracer.census or self.__rig_trace != 0) return;
     map_tracer.lock();
     defer map_tracer.unlock();
     _ = map_tracer.idOf(K, V, self, @returnAddress());
@@ -7233,6 +7244,7 @@ pub noinline fn mapTraceSee(comptime K: type, comptime V: type, self: anytype) v
 /// and values `V` (`void` for a Set), done: `key` its key, `hit` whether
 /// the key was there, `extra` the slots of a table built anew.
 pub fn mapTraceOp(comptime K: type, comptime V: type, self: anytype, op: MapOp, key: MapTraceKey, hit: bool, extra: u64) void {
+    if (map_tracer.census) return mapCensusOp(V, self);
     map_tracer.lock();
     defer map_tracer.unlock();
     const id = map_tracer.idOf(K, V, self, 0);
@@ -7248,6 +7260,91 @@ fn mapTraceDrop(value: anytype) void {
     map_tracer.record(.drop, false, .{}, id, 0, value.len, 0);
 }
 
+// The census (`RIG_MAP_CENSUS=PATH` at run time, in a `RIG_MAP_TRACE=1`
+// build): no records, but counts of the Maps and Sets alive, by length
+// (0, 1-4, 5-16, over 16), to say how many a compact Map would hold.
+// A Map is registered (`__rig_census`, its bucket + 1) at its first
+// writing operation or as a clone; one never written is always empty and
+// is seen only when it is dropped, by its type and the field that held it
+// (`dropFields`). Snapshots: 0 at each line of output (the last one is
+// the end of the program's work: what is dropped after it was alive
+// then), 1 when the peak RSS rises, 2 when the registered Maps alive
+// peak. For each, the registered Maps alive then by bucket, and per label
+// the Maps dropped since, by their bucket at the drop.
+
+fn censusBucket(n: i64) u8 {
+    return if (n <= 0) 0 else if (n <= 4) 1 else if (n <= 16) 2 else 3;
+}
+
+fn censusKind(comptime T: type) u8 {
+    return if (@hasDecl(T, "add")) 1 else 0;
+}
+
+/// Whether a field of type `F` holds a traced Map or Set itself, as an
+/// optional, or as a List's elements.
+fn censusHolds(comptime F: type) bool {
+    if (@typeInfo(F) == .@"struct" and @hasField(F, "__rig_trace")) return true;
+    if (comptime isOptStruct(F)) return censusHolds(Payload(F));
+    switch (@typeInfo(F)) {
+        .optional => |o| return censusHolds(o.child),
+        .@"struct" => if (@hasDecl(F, "__rig_list")) return censusHolds(F.__rig_args[0]),
+        else => {},
+    }
+    return false;
+}
+
+threadlocal var census_owner_var: []const u8 = "-";
+inline fn censusOwner() *[]const u8 {
+    return split.local(&census_owner_var, "runtime.census_owner");
+}
+
+fn mapCensusOp(comptime V: type, self: anytype) void {
+    if (comptime @typeInfo(@TypeOf(self)).pointer.attrs.@"const") return;
+    const b = censusBucket(self.len);
+    if (self.__rig_census == b + 1) return;
+    map_tracer.lock();
+    defer map_tracer.unlock();
+    map_tracer.censusMove(if (V == void) 1 else 0, self.__rig_census, b);
+    self.__rig_census = b + 1;
+}
+
+fn mapCensusClone(comptime T: type, out: *T) void {
+    out.__rig_trace = 0;
+    out.__rig_census = 0;
+    if (!map_tracer.census) return;
+    const b = censusBucket(out.len);
+    map_tracer.lock();
+    defer map_tracer.unlock();
+    map_tracer.clones += 1;
+    map_tracer.censusMove(censusKind(T), 0, b);
+    out.__rig_census = b + 1;
+}
+
+fn mapCensusDrop(comptime T: type, value: *T) void {
+    map_tracer.lock();
+    defer map_tracer.unlock();
+    map_tracer.censusDrop(censusKind(T), comptime traceName(T), censusOwner().*, value.__rig_census, censusBucket(value.len));
+    value.__rig_census = 0;
+}
+
+fn mapCensusMark() void {
+    if (!map_tracer.census) return;
+    map_tracer.lock();
+    defer map_tracer.unlock();
+    map_tracer.rssCheck();
+    map_tracer.snapshot(0);
+}
+
+const CensusKey = struct { owner: usize, owner_len: usize, ty: usize, ty_len: usize };
+const CensusLabel = struct {
+    kind: u8,
+    gen: [3]u64 = @splat(0),
+    since: [3][4]u64 = @splat(@splat(0)),
+    unreg: [3]u64 = @splat(0),
+    total: [4]u64 = @splat(0),
+    total_unreg: u64 = 0,
+};
+
 const MapTracer = struct {
     records: ?std.Io.File.Writer = null,
     types: ?std.Io.File.Writer = null,
@@ -7256,6 +7353,24 @@ const MapTracer = struct {
     last_id: u32 = 0,
     last_thread: u32 = 0,
     failed: bool = false,
+    /// The census, in place of the records (`RIG_MAP_CENSUS`).
+    census: bool = false,
+    census_path: []const u8 = "",
+    labels: std.AutoHashMapUnmanaged(CensusKey, CensusLabel) = .empty,
+    gens: [3]u64 = @splat(1),
+    reg_live: [2][4]u64 = @splat(@splat(0)),
+    reg_total_live: u64 = 0,
+    reg_peak: u64 = 0,
+    snap_reg: [3][2][4]u64 = @splat(@splat(@splat(0))),
+    snap_rss: [3]u64 = @splat(0),
+    snap_count: [3]u64 = @splat(0),
+    maxrss_kb: u64 = 0,
+    events: u64 = 0,
+    registered: u64 = 0,
+    clones: u64 = 0,
+    drops: u64 = 0,
+    unreg_drops: u64 = 0,
+    anomalies: u64 = 0,
 
     var records_buffer_var: [1 << 20]u8 = undefined;
     const records_buffer = split.cell(&records_buffer_var, "runtime.trace_records_buffer");
@@ -7280,8 +7395,13 @@ const MapTracer = struct {
     }
 
     /// Create the record file and its `.types` beside it, as the
-    /// program starts.
+    /// program starts; with `RIG_MAP_CENSUS=PATH`, only the census.
     fn open(self: *MapTracer, environ: std.process.Environ) void {
+        if (environ.getPosix("RIG_MAP_CENSUS")) |p| {
+            self.census = true;
+            self.census_path = p;
+            return;
+        }
         const path = environ.getPosix("RIG_MAP_TRACE_FILE") orelse "rig-map-trace.bin";
         const types_path = std.fmt.bufPrint(name_buffer, "{s}.types", .{path}) catch return self.fail(path, error.NameTooLong);
         const dir = std.Io.Dir.cwd();
@@ -7345,9 +7465,115 @@ const MapTracer = struct {
         w.interface.writeAll(&rec) catch |err| self.fail("the trace", err);
     }
 
+    fn censusMove(self: *MapTracer, kind: u8, old: u8, b: u8) void {
+        if (old == 0) {
+            self.registered += 1;
+            self.reg_total_live += 1;
+            if (self.reg_total_live > self.reg_peak) {
+                self.reg_peak = self.reg_total_live;
+                self.reg_live[kind][b] += 1;
+                self.snapshot(2);
+                self.tick();
+                return;
+            }
+        } else self.reg_live[kind][old - 1] -%= 1;
+        self.reg_live[kind][b] += 1;
+        self.tick();
+    }
+
+    fn tick(self: *MapTracer) void {
+        self.events += 1;
+        if (self.events & 1023 == 0) self.rssCheck();
+    }
+
+    fn rssCheck(self: *MapTracer) void {
+        const ru = std.posix.getrusage(std.posix.rusage.SELF);
+        const kb: u64 = @intCast(@max(ru.maxrss, 0));
+        if (kb > self.maxrss_kb) {
+            self.maxrss_kb = kb;
+            self.snapshot(1);
+        }
+    }
+
+    fn snapshot(self: *MapTracer, s: usize) void {
+        self.gens[s] += 1;
+        self.snap_reg[s] = self.reg_live;
+        self.snap_rss[s] = self.maxrss_kb;
+        self.snap_count[s] = self.reg_total_live;
+    }
+
+    fn censusDrop(self: *MapTracer, kind: u8, ty: []const u8, owner: []const u8, state: u8, len_bucket: u8) void {
+        self.drops += 1;
+        var b = len_bucket;
+        if (state == 0) {
+            self.unreg_drops += 1;
+            if (len_bucket != 0) self.anomalies += 1;
+        } else {
+            b = state - 1;
+            if (b != len_bucket) self.anomalies += 1;
+            self.reg_live[kind][b] -%= 1;
+            self.reg_total_live -%= 1;
+        }
+        const key: CensusKey = .{ .owner = @intFromPtr(owner.ptr), .owner_len = owner.len, .ty = @intFromPtr(ty.ptr), .ty_len = ty.len };
+        const g = self.labels.getOrPut(std.heap.smp_allocator, key) catch oom();
+        if (!g.found_existing) g.value_ptr.* = .{ .kind = kind };
+        const l = g.value_ptr;
+        for (0..3) |s| {
+            if (l.gen[s] != self.gens[s]) {
+                l.gen[s] = self.gens[s];
+                l.since[s] = @splat(0);
+                l.unreg[s] = 0;
+            }
+            l.since[s][b] += 1;
+            if (state == 0) l.unreg[s] += 1;
+        }
+        l.total[b] += 1;
+        if (state == 0) l.total_unreg += 1;
+        self.tick();
+    }
+
+    /// The census's report, as the program ends: a TSV of the totals,
+    /// the snapshots, and a line per label.
+    fn censusReport(self: *MapTracer) void {
+        const ru = std.posix.getrusage(std.posix.rusage.SELF);
+        self.maxrss_kb = @max(self.maxrss_kb, @as(u64, @intCast(@max(ru.maxrss, 0))));
+        const file = std.Io.Dir.cwd().createFile(io(), self.census_path, .{}) catch |err| return self.fail(self.census_path, err);
+        var w = file.writerStreaming(io(), records_buffer);
+        const o = &w.interface;
+        o.print("# rig map census\ttotals\tregistered {d}\tclones {d}\tdrops {d}\tunregistered_drops {d}\tanomalies {d}\tregistered_live_at_exit {d}\tmaxrss_kb {d}\n", .{ self.registered, self.clones, self.drops, self.unreg_drops, self.anomalies, self.reg_total_live, self.maxrss_kb }) catch {};
+        for (0..3) |s| {
+            o.print("snap\t{d}\trss_kb {d}\tregistered_live {d}\tmap", .{ s, self.snap_rss[s], self.snap_count[s] }) catch {};
+            for (self.snap_reg[s][0]) |n| o.print("\t{d}", .{n}) catch {};
+            o.writeAll("\tset") catch {};
+            for (self.snap_reg[s][1]) |n| o.print("\t{d}", .{n}) catch {};
+            o.writeAll("\n") catch {};
+        }
+        var it = self.labels.iterator();
+        while (it.next()) |e| {
+            const k = e.key_ptr.*;
+            const l = e.value_ptr.*;
+            const owner = @as([*]const u8, @ptrFromInt(k.owner))[0..k.owner_len];
+            const ty = @as([*]const u8, @ptrFromInt(k.ty))[0..k.ty_len];
+            o.print("label\t{s}\t{s}\t{d}\ttotal", .{ owner, ty, l.kind }) catch {};
+            for (l.total) |n| o.print("\t{d}", .{n}) catch {};
+            o.print("\t{d}", .{l.total_unreg}) catch {};
+            for (0..3) |s| {
+                const cur = l.gen[s] == self.gens[s];
+                o.print("\ts{d}", .{s}) catch {};
+                for (l.since[s]) |n| o.print("\t{d}", .{if (cur) n else 0}) catch {};
+                o.print("\t{d}", .{if (cur) l.unreg[s] else 0}) catch {};
+            }
+            o.writeAll("\n") catch {};
+        }
+        o.flush() catch {};
+        file.close(io());
+        self.labels.deinit(std.heap.smp_allocator);
+    }
+
     /// Write out what is buffered and close both files, as the program
     /// ends (`finish`).
     fn close(self: *MapTracer) void {
+        if (self.census) return self.censusReport();
         if (self.records) |*w| {
             w.interface.flush() catch |err| self.fail("the trace", err);
             w.file.close(io());
@@ -9501,6 +9727,7 @@ pub inline fn print(pieces: anytype) void {
     const plan = comptime piecesOf(@TypeOf(pieces));
     comptime std.debug.assert(plan.len > 0 and plan[plan.len - 1] == .text);
     if (comptime piecesRunCode(@TypeOf(pieces))) return printRendered(pieces);
+    if (map_trace) mapCensusMark();
     lockOutput();
     defer unlockOutput();
     inline for (plan, 0..) |p, i| switch (p) {
@@ -9519,6 +9746,7 @@ noinline fn printRendered(pieces: anytype) void {
     var line: Spill = .init(&stack);
     defer line.deinit();
     writeArgs(&line.writer, pieces) catch unreachable;
+    if (map_trace) mapCensusMark();
     lockOutput();
     defer unlockOutput();
     outLine(line.writer.buffered());
@@ -9724,6 +9952,7 @@ noinline fn outLine(text: []const u8) void {
 /// stdout pipe ends it by SIGPIPE once `os.on_broken_pipe(.die)` is set
 /// (`dieOfBrokenPipe`).
 pub fn writeStandard(fd: i64, bytes: []const u8) std.posix.E {
+    if (map_trace) mapCensusMark();
     lockOutput();
     defer unlockOutput();
     if (fd == 2) {
@@ -9803,6 +10032,7 @@ pub noinline fn warn(pieces: anytype) void {
     var line: Spill = .init(&stack);
     defer line.deinit();
     writeArgs(&line.writer, pieces) catch unreachable;
+    if (map_trace) mapCensusMark();
     lockOutput();
     defer unlockOutput();
     flush();
