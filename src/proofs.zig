@@ -474,7 +474,7 @@ const Pass = struct {
 
     /// A slice view: a `?String`, `[]T`, or `![]T`.
     fn isSliceView(p: *const Pass, ty: sema.TypeId) bool {
-        const types = &p.ctx.types;
+        const types = p.ctx.types;
         return switch (types.get(ty)) {
             .string_view, .slice => true,
             .write_view => |inner| types.get(inner) == .slice,

@@ -166,7 +166,7 @@ pub const Facts = struct {
     pub fn of(ctx: *const SemContext) Facts {
         return .{
             .sema_context = ctx,
-            .types = &ctx.types,
+            .types = ctx.types,
             .symbols = &ctx.symbols,
             .source = ctx.source,
             .name = ctx.name,

@@ -1706,7 +1706,7 @@ fn holdsErrorValue(ctx: *const SemContext, e: Sexp) bool {
 /// optional helpers.
 fn liftRouted(ctx: *const SemContext, lift: sema.Lift, strict: bool) bool {
     var o = lift.into;
-    var levels = lir.liftLevels(&ctx.types, lift);
+    var levels = lir.liftLevels(ctx.types, lift);
     while (levels > 0) : (levels -= 1) {
         const inner = ctx.types.get(o).optional;
         if (sema.optionalRouted(ctx, inner, strict)) return true;

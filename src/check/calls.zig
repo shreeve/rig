@@ -199,7 +199,7 @@ pub fn checkVisible(self: *Checker, f: Field, owner: sema.Symbol, module: ?u32, 
     const tname = if (module != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, owner.name }) else owner.name;
     if (f.is_method) {
         // A proxy's methods have this module's types.
-        const types = if (module != null) &foreign.types else self.t();
+        const types = if (module != null) foreign.types else self.t();
         const is_sub = switch (types.get(f.ty)) {
             .function => |fty| fty.is_sub,
             else => false,

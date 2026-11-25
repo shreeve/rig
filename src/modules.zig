@@ -159,6 +159,8 @@ pub const ModuleGraph = struct {
     held: ?Held = null,
     /// The decisions made once for the whole program (`table`).
     program: ?*program.Table = null,
+    /// The program's one type store, made with the first module checked.
+    types: ?*program.Types = null,
 
     pub const Held = struct { path: []const u8, text: []const u8 };
 
@@ -182,6 +184,10 @@ pub const ModuleGraph = struct {
         self.by_name.deinit(self.allocator);
         if (self.semas) |s| s.deinit(self.allocator);
         if (self.program) |t| t.deinit();
+        if (self.types) |t| {
+            t.deinit(self.allocator);
+            self.allocator.destroy(t);
+        }
         self.errors.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -892,7 +898,15 @@ pub const ModuleGraph = struct {
             try entries.append(self.allocator, .{ .local_name = imp.local_name, .sema = self.get(imp.target).sema, .module_id = imp.target, .file = imp.file });
         }
 
+        const types = self.types orelse made: {
+            const t = try self.allocator.create(program.Types);
+            errdefer self.allocator.destroy(t);
+            t.* = try program.Types.init(self.allocator);
+            self.types = t;
+            break :made t;
+        };
         const opts: sema.CheckOptions = .{
+            .types = types,
             .parser = m.parser,
             .imports = entries.items,
             .modules = self.semas.?,
