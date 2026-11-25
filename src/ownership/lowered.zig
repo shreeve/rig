@@ -137,9 +137,14 @@ pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
         }
         return null;
     };
-    const a = self.arena();
+    // A function's index lives while its walk does: the function arena
+    // is reset after each module-level function. The module's own body
+    // lives for the module's walk.
+    const a = if (root.isKind(.module)) self.arena_state.allocator() else self.fn_arena_state.allocator();
     const out = try a.create(Body);
     out.* = .{ .f = f };
+    try out.exprs.ensureTotalCapacity(a, @intCast(f.exprs.items.len));
+    try out.stmts.ensureTotalCapacity(a, @intCast(f.regions.items.len));
     if (self.on_lir) for (f.vars.items) |v| switch (v.name) {
         .binding => |s| if (sema.decisionKeyOf(v.node)) |key| try out.binds.put(a, key, s),
         .hidden => |k| if (k == .temp) if (sema.decisionKeyOf(v.node)) |key| try out.temps.put(a, key, {}),
