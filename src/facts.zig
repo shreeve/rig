@@ -1272,8 +1272,9 @@ test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
     // Emit imports no file that holds a classifier: sema.zig, storage.zig,
     // and resolve.zig are reached only through this one. nametable.zig
-    // builds the data of a table of names, and decides nothing.
-    const allowed = [_][]const u8{ "std", "parser.zig", "rig.zig", "facts.zig", "diag.zig", "nametable.zig" };
+    // builds the data of a table of names, and names.zig lists the
+    // runtime's names; neither decides anything.
+    const allowed = [_][]const u8{ "std", "parser.zig", "rig.zig", "facts.zig", "diag.zig", "nametable.zig", "names.zig" };
     // Read as Zig reads it, so no spelling of an import slips past.
     var tokens = std.zig.Tokenizer.init(emit_source);
     var imports: usize = 0;
@@ -1326,7 +1327,7 @@ test "emit names hidden storage only through hiddenStorage" {
     // Spellings of a base that name no storage: a table entry's result
     // parameter, a parameter a function owns or holds the header of, and
     // a loop's index counter.
-    const others = [_][]const u8{ "rig.someOut({s}{s}), __rig_res);\\n", ", __rig_res: *rig.Payload(", "__rig_arg_{d}", "__rig_viewed_{s}", "__rig_viewed_{d}", "__rig_i_{d}" };
+    const others = [_][]const u8{ "({s}{s}), __rig_res);\\n", ", __rig_res: *", "__rig_arg_{d}", "__rig_viewed_{s}", "__rig_viewed_{d}", "__rig_i_{d}" };
     var pass: enum { bases, uses } = .bases;
     while (true) : (pass = .uses) {
         var tokens = std.zig.Tokenizer.init(emit_source);

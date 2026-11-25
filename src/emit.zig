@@ -31,6 +31,8 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const runtime_names = @import("names.zig");
+const rt = runtime_names.rt;
 const facts = @import("facts.zig");
 const Facts = facts.Facts;
 const Wide = facts.Wide;
@@ -99,7 +101,7 @@ pub fn placeSites(allocator: std.mem.Allocator, text: []const u8) error{OutOfMem
 /// So the places travel with the executable. Only a build that keeps
 /// traces reads it; any other compiles none of it.
 pub fn writeSiteTable(w: *Writer, sites: []const u8) Writer.Error!void {
-    try w.print("\nfn __rig_sites_anchor() callconv(.c) void {{}}\npub const __rig_sites: rig.SiteTable = .{{ .anchor = &__rig_sites_anchor, .text = \"{f}\" }};\n", .{std.zig.fmtString(sites)});
+    try w.print("\nfn __rig_sites_anchor() callconv(.c) void {{}}\npub const __rig_sites: " ++ rt(.SiteTable) ++ " = .{{ .anchor = &__rig_sites_anchor, .text = \"{f}\" }};\n", .{std.zig.fmtString(sites)});
 }
 /// The runtime's tasks (`src/tasks.zig`), written beside it.
 pub const tasks_filename = "rig/tasks.zig";
@@ -160,7 +162,7 @@ pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule
         }
         if (used) try w.print("const m{d} = @import(\"{s}\");\n", .{ i, m.path });
     }
-    try w.writeAll("\npub const Glue = struct {\n    const Ops = rig.ErrorGlueOps;\n");
+    try w.writeAll("\npub const Glue = struct {\n    const Ops = " ++ rt(.ErrorGlueOps) ++ ";\n");
     // The size and alignment of the largest member's fields.
     for ([2][]const u8{ "size", "alignment" }) |what| {
         try w.print("    pub const {s}: usize = @max(1", .{what});
@@ -172,11 +174,11 @@ pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule
     const Needs = enum { all, eq, hash };
     // (`marks` keeps a parameter no listed member reads from being unused.)
     const ops = [_]struct { head: []const u8, call: []const u8, other: []const u8, needs: Needs = .all, marks: []const u8 = "" }{
-        .{ .head = "drop(code: anyerror, data: *rig.ErrData) void", .call = "drop(data)", .other = "{}" },
-        .{ .head = "clone(code: anyerror, src: *const rig.ErrData, dst: *rig.ErrData) void", .call = "clone(src, dst)", .other = "{}" },
-        .{ .head = "eql(code: anyerror, a: *const rig.ErrData, b: *const rig.ErrData) bool", .call = "eqlFields(a, b)", .other = "true", .needs = .eq, .marks = "_ = &a;\n        _ = &b;\n        " },
-        .{ .head = "hash(code: anyerror, data: *const rig.ErrData) u64", .call = "hash(data)", .other = "0", .needs = .hash, .marks = "_ = &data;\n        " },
-        .{ .head = "print(code: anyerror, data: *const rig.ErrData, w: *std.Io.Writer) std.Io.Writer.Error!void", .call = "print(rig.errorShown(code), data, w)", .other = "w.writeAll(rig.errorShown(code))" },
+        .{ .head = "drop(code: anyerror, data: *" ++ rt(.ErrData) ++ ") void", .call = "drop(data)", .other = "{}" },
+        .{ .head = "clone(code: anyerror, src: *const " ++ rt(.ErrData) ++ ", dst: *" ++ rt(.ErrData) ++ ") void", .call = "clone(src, dst)", .other = "{}" },
+        .{ .head = "eql(code: anyerror, a: *const " ++ rt(.ErrData) ++ ", b: *const " ++ rt(.ErrData) ++ ") bool", .call = "eqlFields(a, b)", .other = "true", .needs = .eq, .marks = "_ = &a;\n        _ = &b;\n        " },
+        .{ .head = "hash(code: anyerror, data: *const " ++ rt(.ErrData) ++ ") u64", .call = "hash(data)", .other = "0", .needs = .hash, .marks = "_ = &data;\n        " },
+        .{ .head = "print(code: anyerror, data: *const " ++ rt(.ErrData) ++ ", w: *std.Io.Writer) std.Io.Writer.Error!void", .call = "print(" ++ rt(.errorShown) ++ "(code), data, w)", .other = "w.writeAll(" ++ rt(.errorShown) ++ "(code))" },
     };
     for (ops) |op| {
         try w.print("    pub fn {s} {{\n        {s}switch (code) {{\n", .{ op.head, op.marks });
@@ -680,7 +682,7 @@ pub const Emitter = struct {
         for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id, self.facts.os_sym_id, self.facts.feature_sym_id, self.facts.order_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
         if (self.uses_symbols) try self.w.print("\nconst __rig_sym = @import(\"{s}\");\n", .{symbols_filename});
         if (self.cut_exports.items.len > 0) {
-            try self.w.writeAll("\ncomptime {\n    if (rig.split.on) {\n        @setEvalBranchQuota(rig.eval_quota);\n");
+            try self.w.writeAll("\ncomptime {\n    if (" ++ rt(.split) ++ ".on) {\n        @setEvalBranchQuota(" ++ rt(.eval_quota) ++ ");\n");
             for (self.cut_exports.items) |e| try self.w.print("        {s}\n", .{e});
             try self.w.writeAll("    }\n}\n");
         }
@@ -899,7 +901,7 @@ pub const Emitter = struct {
                 // Zig fails with codes alone, but takes the slot a
                 // function that may fail with fields is called with.
                 const out = self.failsWithFields(f.returns);
-                if (out) try self.w.writeAll(if (f.params.len > 0) ", __out: rig.ErrSlot" else "__out: rig.ErrSlot");
+                if (out) try self.w.writeAll(if (f.params.len > 0) ", __out: " ++ rt(.ErrSlot) else "__out: " ++ rt(.ErrSlot));
                 try self.w.writeAll(") ");
                 try self.emitTypeTy(f.returns);
                 try self.w.writeAll(" {\n");
@@ -910,7 +912,7 @@ pub const Emitter = struct {
             } else {
                 try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, exactIdent(self.srcText(name)) });
             }
-            try self.w.print("comptime {{\n    rig.expectShim({s}.{f}, fn (", .{ shim, exactIdent(self.srcText(name)) });
+            try self.w.print("comptime {{\n    " ++ rt(.expectShim) ++ "({s}.{f}, fn (", .{ shim, exactIdent(self.srcText(name)) });
             try self.emitTypeList(f.params);
             try self.w.writeAll(") ");
             if (f.returns == self.facts.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
@@ -945,7 +947,7 @@ pub const Emitter = struct {
         try self.tests.append(self.allocator, .{ .name = self.srcText(ir.Test.name(node)), .func = func });
         // A test that may fail with fields is given the slot they go in,
         // which `rig.runTests` shows and drops.
-        try self.w.print("fn {s}(__out: rig.ErrSlot) anyerror!void ", .{func});
+        try self.w.print("fn {s}(__out: " ++ rt(.ErrSlot) ++ ") anyerror!void ", .{func});
         self.fun = .{ .name = try self.fmt("test {s}", .{self.srcText(ir.Test.name(node))}), .has_out = true, .out_unmarked = true };
         try self.emitBlock(ir.Test.body(node));
         try self.w.writeAll("\n");
@@ -959,13 +961,13 @@ pub const Emitter = struct {
         if (returns) try self.w.writeAll("{ ");
         try self.w.writeAll("if (!(");
         try self.emitBare(if (returns) ir.Return.value(stmt) else stmt);
-        try self.w.print(")) rig.testFalse(\"{f}\");", .{std.zig.fmtString(report)});
+        try self.w.print(")) " ++ rt(.testFalse) ++ "(\"{f}\");", .{std.zig.fmtString(report)});
         if (returns) try self.w.writeAll(" return; }");
     }
 
     fn emitTestTable(self: *Emitter) Error!void {
         if (self.tests.items.len == 0) return;
-        try self.w.writeAll("\npub const __rig_tests = [_]rig.Test{\n");
+        try self.w.writeAll("\npub const __rig_tests = [_]" ++ rt(.Test) ++ "{\n");
         for (self.tests.items) |t| {
             try self.w.writeAll("    .{ .name = ");
             try self.w.writeAll(try facts.syntax.zigLiteral(self.arena.allocator(), t.name));
@@ -1023,7 +1025,7 @@ pub const Emitter = struct {
         try self.writeIndent(depth);
         try self.w.writeAll("comptime {\n");
         try self.writeIndent(depth + 1);
-        try self.w.writeAll("if (@sizeOf(rig.Opt(@This())) != @sizeOf(@This())) @compileError(\"rig: an object's optional is larger than the object, though it names its none\");\n");
+        try self.w.writeAll("if (@sizeOf(" ++ rt(.Opt) ++ "(@This())) != @sizeOf(@This())) @compileError(\"rig: an object's optional is larger than the object, though it names its none\");\n");
         try self.writeIndent(depth);
         try self.w.writeAll("}\n");
     }
@@ -1100,8 +1102,8 @@ pub const Emitter = struct {
         var names: std.ArrayList([]const u8) = .empty;
         for (self.facts.symbols.items[sym].fields orelse &.{}) |f| if (f.is_variant) try names.append(a, f.name);
         if (self.facts.isBuiltinEnum(sym)) {
-            try self.w.print("\nconst __rig_text_{s}: rig.NameTable = ", .{self.facts.symbols.items[sym].name});
-        } else try self.w.writeAll("    pub const __rig_text: rig.NameTable = ");
+            try self.w.print("\nconst __rig_text_{s}: " ++ rt(.NameTable) ++ " = ", .{self.facts.symbols.items[sym].name});
+        } else try self.w.writeAll("    pub const __rig_text: " ++ rt(.NameTable) ++ " = ");
         try nametable.write(self.w, names.items, try nametable.build(a, names.items));
         try self.w.writeAll(";\n");
     }
@@ -1205,7 +1207,7 @@ pub const Emitter = struct {
     fn writeErrorMemberValue(self: *Emitter, set: TypeId, name: []const u8, at: Sexp) Error!void {
         const failing = self.fun.has_out and self.facts.isFailingLeaf(at);
         if (failing or self.error_codes or !self.isErrorValueTy(set)) return self.writeError(set, name, at);
-        try self.w.writeAll("rig.ErrorValue.of(");
+        try self.w.writeAll(rt(.ErrorValue) ++ ".of(");
         try self.writeError(set, name, at);
         try self.w.writeAll(", .{})");
     }
@@ -1328,16 +1330,16 @@ pub const Emitter = struct {
         // name `Print`; how a box of it is dropped, and cloned where the
         // braces name `Clone`, or a count of it given back and added; and
         // the weak count of a `*{A}`, made, given back, and upgraded.
-        try self.w.writeAll("    __rig_print: rig.ErasedPrint,\n");
-        try self.w.writeAll("    __rig_drop: rig.ErasedDrop,\n");
-        try self.w.writeAll("    __rig_clone: rig.ErasedClone,\n");
-        try self.w.writeAll("    __rig_weak: rig.ErasedWeak,\n");
-        try self.w.writeAll("    __rig_weak_drop: rig.ErasedWeak,\n");
-        try self.w.writeAll("    __rig_upgrade: rig.ErasedUpgrade,\n");
+        try self.w.writeAll("    __rig_print: " ++ rt(.ErasedPrint) ++ ",\n");
+        try self.w.writeAll("    __rig_drop: " ++ rt(.ErasedDrop) ++ ",\n");
+        try self.w.writeAll("    __rig_clone: " ++ rt(.ErasedClone) ++ ",\n");
+        try self.w.writeAll("    __rig_weak: " ++ rt(.ErasedWeak) ++ ",\n");
+        try self.w.writeAll("    __rig_weak_drop: " ++ rt(.ErasedWeak) ++ ",\n");
+        try self.w.writeAll("    __rig_upgrade: " ++ rt(.ErasedUpgrade) ++ ",\n");
         // The API's name, for `$name` of an object's type (`rig.typeName`).
         try self.w.print("\n    pub const __rig_name = .{{ .module = \"{s}\", .name = \"{s}\" }};\n", .{ nameModule(self.facts), sym.name });
         try self.w.writeAll("};\n\n");
-        try self.w.print("pub fn __rig_table_{s}_of(comptime __rig_T: type, comptime __rig_W: type, comptime __rig_H: rig.ApiHolding) *const __rig_table_{s} {{\n", .{ sym.name, sym.name });
+        try self.w.print("pub fn __rig_table_{s}_of(comptime __rig_T: type, comptime __rig_W: type, comptime __rig_H: " ++ rt(.ApiHolding) ++ ") *const __rig_table_{s} {{\n", .{ sym.name, sym.name });
         try self.w.writeAll("    return &struct {\n");
         try self.w.print("        const __rig_table: __rig_table_{s} = .{{", .{sym.name});
         var n: usize = 0;
@@ -1346,7 +1348,7 @@ pub const Emitter = struct {
             try self.w.print(" .{f} = __rig_entry_{s},", .{ ident(e.name), e.name });
             n += 1;
         }
-        try self.w.writeAll(" .__rig_print = rig.printErased(__rig_T), .__rig_drop = rig.dropErased(__rig_T, __rig_H), .__rig_clone = rig.cloneErased(__rig_T, __rig_H), .__rig_weak = rig.weakErased(__rig_T, __rig_H), .__rig_weak_drop = rig.weakDropErased(__rig_T, __rig_H), .__rig_upgrade = rig.upgradeErased(__rig_T, __rig_H) };\n");
+        try self.w.writeAll(" .__rig_print = " ++ rt(.printErased) ++ "(__rig_T), .__rig_drop = " ++ rt(.dropErased) ++ "(__rig_T, __rig_H), .__rig_clone = " ++ rt(.cloneErased) ++ "(__rig_T, __rig_H), .__rig_weak = " ++ rt(.weakErased) ++ "(__rig_T, __rig_H), .__rig_weak_drop = " ++ rt(.weakDropErased) ++ "(__rig_T, __rig_H), .__rig_upgrade = " ++ rt(.upgradeErased) ++ "(__rig_T, __rig_H) };\n");
         if (n == 0) try self.w.writeAll("        comptime {\n            _ = @TypeOf(__rig_W);\n        }\n");
         for (entries) |e| {
             if (!tableHolds(e)) continue;
@@ -1359,20 +1361,20 @@ pub const Emitter = struct {
             // whose memory is freed first: the entry owns nothing after,
             // so a method that fails drops self once, as its own.
             if (e.self_mode == .value) {
-                try self.w.writeAll("            var __rig_self = rig.erasedTake(__rig_T, __rig_ptr);\n            const __rig_p = &__rig_self;\n");
-            } else try self.w.print("            const __rig_p = rig.erasedSelf({s}__rig_T, __rig_ptr);\n", .{if (e.self_mode == .write) "*" else "*const "});
+                try self.w.writeAll("            var __rig_self = " ++ rt(.erasedTake) ++ "(__rig_T, __rig_ptr);\n            const __rig_p = &__rig_self;\n");
+            } else try self.w.print("            const __rig_p = " ++ rt(.erasedSelf) ++ "({s}__rig_T, __rig_ptr);\n", .{if (e.self_mode == .write) "*" else "*const "});
             try self.w.writeAll("            return ");
-            const call = try self.fmt("__rig_W.{f}(rig.selfArg(__rig_W.{f}, __rig_p){s}", .{ ident(e.name), ident(e.name), if (args.len > 0) ", " else "" });
+            const call = try self.fmt("__rig_W.{f}(" ++ rt(.selfArg) ++ "(__rig_W.{f}, __rig_p){s}", .{ ident(e.name), ident(e.name), if (args.len > 0) ", " else "" });
             var list: std.ArrayList(u8) = .empty;
             for (0..args.len) |i| try list.print(self.arena.allocator(), "{s}__rig_a{d}", .{ if (i > 0) ", " else "", i });
             // A fallible method's entry takes the slot, and passes it on
             // to a method that takes one (`rig.takesSlot`).
             if (self.facts.types.get(f.returns) == .fallible) {
-                try self.w.print("if (comptime rig.takesSlot(__rig_W.{f}, {d})) {s}{s}, __rig_out) else {s}{s});\n", .{ ident(e.name), args.len + 1, call, list.items, call, list.items });
+                try self.w.print("if (comptime " ++ rt(.takesSlot) ++ "(__rig_W.{f}, {d})) {s}{s}, __rig_out) else {s}{s});\n", .{ ident(e.name), args.len + 1, call, list.items, call, list.items });
             } else if (e.result_out) {
                 // A result through the caller's place: written there only
                 // when there is one (`sema.TableEntry` `result_out`).
-                try self.w.print("rig.someOut({s}{s}), __rig_res);\n", .{ call, list.items });
+                try self.w.print(rt(.someOut) ++ "({s}{s}), __rig_res);\n", .{ call, list.items });
             } else try self.w.print("{s}{s});\n", .{ call, list.items });
             try self.w.writeAll("        }\n");
         }
@@ -1395,18 +1397,18 @@ pub const Emitter = struct {
         const f = self.facts.types.get(e.fn_ty).function;
         if (named) try self.w.writeAll("__rig_ptr: ");
         try self.w.writeAll(switch (e.self_mode) {
-            .write => "rig.ErasedWrite",
-            .value => "rig.ErasedOwn",
-            else => "rig.ErasedRead",
+            .write => rt(.ErasedWrite),
+            .value => rt(.ErasedOwn),
+            else => rt(.ErasedRead),
         });
         for (f.params[@min(1, f.params.len)..], 0..) |p, i| {
             try self.w.writeAll(", ");
             if (named) try self.w.print("__rig_a{d}: ", .{i});
             try self.emitTypeTy(p);
         }
-        if (self.facts.types.get(f.returns) == .fallible) try self.w.writeAll(if (named) ", __rig_out: rig.ErrSlot" else ", rig.ErrSlot");
+        if (self.facts.types.get(f.returns) == .fallible) try self.w.writeAll(if (named) ", __rig_out: " ++ rt(.ErrSlot) else ", " ++ rt(.ErrSlot));
         if (e.result_out) {
-            try self.w.writeAll(if (named) ", __rig_res: *rig.Payload(" else ", *rig.Payload(");
+            try self.w.writeAll(if (named) ", __rig_res: *" ++ rt(.Payload) ++ "(" else ", *" ++ rt(.Payload) ++ "(");
             try self.emitTypeTy(f.returns);
             try self.w.writeAll(")) bool");
             return;
@@ -1771,9 +1773,9 @@ pub const Emitter = struct {
         if (!direct) try self.w.print("const {s} = {s}; ", .{ name, buf.written() });
         if (out) {
             const result = self.typeOf(call) orelse return self.unsupported(call, "an untyped call through an API object");
-            try self.w.print("var {s} = rig.outPlace(", .{res});
+            try self.w.print("var {s} = " ++ rt(.outPlace) ++ "(", .{res});
             try self.emitTypeTy(result);
-            try self.w.print("); break :__rig_call_{d} rig.packOut(", .{id});
+            try self.w.print("); break :__rig_call_{d} " ++ rt(.packOut) ++ "(", .{id});
             try self.emitTypeTy(result);
             try self.w.writeAll(", ");
         } else if (!direct) try self.w.print("break :__rig_call_{d} ", .{id});
@@ -1800,7 +1802,7 @@ pub const Emitter = struct {
     /// the method takes self, a pointer or a copy.
     fn emitWitnessSelf(self: *Emitter, recv: Sexp, s: facts.Dispatch.Static) Error!void {
         if (s.self_mode == .value) return self.emitExpr(recv);
-        try self.w.writeAll("rig.selfArg(");
+        try self.w.writeAll(rt(.selfArg) ++ "(");
         try self.writeWitnessMethod(s);
         try self.w.writeAll(", ");
         try self.emitSelfAddress(recv, s);
@@ -1829,22 +1831,22 @@ pub const Emitter = struct {
     /// part of another value, at every level.
     fn emitOwnApis(self: *Emitter, depth: u32) Error!void {
         const sym = self.facts.symbols.items[self.nominal.?.sym];
-        const view = "rig.viewOf(@This(), a), rig.viewOf(@This(), b)";
+        const view = rt(.viewOf) ++ "(@This(), a), " ++ rt(.viewOf) ++ "(@This(), b)";
         if (facts.syntax.ownApiMethod(sym, .Eq) != null) {
             try self.writeIndent(depth);
             try self.w.print("pub fn __rig_own_eq(a: *const @This(), b: *const @This()) bool {{ return @This().eq({s}); }}\n", .{view});
         }
         if (facts.syntax.ownApiMethod(sym, .Ord) != null) {
             try self.writeIndent(depth);
-            try self.w.print("pub fn __rig_own_order(a: *const @This(), b: *const @This()) rig.Order {{ return @This().order({s}); }}\n", .{view});
+            try self.w.print("pub fn __rig_own_order(a: *const @This(), b: *const @This()) " ++ rt(.Order) ++ " {{ return @This().order({s}); }}\n", .{view});
         }
         if (facts.syntax.ownApiMethod(sym, .Print) != null) {
             try self.writeIndent(depth);
-            try self.w.writeAll("pub fn __rig_own_print(a: *const @This(), out: *rig.Printer) void { @This().print(rig.viewOf(@This(), a), out); }\n");
+            try self.w.writeAll("pub fn __rig_own_print(a: *const @This(), out: *" ++ rt(.Printer) ++ ") void { @This().print(" ++ rt(.viewOf) ++ "(@This(), a), out); }\n");
         }
         if (facts.syntax.ownApiMethod(sym, .Hash) != null) {
             try self.writeIndent(depth);
-            try self.w.writeAll("pub fn __rig_own_hash(a: *const @This()) u64 { var h: rig.Hasher = .{}; @This().hash_into(rig.viewOf(@This(), a), &h); return h.state; }\n");
+            try self.w.writeAll("pub fn __rig_own_hash(a: *const @This()) u64 { var h: " ++ rt(.Hasher) ++ " = .{}; @This().hash_into(" ++ rt(.viewOf) ++ "(@This(), a), &h); return h.state; }\n");
         }
     }
 
@@ -1945,7 +1947,7 @@ pub const Emitter = struct {
         try self.w.writeAll("\n\n");
         try self.line("pub fn __rig_drop(self: *{s}) void {{", .{nom});
         try self.line("    self.__rig_user_drop();", .{});
-        try self.line("    rig.dropFields(self);", .{});
+        try self.line("    " ++ rt(.dropFields) ++ "(self);", .{});
         try self.line("}}", .{});
     }
 
@@ -1990,7 +1992,7 @@ pub const Emitter = struct {
         // The runtime's panic handler flushes buffered `print` output
         // first; its Zig options leave each thread's alternate signal
         // stack to it (`rig.AltStack`).
-        if (is_main) try self.w.writeAll("pub const panic = rig.panic;\npub const std_options = rig.std_options;\n\n");
+        if (is_main) try self.w.writeAll("pub const panic = " ++ rt(.panic) ++ ";\npub const std_options = " ++ rt(.std_options) ++ ";\n\n");
         // A `main` that can fail is canceled by an interrupt or SIGTERM
         // (`rig.cancelOnInterrupt`); one that cannot keeps their default.
         if (main_fails) try self.w.writeAll("pub const __rig_interrupt = true;\n\n");
@@ -2003,16 +2005,16 @@ pub const Emitter = struct {
         // drops them after the body's drops and defers, before `finish`.
         if (self.fun.main_slot) {
             const ret = if (main_status) "u8" else "void";
-            try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) {s} {{\n    return rig.onOwnStack(__rig_fail_main, .{{__rig_init}});\n}}\n\n", .{ret});
-            try self.w.print("fn __rig_fail_main(__rig_init: std.process.Init.Minimal) {s} {{\n    var __rig_main_slot: rig.ErrData = undefined;\n", .{ret});
-            try self.w.writeAll("    const result = __rig_run_main(__rig_init, rig.failSlot(&__rig_main_slot)) catch |__rig_failed| {\n        rig.reportFailure(__rig_failed, &__rig_main_slot);\n        rig.finish();\n        rig.failMainReported(__rig_failed);\n    };\n    rig.finish();\n");
-            try self.w.writeAll(if (main_status) "    return rig.exitStatus(result);\n}\n\n" else "    return result;\n}\n\n");
+            try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) {s} {{\n    return " ++ rt(.onOwnStack) ++ "(__rig_fail_main, .{{__rig_init}});\n}}\n\n", .{ret});
+            try self.w.print("fn __rig_fail_main(__rig_init: std.process.Init.Minimal) {s} {{\n    var __rig_main_slot: " ++ rt(.ErrData) ++ " = undefined;\n", .{ret});
+            try self.w.writeAll("    const result = __rig_run_main(__rig_init, " ++ rt(.failSlot) ++ "(&__rig_main_slot)) catch |__rig_failed| {\n        " ++ rt(.reportFailure) ++ "(__rig_failed, &__rig_main_slot);\n        " ++ rt(.finish) ++ "();\n        " ++ rt(.failMainReported) ++ "(__rig_failed);\n    };\n    " ++ rt(.finish) ++ "();\n");
+            try self.w.writeAll(if (main_status) "    return " ++ rt(.exitStatus) ++ "(result);\n}\n\n" else "    return result;\n}\n\n");
             try self.w.writeAll("fn __rig_run_main(");
         } else if (is_main) {
-            const catches = if (!main_fails) "" else " catch |__rig_failed| rig.failMain(__rig_failed)";
-            const run = "rig.onOwnStack(__rig_run_main, .{__rig_init})";
+            const catches = if (!main_fails) "" else " catch |__rig_failed| " ++ rt(.failMain) ++ "(__rig_failed)";
+            const run = rt(.onOwnStack) ++ "(__rig_run_main, .{__rig_init})";
             if (main_status) {
-                try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
+                try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return " ++ rt(.exitStatus) ++ "({s}{s});\n}}\n\n", .{ run, catches });
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    {s}{s};\n}}\n\n", .{ run, catches });
             try self.w.writeAll("fn __rig_run_main(");
         } else {
@@ -2023,22 +2025,22 @@ pub const Emitter = struct {
             try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (kept) "noinline " else "", ident(name) });
         }
         // Zig hands the arguments and environment only to `main`.
-        if (is_main) try self.w.writeAll(if (self.fun.main_slot) "__rig_init: std.process.Init.Minimal, __out: rig.ErrSlot" else "__rig_init: std.process.Init.Minimal");
+        if (is_main) try self.w.writeAll(if (self.fun.main_slot) "__rig_init: std.process.Init.Minimal, __out: " ++ rt(.ErrSlot) else "__rig_init: std.process.Init.Minimal");
         try self.pushScope();
         defer self.popScope() catch {};
         // Compile-time parameters come first, after a method's self,
         // which Zig's method call syntax needs first.
         try self.bindParams(tparams, false);
         try self.bindParams(params, inlined);
-        const rt = params.items();
-        const recv: usize = @intFromBool(self.nominal != null and rt.len > 0 and self.isSelfParam(rt[0]));
+        const ps = params.items();
+        const recv: usize = @intFromBool(self.nominal != null and ps.len > 0 and self.isSelfParam(ps[0]));
         // A method under bounds on its type's parameters takes a witness
         // for each that names an API of a program's own, after self.
         self.fun.owner_witnesses = try self.ownerWitnessParams(name_node);
         var n: usize = 0;
         // The arguments a cut function passes on to the unit that owns it.
         var args: std.Io.Writer.Allocating = .init(self.arena.allocator());
-        for ([_][]const Sexp{ rt[0..recv], tparams.items(), rt[recv..] }, 0..) |group, g| {
+        for ([_][]const Sexp{ ps[0..recv], tparams.items(), ps[recv..] }, 0..) |group, g| {
             if (g == 1) for (self.fun.owner_witnesses) |w| {
                 if (n > 0) try self.w.writeAll(", ");
                 n += 1;
@@ -2057,12 +2059,12 @@ pub const Emitter = struct {
         if (!is_main and self.failsWithFields(return_ty)) {
             self.fun.has_out = true;
             self.fun.out_unmarked = true;
-            try self.w.writeAll(if (n > 0) ", __out: rig.ErrSlot" else "__out: rig.ErrSlot");
+            try self.w.writeAll(if (n > 0) ", __out: " ++ rt(.ErrSlot) else "__out: " ++ rt(.ErrSlot));
             try args.writer.print("{s}__out", .{if (args.written().len > 0) ", " else ""});
         }
         if (!is_main) if (self.facts.splitUnitOf(name_node)) |unit| try self.emitCut(name, unit, args.written());
         try self.w.writeAll(") ");
-        if (self.code_section and !inlined) try self.w.writeAll("linksection(rig.preempt_section) ");
+        if (self.code_section and !inlined) try self.w.writeAll("linksection(" ++ rt(.preempt_section) ++ ") ");
         if (main_fails) {
             // `anyerror!void`, `anyerror!i64`: whether or not `-> Int!` says so.
             try self.w.writeAll("anyerror!");
@@ -2092,9 +2094,9 @@ pub const Emitter = struct {
         };
         const zig_name = try self.fmt("{f}", .{ident(name)});
         self.fun.cut_reads = true;
-        self.fun.cut = try self.fmt("if (!@inComptime() and comptime rig.split.away(@This().{s}, {d})) return rig.split.call(@This().{s}, \"{s}\", .{{{s}}});", .{ zig_name, unit, zig_name, sym.written(), args });
+        self.fun.cut = try self.fmt("if (!@inComptime() and comptime " ++ rt(.split) ++ ".away(@This().{s}, {d})) return " ++ rt(.split) ++ ".call(@This().{s}, \"{s}\", .{{{s}}});", .{ zig_name, unit, zig_name, sym.written(), args });
         const path = if (owner.len > 0) try self.fmt("{s}.{s}", .{ owner, zig_name }) else zig_name;
-        try self.cut_exports.append(self.allocator, try self.fmt("rig.split.exportFn({s}, \"{s}\", {d});", .{ path, sym.written(), unit }));
+        try self.cut_exports.append(self.allocator, try self.fmt(rt(.split) ++ ".exportFn({s}, \"{s}\", {d});", .{ path, sym.written(), unit }));
     }
 
     /// Bind each parameter in the current scope. An owned value (or one
@@ -2179,13 +2181,13 @@ pub const Emitter = struct {
                 try self.line("{s}", .{self.fun.cut});
                 self.fun.cut = "";
             }
-            if (!self.fun.inlined) try self.line("@setEvalBranchQuota(rig.eval_quota);", .{});
-            if (self.fun.entry_check) try self.line("rig.tickCall();", .{});
+            if (!self.fun.inlined) try self.line("@setEvalBranchQuota(" ++ rt(.eval_quota) ++ ");", .{});
+            if (self.fun.entry_check) try self.line(rt(.tickCall) ++ "();", .{});
         }
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
-            try self.line("rig.start(__rig_init);", .{});
-            if (!self.fun.main_slot) try self.line("defer rig.finish();", .{});
+            try self.line(rt(.start) ++ "(__rig_init);", .{});
+            if (!self.fun.main_slot) try self.line("defer " ++ rt(.finish) ++ "();", .{});
         }
         if (self.fun.out_unmarked) {
             self.fun.out_unmarked = false;
@@ -2239,9 +2241,9 @@ pub const Emitter = struct {
             // keeps the arithmetic and the indexing on it checked when
             // the program runs, as in a function that is called.
             if (local.launder) {
-                try self.line("const {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
+                try self.line("const {s} = " ++ rt(.rt) ++ "({s});", .{ local.zig_name, local.param_name });
             } else if (self.fun.inlined) {
-                try self.line("var {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
+                try self.line("var {s} = " ++ rt(.rt) ++ "({s});", .{ local.zig_name, local.param_name });
             } else try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
         }
         if (local.guard != .none) {
@@ -2495,7 +2497,7 @@ pub const Emitter = struct {
     /// may move some out (`Local.parts`), each behind its flag.
     fn writeLocalDrop(self: *Emitter, local: *const Local, kind: ResourceKind) Error!void {
         if (local.parts.len == 0) return self.writeDrop(local.zig_name, kind);
-        try self.w.print("rig.dropParts(&{s}, ", .{local.zig_name});
+        try self.w.print(rt(.dropParts) ++ "(&{s}, ", .{local.zig_name});
         try self.writeParts(local, "");
         try self.w.writeAll(")");
     }
@@ -2602,7 +2604,7 @@ pub const Emitter = struct {
         switch (kind) {
             .shared => try self.w.print("{s}.dropStrong()", .{place}),
             .weak => try self.w.print("{s}.dropWeak()", .{place}),
-            .value, .optional => try self.w.print("rig.drop(&{s})", .{place}),
+            .value, .optional => try self.w.print(rt(.drop) ++ "(&{s})", .{place}),
         }
     }
 
@@ -2700,8 +2702,8 @@ pub const Emitter = struct {
     }
 
     fn writeTempDrop(self: *Emitter, name: []const u8) Error!void {
-        try self.w.print(" if ({s}_live) {{ {s}_live = false; rig.drop(&{s}); }}", .{ name, name, name });
-        if (self.poison) try self.w.print(" rig.poison(&{s});", .{name});
+        try self.w.print(" if ({s}_live) {{ {s}_live = false; " ++ rt(.drop) ++ "(&{s}); }}", .{ name, name, name });
+        if (self.poison) try self.w.print(" " ++ rt(.poison) ++ "(&{s});", .{name});
     }
 
     /// Declare a slot for each copy an API object in statement `stmt`
@@ -2749,10 +2751,10 @@ pub const Emitter = struct {
             const buffer = if (self.facts.varOf(temp, .temp)) |st| st.by == .buffer else false;
             const name = try self.hiddenStorage(temp, .temp, if (buffer) .buffer else .owned, .next);
             try self.w.print("var {s}: ", .{name});
-            if (buffer) try self.w.writeAll("rig.TextBuf") else try self.emitTypeTy(self.typeOf(temp) orelse return self.unsupported(temp, "an untyped temporary"));
+            if (buffer) try self.w.writeAll(rt(.TextBuf)) else try self.emitTypeTy(self.typeOf(temp) orelse return self.unsupported(temp, "an untyped temporary"));
             try self.w.print(" = undefined; var {s}_live = false; ", .{name});
-            if (self.poison) try self.w.print("defer rig.poison(&{s}); ", .{name});
-            try self.w.print("defer if ({s}_live) rig.drop(&{s}); ", .{ name, name });
+            if (self.poison) try self.w.print("defer " ++ rt(.poison) ++ "(&{s}); ", .{name});
+            try self.w.print("defer if ({s}_live) " ++ rt(.drop) ++ "(&{s}); ", .{ name, name });
             try self.temp_slots.append(self.allocator, .{ .node = temp.list.id, .name = name });
         }
     }
@@ -2855,7 +2857,7 @@ pub const Emitter = struct {
             .pass => try self.w.writeAll("{}"),
             // `rarely`: the function it starts is cold (`rig.cold`), and
             // any other block it starts unlikely (`rig.unlikely`).
-            .rarely => try self.w.writeAll(if (self.fun.rarely == .list and self.fun.rarely.list.id == sexp.list.id) "rig.cold();" else "rig.unlikely();"),
+            .rarely => try self.w.writeAll(if (self.fun.rarely == .list and self.fun.rarely.list.id == sexp.list.id) rt(.cold) ++ "();" else rt(.unlikely) ++ "();"),
             .@"return" => try self.emitReturn(sexp),
             .@"break" => try self.emitBreak(sexp),
             .@"continue" => try self.emitContinue(sexp),
@@ -2934,7 +2936,7 @@ pub const Emitter = struct {
             const cond = if (op == .@"+" and target == .src) self.provenIf(sexp) else null;
             if (op == .@"+" and target == .src and (self.provenOf(sexp).no_overflow or (cond != null and cond.?.tests.no_overflow))) {
                 try self.emitPlace(target);
-                try self.w.writeAll(if (self.provenOf(sexp).no_overflow) " = rig.addProven(" else " = rig.addIf(");
+                try self.w.writeAll(if (self.provenOf(sexp).no_overflow) " = " ++ rt(.addProven) ++ "(" else " = " ++ rt(.addIf) ++ "(");
                 try self.emitPlace(target);
                 try self.w.writeAll(", ");
                 try self.emitBare(expr);
@@ -3039,7 +3041,7 @@ pub const Emitter = struct {
         // method gives through a type parameter, whose type each
         // instance decides.
         if (self.facts.isTypeParamCall(expr) or try self.dropOf(expr, .discard) != null) {
-            try self.w.writeAll("rig.discard(");
+            try self.w.writeAll(rt(.discard) ++ "(");
             try self.emitBare(expr);
             return self.w.writeAll(");");
         }
@@ -3195,7 +3197,7 @@ pub const Emitter = struct {
             }
             if ((try self.need(self.facts.setOrder(set), set)).drops_old) {
                 const new = try self.openNewValue(pointee, value);
-                return self.w.print("; rig.drop({s}); {s}.* = {s}; }}", .{ local.zig_name, local.zig_name, new.name });
+                return self.w.print("; " ++ rt(.drop) ++ "({s}); {s}.* = {s}; }}", .{ local.zig_name, local.zig_name, new.name });
             }
         }
         const kind = local.kind orelse {
@@ -3283,7 +3285,7 @@ pub const Emitter = struct {
     /// The new value as the store takes it: through its flag when a
     /// later step could have left (`openSetValue`).
     fn writeNewValue(self: *Emitter, new: NewValue) Error!void {
-        if (new.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ new.flag, new.name });
+        if (new.flag.len > 0) return self.w.print(rt(.take) ++ "(&{s}, {s})", .{ new.flag, new.name });
         try self.w.writeAll(new.name);
     }
 
@@ -3342,7 +3344,7 @@ pub const Emitter = struct {
         // A field moved out, or one holding fields moved out, drops only
         // what is still held, and holds all of the new value after.
         if (try self.partsOf(target)) |at| if (self.partsBelow(at.local, at.path)) {
-            try self.w.print("; rig.dropParts({s}, ", .{slot});
+            try self.w.print("; " ++ rt(.dropParts) ++ "({s}, ", .{slot});
             try self.writeParts(at.local, at.path);
             try self.w.print("); {s}.* = ", .{slot});
             try self.writeNewValue(new);
@@ -3353,7 +3355,7 @@ pub const Emitter = struct {
             return self.w.writeAll(" }");
         };
         // A field known to hold `none` there drops nothing.
-        if (self.facts.oldIsNone(set)) try self.w.print("; {s}.* = ", .{slot}) else try self.w.print("; rig.drop({s}); {s}.* = ", .{ slot, slot });
+        if (self.facts.oldIsNone(set)) try self.w.print("; {s}.* = ", .{slot}) else try self.w.print("; " ++ rt(.drop) ++ "({s}); {s}.* = ", .{ slot, slot });
         try self.writeNewValue(new);
         try self.w.writeAll("; }");
     }
@@ -3470,11 +3472,11 @@ pub const Emitter = struct {
     /// The runtime function of a mask operator, or null for one that no mask takes.
     fn maskOperator(op: Tag) ?[]const u8 {
         return switch (op) {
-            .@"&" => "rig.maskAnd(",
-            .@"|" => "rig.maskOr(",
-            .@"^" => "rig.maskXor(",
-            .@"==" => "rig.maskEq(",
-            .@"!=" => "rig.maskNe(",
+            .@"&" => rt(.maskAnd) ++ "(",
+            .@"|" => rt(.maskOr) ++ "(",
+            .@"^" => rt(.maskXor) ++ "(",
+            .@"==" => rt(.maskEq) ++ "(",
+            .@"!=" => rt(.maskNe) ++ "(",
             else => null,
         };
     }
@@ -3483,9 +3485,9 @@ pub const Emitter = struct {
     /// (`<<`, `<<%`, or `>>`).
     fn vecShift(op: Tag) []const u8 {
         return switch (op) {
-            .@"<<" => "rig.vecShl",
-            .@"<<%" => "rig.vecShlWrap",
-            else => "rig.vecShr",
+            .@"<<" => rt(.vecShl),
+            .@"<<%" => rt(.vecShlWrap),
+            else => rt(.vecShr),
         };
     }
 
@@ -3506,15 +3508,15 @@ pub const Emitter = struct {
         const lanes = call == .lane_shift;
         const builtin: ?[]const u8 = if (call) |c| switch (c) {
             .mask => switch (op) {
-                .@"&" => "rig.maskAnd",
-                .@"|" => "rig.maskOr",
-                else => "rig.maskXor",
+                .@"&" => rt(.maskAnd),
+                .@"|" => rt(.maskOr),
+                else => rt(.maskXor),
             },
             .lane_shift => vecShift(op),
-            .lane_saturate => if (op == .@"+|") "rig.vecAddSat" else "rig.vecSubSat",
-            .rem => "rig.rem",
+            .lane_saturate => if (op == .@"+|") rt(.vecAddSat) else rt(.vecSubSat),
+            .rem => rt(.rem),
             .div => "@divTrunc",
-            .div_generic => "rig.div",
+            .div_generic => rt(.div),
             .shl => "@shlExact",
             .lane_checked => self.laneHelper(set, op),
         } else null;
@@ -3620,7 +3622,7 @@ pub const Emitter = struct {
         // cleared.
         if (try self.partsOf(target)) |at| for (at.local.parts, at.local.part_flags) |p, f| {
             if (!std.mem.eql(u8, p, at.path)) continue;
-            try self.w.print("{s} = false; rig.drop(&", .{f});
+            try self.w.print("{s} = false; " ++ rt(.drop) ++ "(&", .{f});
             try self.emitPlace(target);
             return self.w.writeAll(");");
         };
@@ -3759,7 +3761,7 @@ pub const Emitter = struct {
         try self.w.writeAll("return .{ ");
         for (names, flags, 0..) |name, flag, i| {
             if (i > 0) try self.w.writeAll(", ");
-            if (flag) |f| try self.w.print("rig.take(&{s}, {s})", .{ f, name }) else try self.w.writeAll(name);
+            if (flag) |f| try self.w.print(rt(.take) ++ "(&{s}, {s})", .{ f, name }) else try self.w.writeAll(name);
         }
         try self.w.writeAll(" };\n");
         try self.closeBrace();
@@ -4147,7 +4149,7 @@ pub const Emitter = struct {
             if (self.fun.loops == 0 or outer_turns == null) {
                 try self.openLoopBlock(&lp);
                 lp.turns = try self.fmt("__rig_turns_{d}", .{self.nextId()});
-                try self.line("var {s}: u32 = rig.tick_turns;", .{lp.turns.?});
+                try self.line("var {s}: u32 = " ++ rt(.tick_turns) ++ ";", .{lp.turns.?});
                 self.fun.turns = lp.turns;
             } else lp.turns = outer_turns;
         }
@@ -4195,7 +4197,7 @@ pub const Emitter = struct {
         self.targets.items[lp.index].part = .body;
         const l = try self.openLabeled(lp.body);
         try self.openBrace();
-        if (lp.turns) |n| if (lp.top_turn) try self.line("rig.turn(&{s});", .{n});
+        if (lp.turns) |n| if (lp.top_turn) try self.line(rt(.turn) ++ "(&{s});", .{n});
         return l;
     }
 
@@ -4205,8 +4207,8 @@ pub const Emitter = struct {
     fn writeStep(self: *Emitter, lp: *const Loop, step: []const u8) Error!void {
         const one = std.mem.indexOfScalar(u8, step, ';') == null;
         if (lp.turns) |n| {
-            if (step.len == 0) return self.w.print(": (rig.turn(&{s})) ", .{n});
-            return self.w.print(": ({{ rig.turn(&{s}); {s}{s} }}) ", .{ n, step, if (one) ";" else "" });
+            if (step.len == 0) return self.w.print(": (" ++ rt(.turn) ++ "(&{s})) ", .{n});
+            return self.w.print(": ({{ " ++ rt(.turn) ++ "(&{s}); {s}{s} }}) ", .{ n, step, if (one) ";" else "" });
         }
         if (step.len == 0) return;
         if (one) return self.w.print(": ({s}) ", .{step});
@@ -4243,7 +4245,7 @@ pub const Emitter = struct {
         const trace = self.unit_trace;
         if (step != .nil and !step_inside) {
             try self.w.writeAll(": (");
-            if (lp.turns) |n| try self.w.print("{{ rig.turn(&{s}); ", .{n});
+            if (lp.turns) |n| try self.w.print("{{ " ++ rt(.turn) ++ "(&{s}); ", .{n});
             if (trace != null) self.unit_trace = &step_trace;
             defer self.unit_trace = trace;
             try self.emitStep(step, lp);
@@ -4491,7 +4493,7 @@ pub const Emitter = struct {
         const local = self.localBySym(sum) orelse return self.unsupported(set, "a fold into no local");
         try self.startLoopLine(lp);
         try self.writeLocalPlace(local);
-        try self.w.print(" = rig.fold(.{s}, ", .{@tagName(how)});
+        try self.w.print(" = " ++ rt(.fold) ++ "(.{s}, ", .{@tagName(how)});
         try self.writeLocalPlace(local);
         try self.w.writeAll(", ");
         if (try self.headerPoints(source)) {
@@ -4523,7 +4525,7 @@ pub const Emitter = struct {
 
         try self.openLoopBlock(lp);
         try self.writeIndent(self.indent);
-        try self.w.print("var {s} = {s}(", .{ it, if (array) "rig.arrayIntoIter" else "" });
+        try self.w.print("var {s} = {s}(", .{ it, if (array) rt(.arrayIntoIter) else "" });
         const h = try self.openHeader(ir.For.source(sexp));
         try self.emitMoved(ir.For.source(sexp));
         try self.closeHeader(h);
@@ -4535,7 +4537,7 @@ pub const Emitter = struct {
         const l = try self.openLabeled(lp.loop);
         const elem = if (self.typeOf(ir.For.source(sexp))) |t| self.loopElem(t) else null;
         if (elem != null and self.routesPayload(elem.?)) {
-            try self.w.print("while (rig.some({s}.next())) |{s}| ", .{ it, tmp });
+            try self.w.print("while (" ++ rt(.some) ++ "({s}.next())) |{s}| ", .{ it, tmp });
         } else try self.w.print("while ({s}.next()) |{s}| ", .{ it, tmp });
         try self.writeStep(lp, if (indexed) try self.fmt("{s} += 1", .{counter}) else "");
         const body = try self.openLoopBody(lp);
@@ -4688,7 +4690,7 @@ pub const Emitter = struct {
         // states rather than tests (`rig.namedTag`); inside `raw`, Zig
         // tests it.
         const named_tag = !info.error_set and info.ty != null and self.raw_depth == 0 and self.facts.isPlainEnum(self.peelViews(info.ty.?));
-        if (named_tag) try self.w.writeAll("rig.namedTag(");
+        if (named_tag) try self.w.writeAll(rt(.namedTag) ++ "(");
         if (err_value and info.mode == .consume and !info.temp) {
             // `match <e` takes the error as it tests its code; each arm
             // then owns what it reads again through the place.
@@ -4929,7 +4931,7 @@ pub const Emitter = struct {
                 // A generic read view is reached where it points, or
                 // where its instance's copy is held (`rig.viewedPtr`).
                 if (self.genericReadViewOf(value)) |inner| {
-                    try self.w.writeAll("rig.viewedPtr(");
+                    try self.w.writeAll(rt(.viewedPtr) ++ "(");
                     try self.emitTypeTy(inner);
                     try self.w.print(", &{s}).*", .{name});
                 } else try self.w.print("{s}.*", .{name});
@@ -4977,7 +4979,7 @@ pub const Emitter = struct {
     /// value the view points to, or the copy it holds. The caller writes
     /// `view` between `open` and `close`.
     fn writeViewedPtrOpen(self: *Emitter, inner: TypeId) Error!void {
-        try self.w.writeAll("rig.viewedPtr(");
+        try self.w.writeAll(rt(.viewedPtr) ++ "(");
         try self.emitTypeTy(inner);
         try self.w.writeAll(", &");
     }
@@ -5105,7 +5107,7 @@ pub const Emitter = struct {
         // A `?String` views the bytes of the text matched.
         if (t == self.facts.types.string_view_id) {
             const stored = try self.declare(payloadPointee(local, false), self.srcText(pattern));
-            return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = try self.fmt("rig.stringBytes({s})", .{subj}), .field = "" }});
+            return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = try self.fmt(rt(.stringBytes) ++ "({s})", .{subj}), .field = "" }});
         }
         const by_addr = try self.need(self.facts.catchAllCaptured(pattern), pattern);
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(pattern));
@@ -5234,7 +5236,7 @@ pub const Emitter = struct {
     fn fieldRead(self: *Emitter, base: []const u8, field: []const u8, addr: bool, bytes: bool, unwrap: bool) Error![]const u8 {
         const by_addr = addr and !bytes;
         const tail: []const u8 = if (bytes) ".bytes()" else "";
-        if (unwrap) return self.fmt("rig.{s}({s}{s}.{f}).?{s}", .{ if (by_addr) "somePtr" else "some", if (by_addr) "&" else "", base, ident(field), tail });
+        if (unwrap) return self.fmt("{s}({s}{s}.{f}).?{s}", .{ if (by_addr) rt(.somePtr) else rt(.some), if (by_addr) "&" else "", base, ident(field), tail });
         return self.fmt("{s}{s}.{f}{s}", .{ if (by_addr) "&" else "", base, ident(field), tail });
     }
 
@@ -5464,7 +5466,7 @@ pub const Emitter = struct {
         }
         // A string compares with the subject's bytes.
         if (pattern == .src and facts.syntax.isStringLiteralText(self.srcText(pattern))) {
-            try self.w.print("rig.textIs({s}, ", .{subj});
+            try self.w.print(rt(.textIs) ++ "({s}, ", .{subj});
             try self.emitExpr(pattern);
             return self.w.writeAll(")");
         }
@@ -5476,7 +5478,7 @@ pub const Emitter = struct {
         if (tests) |ts| {
             const vname = self.srcText(rig.variantPatternName(pattern));
             const fields = self.variantPayload(info.ty.?, vname) orelse return self.unsupported(pattern, "this payload pattern");
-            for (ts, fields) |t, f| if (t != .any) try self.w.print(" and rig.somePtr(&{s}.{f}.{f}) {s} null", .{ subj, ident(vname), ident(f.name), if (t == .some) "!=" else "==" });
+            for (ts, fields) |t, f| if (t != .any) try self.w.print(" and " ++ rt(.somePtr) ++ "(&{s}.{f}.{f}) {s} null", .{ subj, ident(vname), ident(f.name), if (t == .some) "!=" else "==" });
             try self.w.writeAll(")");
         }
     }
@@ -5746,8 +5748,8 @@ pub const Emitter = struct {
         }
         // Zig writes a deferred call again at each exit: the part goes by
         // address, never by value (`rig.discardAt`).
-        for (prelude.drops) |d| try self.line("defer rig.discardAt(&{s});", .{d});
-        for (prelude.alt_drops) |d| try self.line("defer if ({s} == .{f}) rig.discardAt(&{s});", .{ d.tag, ident(d.variant), d.expr });
+        for (prelude.drops) |d| try self.line("defer " ++ rt(.discardAt) ++ "(&{s});", .{d});
+        for (prelude.alt_drops) |d| try self.line("defer if ({s} == .{f}) " ++ rt(.discardAt) ++ "(&{s});", .{ d.tag, ident(d.variant), d.expr });
         for (prelude.owned) |o| {
             const is_var = self.ownedIsVar(o.local);
             try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", o.local.zig_name, o.expr });
@@ -5767,9 +5769,9 @@ pub const Emitter = struct {
             // An error that carries fields is its code and its slot's
             // fields, which the binding now owns.
             if (c.slot) |slot| {
-                try self.w.print(" = rig.ErrorValue.taken({s}, &{s});\n", .{ c.tmp, slot });
+                try self.w.print(" = " ++ rt(.ErrorValue) ++ ".taken({s}, &{s});\n", .{ c.tmp, slot });
             } else if (self.isErrorValueTy(c.ty)) {
-                try self.w.print(" = rig.ErrorValue.taken({s}, &rig.no_error_data);\n", .{c.tmp});
+                try self.w.print(" = " ++ rt(.ErrorValue) ++ ".taken({s}, &" ++ rt(.no_error_data) ++ ");\n", .{c.tmp});
             } else try self.w.print(" = {s};\n", .{c.tmp});
         }
         if (prelude.results) |r| try self.bindResults(r.cond, r.tmp);
@@ -5825,7 +5827,7 @@ pub const Emitter = struct {
         // A place, or a part of a value the `if` holds, is bound where it
         // stands, as `if ?o as x` binds it (`Header`).
         if (self.facts.headerOf(cond) != null) {
-            try self.w.writeAll(if (routed) "(rig.somePtr(" else "(");
+            try self.w.writeAll(if (routed) "(" ++ rt(.somePtr) ++ "(" else "(");
             if (points) {
                 try self.emitSubjectPtr(value, false);
                 if (!routed) try self.w.writeAll(".*");
@@ -5849,7 +5851,7 @@ pub const Emitter = struct {
         // view is a pointer, else in the capture, a copy that owns
         // nothing. A view of the binding then views the optional's value.
         if (try self.viewsOptionalValue(value)) if (self.genericReadView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value"))) |viewed| {
-            try self.w.writeAll("(rig.someViewed(");
+            try self.w.writeAll("(" ++ rt(.someViewed) ++ "(");
             try self.emitTypeTy(viewed);
             try self.w.writeAll(", ");
             const h = try self.openHeader(value);
@@ -5870,7 +5872,7 @@ pub const Emitter = struct {
             // read inside the header, and the binding views a copy of the
             // value inside, which the ownership checker lets nothing use
             // past the header.
-            try self.w.writeAll(if (routed) "(rig.some(" else "(");
+            try self.w.writeAll(if (routed) "(" ++ rt(.some) ++ "(" else "(");
             const h = try self.openHeader(value);
             try self.w.writeAll("(");
             try self.emitBare(value);
@@ -5891,17 +5893,17 @@ pub const Emitter = struct {
             const named = value == .src or (value.isKind(.move) and ir.Move.operand(value) == .src);
             if (points) {
                 // A place reached through temporaries is viewed where it is.
-                try self.w.writeAll(if (routed) "(rig.somePtr(" else "(");
+                try self.w.writeAll(if (routed) "(" ++ rt(.somePtr) ++ "(" else "(");
                 try self.emitSubjectPtr(value, false);
                 try self.w.writeAll(if (routed) ")) " else ".*) ");
             } else if (named) {
-                try self.w.writeAll(if (routed) "(rig.somePtr(&(" else "(");
+                try self.w.writeAll(if (routed) "(" ++ rt(.somePtr) ++ "(&(" else "(");
                 try self.emitBare(value);
                 try self.w.writeAll(if (routed) "))) " else ") ");
             } else {
                 // Any other view, a field's or an element's included, is
                 // read through the pointer it is, once.
-                try self.w.writeAll(if (routed) "(rig.somePtr(" else "((");
+                try self.w.writeAll(if (routed) "(" ++ rt(.somePtr) ++ "(" else "((");
                 try self.emitWriteViewPtr(value);
                 try self.w.writeAll(if (routed) ")) " else ").*) ");
             }
@@ -5913,7 +5915,7 @@ pub const Emitter = struct {
             try self.w.print("|{s}{s}| ", .{ if (routed) "" else "*", tmp });
             return .{ .viewed = .{ .cond = cond, .name = name, .tmp = tmp } };
         }
-        try self.w.writeAll(if (routed) "(rig.some(" else "(");
+        try self.w.writeAll(if (routed) "(" ++ rt(.some) ++ "(" else "(");
         if (points) {
             try self.emitSubjectPtr(value, false);
             try self.w.writeAll(".*");
@@ -5976,7 +5978,7 @@ pub const Emitter = struct {
         // Over a generic view, the binding points at the value inside.
         if (o.viewed) |viewed| {
             local.is_ptr = true;
-            return self.line("const {s} = rig.someViewedPtr({s}, &{s});", .{ local.zig_name, try self.typeText(viewed), o.tmp });
+            return self.line("const {s} = " ++ rt(.someViewedPtr) ++ "({s}, &{s});", .{ local.zig_name, try self.typeText(viewed), o.tmp });
         }
         if (o.copy) {
             const copy = try self.hiddenStorage(o.cond, .as_copy, .copy, .{ .copy_of = o.tmp });
@@ -6012,7 +6014,7 @@ pub const Emitter = struct {
     /// The owning local of a resource bound by `as`, dropped at the end
     /// of the body unless it is moved out.
     fn bindOptionalResource(self: *Emitter, o: OptionalBinding) Error!void {
-        if (o.name == .nil) return self.line("rig.discard({s});", .{o.tmp});
+        if (o.name == .nil) return self.line(rt(.discard) ++ "({s});", .{o.tmp});
         const sym = self.facts.symbolOf(o.name).?;
         const ty = self.symType(sym).?;
         const kind = self.holdOf(sym) orelse return self.unsupported(o.name, "an owned `as` binding that holds nothing");
@@ -6073,13 +6075,13 @@ pub const Emitter = struct {
             defer self.durationing = saved;
             self.durationing = sexp;
             if (d.unit_ns == 0) {
-                try self.w.writeAll("rig.durationNs(");
+                try self.w.writeAll(rt(.durationNs) ++ "(");
                 try self.emitBare(sexp);
                 return self.w.writeAll(")");
             }
-            if (d.opt != facts.type_invalid) try self.w.print("rig.pack({s}, ", .{try self.typeText(d.opt)});
+            if (d.opt != facts.type_invalid) try self.w.print(rt(.pack) ++ "({s}, ", .{try self.typeText(d.opt)});
             if (d.how == .folded) try self.w.writeAll("(");
-            try self.w.print("rig.duration{s}{s}(", .{ if (d.float) "Float" else "Int", durationTwin(d.how) });
+            try self.w.print("{s}(", .{durationFn(if (d.float) .float else .int, d.how)});
             if (d.part) try self.w.writeAll("i128") else if (d.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(d.ty);
             try self.w.writeAll(", ");
             try self.emitBare(sexp);
@@ -6117,7 +6119,7 @@ pub const Emitter = struct {
             const saved = self.failing;
             defer self.failing = saved;
             self.failing = sexp;
-            try self.w.print("@errorCast(rig.failValue({s}, ", .{self.fun.out_name});
+            try self.w.print("@errorCast(" ++ rt(.failValue) ++ "({s}, ", .{self.fun.out_name});
             try self.emitValue(sexp, tail);
             return self.w.writeAll("))");
         }
@@ -6132,7 +6134,7 @@ pub const Emitter = struct {
             const saved = self.widening;
             defer self.widening = saved;
             self.widening = sexp;
-            try self.w.writeAll("rig.ErrorValue.of(");
+            try self.w.writeAll(rt(.ErrorValue) ++ ".of(");
             try self.emitValue(sexp, tail);
             return self.w.writeAll(", .{})");
         }
@@ -6171,18 +6173,18 @@ pub const Emitter = struct {
             self.ptr_tail = false;
             // A template's text is written into its slot's buffer.
             if (self.facts.varOf(sexp, .temp).?.by == .buffer) {
-                try self.w.print("rig.TextBuf.keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
+                try self.w.print(rt(.TextBuf) ++ ".keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
                 try self.emitPrintArgs(&.{sexp}, .{});
                 return self.w.writeAll(").*");
             }
-            try self.w.print("rig.keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
+            try self.w.print(rt(.keep) ++ "(&{s}, &{s}_live, ", .{ slot.name, slot.name });
             self.bare = true;
             try self.emitValue(sexp, tail);
             return self.w.writeAll(").*");
         }
         // A temporary holds the value its context reads (`hoist`).
         if (self.hoistedOf(sexp)) |h| {
-            if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
+            if (h.flag.len > 0) return self.w.print(rt(.take) ++ "(&{s}, {s})", .{ h.flag, h.name });
             return self.w.print("{s}{s}", .{ h.name, if (h.ptr) ".*" else "" });
         }
         if (!sameNode(sexp, self.viewing)) if (self.facts.viewOf(sexp)) |made| {
@@ -6330,9 +6332,9 @@ pub const Emitter = struct {
             // The value the view held views: a generic read view's, read
             // as `rig.ReadView` holds it.
             const value = if (self.facts.types.get(e.from) == .type_var)
-                try self.fmt("rig.viewed({s}, {s})", .{ ty, at.text })
+                try self.fmt(rt(.viewed) ++ "({s}, {s})", .{ ty, at.text })
             else if (at.ptr) try self.fmt("{s}.*", .{at.text}) else at.text;
-            ptr = try self.fmt("rig.erasedCopy({s}, &{s}, {s})", .{ ty, slot, value });
+            ptr = try self.fmt(rt(.erasedCopy) ++ "({s}, &{s}, {s})", .{ ty, slot, value });
         }
         var buf: Writer.Allocating = .init(self.arena.allocator());
         const saved = self.w;
@@ -6380,7 +6382,7 @@ pub const Emitter = struct {
         var i = packs.items.len;
         while (i > 0) {
             i -= 1;
-            text = try self.fmt("rig.pack({s}, {s})", .{ try self.typeText(packs.items[i]), text });
+            text = try self.fmt(rt(.pack) ++ "({s}, {s})", .{ try self.typeText(packs.items[i]), text });
         }
         return text;
     }
@@ -6422,11 +6424,11 @@ pub const Emitter = struct {
                 const inner = try self.viewChain(node, .{ .text = name, .ptr = true }, types.get(from).optional, rows[i + 1 ..], types.get(view).optional, false);
                 if (self.routesPayload(types.get(from).optional)) {
                     const ptr = if (at.ptr) at.text else try self.fmt("&({s})", .{at.text});
-                    const viewed = try self.fmt("(if (rig.somePtr({s})) |{s}| {s} else null)", .{ ptr, name, inner });
+                    const viewed = try self.fmt("(if (" ++ rt(.somePtr) ++ "({s})) |{s}| {s} else null)", .{ ptr, name, inner });
                     // A view that is the value it views (`sema.wordBits`)
                     // has the value's optional, which goes through the
                     // helpers too.
-                    if (types.get(view) == .optional and self.routesPayload(types.get(view).optional)) return self.fmt("rig.pack({s}, {s})", .{ try self.typeText(view), viewed });
+                    if (types.get(view) == .optional and self.routesPayload(types.get(view).optional)) return self.fmt(rt(.pack) ++ "({s}, {s})", .{ try self.typeText(view), viewed });
                     return viewed;
                 }
                 const value = if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text;
@@ -6435,11 +6437,11 @@ pub const Emitter = struct {
             .callable => unreachable,
             .erase => return self.erasedObject(node, at),
             // A code's error value, a constant of the program.
-            .code => at = .{ .text = try self.fmt("rig.codeView({s})", .{if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text}), .ptr = true },
+            .code => at = .{ .text = try self.fmt(rt(.codeView) ++ "({s})", .{if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text}), .ptr = true },
         };
         const ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
         return switch (types.get(view)) {
-            .read_view => if (as_ptr) ptr else self.fmt("rig.readView({s})", .{ptr}),
+            .read_view => if (as_ptr) ptr else self.fmt(rt(.readView) ++ "({s})", .{ptr}),
             else => ptr,
         };
     }
@@ -6448,7 +6450,7 @@ pub const Emitter = struct {
         const name = self.srcText(sexp);
         if (self.localOf(sexp)) |local| {
             if (self.rt_names and !self.keep_comptime and self.facts.symbols.items[local.sym].flags.comptime_known) {
-                return self.w.print("rig.rt({s})", .{local.zig_name});
+                return self.w.print(rt(.rt) ++ "({s})", .{local.zig_name});
             }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
             if (self.subjectView(sexp, local)) |inner| return self.writeSubjectView(inner, local.zig_name);
@@ -6470,7 +6472,7 @@ pub const Emitter = struct {
         if (self.facts.symbolOf(sexp)) |id| if (self.facts.isBuiltinEnum(id)) return self.writeNominalName(id);
         if (self.facts.symbolOf(sexp)) |id| if (self.facts.moduleOf(id)) |module| return self.writeModuleZig(module);
         if (self.rt_names and !self.keep_comptime and self.isModuleConst(sexp)) {
-            try self.w.writeAll("rig.rt(");
+            try self.w.writeAll(rt(.rt) ++ "(");
             try self.writeModuleName(name);
             return self.w.writeAll(")");
         }
@@ -6543,7 +6545,7 @@ pub const Emitter = struct {
     /// is armed.
     fn writeTake(self: *Emitter, local: *const Local) Error!void {
         const flag = consumeFlag(local) orelse return self.writeLocalPlace(local);
-        try self.w.print("rig.take(&{s}, ", .{flag});
+        try self.w.print(rt(.take) ++ "(&{s}, ", .{flag});
         try self.writeLocalPlace(local);
         try self.w.writeAll(")");
     }
@@ -6696,7 +6698,7 @@ pub const Emitter = struct {
         const saved_read = self.read_place;
         defer self.read_place = saved_read;
         self.read_place = true;
-        if (generic) try self.w.writeAll("rig.readView(");
+        if (generic) try self.w.writeAll(rt(.readView) ++ "(");
         try self.emitAddressOf(operand);
         if (generic) try self.w.writeAll(")");
     }
@@ -6704,7 +6706,7 @@ pub const Emitter = struct {
     /// `rig.viewed(T, `: the value a generic read view reaches; the
     /// caller writes the view and the `)`.
     fn writeViewedOpen(self: *Emitter, inner: TypeId) Error!void {
-        try self.w.writeAll("rig.viewed(");
+        try self.w.writeAll(rt(.viewed) ++ "(");
         try self.emitTypeTy(inner);
         try self.w.writeAll(", ");
     }
@@ -6720,7 +6722,7 @@ pub const Emitter = struct {
         if (ty) |t| if (self.facts.types.get(t) == .optional) {
             if (self.isNoneLeaf(e)) {
                 if (self.routesPayload(self.facts.types.get(t).optional)) {
-                    try self.w.writeAll("rig.pack(");
+                    try self.w.writeAll(rt(.pack) ++ "(");
                     try self.emitTypeTy(t);
                     return self.w.writeAll(", null)");
                 }
@@ -6779,7 +6781,7 @@ pub const Emitter = struct {
     /// caller writes `e` and `closeSome`.
     fn openSome(self: *Emitter, e: Sexp) Error!bool {
         if (!self.routedOptional(self.typeOf(e))) return false;
-        try self.w.writeAll("rig.some(");
+        try self.w.writeAll(rt(.some) ++ "(");
         return true;
     }
 
@@ -6833,7 +6835,7 @@ pub const Emitter = struct {
                 else => break,
             };
             if (self.routesPayload(inner)) {
-                try self.w.writeAll("rig.pack(");
+                try self.w.writeAll(rt(.pack) ++ "(");
                 try self.emitTypeTy(o);
                 try self.w.writeAll(", ");
                 opened += 1;
@@ -6887,7 +6889,7 @@ pub const Emitter = struct {
     fn emitSwitchDeref(self: *Emitter, e: Sexp) Error!void {
         if (self.switchesThroughName(e)) {
             const inner = self.genericReadViewOf(e).?;
-            try self.w.writeAll("rig.viewedPtr(");
+            try self.w.writeAll(rt(.viewedPtr) ++ "(");
             try self.emitTypeTy(inner);
             try self.w.writeAll(", &");
             try self.emitWriteViewPtr(e);
@@ -6945,7 +6947,7 @@ pub const Emitter = struct {
     /// The amount of a shift of a `shifted`, checked and in the width Zig
     /// shifts by: `rig.shiftAmount(T, n)`.
     fn emitShiftAmount(self: *Emitter, shifted: ?TypeId, amount: Sexp) Error!void {
-        try self.w.writeAll("rig.shiftAmount(");
+        try self.w.writeAll(rt(.shiftAmount) ++ "(");
         try self.emitTypeTy(self.peelViews(shifted orelse self.facts.types.int_id));
         try self.w.writeAll(", ");
         try self.emitBare(amount);
@@ -6982,7 +6984,7 @@ pub const Emitter = struct {
         // A field moved out of a local clears the flag its drop waits on.
         if (try self.partsOf(inner)) |at| for (at.local.parts, at.local.part_flags) |p, f| {
             if (!std.mem.eql(u8, p, at.path)) continue;
-            try self.w.print("rig.take(&{s}, ", .{f});
+            try self.w.print(rt(.take) ++ "(&{s}, ", .{f});
             try self.emitBare(inner);
             return self.w.writeAll(")");
         };
@@ -7044,7 +7046,7 @@ pub const Emitter = struct {
                 // `<p.f` of an optional takes it, leaving `none`; the
                 // place's own parts keep their parentheses.
                 if (self.facts.takes(sexp)) {
-                    try self.w.writeAll("rig.takeOut(");
+                    try self.w.writeAll(rt(.takeOut) ++ "(");
                     try self.emitAddressOf(operand);
                     return self.w.writeAll(")");
                 }
@@ -7060,7 +7062,7 @@ pub const Emitter = struct {
                 switch (self.facts.cloneable(ty)) {
                     .bump => switch (self.facts.types.get(self.peelViews(ty))) {
                         .optional => {
-                            try self.w.writeAll("rig.cloneOptional(");
+                            try self.w.writeAll(rt(.cloneOptional) ++ "(");
                             try self.emitBare(operand);
                             try self.w.writeAll(")");
                         },
@@ -7076,7 +7078,7 @@ pub const Emitter = struct {
                     // `+t` of a String copies its bytes, and `+s` of a `?String`
                     // view makes a String of them.
                     .text => if (self.facts.unwrapViews(ty) == self.facts.types.string_view_id) {
-                        try self.w.writeAll("rig.String.of(.{ ");
+                        try self.w.writeAll(rt(.String) ++ ".of(.{ ");
                         try self.emitBare(operand);
                         try self.w.writeAll(" })");
                     } else {
@@ -7085,14 +7087,14 @@ pub const Emitter = struct {
                     },
                     // Each part cloned as `+` clones it.
                     .deep => {
-                        try self.w.writeAll("rig.cloneValue(&(");
+                        try self.w.writeAll(rt(.cloneValue) ++ "(&(");
                         try self.emitExpr(operand);
                         try self.w.writeAll("))");
                     },
                     // A generic `T` as each instance clones it, which
                     // copies what copies (`rig.cloneAs`).
                     .depends => {
-                        try self.w.writeAll("rig.cloneAs(");
+                        try self.w.writeAll(rt(.cloneAs) ++ "(");
                         try self.emitTypeTy(self.typeOf(sexp).?);
                         try self.w.writeAll(", ");
                         try self.emitExpr(operand);
@@ -7179,7 +7181,7 @@ pub const Emitter = struct {
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
             .@"+%", .@"-%", .@"*%", .@"+|", .@"-|" => {
                 if ((head == .@"+|" or head == .@"-|") and self.isSimd(self.typeOf(sexp))) {
-                    try self.w.writeAll(if (head == .@"+|") "rig.vecAddSat(" else "rig.vecSubSat(");
+                    try self.w.writeAll(if (head == .@"+|") rt(.vecAddSat) ++ "(" else rt(.vecSubSat) ++ "(");
                     try self.emitBare(ir.get(sexp, .left));
                     try self.w.writeAll(", ");
                     try self.emitBare(ir.get(sexp, .right));
@@ -7235,7 +7237,7 @@ pub const Emitter = struct {
                 // both sides are tested, and the result packed.
                 const packed_into = self.optionalFallback(sexp);
                 if (packed_into) |o| {
-                    try self.w.writeAll("rig.pack(");
+                    try self.w.writeAll(rt(.pack) ++ "(");
                     try self.emitTypeTy(o);
                     try self.w.writeAll(", ");
                 }
@@ -7247,7 +7249,7 @@ pub const Emitter = struct {
                 try self.closeSome(some);
                 try self.w.writeAll(" orelse ");
                 const some_right = packed_into != null and self.typeOf(right) != self.facts.types.noreturn_id;
-                if (some_right) try self.w.writeAll("rig.some(");
+                if (some_right) try self.w.writeAll(rt(.some) ++ "(");
                 try self.emitValue(right, true);
                 if (some_right) try self.w.writeAll(")");
                 try self.w.writeAll(")");
@@ -7268,7 +7270,7 @@ pub const Emitter = struct {
                 // catch's own.
                 const slot = try self.openCatchSlot(ir.Catch.value(sexp));
                 if (packed_into) |o| {
-                    try self.w.writeAll("rig.pack(");
+                    try self.w.writeAll(rt(.pack) ++ "(");
                     try self.emitTypeTy(o);
                     try self.w.writeAll(", ");
                 }
@@ -7282,14 +7284,14 @@ pub const Emitter = struct {
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
                     const binding = try self.catchBinding(sym.?, name, tmp, if (slot) |s| s.name else null);
-                    if (some_handler) try self.w.writeAll("rig.some(");
+                    if (some_handler) try self.w.writeAll(rt(.some) ++ "(");
                     try self.emitValueBlock(handler, binding, self.typeOf(sexp));
                     if (some_handler) try self.w.writeAll(")");
                     try self.popScope();
                 } else {
                     // A catch that binds no error drops its fields first.
-                    if (slot) |s| try self.w.print("|{s}_c| if (rig.dropFailure({s}_c, &{s})) ", .{ s.name, s.name, s.name });
-                    if (some_handler) try self.w.writeAll("rig.some(");
+                    if (slot) |s| try self.w.print("|{s}_c| if (" ++ rt(.dropFailure) ++ "({s}_c, &{s})) ", .{ s.name, s.name, s.name });
+                    if (some_handler) try self.w.writeAll(rt(.some) ++ "(");
                     try self.emitValue(handler, true);
                     if (some_handler) try self.w.writeAll(")");
                     if (slot != null) try self.w.writeAll(" else unreachable");
@@ -7336,11 +7338,11 @@ pub const Emitter = struct {
                     const saved = self.keep_comptime;
                     defer self.keep_comptime = saved;
                     self.keep_comptime = true;
-                    try self.w.writeAll("rig.fixedText(");
+                    try self.w.writeAll(rt(.fixedText) ++ "(");
                     try self.emitPrintArgs(&.{sexp}, .{});
                     return self.w.writeAll(")");
                 }
-                try self.w.writeAll("rig.String.of(");
+                try self.w.writeAll(rt(.String) ++ ".of(");
                 try self.emitPrintArgs(&.{sexp}, .{});
                 try self.w.writeAll(")");
             },
@@ -7369,7 +7371,7 @@ pub const Emitter = struct {
         const slot = try self.openCatchSlot(ir.Catch.value(sexp));
         try self.w.writeAll("(if (");
         try self.emitFallbackHolder(sexp, ir.Catch.value(sexp));
-        try self.w.print(") |{s}| {{ var {s} = {s}; rig.drop(&{s}); }} else ", .{ ok, kept, ok, kept });
+        try self.w.print(") |{s}| {{ var {s} = {s}; " ++ rt(.drop) ++ "(&{s}); }} else ", .{ ok, kept, ok, kept });
         const name = ir.Catch.name(sexp);
         const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
         if (sym != null and self.facts.isUsed(sym.?)) {
@@ -7381,7 +7383,7 @@ pub const Emitter = struct {
             try self.popScope();
         } else if (slot) |s| {
             // A catch that binds no error drops its fields first.
-            try self.w.print("|{s}_c| if (rig.dropFailure({s}_c, &{s})) ", .{ s.name, s.name, s.name });
+            try self.w.print("|{s}_c| if (" ++ rt(.dropFailure) ++ "({s}_c, &{s})) ", .{ s.name, s.name, s.name });
             try self.emitValueBlock(handler, .{}, self.facts.types.void_id);
             try self.w.writeAll(" else unreachable");
         } else {
@@ -7425,10 +7427,10 @@ pub const Emitter = struct {
     fn laneHelper(self: *Emitter, e: Sexp, op: Tag) ?[]const u8 {
         if (!(self.facts.laneChecked(e) orelse false)) return null;
         return switch (op) {
-            .@"+" => "rig.vecAdd",
-            .@"-" => "rig.vecSub",
-            .@"*" => "rig.vecMul",
-            .neg => "rig.vecNeg",
+            .@"+" => rt(.vecAdd),
+            .@"-" => rt(.vecSub),
+            .@"*" => rt(.vecMul),
+            .neg => rt(.vecNeg),
             else => unreachable,
         };
     }
@@ -7446,7 +7448,7 @@ pub const Emitter = struct {
             const other = operands[1 - i];
             if (!self.isNoneLeaf(other) or !try self.dropsWhenTested(operands[i])) continue;
             if (kind == .@"!=") try self.w.writeAll("!");
-            try self.w.writeAll("rig.isNone(");
+            try self.w.writeAll(rt(.isNone) ++ "(");
             try self.emitBare(operands[i]);
             return self.w.writeAll(")");
         };
@@ -7455,7 +7457,7 @@ pub const Emitter = struct {
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
             if (!self.isNoneLeaf(operands[1 - i]) or !self.routedOptional(self.typeOf(operands[i]))) continue;
             if (!bare) try self.w.writeAll("(");
-            try self.w.writeAll("rig.some(");
+            try self.w.writeAll(rt(.some) ++ "(");
             try self.emitBare(operands[i]);
             try self.w.print(") {s} null", .{op});
             if (!bare) try self.w.writeAll(")");
@@ -7470,7 +7472,7 @@ pub const Emitter = struct {
             if (!self.isErrorValueTy(self.peelViews(vt)) or !self.namesErrorMember(member) or member.isKind(.call)) continue;
             const temp = try self.dropsWhenTested(value);
             if (kind == .@"!=") try self.w.writeAll("!");
-            try self.w.writeAll(if (temp) "rig.isErrorDiscard(" else "rig.isError(");
+            try self.w.writeAll(if (temp) rt(.isErrorDiscard) ++ "(" else rt(.isError) ++ "(");
             try self.emitExpr(value);
             try self.w.writeAll(", ");
             const set = self.peelViews(self.typeOf(member) orelse return self.unsupported(member, "an untyped error"));
@@ -7486,7 +7488,7 @@ pub const Emitter = struct {
             // tested.
             const temp = try self.dropsWhenTested(value);
             if (kind == .@"!=") try self.w.writeAll("!");
-            try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
+            try self.w.writeAll(if (temp) rt(.isVariantDiscard) ++ "(" else rt(.isVariant) ++ "(");
             try self.emitExpr(value);
             try self.w.writeAll(", ");
             try self.emitExpr(operands[i]);
@@ -7497,7 +7499,7 @@ pub const Emitter = struct {
             const i: usize = if (operands[1].isKind(.member)) 1 else 0;
             const temp = try self.dropsWhenTested(operands[1 - i]);
             if (kind == .@"!=") try self.w.writeAll("!");
-            try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
+            try self.w.writeAll(if (temp) rt(.isVariantDiscard) ++ "(" else rt(.isVariant) ++ "(");
             try self.emitExpr(operands[1 - i]);
             return self.w.print(", .{f})", .{ident(self.srcText(ir.Member.name(operands[i])))});
         }
@@ -7509,17 +7511,17 @@ pub const Emitter = struct {
             // Beside a code-only error, an error that carries fields
             // compares its code, as its member's fields are none.
             for ([2]usize{ 0, 1 }) |i| if (!self.holdsErrorValueOpt(operands[i])) {
-                try self.w.writeAll("rig.isError(");
+                try self.w.writeAll(rt(.isError) ++ "(");
                 try self.emitExpr(operands[1 - i]);
                 try self.w.writeAll(", ");
                 try self.emitExpr(operands[i]);
                 return self.w.writeAll(")");
             };
-            return self.emitCall2("rig.eql(", operands, ")");
+            return self.emitCall2(rt(.eql) ++ "(", operands, ")");
         }
         if (is_eq and self.comparesStructurally(operands)) {
             if (kind == .@"!=") try self.w.writeAll("!");
-            return self.emitCall2("rig.eql(", operands, ")");
+            return self.emitCall2(rt(.eql) ++ "(", operands, ")");
         }
         if (!is_eq) if (self.orderOperator(kind, operands)) |order| {
             // Strings and byte slices order by their bytes.
@@ -7531,16 +7533,16 @@ pub const Emitter = struct {
             }
             // A generic `T` orders as its instance does, and a plain
             // enum by its variants' values.
-            try self.w.writeAll("rig.compare(");
+            try self.w.writeAll(rt(.compare) ++ "(");
             try self.emitExpr(operands[0]);
             try self.w.print(", .{s}, ", .{order.op});
             try self.emitExpr(operands[1]);
             return self.w.writeAll(")");
         };
         // An add known not to overflow (`provenOf`).
-        if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
+        if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2(rt(.addProven) ++ "(", operands, ")");
         // An add known not to overflow while a flag holds (`provenIf`).
-        if (kind == .@"+") if (self.provenIf(sexp)) |c| if (c.tests.no_overflow) return self.emitCall2("rig.addIf(", operands, try self.fmt(", {s})", .{c.flag}));
+        if (kind == .@"+") if (self.provenIf(sexp)) |c| if (c.tests.no_overflow) return self.emitCall2(rt(.addIf) ++ "(", operands, try self.fmt(", {s})", .{c.flag}));
         if (self.laneHelper(sexp, kind)) |helper| {
             try self.w.print("{s}(", .{helper});
             try self.emitBare(operands[0]);
@@ -7555,7 +7557,7 @@ pub const Emitter = struct {
                 const f = maskOperator(kind) orelse return self.unsupported(sexp, "this operator on masks");
                 return self.emitCall2(f, operands, ")");
             }
-            try self.w.writeAll("rig.mask(");
+            try self.w.writeAll(rt(.mask) ++ "(");
             try self.emitExpr(operands[0]);
             try self.w.print(" {s} ", .{op});
             try self.emitExpr(operands[1]);
@@ -7654,7 +7656,7 @@ pub const Emitter = struct {
         // (Zig indexes a vector only at a constant).
         if (base_ty != null and self.facts.types.get(self.peelViews(base_ty.?)) == .simd) {
             self.place_chain = false;
-            try self.w.writeAll("rig.lane(");
+            try self.w.writeAll(rt(.lane) ++ "(");
             try self.emitBare(base);
             try self.w.writeAll(", ");
             try self.emitBare(index);
@@ -7710,7 +7712,7 @@ pub const Emitter = struct {
         } else null;
         // A value read from a constant is a run-time value (`readsFixed`).
         const fixed = !in_place and self.readsFixed(sexp, base, index);
-        if (fixed) try self.w.writeAll("rig.rt(");
+        if (fixed) try self.w.writeAll(rt(.rt) ++ "(");
         const n = array_len orelse {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
@@ -7719,7 +7721,7 @@ pub const Emitter = struct {
             // while a flag holds, while it does (`provenIf`).
             const proven = provenTests(self.provenOf(sexp));
             const cond = self.provenIf(sexp);
-            try self.w.print("rig.{s}{s}(", .{ if (in_place) "elemPtr" else "at", if (cond != null) "If" else if (proven != null) "Proven" else "" });
+            try self.w.print("{s}(", .{if (in_place) (if (cond != null) rt(.elemPtrIf) else if (proven != null) rt(.elemPtrProven) else rt(.elemPtr)) else if (cond != null) rt(.atIf) else if (proven != null) rt(.atProven) else rt(.at)});
             try self.emitIndexBase(base, base_ty, .bare);
             try self.w.writeAll(", ");
             self.place_chain = false;
@@ -7739,12 +7741,12 @@ pub const Emitter = struct {
             // Zig rejects indexing an empty array, and a length that is a
             // compile-time parameter may be 0: the element is reached
             // through a slice of the array.
-            try self.w.writeAll("rig.elems(");
+            try self.w.writeAll(rt(.elems) ++ "(");
             const saved_read = self.read_place;
             if (!as_place) self.read_place = true;
             try self.emitIndexBase(base, base_ty, .address);
             self.read_place = saved_read;
-            try self.w.writeAll(")[rig.indexBelow(");
+            try self.w.writeAll(")[" ++ rt(.indexBelow) ++ "(");
             self.place_chain = false;
             try self.emitBare(index);
             try self.w.writeAll(", ");
@@ -7764,7 +7766,7 @@ pub const Emitter = struct {
         if (isNonNegativeIntLiteral(self.source, index)) {
             try self.emitExpr(index);
         } else {
-            try self.w.writeAll("rig.indexBelow(");
+            try self.w.writeAll(rt(.indexBelow) ++ "(");
             try self.emitBare(index);
             try self.w.writeAll(", ");
             try self.emitTypeTy(n);
@@ -7792,7 +7794,7 @@ pub const Emitter = struct {
     /// is a compile-time integer or float, which `rig.rt` would keep.
     fn openFixed(self: *Emitter, fixed: bool, value: Sexp) Error!void {
         if (!fixed) return;
-        try self.w.writeAll("rig.rt(");
+        try self.w.writeAll(rt(.rt) ++ "(");
         if (!self.isScalarPart(value)) return;
         const t = self.typeOf(value).?;
         const types = self.facts.types;
@@ -7883,7 +7885,7 @@ pub const Emitter = struct {
     fn emitSlice(self: *Emitter, slice: Sexp, base: Sexp, base_ty: ?TypeId, range: Sexp) Error!void {
         self.place_chain = false;
         const writes = self.isWriteSliceExpr(slice);
-        try self.w.writeAll(if (writes) "rig.sliceMut(" else "rig.slice(");
+        try self.w.writeAll(if (writes) rt(.sliceMut) ++ "(" else rt(.slice) ++ "(");
         const ty = self.peelViews(base_ty orelse return self.unsupported(base, "a slice of an untyped value"));
         // A constant is sliced where it is stored, not through a copy.
         const saved_rt = self.rt_names;
@@ -7906,7 +7908,7 @@ pub const Emitter = struct {
         // An open start is 0; an open end, `null`, is the length. An
         // inclusive end is one past its bound (`rig.through`).
         for ([2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }, [2][]const u8{ "0", "null" }, [2]bool{ false, rig.isInclusive(range) }) |bound, open, through| {
-            try self.w.writeAll(if (through) ", rig.through(" else ", ");
+            try self.w.writeAll(if (through) ", " ++ rt(.through) ++ "(" else ", ");
             if (bound == .nil) try self.w.writeAll(open) else try self.emitBare(bound);
             if (through) try self.w.writeAll(")");
         }
@@ -7938,7 +7940,7 @@ pub const Emitter = struct {
         };
         // `e.text`: the name of a plain enum value's variant.
         if (self.facts.isEnumText(sexp)) {
-            try self.w.writeAll("rig.enumText(");
+            try self.w.writeAll(rt(.enumText) ++ "(");
             try self.emitMemberBase(obj, obj_ty);
             if (obj_ty) |t| try self.writeReach(t);
             return self.w.writeAll(")");
@@ -7964,7 +7966,7 @@ pub const Emitter = struct {
         // The length of a List, a slice, or an array (`rig.lenOf`, which
         // tests it only where it is not held below `max_len`).
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
-            try self.w.writeAll("rig.lenOf(");
+            try self.w.writeAll(rt(.lenOf) ++ "(");
             try self.emitMemberBase(obj, obj_ty);
             // A view of a view (`!?List[Int]`) is reached to the last.
             try self.writeReach(obj_ty.?);
@@ -7972,14 +7974,14 @@ pub const Emitter = struct {
         }
         // The length of an array or List behind a shared handle or a box.
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLenReached(obj_ty.?)) {
-            try self.w.writeAll("rig.lenOf(");
+            try self.w.writeAll(rt(.lenOf) ++ "(");
             try self.emitMemberBase(obj, obj_ty);
             try self.writeReach(obj_ty.?);
             return self.w.writeAll(")");
         }
         // An imported constant is read at run time, like a local one.
         if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {
-            try self.w.writeAll("rig.rt(");
+            try self.w.writeAll(rt(.rt) ++ "(");
             try self.writeModuleZig(self.facts.moduleOf(self.facts.symbolOf(obj).?).?);
             return self.w.print(".{f})", .{ident(field)});
         }
@@ -7987,7 +7989,7 @@ pub const Emitter = struct {
         // (`readsFixed`).
         const fixed = obj_ty != null and !self.place_chain and !self.keep_comptime and !self.isModuleValue(obj, sexp) and
             self.isScalarPart(sexp) and isZigComptimeIn(self, obj, 0);
-        if (fixed) try self.w.writeAll("rig.rt(");
+        if (fixed) try self.w.writeAll(rt(.rt) ++ "(");
         try self.emitReached(sexp, field);
         try self.w.print(".{f}", .{ident(field)});
         if (fixed) try self.w.writeAll(")");
@@ -8168,7 +8170,7 @@ pub const Emitter = struct {
                 defer if (slot) |sl| {
                     self.fail_slot = sl.saved;
                 };
-                try self.w.writeAll(if (routed) "(if (rig.somePtr(&" else "(if (");
+                try self.w.writeAll(if (routed) "(if (" ++ rt(.somePtr) ++ "(&" else "(if (");
                 try self.emitPayloadHolder(holder);
                 try self.w.print("{s} |{s}{s}| {s} else ", .{ if (routed) "))" else ")", if (routed) "" else "*", v, v });
                 if (e.isKind(.@"??")) {
@@ -8187,7 +8189,7 @@ pub const Emitter = struct {
                     try self.popScope();
                 } else if (slot) |sl| {
                     // A catch that binds no error drops its fields first.
-                    try self.w.print("|{s}_c| if (rig.dropFailure({s}_c, &{s})) ", .{ sl.name, sl.name, sl.name });
+                    try self.w.print("|{s}_c| if (" ++ rt(.dropFailure) ++ "({s}_c, &{s})) ", .{ sl.name, sl.name, sl.name });
                     try self.emitYieldBlock(handler, .{}, ty, .leaf_ptr);
                     try self.w.writeAll(" else unreachable");
                 } else {
@@ -8214,7 +8216,7 @@ pub const Emitter = struct {
                     return self.w.print(") |*{s}| {s} else |__rig_failed| return __rig_failed)", .{ v, v });
                 }
                 const routed = self.routedOptional(self.typeOf(operand));
-                try self.w.writeAll(if (routed) "(if (rig.somePtr(&" else "(if (");
+                try self.w.writeAll(if (routed) "(if (" ++ rt(.somePtr) ++ "(&" else "(if (");
                 try self.emitPayloadHolder(operand);
                 try self.w.print("{s} |{s}{s}| {s} else ", .{ if (routed) "))" else ")", if (routed) "" else "*", v, v });
                 try self.writeReturnNone();
@@ -8231,7 +8233,7 @@ pub const Emitter = struct {
                 // An absent optional, whose payload no branch captures,
                 // so nothing writes through its address.
                 if (self.isNoneLeaf(e)) {
-                    try self.w.writeAll("rig.noneAt(");
+                    try self.w.writeAll(rt(.noneAt) ++ "(");
                     try self.emitTypeTy(ty);
                     return self.w.writeAll(")");
                 }
@@ -8314,7 +8316,7 @@ pub const Emitter = struct {
         if (self.fun.return_ty) |r| {
             const o = self.unwrapFallible(r);
             if (self.facts.types.get(o) == .optional and self.routesPayload(self.facts.types.get(o).optional)) {
-                try self.w.writeAll("return rig.pack(");
+                try self.w.writeAll("return " ++ rt(.pack) ++ "(");
                 try self.emitTypeTy(o);
                 return self.w.writeAll(", null)");
             }
@@ -8330,7 +8332,7 @@ pub const Emitter = struct {
         if (!self.facts.copiesPayload(form)) return self.emitExpr(holder);
         const ty = self.typeOf(holder) orelse return self.unsupported(holder, "an untyped optional");
         const viewed = self.facts.payloadViewed(ty) orelse return self.unsupported(holder, "a payload copied out of no view");
-        try self.w.writeAll("rig.copiedOut(");
+        try self.w.writeAll(rt(.copiedOut) ++ "(");
         try self.emitTypeTy(viewed);
         try self.w.writeAll(", ");
         // An optional that goes through the helpers (`rig.WordOpt`) is
@@ -8385,7 +8387,7 @@ pub const Emitter = struct {
             // directory for `embed_dir_mark`.
             const place = self.facts.embedPlace(sexp) orelse return self.unsupported(sexp, "a `$embed` whose file was not found");
             const p = std.zig.fmtString(place);
-            try self.w.print("@as([]const u8, if (rig.embeds_aligned) rig.Embed(@This(), @embedFile(\"{f}\").len, \"", .{p});
+            try self.w.print("@as([]const u8, if (" ++ rt(.embeds_aligned) ++ ") " ++ rt(.Embed) ++ "(@This(), @embedFile(\"{f}\").len, \"", .{p});
             try self.w.writeAll(embed_dir_mark);
             return self.w.print("{f}\").bytes else @embedFile(\"{f}\"))", .{ p, p });
         }
@@ -8516,7 +8518,7 @@ pub const Emitter = struct {
             }
             if (piece[0] == 't') {
                 const ty = std.fmt.parseInt(TypeId, piece[1..], 10) catch unreachable;
-                if (how == .concat) try self.w.writeAll("rig.typeName(");
+                if (how == .concat) try self.w.writeAll(rt(.typeName) ++ "(");
                 try self.emitTypeTy(ty);
                 if (how == .concat) try self.w.writeAll(", __rig_names)");
                 continue;
@@ -8526,7 +8528,7 @@ pub const Emitter = struct {
                 const params = self.facts.symbols.items[generic].type_params.?;
                 try self.w.print("{d}", .{std.mem.findScalar(SymbolId, params, sym).?});
             } else if (how == .concat) {
-                try self.w.writeAll("rig.typeName(");
+                try self.w.writeAll(rt(.typeName) ++ "(");
                 try self.writeTypeParam(sym);
                 try self.w.writeAll(", __rig_names)");
             } else try self.writeTypeParam(sym);
@@ -8559,7 +8561,7 @@ pub const Emitter = struct {
             try self.w.writeAll("        .{ ");
             // `error` is a `rig.ErrorValue` (an error of any set, with its
             // fields).
-            if (t == .any_error) try self.w.writeAll("rig.ErrorValue") else try self.emitBuiltinTy(t);
+            if (t == .any_error) try self.w.writeAll(rt(.ErrorValue)) else try self.emitBuiltinTy(t);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, t)});
         }
         for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id, ctx.os_sym_id, ctx.feature_sym_id, ctx.order_sym_id, ctx.printer_sym_id, ctx.hasher_sym_id }) |sym| {
@@ -8578,7 +8580,7 @@ pub const Emitter = struct {
             try self.writeSpelling(try ctx.formatGenericSelfMarked(a, sym), .parts, sym);
             try self.w.writeAll(" },\n");
             if (sym == ctx.list_sym_id) {
-                try self.w.writeAll("        .{ rig.InlineList, ");
+                try self.w.writeAll("        .{ " ++ rt(.InlineList) ++ ", ");
                 try self.writeSpelling(try ctx.formatInlineListMarked(a), .parts, sym);
                 try self.w.writeAll(" },\n");
             }
@@ -8611,7 +8613,7 @@ pub const Emitter = struct {
         // `*Actor(x)`, `*Actor(x, mailbox: n)`: the runtime makes the
         // actor behind its first handle.
         if (self.facts.isActorMake(inner)) {
-            try self.w.writeAll("rig.actor(");
+            try self.w.writeAll(rt(.actor) ++ "(");
             try self.emitArgs(inner);
             if (ir.Call.args(inner).len == 1) try self.w.writeAll(", 64");
             return self.w.writeAll(")");
@@ -8620,7 +8622,7 @@ pub const Emitter = struct {
         if (self.facts.isFrozenMake(inner)) {
             const value = ir.Call.args(inner)[0];
             const payload = self.facts.frozenValue(self.typeOf(inner) orelse return self.unsupported(inner, "an untyped frozen value")).?;
-            try self.w.writeAll("rig.frozen(");
+            try self.w.writeAll(rt(.frozen) ++ "(");
             try self.writeAsOpen(payload);
             try self.emitBare(value);
             return self.w.writeAll("))");
@@ -8629,7 +8631,7 @@ pub const Emitter = struct {
         // handle.
         if (self.facts.isChanMake(inner)) {
             const ty = self.typeOf(inner) orelse return self.unsupported(inner, "an untyped channel");
-            try self.w.writeAll("rig.chan(");
+            try self.w.writeAll(rt(.chan) ++ "(");
             try self.emitTypeTy(self.facts.types.get(ty).parameterized_nominal.args[0]);
             try self.w.writeAll(", ");
             try self.emitArgs(inner);
@@ -8639,7 +8641,7 @@ pub const Emitter = struct {
         // `f`, which it keeps, with each option or its default.
         if (self.facts.isActorSupervised(inner)) {
             const args = ir.Call.args(inner);
-            try self.w.writeAll("rig.actorSupervised(");
+            try self.w.writeAll(rt(.actorSupervised) ++ "(");
             try self.emitExpr(args[0]);
             for ([_][]const u8{ "mailbox", "restarts", "per" }, [_][]const u8{ "64", "-1", "0" }) |name, default| {
                 try self.w.writeAll(", ");
@@ -8659,7 +8661,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(".upgrade()");
             },
             .takes => {
-                try self.w.writeAll("rig.upgradeTaken(");
+                try self.w.writeAll(rt(.upgradeTaken) ++ "(");
                 try self.emitBare(inner);
                 return self.w.writeAll(")");
             },
@@ -8668,7 +8670,7 @@ pub const Emitter = struct {
             .shared => |p| p,
             else => null,
         } else null;
-        try self.w.writeAll("rig.shared(");
+        try self.w.writeAll(rt(.shared) ++ "(");
         // A constructor call spells its own type: `rig.shared(Node{ ... })`.
         const typed = payload_ty != null and self.isConstructorCall(inner) and
             if (self.typeOf(inner)) |inner_ty| inner_ty == payload_ty.? else false;
@@ -8834,7 +8836,7 @@ pub const Emitter = struct {
     /// (`SemContext.swapCallOf`).
     fn emitSwapCall(self: *Emitter, args: []const Sexp, swap: facts.SwapCall) Error!void {
         const two = args.len == 2 and swap == .places;
-        try self.w.writeAll(if (two) "rig.swapPlaces(" else "rig.swapValue(");
+        try self.w.writeAll(if (two) rt(.swapPlaces) ++ "(" else rt(.swapValue) ++ "(");
         // A place a swap writes is reached to write, whatever reads the
         // swap's result: its own `!` decides, as `emitViewAddress`'s does.
         const saved_read = self.read_place;
@@ -8888,7 +8890,7 @@ pub const Emitter = struct {
     fn emitStringCall(self: *Emitter, call: Sexp, op: facts.StringCall) Error!void {
         const args = ir.Call.args(call);
         switch (op) {
-            .new => try self.w.writeAll("rig.String.of("),
+            .new => try self.w.writeAll(rt(.String) ++ ".of("),
             // `out.value(x)`, which the runtime writes as `print` writes a
             // part of another value (`rig.Printer.value`).
             .printer_value, .hasher_add => {
@@ -8916,7 +8918,7 @@ pub const Emitter = struct {
                     try self.emitBare(args[0]);
                     try self.w.writeAll(", ");
                     const given = self.facts.ctArgsOf(call);
-                    if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
+                    if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll(rt(.Endian) ++ ".little");
                     return self.w.writeAll(")");
                 }
                 // `.pushKeep(T, v, k, endian)`: all of `v` is stored, the
@@ -8931,7 +8933,7 @@ pub const Emitter = struct {
                     try self.emitBare(ir.Kwarg.value(args[1]));
                     try self.w.writeAll(", ");
                     const given = self.facts.ctArgsOf(call);
-                    if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
+                    if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll(rt(.Endian) ++ ".little");
                     return self.w.writeAll(")");
                 }
                 try self.w.writeAll(".add(");
@@ -8965,10 +8967,10 @@ pub const Emitter = struct {
                 const proven = provenTests(self.provenOf(callee));
                 const read = ec.op == .read;
                 try self.w.writeAll(if (vector) (if (proven != null)
-                    (if (read) "rig.simdReadProven(" else "rig.simdWriteProven(")
-                else if (read) "rig.simdRead(" else "rig.simdWrite(") else if (proven != null)
-                    (if (read) "rig.readIntProven(" else "rig.writeIntProven(")
-                else if (read) "rig.readInt(" else "rig.writeInt(");
+                    (if (read) rt(.simdReadProven) ++ "(" else rt(.simdWriteProven) ++ "(")
+                else if (read) rt(.simdRead) ++ "(" else rt(.simdWrite) ++ "(") else if (proven != null)
+                    (if (read) rt(.readIntProven) ++ "(" else rt(.writeIntProven) ++ "(")
+                else if (read) rt(.readInt) ++ "(" else rt(.writeInt) ++ "(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
                 try self.emitElems(ir.Member.object(callee));
@@ -8978,7 +8980,7 @@ pub const Emitter = struct {
                 }
                 try self.w.writeAll(", ");
                 const given = self.facts.ctArgsOf(call);
-                if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
+                if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll(rt(.Endian) ++ ".little");
                 if (proven) |p| try self.w.print(", .{s}", .{p});
             },
             // `rig.rt(@as(V, @splat(x)))`.
@@ -8991,7 +8993,7 @@ pub const Emitter = struct {
             // `rig.maskTrueLanes(Lanes, m)`: the prelude's iterator, holding
             // the bits of `m` in the form the runtime picks for the target.
             .lanes => {
-                try self.w.writeAll("rig.maskTrueLanes(");
+                try self.w.writeAll(rt(.maskTrueLanes) ++ "(");
                 try self.emitTypeTy(ec.elem);
                 try self.w.writeAll(", ");
                 try self.emitBare(ir.Member.object(callee));
@@ -9005,22 +9007,22 @@ pub const Emitter = struct {
                 // first costs a vector instruction per 16 lanes.
                 const obj = ir.Member.object(callee);
                 if (ec.op == .bits and obj.isKind(.call)) if (self.facts.elemCallOf(self.facts.calleeOf(obj))) |inner| if (inner.op == .not) {
-                    try self.w.writeAll("rig.maskBitsNot(");
+                    try self.w.writeAll(rt(.maskBitsNot) ++ "(");
                     try self.emitBare(ir.Member.object(self.facts.calleeOf(obj)));
                     return self.w.writeAll(")");
                 };
                 try self.w.writeAll(switch (ec.op) {
-                    .bits => "rig.maskBits(",
-                    .first => "rig.maskFirst(",
-                    .any => "rig.maskAny(",
-                    else => "rig.maskAll(",
+                    .bits => rt(.maskBits) ++ "(",
+                    .first => rt(.maskFirst) ++ "(",
+                    .any => rt(.maskAny) ++ "(",
+                    else => rt(.maskAll) ++ "(",
                 });
                 try self.emitBare(ir.Member.object(callee));
                 return self.w.writeAll(")");
             },
             // `rig.maskSelect(m, a, b)`.
             .select => {
-                try self.w.writeAll("rig.maskSelect(");
+                try self.w.writeAll(rt(.maskSelect) ++ "(");
                 try self.emitBare(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
@@ -9031,7 +9033,7 @@ pub const Emitter = struct {
             // `@as([n]T, v)`, or `rig.maskArray(m)`.
             .array => {
                 if (ec.elem == self.facts.types.bool_id) {
-                    try self.w.writeAll("rig.maskArray(");
+                    try self.w.writeAll(rt(.maskArray) ++ "(");
                     try self.emitBare(ir.Member.object(callee));
                     return self.w.writeAll(")");
                 }
@@ -9045,7 +9047,7 @@ pub const Emitter = struct {
             },
             // `rig.lookup(t, idx)`, lowered per target by the runtime.
             .lookup => {
-                try self.w.writeAll("rig.lookup(");
+                try self.w.writeAll(rt(.lookup) ++ "(");
                 try self.emitBare(ir.Member.object(callee));
                 try self.w.writeAll(", ");
                 try self.emitBare(args[0]);
@@ -9053,7 +9055,7 @@ pub const Emitter = struct {
             },
             // `rig.lag(k, cur, prev)`: one constant shuffle.
             .lag => {
-                try self.w.writeAll("rig.lag(");
+                try self.w.writeAll(rt(.lag) ++ "(");
                 try self.emitBare(self.facts.ctArgsOf(call)[0]);
                 try self.w.writeAll(", ");
                 try self.emitBare(ir.Member.object(callee));
@@ -9063,7 +9065,7 @@ pub const Emitter = struct {
             },
             // `rig.withLane(v, i, x)`.
             .with => {
-                try self.w.writeAll("rig.withLane(");
+                try self.w.writeAll(rt(.withLane) ++ "(");
                 try self.emitBare(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
@@ -9079,7 +9081,7 @@ pub const Emitter = struct {
                     else => self.peelViews(ec.num),
                 };
                 if (lanes == self.facts.types.bool_id and lanes != self.peelViews(ec.num)) {
-                    try self.w.writeAll("rig.maskNot(");
+                    try self.w.writeAll(rt(.maskNot) ++ "(");
                     try self.emitBare(obj);
                     return self.w.writeAll(")");
                 }
@@ -9132,7 +9134,7 @@ pub const Emitter = struct {
             },
             // `rig.frexpFraction(x)`, `rig.frexpExponent(x)`.
             .fraction, .exponent => {
-                try self.w.print("rig.frexp{s}(", .{if (ec.op == .fraction) "Fraction" else "Exponent"});
+                try self.w.writeAll(if (ec.op == .fraction) rt(.frexpFraction) ++ "(" else rt(.frexpExponent) ++ "(");
                 try self.emitBare(ir.Member.object(callee));
                 return self.w.writeAll(")");
             },
@@ -9148,7 +9150,7 @@ pub const Emitter = struct {
                     try self.emitArgs(call);
                     return self.w.writeAll(")");
                 }
-                try self.w.writeAll("rig.enumFromText(");
+                try self.w.writeAll(rt(.enumFromText) ++ "(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
                 try self.writeTextTable(ec.num);
@@ -9158,13 +9160,13 @@ pub const Emitter = struct {
             },
             // `rig.slotOf(n, i)`: `Slot[n].of(i)`.
             .from_int => if (self.facts.types.get(ec.num) == .slot) {
-                try self.w.writeAll("rig.slotOf(");
+                try self.w.writeAll(rt(.slotOf) ++ "(");
                 try self.emitTypeTy(self.facts.types.get(ec.num).slot);
                 try self.w.writeAll(", ");
                 try self.emitBare(args[0]);
                 return self.w.writeAll(")");
             } else {
-                try self.w.writeAll("rig.enumFromInt(");
+                try self.w.writeAll(rt(.enumFromInt) ++ "(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
                 try self.writeAsOpen(ec.elem);
@@ -9173,7 +9175,7 @@ pub const Emitter = struct {
             },
             // `rig.sum(elems, start)`, `0` when none is given.
             .sum => {
-                try self.w.writeAll("rig.sum(");
+                try self.w.writeAll(rt(.sum) ++ "(");
                 try self.emitElems(ir.Member.object(callee));
                 try self.w.writeAll(", ");
                 if (args.len == 1) try self.emitBare(ir.get(args[0], .value)) else try self.w.writeAll("0");
@@ -9181,7 +9183,7 @@ pub const Emitter = struct {
             },
             // `rig.prefetch(elems, i)`: element `i` asked for.
             .prefetch => {
-                try self.w.writeAll("rig.prefetch(");
+                try self.w.writeAll(rt(.prefetch) ++ "(");
                 try self.emitElems(ir.Member.object(callee));
                 try self.w.writeAll(", ");
                 try self.emitBare(args[0]);
@@ -9189,7 +9191,7 @@ pub const Emitter = struct {
             },
             // `rig.orderOf(a, b)`: an `Order` (`Checker.orderCall`).
             .order => {
-                try self.w.writeAll("rig.orderOf(");
+                try self.w.writeAll(rt(.orderOf) ++ "(");
                 try self.emitExpr(ir.Member.object(callee));
                 try self.w.writeAll(", ");
                 try self.emitExpr(if (args[0].isKind(.kwarg)) ir.Kwarg.value(args[0]) else args[0]);
@@ -9197,7 +9199,7 @@ pub const Emitter = struct {
             },
             // `rig.totalOrder(a, b)`: an `Order` (`Checker.floatCall`).
             .total_order => {
-                try self.w.writeAll("rig.totalOrder(");
+                try self.w.writeAll(rt(.totalOrder) ++ "(");
                 try self.emitExpr(ir.Member.object(callee));
                 try self.w.writeAll(", ");
                 try self.emitExpr(if (args[0].isKind(.kwarg)) ir.Kwarg.value(args[0]) else args[0]);
@@ -9207,9 +9209,9 @@ pub const Emitter = struct {
             // and `floatClamp` likewise.
             .min, .max, .clamp => {
                 try self.w.writeAll(switch (ec.op) {
-                    .min => "rig.floatMin(",
-                    .max => "rig.floatMax(",
-                    else => "rig.floatClamp(",
+                    .min => rt(.floatMin) ++ "(",
+                    .max => rt(.floatMax) ++ "(",
+                    else => rt(.floatClamp) ++ "(",
                 });
                 try self.writeAsOpen(ec.num);
                 try self.emitBare(ir.Member.object(callee));
@@ -9224,7 +9226,7 @@ pub const Emitter = struct {
             },
             // `rig.hash(x)`, of the value self reaches.
             .hash => {
-                try self.w.writeAll("rig.hash(");
+                try self.w.writeAll(rt(.hash) ++ "(");
                 try self.emitExpr(ir.Member.object(callee));
                 return self.w.writeAll(")");
             },
@@ -9238,7 +9240,11 @@ pub const Emitter = struct {
                 // A swap's tests known to pass, of both indexes, are
                 // omitted (`provenOf`).
                 const proven = if (ec.op == .swap) provenTests(self.provenOf(callee)) else null;
-                try self.w.print("rig.{s}{s}(", .{ @tagName(ec.op), if (proven != null) "Proven" else "" });
+                try self.w.writeAll(switch (ec.op) {
+                    .copy => rt(.copy) ++ "(",
+                    .fill => rt(.fill) ++ "(",
+                    else => if (proven != null) rt(.swapProven) ++ "(" else rt(.swap) ++ "(",
+                });
                 try self.emitElems(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
@@ -9291,7 +9297,7 @@ pub const Emitter = struct {
     /// when it compiles, and a lane that overflows panics when the program
     /// runs, as Rig specifies, rather than stopping Zig's fold.
     fn writeVectorOpen(self: *Emitter, vt: TypeId) Error!void {
-        try self.w.writeAll(if (self.isMask(vt)) "rig.rt(rig.maskOf(" else "rig.rt(@as(");
+        try self.w.writeAll(if (self.isMask(vt)) rt(.rt) ++ "(" ++ rt(.maskOf) ++ "(" else rt(.rt) ++ "(@as(");
         try self.emitTypeTy(vt);
         try self.w.writeAll(", ");
     }
@@ -9359,10 +9365,10 @@ pub const Emitter = struct {
         const label = try self.fmt("__rig_fb_{d}", .{id});
         const saved = self.fail_slot;
         defer self.fail_slot = saved;
-        try self.w.print("({s}: {{ var {s}: rig.ErrData = undefined; break :{s} ", .{ label, name, label });
-        self.fail_slot = .{ .call = call, .expr = try self.fmt("rig.failSlot(&{s})", .{name}) };
+        try self.w.print("({s}: {{ var {s}: " ++ rt(.ErrData) ++ " = undefined; break :{s} ", .{ label, name, label });
+        self.fail_slot = .{ .call = call, .expr = try self.fmt(rt(.failSlot) ++ "(&{s})", .{name}) };
         try self.emitCall(call);
-        try self.w.print(" catch |{s}_e| rig.makerPanic({s}_e); }})", .{ name, name });
+        try self.w.print(" catch |{s}_e| " ++ rt(.makerPanic) ++ "({s}_e); }})", .{ name, name });
     }
 
     /// A call. One that may reach an inlined function is read through
@@ -9401,7 +9407,7 @@ pub const Emitter = struct {
             },
             else => {},
         };
-        try self.w.writeAll("rig.rt(");
+        try self.w.writeAll(rt(.rt) ++ "(");
         try self.emitCallPlain(sexp);
         try self.w.writeAll(")");
     }
@@ -9419,7 +9425,7 @@ pub const Emitter = struct {
         // `c.m(x)&` through an actor's handle (`rig.actorSpawn`).
         if (self.facts.isActorCall(sexp)) {
             const obj = ir.Member.object(callee);
-            try self.w.writeAll("rig.actorSpawn(");
+            try self.w.writeAll(rt(.actorSpawn) ++ "(");
             try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
             try self.emitArgs(sexp);
@@ -9609,7 +9615,7 @@ pub const Emitter = struct {
         // their values or nothing, as the checker decided.
         if (self.facts.taskJoinOf(sexp)) |values| {
             const out = self.slotOf(sexp);
-            try self.w.writeAll("rig.waitTasksInto(.{ ");
+            try self.w.writeAll(rt(.waitTasksInto) ++ "(.{ ");
             try self.emitArgs(sexp);
             return self.w.print(" }}, {s}, {})", .{ out, values });
         }
@@ -9617,7 +9623,7 @@ pub const Emitter = struct {
         // sends, which waits for the answer.
         if (self.facts.isActorCall(sexp)) {
             const obj = ir.Member.object(callee);
-            try self.w.writeAll("rig.actorCall(");
+            try self.w.writeAll(rt(.actorCall) ++ "(");
             try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
             try self.emitArgs(sexp);
@@ -9633,7 +9639,7 @@ pub const Emitter = struct {
             if (self.selectResult(sexp)) |ty| {
                 // The runtime's own call, which takes no slot.
                 _ = self.takeFailSlot(sexp);
-                try self.w.writeAll("rig.selectValue(");
+                try self.w.writeAll(rt(.selectValue) ++ "(");
                 try self.emitTypeTy(ty);
                 try self.w.writeAll(", .{ ");
                 for (args, 0..) |arm, i| {
@@ -9644,7 +9650,7 @@ pub const Emitter = struct {
             }
             // The runtime calls the arm's function with the slot.
             const out = self.slotOf(sexp);
-            try self.w.writeAll("rig.selectInto(.{ ");
+            try self.w.writeAll(rt(.selectInto) ++ "(.{ ");
             for (args, 0..) |arm, i| {
                 if (i > 0) try self.w.writeAll(", ");
                 try self.emitExpr(arm);
@@ -9655,15 +9661,15 @@ pub const Emitter = struct {
         // and the function the runtime calls.
         if (self.facts.selectArmOf(sexp)) |kind| {
             if (kind == .after) {
-                try self.w.writeAll("rig.afterArm(");
+                try self.w.writeAll(rt(.afterArm) ++ "(");
                 try self.emitArgs(sexp);
                 return self.w.writeAll(")");
             }
             const handle = ir.get(ir.Member.object(callee), .operand);
             try self.w.writeAll(switch (kind) {
-                .recv => "rig.recvArm(",
-                .send => "rig.sendArm(",
-                else => "rig.endArm(",
+                .recv => rt(.recvArm) ++ "(",
+                .send => rt(.sendArm) ++ "(",
+                else => rt(.endArm) ++ "(",
             });
             const handle_ty = self.typeOf(handle) orelse return self.unsupported(handle, "an untyped channel");
             // A view of the channel itself (`!Chan[T]`) holds the address
@@ -9672,7 +9678,7 @@ pub const Emitter = struct {
             // through the handle does.
             const of_chan = kind != .end and self.facts.types.get(self.facts.unwrapViews(handle_ty)) != .shared;
             if (of_chan) {
-                try self.w.writeAll("@as(*rig.Shared(");
+                try self.w.writeAll("@as(*" ++ rt(.Shared) ++ "(");
                 try self.emitTypeTy(self.facts.unwrapViews(handle_ty));
                 try self.w.writeAll("), @alignCast(@fieldParentPtr(\"value\", ");
             }
@@ -9696,14 +9702,14 @@ pub const Emitter = struct {
         if (self.facts.isHttpServe(sexp)) {
             // The runtime's own call, which takes no slot.
             _ = self.takeFailSlot(sexp);
-            try self.w.writeAll("rig.httpServe(");
+            try self.w.writeAll(rt(.httpServe) ++ "(");
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
         }
         // `xs.reduce(start, f)`: `rig.reduceInto(elems, start, f, slot)`.
         if (self.facts.isReduceCall(sexp)) {
             const out = self.slotOf(sexp);
-            try self.w.writeAll("rig.reduceInto(");
+            try self.w.writeAll(rt(.reduceInto) ++ "(");
             try self.emitElems(ir.Member.object(callee));
             try self.w.writeAll(", ");
             try self.emitArgs(sexp);
@@ -9713,7 +9719,7 @@ pub const Emitter = struct {
         if (self.facts.isIoCopy(sexp)) {
             // The runtime's own call, which takes no slot.
             _ = self.takeFailSlot(sexp);
-            try self.w.writeAll("rig.net.copy(");
+            try self.w.writeAll(rt(.net) ++ ".copy(");
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
         }
@@ -9721,7 +9727,7 @@ pub const Emitter = struct {
         // again by the runtime, with each option or its default.
         if (self.facts.isSuperviseCall(sexp)) {
             const out = self.slotOf(sexp);
-            try self.w.writeAll("rig.superviseInto(");
+            try self.w.writeAll(rt(.superviseInto) ++ "(");
             try self.emitExpr(args[0]);
             for ([_][]const u8{ "restarts", "per" }, [_][]const u8{ "-1", "0" }) |name, default| {
                 try self.w.writeAll(", ");
@@ -9735,7 +9741,7 @@ pub const Emitter = struct {
         // `task.isolate(f)`: run apart by the runtime.
         if (self.facts.isIsolateCall(sexp)) {
             const out = self.slotOf(sexp);
-            try self.w.writeAll("rig.isolateInto(");
+            try self.w.writeAll(rt(.isolateInto) ++ "(");
             try self.emitArgs(sexp);
             return self.w.print(", {s})", .{out});
         }
@@ -9746,10 +9752,10 @@ pub const Emitter = struct {
         if (self.facts.parCallOf(sexp)) |kind| {
             const out = self.slotOf(sexp);
             try self.w.writeAll(switch (kind) {
-                .map => "rig.parMapInto(",
-                .each => "rig.parEachInto(",
-                .workers => "rig.parWorkersInto(",
-                .push => "rig.parPushInto(",
+                .map => rt(.parMapInto) ++ "(",
+                .each => rt(.parEachInto) ++ "(",
+                .workers => rt(.parWorkersInto) ++ "(",
+                .push => rt(.parPushInto) ++ "(",
             });
             try self.emitArgs(sexp);
             // With no `limit:`, one task per worker.
@@ -9816,7 +9822,7 @@ pub const Emitter = struct {
                 return self.w.print("Into({s})", .{out});
             },
             .element_get => {
-                try self.w.writeAll("rig.elementAt(");
+                try self.w.writeAll(rt(.elementAt) ++ "(");
                 try self.emitBare(obj);
                 try self.w.writeAll(", ");
             },
@@ -9900,14 +9906,14 @@ pub const Emitter = struct {
         // Zig checks that it fits (the checker did for a constant one).
         if (self.isEnumTy(self.peelViews(arg_ty))) {
             try self.writeAsOpen(target);
-            try self.w.writeAll("@intCast(@backingInt(rig.rt(");
+            try self.w.writeAll("@intCast(@backingInt(" ++ rt(.rt) ++ "(");
             try self.emitBare(arg);
             return self.w.writeAll("))))");
         }
         // A slot's number, which Zig checks fits a narrower type.
         if (self.facts.types.get(self.peelViews(arg_ty)) == .slot) {
             try self.writeAsOpen(target);
-            try self.w.writeAll(if (self.facts.types.get(target) == .int) "@intCast(rig.rt(" else "@floatFromInt(rig.rt(");
+            try self.w.writeAll(if (self.facts.types.get(target) == .int) "@intCast(" ++ rt(.rt) ++ "(" else "@floatFromInt(" ++ rt(.rt) ++ "(");
             try self.emitBare(arg);
             return self.w.writeAll(")))");
         }
@@ -9932,7 +9938,7 @@ pub const Emitter = struct {
         const nan_check = to_int and !from_int;
         try self.writeAsOpen(target);
         const through = if (unsigned) try self.openUnsignedCast(arg, from, self.facts.types.get(target).int.width()) else false;
-        if (!unsigned) try self.w.print("{s}({s}", .{ builtin, if (nan_check) "rig.notNan(" else "" });
+        if (!unsigned) try self.w.print("{s}({s}", .{ builtin, if (nan_check) rt(.notNan) ++ "(" else "" });
         try self.writeAsOpen(from);
         // A constant is converted at run time, where Zig checks it as Rig
         // does, not at compile time.
@@ -9958,7 +9964,7 @@ pub const Emitter = struct {
         if (try self.emitStackClosure(name, ir.Call.callee(call))) {
             try self.w.writeAll("\n");
             try self.writeIndent(self.indent);
-            try self.w.print("defer rig.dropFields(&{s});", .{name});
+            try self.w.print("defer " ++ rt(.dropFields) ++ "(&{s});", .{name});
         }
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
@@ -10025,9 +10031,9 @@ pub const Emitter = struct {
     /// it counts, in the order written, packed as the `Duration?` its
     /// parameter takes when it is one.
     fn emitDurationParts(self: *Emitter, args: []const Sexp, p: facts.DurationParts) Error!void {
-        if (p.opt != facts.type_invalid) try self.w.print("rig.pack({s}, ", .{try self.typeText(p.opt)});
+        if (p.opt != facts.type_invalid) try self.w.print(rt(.pack) ++ "({s}, ", .{try self.typeText(p.opt)});
         if (p.how == .folded) try self.w.writeAll("(");
-        try self.w.print("rig.durationSum{s}(", .{durationTwin(p.how)});
+        try self.w.print("{s}(", .{durationFn(.sum, p.how)});
         if (p.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(p.ty);
         try self.w.writeAll(", .{ ");
         for (p.args, 0..) |ai, k| {
@@ -10124,7 +10130,7 @@ pub const Emitter = struct {
         var l: Local = .{ .sym = sym, .ty = ty, .kind = self.holdOf(sym) };
         if (l.kind != null) l.guard = self.resourceGuard(sym);
         const stored = try self.declare(l, self.srcText(name));
-        const expr = try self.fmt("rig.ErrorValue.taken({s}, &{s})", .{ tmp, slot orelse "rig.no_error_data" });
+        const expr = try self.fmt(rt(.ErrorValue) ++ ".taken({s}, &{s})", .{ tmp, slot orelse rt(.no_error_data) });
         return .{ .owned = try self.arena.allocator().dupe(OwnedBinding, &.{.{ .local = stored.*, .expr = expr }}) };
     }
 
@@ -10154,7 +10160,7 @@ pub const Emitter = struct {
     /// The slot a runtime task call is given for a failure's fields: the
     /// one a `!` or `catch` gives `call`, or `rig.no_slot`.
     fn slotOf(self: *Emitter, call: Sexp) []const u8 {
-        return self.takeFailSlot(call) orelse "rig.no_slot";
+        return self.takeFailSlot(call) orelse rt(.no_slot);
     }
 
     /// The slot a `catch` gives its call `value` when the call may fail
@@ -10168,8 +10174,8 @@ pub const Emitter = struct {
         if (!self.failsWithFieldsCall(value)) return null;
         const id = self.nextId();
         const slot: CatchSlot = .{ .name = try self.fmt("__rig_fail_{d}", .{id}), .label = try self.fmt("__rig_fb_{d}", .{id}), .saved = self.fail_slot };
-        try self.w.print("({s}: {{ var {s}: rig.ErrData = undefined; break :{s} ", .{ slot.label, slot.name, slot.label });
-        self.fail_slot = .{ .call = value, .expr = try self.fmt("rig.failSlot(&{s})", .{slot.name}) };
+        try self.w.print("({s}: {{ var {s}: " ++ rt(.ErrData) ++ " = undefined; break :{s} ", .{ slot.label, slot.name, slot.label });
+        self.fail_slot = .{ .call = value, .expr = try self.fmt(rt(.failSlot) ++ "(&{s})", .{slot.name}) };
         return slot;
     }
 
@@ -10239,7 +10245,7 @@ pub const Emitter = struct {
         if (e.isKind(.enum_lit) or decl.isErrorMember(e)) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t)) |set| if (set.symbol().flags.error_set) {
             const name = if (e.isKind(.member)) ir.Member.name(e) else ir.EnumLit.name(e);
             const value = self.isErrorValueTy(self.unwrapOptionals(target));
-            try self.w.writeAll(if (value) "rig.ErrorValue.of(error." else "error.");
+            try self.w.writeAll(if (value) rt(.ErrorValue) ++ ".of(error." else "error.");
             try writeErrorName(self.w, set.facts, set.symbol().name, rig.leafText(decl.source, name.src));
             if (value) try self.w.writeAll(", .{})");
             return;
@@ -10253,7 +10259,7 @@ pub const Emitter = struct {
             if (self_check and e == .src) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t) != null and decl.isNoneLeaf(e)) return self.unsupported(e, "`none` with an enum type");
             return writeLiteral(self.w, self.arena.allocator(), decl.source, e);
         }
-        if (e.isKind(.call) and decl.stringCall(e) == .new) return self.w.writeAll("rig.String.empty");
+        if (e.isKind(.call) and decl.stringCall(e) == .new) return self.w.writeAll(rt(.String) ++ ".empty");
         if (decl.same(self.facts)) {
             const saved = self.keep_comptime;
             defer self.keep_comptime = saved;
@@ -10708,7 +10714,7 @@ pub const Emitter = struct {
         const name = self.facts.symbols.items[sym_id].name;
         const value = if (none.variant) |v| try self.fmt(".{s}", .{v}) else try self.fmt("{d}", .{none.value});
         const why = try self.fmt("a `{s}` never holds `{s}` {s}, which is what a `{s}?` holds for `none`", .{ name, none.field, value, name });
-        try self.w.writeAll("rig.notNone(");
+        try self.w.writeAll(rt(.notNone) ++ "(");
         try self.writeNominalName(sym_id);
         try self.w.print(", \"{f}\", ", .{std.zig.fmtString(why)});
         try self.writeNominalName(sym_id);
@@ -10777,7 +10783,7 @@ pub const Emitter = struct {
     fn emitErrorMember(self: *Emitter, call: Sexp, set: TypeId, vname: []const u8) Error!void {
         const payload = self.variantPayload(set, vname) orelse return self.unsupported(call, "this error member");
         const failing = self.fun.has_out and self.facts.isFailingLeaf(call);
-        if (failing) try self.w.print("@errorCast(rig.failWith({s}, ", .{self.fun.out_name}) else try self.w.writeAll("rig.ErrorValue.of(");
+        if (failing) try self.w.print("@errorCast(" ++ rt(.failWith) ++ "({s}, ", .{self.fun.out_name}) else try self.w.writeAll(rt(.ErrorValue) ++ ".of(");
         try self.writeError(set, vname, call);
         try self.w.writeAll(", @as(");
         try self.emitMemberFieldsTy(set, vname);
@@ -10841,7 +10847,7 @@ pub const Emitter = struct {
     /// (`rig.print(.{ a, " ", &b, "\n" })`), which the runtime writes as
     /// straight-line code once every argument has run.
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
-        try self.w.writeAll("rig.print(");
+        try self.w.writeAll(rt(.print) ++ "(");
         try self.emitPrintArgs(args, print_text);
         try self.w.writeAll(")");
     }
@@ -10849,7 +10855,7 @@ pub const Emitter = struct {
     /// `warn(a, b)`: `print`'s pieces, which the runtime writes to
     /// stderr once stdout is flushed.
     fn emitWarn(self: *Emitter, args: []const Sexp) Error!void {
-        try self.w.writeAll("rig.warn(");
+        try self.w.writeAll(rt(.warn) ++ "(");
         try self.emitPrintArgs(args, print_text);
         try self.w.writeAll(")");
     }
@@ -10864,7 +10870,7 @@ pub const Emitter = struct {
         const prefix = try self.fmt("{s}:{d}:{d}: panic: ", .{ at.path, lc.line, lc.col });
         var text = print_text;
         text.start = try self.fmt("\"{f}\"", .{std.zig.fmtString(prefix)});
-        try self.w.writeAll("rig.fail(");
+        try self.w.writeAll(rt(.fail) ++ "(");
         try self.emitPrintArgs(ir.Panic.args(node), text);
         try self.w.writeAll(")");
     }
@@ -10972,7 +10978,7 @@ pub const Emitter = struct {
             }
             const label = try self.fmt("{s} = ", .{facts.syntax.showLabel(self.source, t, i)});
             try self.emitPiece(n, try self.fmt("\"{f}\"", .{std.zig.fmtString(label)}));
-            try self.w.writeAll(", rig.showSlot(");
+            try self.w.writeAll(", " ++ rt(.showSlot) ++ "(");
             n.* += 1;
             try self.emitPrintOperand(ir.Show.value(slot));
             try self.w.writeAll(")");
@@ -11109,10 +11115,10 @@ pub const Emitter = struct {
             self.fun.has_out = true;
             self.fun.out_unmarked = true;
             self.fun.out_name = try self.fmt("__out_{d}", .{self.closure_depth});
-            try self.w.print(", {s}: rig.ErrSlot", .{self.fun.out_name});
+            try self.w.print(", {s}: " ++ rt(.ErrSlot), .{self.fun.out_name});
         }
         try self.w.writeAll(") ");
-        if (self.code_section) try self.w.writeAll("linksection(rig.preempt_section) ");
+        if (self.code_section) try self.w.writeAll("linksection(" ++ rt(.preempt_section) ++ ") ");
         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
         const body = ir.Lambda.body(lambda);
@@ -11171,7 +11177,7 @@ pub const Emitter = struct {
         switch (self.facts.cloneable(ty)) {
             .bump => switch (self.facts.types.get(self.peelViews(ty))) {
                 .optional => {
-                    try self.w.writeAll("rig.cloneOptional(");
+                    try self.w.writeAll(rt(.cloneOptional) ++ "(");
                     try self.writeLocalPlace(outer);
                     try self.w.writeAll(")");
                 },
@@ -11185,17 +11191,17 @@ pub const Emitter = struct {
                 },
             },
             .text, .deep => if (self.facts.unwrapViews(ty) == self.facts.types.string_view_id) {
-                try self.w.writeAll("rig.String.of(.{ ");
+                try self.w.writeAll(rt(.String) ++ ".of(.{ ");
                 try self.writeLocalPlace(outer);
                 try self.w.writeAll(" })");
             } else {
-                try self.w.writeAll("rig.cloneValue(&(");
+                try self.w.writeAll(rt(.cloneValue) ++ "(&(");
                 try self.writeLocalPlace(outer);
                 try self.w.writeAll("))");
             },
             // A generic `T` as each instance clones it (`rig.cloneAs`).
             .depends => {
-                try self.w.writeAll("rig.cloneAs(");
+                try self.w.writeAll(rt(.cloneAs) ++ "(");
                 try self.emitTypeTy(self.facts.unwrapViews(ty));
                 try self.w.writeAll(", ");
                 try self.writeLocalPlace(outer);
@@ -11212,7 +11218,7 @@ pub const Emitter = struct {
     fn writeCapturedView(self: *Emitter, outer: *const Local, ty: TypeId) Error!void {
         // `|?f|` of a stack closure views its environment.
         if (outer.stack_closure) if (self.facts.callableFn(ty)) |f| {
-            try self.emitCallableTy("FnRef", f);
+            try self.emitCallableTy(.FnRef, f);
             return self.w.print(".of(@TypeOf({s}), &{s})", .{ outer.zig_name, outer.zig_name });
         };
         // A read view of a String is its bytes.
@@ -11234,14 +11240,14 @@ pub const Emitter = struct {
         // at is that value's own read view (`rig.readView`).
         const outer_writes = if (outer.ty) |t| self.facts.types.get(t) == .write_view else false;
         if (outer_writes and self.facts.writeSliceElem(ty) == null and self.genericReadView(ty) != null) {
-            return self.w.print("rig.readView({s})", .{outer.zig_name});
+            return self.w.print(rt(.readView) ++ "({s})", .{outer.zig_name});
         }
         // A `![]T` is the slice itself; a view of a view passes it on.
         if (self.facts.writeSliceElem(ty) != null or (outer_is_view and (self.isPtrViewTy(ty) or !outer.is_ptr))) {
             return self.w.writeAll(outer.zig_name);
         }
         if (self.genericReadView(ty) != null) {
-            try self.w.writeAll("rig.readView(");
+            try self.w.writeAll(rt(.readView) ++ "(");
             if (!outer.is_ptr) try self.w.writeAll("&");
             try self.w.writeAll(outer.zig_name);
             return self.w.writeAll(")");
@@ -11277,14 +11283,14 @@ pub const Emitter = struct {
         try self.w.print("const {s} = ", .{env});
         try self.emitClosureStruct(lambda, caps);
         try self.w.writeAll(";\n");
-        try self.line("const {s} = rig.create({s});", .{ env_ptr, env });
+        try self.line("const {s} = " ++ rt(.create) ++ "({s});", .{ env_ptr, env });
         try self.writeIndent(self.indent);
         try self.w.print("{s}.* = .", .{env_ptr});
         try self.emitCaptureInit(caps);
         try self.w.writeAll(";\n");
         try self.writeIndent(self.indent);
-        try self.w.print("break :__rig_closure_{d} rig.shared(", .{id});
-        try self.emitCallableTy("Closure", f);
+        try self.w.print("break :__rig_closure_{d} " ++ rt(.shared) ++ "(", .{id});
+        try self.emitCallableTy(.Closure, f);
         try self.w.print(".init({s}, {s}));\n", .{ env, env_ptr });
         try self.closeBrace();
     }
@@ -11292,8 +11298,8 @@ pub const Emitter = struct {
     /// The runtime type behind a function type: `rig.Closure(&.{ A, B }, R)`
     /// for an owned closure `*fun(A, B) -> R`, `rig.FnRef(...)` for a
     /// callable view `?fun(A, B) -> R`.
-    fn emitCallableTy(self: *Emitter, comptime runtime_type: []const u8, f: facts.FunctionType) Error!void {
-        try self.w.writeAll("rig." ++ runtime_type ++ "(&.{");
+    fn emitCallableTy(self: *Emitter, comptime runtime_type: runtime_names.Name, f: facts.FunctionType) Error!void {
+        try self.w.writeAll(rt(runtime_type) ++ "(&.{");
         for (f.params, 0..) |p, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
             try self.emitTypeTy(p);
@@ -11303,11 +11309,11 @@ pub const Emitter = struct {
         // function takes it, whatever its set: `FnRef` drops it for a
         // function that takes none, and a view typed `!E`, a set
         // parameter, is one type in every instance.
-        const out = if (comptime std.mem.eql(u8, runtime_type, "FnRef"))
+        const out = if (runtime_type == .FnRef)
             self.facts.types.get(f.returns) == .fallible
         else
             self.failsWithFields(f.returns);
-        if (out) try self.w.writeAll(if (f.params.len > 0) ", rig.ErrSlot" else " rig.ErrSlot");
+        if (out) try self.w.writeAll(if (f.params.len > 0) ", " ++ rt(.ErrSlot) else " " ++ rt(.ErrSlot));
         try self.w.writeAll(if (f.params.len > 0 or out) " }, " else "}, ");
         if (f.is_sub and f.returns == self.facts.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
         try self.w.writeAll(")");
@@ -11316,7 +11322,7 @@ pub const Emitter = struct {
     /// `?{Shape}` or `!{Shape}`: `rig.ApiView(__rig_table_Shape, .read)`,
     /// or `.write`.
     fn emitObjectViewTy(self: *Emitter, ty: TypeId, o: facts.ApiObject) Error!void {
-        try self.w.writeAll("rig.ApiView(");
+        try self.w.writeAll(rt(.ApiView) ++ "(");
         try self.writeTableName(o.api);
         try self.w.writeAll(if (self.facts.types.get(ty) == .write_view) ", .write, " else ", .read, ");
         try self.writeObjectBuiltins(o);
@@ -11339,7 +11345,7 @@ pub const Emitter = struct {
     /// (`hoistClosure`).
     fn emitViewedCallable(self: *Emitter, e: Sexp, fn_ty: TypeId) Error!void {
         const f = self.facts.types.get(fn_ty).function;
-        try self.emitCallableTy("FnRef", f);
+        try self.emitCallableTy(.FnRef, f);
         const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped callable");
         try self.w.writeAll(if (self.facts.ownedClosureFn(ty) != null) ".ofClosure(" else ".ofFn(");
         const saved = self.viewing;
@@ -11356,10 +11362,10 @@ pub const Emitter = struct {
         if (self.facts.callableFn(ty) != null) return self.emitExpr(operand);
         const f = self.facts.types.get(fn_ty).function;
         if (operand == .src) if (self.localOf(operand)) |local| if (local.stack_closure) {
-            try self.emitCallableTy("FnRef", f);
+            try self.emitCallableTy(.FnRef, f);
             return self.w.print(".of(@TypeOf({s}), &{s})", .{ local.zig_name, local.zig_name });
         };
-        try self.emitCallableTy("FnRef", f);
+        try self.emitCallableTy(.FnRef, f);
         try self.w.writeAll(".ofFn(");
         try self.emitExpr(operand);
         try self.w.writeAll(")");
@@ -11380,12 +11386,12 @@ pub const Emitter = struct {
         // the environment drops it.
         if (owns) {
             if (self.facts.isOnceClosure(h.node)) {
-                try self.line("defer if (!{s}.__rig_called) rig.dropFields(&{s});", .{ env, env });
-            } else try self.line("defer rig.dropFields(&{s});", .{env});
+                try self.line("defer if (!{s}.__rig_called) " ++ rt(.dropFields) ++ "(&{s});", .{ env, env });
+            } else try self.line("defer " ++ rt(.dropFields) ++ "(&{s});", .{env});
         }
         try self.writeIndent(self.indent);
         try self.w.print("const {s} = ", .{h.name});
-        try self.emitCallableTy("FnRef", self.facts.types.get(fn_ty).function);
+        try self.emitCallableTy(.FnRef, self.facts.types.get(fn_ty).function);
         try self.w.print(".of(@TypeOf({s}), &{s});\n", .{ env, env });
         try self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
     }
@@ -11413,12 +11419,12 @@ pub const Emitter = struct {
     fn emitTypeTy(self: *Emitter, ty: TypeId) Error!void {
         const ctx = self.facts;
         // An error that carries fields is a `rig.ErrorValue`.
-        if (!self.error_codes and self.isErrorValueTy(ty)) return self.w.writeAll("rig.ErrorValue");
+        if (!self.error_codes and self.isErrorValueTy(ty)) return self.w.writeAll(rt(.ErrorValue));
         switch (ctx.types.get(ty)) {
             .void, .any_error, .bool, .string_view, .static, .string, .symbol, .int_literal, .float_literal, .int, .float => try self.emitBuiltinTy(ctx.types.get(ty)),
             .optional => |inner| {
                 if (self.routesPayload(inner)) {
-                    try self.w.writeAll("rig.Opt(");
+                    try self.w.writeAll(rt(.Opt) ++ "(");
                     try self.emitTypeTy(inner);
                     return self.w.writeAll(")");
                 }
@@ -11437,10 +11443,10 @@ pub const Emitter = struct {
                 try self.emitTypeTy(f.ok);
             },
             .read_view => |inner| {
-                if (ctx.callableFn(ty)) |f| return self.emitCallableTy("FnRef", f);
+                if (ctx.callableFn(ty)) |f| return self.emitCallableTy(.FnRef, f);
                 if (ctx.objectView(ty)) |o| return self.emitObjectViewTy(ty, o);
                 if (self.genericReadView(ty) != null) {
-                    try self.w.writeAll("rig.ReadView(");
+                    try self.w.writeAll(rt(.ReadView) ++ "(");
                     try self.emitTypeTy(inner);
                     return self.w.writeAll(")");
                 }
@@ -11459,7 +11465,7 @@ pub const Emitter = struct {
                 // of one points at that alignment; one of a type parameter
                 // at its argument's (`rig.WritePtr`).
                 if (ctx.types.get(inner) == .type_var) {
-                    try self.w.writeAll("rig.WritePtr(");
+                    try self.w.writeAll(rt(.WritePtr) ++ "(");
                     try self.emitTypeTy(inner);
                     return self.w.writeAll(")");
                 }
@@ -11470,7 +11476,7 @@ pub const Emitter = struct {
                 // `*{Shape}` and `~{Shape}`: `rig.ApiShared(__rig_table_Shape,
                 // "")`, `rig.ApiWeak(...)`.
                 if (ctx.objectHandle(ty)) |o| {
-                    try self.w.writeAll(if (ctx.types.get(ty) == .shared) "rig.ApiShared(" else "rig.ApiWeak(");
+                    try self.w.writeAll(if (ctx.types.get(ty) == .shared) rt(.ApiShared) ++ "(" else rt(.ApiWeak) ++ "(");
                     try self.writeTableName(o.api);
                     try self.w.writeAll(", ");
                     try self.writeObjectBuiltins(o);
@@ -11478,13 +11484,13 @@ pub const Emitter = struct {
                 }
                 // `*Frozen[T]`: a `T` behind a handle counted atomically.
                 if (ctx.frozenValue(inner)) |value| {
-                    try self.w.writeAll("*rig.Frozen(");
+                    try self.w.writeAll("*" ++ rt(.Frozen) ++ "(");
                     try self.emitTypeTy(value);
                     return self.w.writeAll(")");
                 }
-                try self.w.writeAll(if (ctx.types.get(ty) == .shared) "*rig.Shared(" else "rig.Weak(");
+                try self.w.writeAll(if (ctx.types.get(ty) == .shared) "*" ++ rt(.Shared) ++ "(" else rt(.Weak) ++ "(");
                 switch (ctx.types.get(inner)) {
-                    .function => |f| try self.emitCallableTy("Closure", f),
+                    .function => |f| try self.emitCallableTy(.Closure, f),
                     else => try self.emitTypeTy(inner),
                 }
                 try self.w.writeAll(")");
@@ -11501,7 +11507,7 @@ pub const Emitter = struct {
             },
             .simd => |v| {
                 if (v.elem == self.facts.types.bool_id) {
-                    try self.w.writeAll("rig.Mask(");
+                    try self.w.writeAll(rt(.Mask) ++ "(");
                     try self.emitTypeTy(v.len);
                     return self.w.writeAll(")");
                 }
@@ -11513,7 +11519,7 @@ pub const Emitter = struct {
             },
             // `Slot[n]`: the runtime's smallest unsigned that holds `n - 1`.
             .slot => |n| {
-                try self.w.writeAll("rig.SlotOf(");
+                try self.w.writeAll(rt(.SlotOf) ++ "(");
                 try self.emitTypeTy(n);
                 try self.w.writeAll(")");
             },
@@ -11530,7 +11536,7 @@ pub const Emitter = struct {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("__rig_Self");
                 // `^{Shape}`: `rig.ApiBox(__rig_table_Shape)`.
                 if (pn.sym == ctx.box_sym_id) if (ctx.objectBox(ty)) |o| {
-                    try self.w.writeAll("rig.ApiBox(");
+                    try self.w.writeAll(rt(.ApiBox) ++ "(");
                     try self.writeTableName(o.api);
                     try self.w.writeAll(", ");
                     try self.writeObjectBuiltins(o);
@@ -11538,7 +11544,7 @@ pub const Emitter = struct {
                 };
                 if (pn.inline_len > 0) {
                     // `List[T, inline: n]`.
-                    try self.w.writeAll("rig.InlineList(");
+                    try self.w.writeAll(rt(.InlineList) ++ "(");
                     try self.emitTypeList(pn.args);
                     return self.w.print(", {d})", .{pn.inline_len});
                 }
@@ -11555,7 +11561,7 @@ pub const Emitter = struct {
                 try self.emitTypeList(f.params);
                 // A function that may fail with fields takes the slot they
                 // go in, last (`emitCallableTy`).
-                if (self.failsWithFields(f.returns)) try self.w.writeAll(if (f.params.len > 0) ", rig.ErrSlot" else "rig.ErrSlot");
+                if (self.failsWithFields(f.returns)) try self.w.writeAll(if (f.params.len > 0) ", " ++ rt(.ErrSlot) else rt(.ErrSlot));
                 try self.w.writeAll(") ");
                 try self.emitTypeTy(f.returns);
             },
@@ -11576,7 +11582,7 @@ pub const Emitter = struct {
             .any_error => try self.w.writeAll("anyerror"),
             .bool => try self.w.writeAll("bool"),
             .string_view, .static => try self.w.writeAll("[]const u8"),
-            .string => try self.w.writeAll("rig.String"),
+            .string => try self.w.writeAll(rt(.String)),
             .symbol => {
                 self.uses_symbols = true;
                 try self.w.writeAll("__rig_sym.Symbol");
@@ -11598,7 +11604,7 @@ pub const Emitter = struct {
         if (self.facts.symbols.items[sym].assoc_of) |of| switch (of.api) {
             .user => |u| return self.w.print("{s}.{f}", .{ try self.witnessParamName(of.base, u.via), ident(of.name) }),
             .iter => {
-                try self.w.writeAll("rig.IterItem(");
+                try self.w.writeAll(rt(.IterItem) ++ "(");
                 try self.writeTypeParam(of.base);
                 return self.w.writeAll(")");
             },
@@ -11622,7 +11628,7 @@ pub const Emitter = struct {
         // The value of `task.select(name: arm, ...)`: one Zig type per
         // list of names and payloads (`rig.Select`).
         if (s.flags.select_result) {
-            try self.w.writeAll("rig.Select(&.{ ");
+            try self.w.writeAll(rt(.Select) ++ "(&.{ ");
             for (s.fields.?, 0..) |f, i| try self.w.print("{s}\"{s}\"", .{ if (i > 0) ", " else "", f.name });
             try self.w.writeAll(" }, &.{ ");
             for (s.fields.?, 0..) |f, i| {
@@ -11633,7 +11639,8 @@ pub const Emitter = struct {
         }
         if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym) or sym == self.facts.printer_sym_id or sym == self.facts.hasher_sym_id) {
             // The runtime's `Box(T)` is `^T`.
-            return self.w.print("rig.{s}", .{if (sym == self.facts.box_sym_id) "Box" else s.name});
+            if (sym == self.facts.box_sym_id) return self.w.writeAll(rt(.Box));
+            return self.w.print("rig.{s}", .{s.name});
         }
         if (facts.syntax.isProxy(s)) {
             const foreign = self.facts.foreign(s.from.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
@@ -11939,10 +11946,10 @@ pub const Emitter = struct {
         }
         if (!bytes and !values) return null;
         return switch (kind) {
-            .@"<" => .{ .bytes = bytes, .op = "lt", .test_ = "rig.textLess(" },
-            .@"<=" => .{ .bytes = bytes, .op = "lte", .test_ = "!rig.textGreater(" },
-            .@">" => .{ .bytes = bytes, .op = "gt", .test_ = "rig.textGreater(" },
-            .@">=" => .{ .bytes = bytes, .op = "gte", .test_ = "!rig.textLess(" },
+            .@"<" => .{ .bytes = bytes, .op = "lt", .test_ = rt(.textLess) ++ "(" },
+            .@"<=" => .{ .bytes = bytes, .op = "lte", .test_ = "!" ++ rt(.textGreater) ++ "(" },
+            .@">" => .{ .bytes = bytes, .op = "gt", .test_ = rt(.textGreater) ++ "(" },
+            .@">=" => .{ .bytes = bytes, .op = "gte", .test_ = "!" ++ rt(.textLess) ++ "(" },
             else => null,
         };
     }
@@ -11953,14 +11960,14 @@ pub const Emitter = struct {
     /// instance does (`rig.div`). `%` is the remainder with the dividend's
     /// sign (`rig.rem`), for integers and floats alike.
     fn divBuiltin(self: *Emitter, op: Tag, left: Sexp, right: Sexp) ?[]const u8 {
-        if (op == .@"%") return "rig.rem";
-        if (self.literal_ty) |t| return if (self.facts.types.get(t) == .type_var) "rig.div" else null;
+        if (op == .@"%") return rt(.rem);
+        if (self.literal_ty) |t| return if (self.facts.types.get(t) == .type_var) rt(.div) else null;
         var builtin: []const u8 = "@divTrunc";
         for ([2]Sexp{ left, right }) |e| {
             const ty = self.typeOf(e) orelse continue;
             switch (self.facts.types.get(self.peelViews(ty))) {
                 .float, .float_literal => return null,
-                .type_var => builtin = "rig.div",
+                .type_var => builtin = rt(.div),
                 else => {},
             }
         }
@@ -11988,7 +11995,7 @@ pub const Emitter = struct {
     /// `defer rig.poison(&name);` for the hidden `var` `name` (`poison`),
     /// written before its drop's `defer`, so it runs after the drop.
     fn poisonAtExit(self: *Emitter, name: []const u8) Error!void {
-        if (self.poison) try self.line("defer rig.poison(&{s});", .{name});
+        if (self.poison) try self.line("defer " ++ rt(.poison) ++ "(&{s});", .{name});
     }
 
     // =========================================================================
@@ -12080,12 +12087,12 @@ pub const Emitter = struct {
             if (n > 0) try self.w.writeAll(" and ");
             switch (t) {
                 .nonneg => |i| {
-                    try self.w.writeAll("rig.okNonneg(");
+                    try self.w.writeAll(rt(.okNonneg) ++ "(");
                     try self.writeFlagRead(i);
                     try self.w.writeAll(")");
                 },
                 .below => |b| {
-                    try self.w.writeAll("rig.okBelow(");
+                    try self.w.writeAll(rt(.okBelow) ++ "(");
                     try self.writeFlagRead(b.i);
                     try self.w.print(", {d}, ", .{b.k});
                     try self.writeFlagRead(b.s.root);
@@ -12152,14 +12159,27 @@ fn exactIdent(name: []const u8) Ident {
     return .{ .name = name, .spelling = .exact };
 }
 
-/// The twin of a runtime duration helper for how a form converts
-/// (`sema.DurationHow`): `rig.durationInt`, `durationIntClamp`,
-/// `durationIntTry`.
-fn durationTwin(how: facts.DurationHow) []const u8 {
+/// The runtime's conversion of a duration form of an `Int`, a `Float`,
+/// or a sum of parts, for how it converts (`sema.DurationHow`):
+/// `rig.durationInt`, `durationIntClamp`, `durationIntTry`.
+fn durationFn(form: enum { int, float, sum }, how: facts.DurationHow) []const u8 {
     return switch (how) {
-        .total => "",
-        .clamped => "Clamp",
-        .folded => "Try",
+        .total => switch (form) {
+            .int => rt(.durationInt),
+            .float => rt(.durationFloat),
+            .sum => rt(.durationSum),
+        },
+        // A wait refuses a `Float` known only as the program runs.
+        .clamped => switch (form) {
+            .int => rt(.durationIntClamp),
+            .float => unreachable,
+            .sum => rt(.durationSumClamp),
+        },
+        .folded => switch (form) {
+            .int => rt(.durationIntTry),
+            .float => rt(.durationFloatTry),
+            .sum => rt(.durationSumTry),
+        },
     };
 }
 
@@ -12494,7 +12514,7 @@ test "every runtime call of a function value passes the slot it takes" {
                         const j = std.mem.indexOf(u8, line, l.call) orelse continue;
                         if (j <= i and i < j + l.call.len) break k;
                     } else {
-                        std.debug.print("src/{s}:{d}: a call of a function value neither builds its arguments with `rig.argsWithSlot` nor is listed: {s}\n", .{ src.file, line_no, code });
+                        std.debug.print("src/{s}:{d}: a call of a function value neither builds its arguments with `" ++ rt(.argsWithSlot) ++ "` nor is listed: {s}\n", .{ src.file, line_no, code });
                         unlisted += 1;
                         continue;
                     };
