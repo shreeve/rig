@@ -18082,6 +18082,8 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     const names = ctx.facts.names.count();
     const plus_use = ctx.useOf(plus);
     const diagnostics = ctx.diagnostics.items.len;
+    const b_sym = ctx.symbolAt(b).?;
+    const b_was = ctx.symbols.items[b_sym];
 
     const m = ctx.mark();
     // Changed, added, and removed facts, of a leaf and of a list node.
@@ -18091,8 +18093,6 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     try ctx.removeIn(.{ .facts = .names }, b);
     try ctx.err(0, "a diagnostic the rollback drops", .{});
     // A symbol written through `symbolMut`.
-    const b_sym = ctx.symbolAt(b).?;
-    const b_was = ctx.symbols.items[b_sym];
     const s = try ctx.symbolMut(b_sym);
     s.ty = ctx.types.bool_id;
     s.flags.comptime_known = !b_was.flags.comptime_known;
