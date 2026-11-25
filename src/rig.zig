@@ -559,6 +559,11 @@ pub fn slotValue(s: Sexp) Sexp {
     return if (s.isKind(.show)) ir.Show.value(s) else s;
 }
 
+/// Whether `text` is a string literal's: quoted, or a template's piece.
+pub fn isStringText(text: []const u8) bool {
+    return text.len > 0 and (text[0] == '"' or text[0] == '\'' or isTemplateText(text));
+}
+
 /// Whether `text` is a template's text piece: a token from a backtick or
 /// a slot's `}` to a slot's `{` or the closing backtick.
 pub fn isTemplateText(text: []const u8) bool {
@@ -3258,6 +3263,13 @@ pub const Parser = struct {
     /// each names: each is that parameter, whatever the body declares of
     /// its name (`Parser.desugarOptions`).
     group_targets: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
+    /// The statements of a block, and the declarations of the module,
+    /// that hold a string literal outside any block of their own: one
+    /// typecheck may find is a byte or bytes, and the statement is then
+    /// checked again in that form (`Checker.checkBytes`).
+    byte_stmts: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// How many string literals the walk has met (`rewrite`).
+    strings: u32 = 0,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -4259,7 +4271,10 @@ pub const Parser = struct {
     // -------------------------------------------------------------------------
 
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
-        if (sexp != .list) return sexp;
+        if (sexp != .list) {
+            if (sexp == .src and isStringText(leafText(self.base.source, sexp.src))) self.strings += 1;
+            return sexp;
+        }
         var items = sexp.items();
         if (sexp.kind() == .@"for") {
             const copy = try self.allocator().dupe(Sexp, items);
@@ -4272,7 +4287,14 @@ pub const Parser = struct {
             else => false,
         };
         if (in_type) self.type_depth += 1;
-        for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
+        const holds_stmts = sexp.kind() == .block or sexp.kind() == .module;
+        const strings = self.strings;
+        for (items, 0..) |child, i| {
+            const before = self.strings;
+            walked[i] = try self.rewrite(child);
+            if (holds_stmts and self.strings > before and walked[i] == .list) try self.byte_stmts.put(self.allocator(), walked[i].list.id, {});
+        }
+        if (holds_stmts) self.strings = strings;
         if (in_type) self.type_depth -= 1;
         // A `for` source sigil the self rewrite left in place is the
         // loop's mode; one before a method call went to its self.
@@ -5740,30 +5762,29 @@ pub const Parser = struct {
     /// spanning the string; where a `[N]U8` goes, the array literal of
     /// its bytes, each a leaf inside the string, so that no two share a
     /// position. Every other node keeps its position and id.
-    pub fn byteLiterals(self: *Parser, tree: Sexp, lits: []const ByteLiteral) std.mem.Allocator.Error!void {
+    pub fn byteLiterals(self: *Parser, slot: *const Sexp, lits: []const ByteLiteral) std.mem.Allocator.Error!void {
         if (lits.len == 0) return;
         var at: std.AutoHashMapUnmanaged(u32, usize) = .empty;
         defer at.deinit(self.allocator());
         for (lits, 0..) |l, i| try at.put(self.allocator(), l.pos, i);
-        try self.bytesIn(tree, lits, &at);
+        try self.bytesAt(@constCast(slot), lits, &at);
     }
 
-    fn bytesIn(self: *Parser, node: Sexp, lits: []const ByteLiteral, at: *const std.AutoHashMapUnmanaged(u32, usize)) std.mem.Allocator.Error!void {
-        if (node != .list) return;
-        for (@constCast(node.items())) |*slot| switch (slot.*) {
+    fn bytesAt(self: *Parser, slot: *Sexp, lits: []const ByteLiteral, at: *const std.AutoHashMapUnmanaged(u32, usize)) std.mem.Allocator.Error!void {
+        switch (slot.*) {
             .src => |leaf| if (at.get(leaf.pos)) |i| {
                 const lit = lits[i];
                 if (!lit.array) {
                     slot.* = byteLeaf(leaf.pos, leaf.len, lit.bytes[0]);
-                    continue;
+                    return;
                 }
                 const elems = try self.allocator().alloc(Sexp, lit.bytes.len);
                 for (lit.bytes, elems, 0..) |b, *e, k| e.* = byteLeaf(leaf.pos + 1 + @as(u32, @intCast(k)), 1, b);
                 slot.* = try self.base.newNode(.array, elems, .{ .start = leaf.pos, .end = leafEnd(self.base.source, leaf) });
             },
-            .list => try self.bytesIn(slot.*, lits, at),
+            .list => for (@constCast(slot.items())) |*child| try self.bytesAt(child, lits, at),
             else => {},
-        };
+        }
     }
 
     // -------------------------------------------------------------------------

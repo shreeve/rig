@@ -70,10 +70,10 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     };
     defer c.deinit();
     try c.placePanics(tree, .value);
-    for (ctx.const_order.items) |decl| try c.checkDecl(decl);
+    for (ctx.const_order.items) |*decl| try c.checkBytes(decl, Checker.checkDecl, .{});
     // A compile-time function was checked before the constants that call
     // it (`resolve.ensureCtFun`, `checkCtFun`).
-    for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl) and !rig.isCtFun(decl)) try c.checkDecl(decl);
+    for (ir.Module.decls(tree)) |*decl| if (!rig.isModuleConst(decl.*) and !rig.isCtFun(decl.*)) try c.checkBytes(decl, Checker.checkDecl, .{});
     for (ir.Module.decls(tree)) |decl| if (!rig.isCtFun(decl)) try c.checkViewBases(decl, decl, false, true);
 }
 
@@ -91,7 +91,7 @@ pub fn checkCtFun(ctx: *SemContext, decl: Sexp) Error!void {
     };
     defer c.deinit();
     try c.placePanics(decl, .value);
-    try c.checkDecl(decl);
+    try c.checkBytes(&decl, Checker.checkDecl, .{});
     try c.checkViewBases(decl, decl, false, true);
 }
 
@@ -156,6 +156,11 @@ const Checker = struct {
     /// (`sema.ownParamOf`), which a call through an API records
     /// (`sema.ApiCall.slots`).
     inst_slots: []const u32 = &.{},
+    /// The string literals found to be a byte or bytes (`byteString`) in
+    /// the statements being checked under a mark (`checkBytes`), each
+    /// checked again with them rewritten; `bytes_open` of them.
+    bytes: std.ArrayList(rig.ByteLiteral) = .empty,
+    bytes_open: u32 = 0,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
     /// The names `new q, r = f()` declares, while its call is checked.
@@ -487,6 +492,7 @@ const Checker = struct {
 
     fn deinit(self: *Checker) void {
         const a = self.ctx.allocator;
+        self.bytes.deinit(a);
         self.arg_types.deinit(a);
         self.methods.deinit(a);
         self.expected.deinit(a);
@@ -646,7 +652,7 @@ const Checker = struct {
         if (target != .src) return self.errAt(node, not_at_module_level, .{});
         if (rig.bindingKindOf(ir.Set.op(node)) != .fixed) {
             if (self.ctx.symbolOf(target)) |id| if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
-                self.ctx.symbols.items[id].ty = self.t().invalid_id;
+                (try self.ctx.symbolMut(id)).ty = self.t().invalid_id;
             };
             return self.errAt(node, "a module-level binding is a constant; write `{s} = value`", .{self.text(target)});
         }
@@ -1709,41 +1715,86 @@ const Checker = struct {
             .fallible => |inner| inner.ok == self.t().void_id,
             else => false,
         };
-        for (stmts, 0..) |s, i| {
-            if (wants_value and i == stmts.len - 1) {
-                if (loopsForever(self.ctx.source, s) or (ends_void and (self.yieldsNoValue(s) or isIfWithoutElse(s)))) {
-                    try self.checkStmt(s);
-                    continue;
-                }
-                if (self.yieldsNoValue(s) and !s.isKind(.@"return") and !s.isKind(.panic)) {
-                    try self.checkStmt(s);
-                    const what = switch (s.kind().?) {
-                        .set => "assignment",
-                        .@"while", .@"for" => "loop",
-                        .labeled => switch (ir.Labeled.stmt(s).kind() orelse .labeled) {
-                            .@"while", .@"for" => "loop",
-                            .match => "labeled `match` (a label makes it a statement)",
-                            .raw_block => "labeled `raw` block (a label makes it a statement)",
-                            .block => "labeled block",
-                            else => "labeled statement",
-                        },
-                        .drop => "drop",
-                        .pass => "`pass`",
-                        .rarely => "`rarely`",
-                        .@"defer", .@"errdefer" => "deferred statement",
-                        else => "jump",
-                    };
-                    try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
-                    continue;
-                }
-                const saved_tail = self.results_tail;
-                defer self.results_tail = saved_tail;
-                if (sema.resultsOf(self.ctx, ret) != null) self.results_tail = resultCall(s) orelse .nil;
-                try self.checkTail(s, ret);
-            } else {
-                try self.checkStmt(s);
-            }
+        for (stmts) |*s| try self.checkBytes(s, checkBodyStmt, .{ wants_value and s == &stmts[stmts.len - 1], ret, ends_void });
+    }
+
+    /// Statement `s` of a function's body, `last` its last whose value
+    /// the function returns, `ret` its result type.
+    fn checkBodyStmt(self: *Checker, s: Sexp, last: bool, ret: TypeId, ends_void: bool) Error!void {
+        if (!last) return self.checkStmt(s);
+        if (loopsForever(self.ctx.source, s) or (ends_void and (self.yieldsNoValue(s) or isIfWithoutElse(s)))) {
+            try self.checkStmt(s);
+            return;
         }
+        if (self.yieldsNoValue(s) and !s.isKind(.@"return") and !s.isKind(.panic)) {
+            try self.checkStmt(s);
+            const what = switch (s.kind().?) {
+                .set => "assignment",
+                .@"while", .@"for" => "loop",
+                .labeled => switch (ir.Labeled.stmt(s).kind() orelse .labeled) {
+                    .@"while", .@"for" => "loop",
+                    .match => "labeled `match` (a label makes it a statement)",
+                    .raw_block => "labeled `raw` block (a label makes it a statement)",
+                    .block => "labeled block",
+                    else => "labeled statement",
+                },
+                .drop => "drop",
+                .pass => "`pass`",
+                .rarely => "`rarely`",
+                .@"defer", .@"errdefer" => "deferred statement",
+                else => "jump",
+            };
+            try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
+            return;
+        }
+        const saved_tail = self.results_tail;
+        defer self.results_tail = saved_tail;
+        if (sema.resultsOf(self.ctx, ret) != null) self.results_tail = resultCall(s) orelse .nil;
+        try self.checkTail(s, ret);
+    }
+
+    /// `check` of the block statement or module declaration `slot` holds,
+    /// with `args`. A string literal typecheck finds is a byte or bytes
+    /// where it stands (`byteString`) is written as the integer or array
+    /// literal it is, and no pass sees it a string: what checking the
+    /// statement recorded is taken back, the literals are rewritten in the
+    /// tree (`rig.Parser.byteLiterals`), and the statement is checked
+    /// again in that form (docs/internals/INTERNALS.md, "Strings as
+    /// bytes"). Only a statement the parser found holds a string literal
+    /// outside its own blocks (`rig.Parser.byte_stmts`), or that is one,
+    /// is checked under a mark.
+    fn checkBytes(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
+        if (!self.holdsString(slot.*)) return @call(.auto, check, .{ self, slot.* } ++ args);
+        self.bytes_open += 1;
+        defer self.bytes_open -= 1;
+        while (true) {
+            const m = self.ctx.mark();
+            const found = self.bytes.items.len;
+            const returns = if (self.body.returns) |r| r.items.len else 0;
+            const result = try @call(.auto, check, .{ self, slot.* } ++ args);
+            if (self.bytes.items.len == found) {
+                self.ctx.commit(m);
+                return result;
+            }
+            try self.ctx.rollback(m);
+            if (self.body.returns) |r| r.shrinkRetainingCapacity(returns);
+            try self.ctx.parser.?.byteLiterals(slot, self.bytes.items[found..]);
+            self.bytes.shrinkRetainingCapacity(found);
+            // A module constant's value is folded before any body is
+            // checked (`resolve.foldModuleConsts`), so one written anew
+            // is folded again, with the constants that name it.
+            if (rig.isModuleConst(slot.*)) try resolve.refoldModuleConsts(self.ctx);
+        }
+    }
+
+    /// Whether `s`, a block's statement or a module's declaration, is a
+    /// string literal or holds one outside its own blocks.
+    fn holdsString(self: *Checker, s: Sexp) bool {
+        return switch (s) {
+            .src => sema.isStringLiteralText(self.text(s)),
+            .list => |l| if (self.ctx.parser) |p| p.byte_stmts.contains(l.id) else false,
+            else => false,
+        };
     }
 
     /// A function's last value, which is used (`value_tails`). It is the
@@ -1802,7 +1853,7 @@ const Checker = struct {
             .block => {
                 const prev = self.enter(stmt);
                 defer self.scope = prev;
-                for (ir.Block.stmts(stmt)) |c| try self.checkStmt(c);
+                for (ir.Block.stmts(stmt)) |*c| try self.checkBytes(c, checkStmt, .{});
             },
             .drop => {
                 const name = ir.Drop.target(stmt);
@@ -1849,7 +1900,7 @@ const Checker = struct {
                 for (sets) |set| if (set.isKind(.set) and ir.Set.target(set) == .src) if (self.ctx.symbolOf(ir.Set.target(set))) |id| {
                     const target = ir.Set.target(set);
                     if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
-                        self.ctx.symbols.items[id].ty = self.t().invalid_id;
+                        (try self.ctx.symbolMut(id)).ty = self.t().invalid_id;
                         try self.errAt(target, "a deferred statement runs at scope exit and cannot declare `{s}`; use an indented `{s}` block", .{ self.text(target), @tagName(stmt.kind().?) });
                     }
                 };
@@ -2244,7 +2295,7 @@ const Checker = struct {
         const target = ir.Set.target(set);
         if (target != .src) return;
         const sym = self.ctx.symbolOf(target) orelse return;
-        if (self.ctx.symbols.items[sym].decl_pos == target.src.pos) self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+        if (self.ctx.symbols.items[sym].decl_pos == target.src.pos) (try self.ctx.symbolMut(sym)).ty = self.t().invalid_id;
         try self.ctx.recordType(ir.Set.value(set), self.t().invalid_id);
     }
 
@@ -2449,11 +2500,11 @@ const Checker = struct {
         }
         if (repoints) {
             try self.ctx.recordRepoint(node);
-            self.ctx.symbols.items[sym_id].flags.repointed = true;
+            (try self.ctx.symbolMut(sym_id)).flags.repointed = true;
         }
         if (writes_through) {
             try self.ctx.recordWriteThrough(node);
-        } else if (!is_decl) self.ctx.symbols.items[sym_id].flags.rebound = true;
+        } else if (!is_decl) (try self.ctx.symbolMut(sym_id)).flags.rebound = true;
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the viewed value.
         if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.putIn(.{ .facts = .writes }, target.src.pos, {});
@@ -2536,7 +2587,7 @@ const Checker = struct {
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
-        const s = &self.ctx.symbols.items[sym_id];
+        const s = try self.ctx.symbolMut(sym_id);
         // A rejected annotation or initializer leaves the binding without
         // a type, which later uses do not report again.
         if (s.ty == self.t().unknown_id) s.ty = if ((type_node != .nil and self.isPoison(declared)) or rhs_ty == self.t().unknown_id) self.t().invalid_id else rhs_ty;
@@ -3686,9 +3737,9 @@ const Checker = struct {
         if (!owns and !self.isPoison(inner)) try self.rejectHeaderCopy(node, expr, inner);
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
-            self.ctx.symbols.items[sym].access = access;
-            self.ctx.symbols.items[sym].flags.access_decided = true;
-            self.ctx.symbols.items[sym].ty = inner;
+            (try self.ctx.symbolMut(sym)).access = access;
+            (try self.ctx.symbolMut(sym)).flags.access_decided = true;
+            (try self.ctx.symbolMut(sym)).ty = inner;
             // A read binding of a place's value, which `if !o as x` writes.
             if (access == .read and viewed) try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = expr, .kind = .as });
             try self.ctx.recordType(name, inner);
@@ -3962,17 +4013,17 @@ const Checker = struct {
             const prev = self.enter(node);
             defer self.scope = prev;
             if (self.ctx.symbolOf(binding)) |sym| {
-                self.ctx.symbols.items[sym].access = if (self.isPoison(elem_ty)) null else self.loop_access;
-                self.ctx.symbols.items[sym].flags.access_decided = true;
-                self.ctx.symbols.items[sym].ty = elem_ty;
+                (try self.ctx.symbolMut(sym)).access = if (self.isPoison(elem_ty)) null else self.loop_access;
+                (try self.ctx.symbolMut(sym)).flags.access_decided = true;
+                (try self.ctx.symbolMut(sym)).ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
-                if (sema.forViewsSlot(self.ctx, node)) self.ctx.symbols.items[sym].flags.slot_view = true;
+                if (sema.forViewsSlot(self.ctx, node)) (try self.ctx.symbolMut(sym)).flags.slot_view = true;
                 // An element of an array the loop takes is the body's own.
                 if (eff == .move and !source.isKind(.@"..")) try self.owned_bindings.put(self.ctx.allocator, sym, {});
                 if ((mode == .iter or mode == .read) and !source.isKind(.@"..") and self.hands(source).hasStorage() and !sema.isReadOrWriteView(self.ctx, elem_ty)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });
             }
             if (self.ctx.symbolOf(index_binding)) |sym| {
-                self.ctx.symbols.items[sym].ty = self.t().int_id;
+                (try self.ctx.symbolMut(sym)).ty = self.t().int_id;
                 try self.ctx.recordType(index_binding, self.t().int_id);
                 if (self.ctx.symbolOf(binding)) |elem| {
                     const pair: LoopPair = .{ .elem = elem, .index = sym, .source = source };
@@ -4743,7 +4794,7 @@ const Checker = struct {
             const name = self.text(alt);
             const compare = if (std.mem.eql(u8, name, "_")) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to compare with `{s}`, write `{s} == {s}`", .{ name, try self.plainText(stripSigil(subject)), name });
             try self.errAt(alt, "`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value{s}", .{ name, compare });
-            self.poisonBinding(alt);
+            try self.poisonBinding(alt);
             cov.rejected = true;
         };
     }
@@ -5211,7 +5262,7 @@ const Checker = struct {
         for (alts) |alt| {
             if (!in_test and storage.isCatchAll(self.ctx, alt)) {
                 try self.errAt(alt, "`{s}` matches every value, so the other alternatives never matter; give it an arm of its own", .{self.text(alt)});
-                self.poisonBinding(alt);
+                try self.poisonBinding(alt);
             }
         }
         // Each alternative's names, against the first's.
@@ -5229,7 +5280,7 @@ const Checker = struct {
             const b = sema.bindingName(bound);
             if (b != .src or std.mem.eql(u8, self.text(b), "_")) continue;
             try self.errAt(b, "alternatives of an error bind no names: write `_`, or give each alternative an arm of its own", .{});
-            self.poisonBinding(b);
+            try self.poisonBinding(b);
             return;
         };
     }
@@ -5251,7 +5302,7 @@ const Checker = struct {
 
     fn rejectAltNames(self: *Checker, alts: []const Sexp, has: Sexp, lacks: Sexp, name: Sexp) Error!void {
         try self.errAt(lacks, "`{s}` is bound by `{s}` but not by `{s}`: every alternative must bind the same names", .{ self.text(name), try self.plainText(has), try self.plainText(lacks) });
-        for (alts) |alt| for (altNames(alt)) |b| self.poisonBinding(sema.bindingName(b));
+        for (alts) |alt| for (altNames(alt)) |b| try self.poisonBinding(sema.bindingName(b));
     }
 
     /// The names a variant alternative binds, `_` aside, as written.
@@ -5278,7 +5329,7 @@ const Checker = struct {
                     const set = self.ctx.typeOf(alt) orelse continue;
                     const v = (try sema.lookupVariant(self.ctx, set, self.text(rig.variantPatternName(alt)))) orelse continue;
                     try self.errAt(o, "`{s}` is field `{s}` in `{s}` and field `{s}` in `{s}`: alternatives of one variant bind each name to one field", .{ self.text(b), v.payload[at].name, try self.plainText(alt), v.payload[at_other].name, try self.plainText(other) });
-                    self.poisonBinding(b);
+                    try self.poisonBinding(b);
                     return;
                 }
             }
@@ -5296,7 +5347,7 @@ const Checker = struct {
                     const other = self.ctx.payloadFieldOf(o) orelse continue;
                     if (other == ty) continue;
                     try self.errAt(o, "`{s}` is {s} `{s}` in `{s}` and {s} `{s}` in `{s}`: alternatives bind each name with one type", .{ self.text(b), article(try self.tyName(ty)), try self.tyName(ty), try self.plainText(first), article(try self.tyName(other)), try self.tyName(other), try self.plainText(alt) });
-                    self.poisonBinding(b);
+                    try self.poisonBinding(b);
                     return;
                 }
             }
@@ -5305,9 +5356,9 @@ const Checker = struct {
 
     /// Give a rejected pattern binding no type, so its uses report
     /// nothing more.
-    fn poisonBinding(self: *Checker, b: Sexp) void {
+    fn poisonBinding(self: *Checker, b: Sexp) Error!void {
         const sym = self.ctx.symbolOf(b) orelse return;
-        self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+        (try self.ctx.symbolMut(sym)).ty = self.t().invalid_id;
     }
 
     /// Whether the arms so far match every value of the scrutinee type.
@@ -5428,7 +5479,7 @@ const Checker = struct {
                         // arm only.
                         const ty = try self.bindMatchView(pattern, mode, scrutinee);
                         const copied = self.arm_local or (mode == .read and !storage.catchAllCaptured(self.ctx, pattern, self.matching));
-                        if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                        if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) (try self.ctx.symbolMut(sym)).flags.arm_view = true;
                         try self.ctx.recordType(pattern, ty);
                     }
                 }
@@ -5647,7 +5698,7 @@ const Checker = struct {
         const several = subject == self.t().any_error_id or sema.isErrorUnion(self.ctx, subject);
         const set = (try self.variantPatternSet(pattern, subject, several)) orelse {
             cov.rejected = true;
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         };
         try self.ctx.recordType(pattern, set);
@@ -5655,7 +5706,7 @@ const Checker = struct {
         const resolved = (try sema.lookupVariant(self.ctx, set, vname)) orelse {
             try self.recordCovered(key, null, vpos, cov);
             try self.reportMissingVariant(scrutinee, vname, vpos);
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         };
         if (self.bindsNothing(pattern)) {
@@ -5665,12 +5716,12 @@ const Checker = struct {
         if (resolved.payload.len == 0) {
             try self.recordCovered(key, null, vpos, cov);
             if (bindings.len > 0) try self.err(vpos, "variant `{s}` has no payload to destructure", .{vname});
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         }
         const written = (try self.fieldBindings(pattern, resolved.payload)) orelse {
             try self.recordCovered(key, null, vpos, cov);
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         };
         // `r?` binds an optional field's value and `none` tests it holds
@@ -5689,7 +5740,7 @@ const Checker = struct {
                 break;
             };
             cov.rejected = true;
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         }
         try self.recordCovered(key, tests, vpos, cov);
@@ -5710,7 +5761,7 @@ const Checker = struct {
             if (self.ctx.symbolOf(b)) |sym| {
                 // A binding that is no plain data of a copy of the
                 // subject is usable in its arm only.
-                if (self.arm_local and mode == .read and view and sema.copies(self.ctx, field_ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                if (self.arm_local and mode == .read and view and sema.copies(self.ctx, field_ty) != .yes) (try self.ctx.symbolMut(sym)).flags.arm_view = true;
             }
         }
     }
@@ -5736,7 +5787,7 @@ const Checker = struct {
             const name = if (some) ir.SomePattern.name(b.*) else Sexp.nil;
             if (!self.isPoison(f.ty) and self.ctx.types.get(f.ty) != .optional) {
                 try self.errAt(b.*, "`{s}` tests an optional field, and `{s}` is a `{s}`; bind it as `{s}`", .{ shown, f.name, try self.tyName(f.ty), if (some) self.text(name) else "_" });
-                if (some) self.poisonBinding(name);
+                if (some) try self.poisonBinding(name);
                 b.* = if (some) name else .nil;
                 continue;
             }
@@ -5784,9 +5835,9 @@ const Checker = struct {
         const access = if (self.isPoison(reached)) null else sema.decideBindingAccess(self.ctx, .{ .match = .{ .reach = try self.matchReach(mode), .reached = reached } });
         const ty = try self.viewOfAccess(access, reached);
         if (self.ctx.symbolOf(b)) |sym| {
-            self.ctx.symbols.items[sym].access = access;
-            self.ctx.symbols.items[sym].flags.access_decided = true;
-            self.ctx.symbols.items[sym].ty = ty;
+            (try self.ctx.symbolMut(sym)).access = access;
+            (try self.ctx.symbolMut(sym)).flags.access_decided = true;
+            (try self.ctx.symbolMut(sym)).ty = ty;
         }
         return ty;
     }
@@ -7470,8 +7521,8 @@ const Checker = struct {
         }
         const prev = self.enter(node);
         defer self.scope = prev;
-        for (stmts[0 .. stmts.len - 1]) |s| try self.checkStmt(s);
-        return self.synthTail(stmts[stmts.len - 1], expected);
+        for (stmts[0 .. stmts.len - 1]) |*s| try self.checkBytes(s, checkStmt, .{});
+        return self.checkBytes(&stmts[stmts.len - 1], synthTail, .{expected});
     }
 
     /// `a ?? b`: the value inside optional `a`, or `b` when `a` is `none`.
@@ -7664,7 +7715,7 @@ const Checker = struct {
             // The callee's set: `error` for a `T!`, or the set it declares.
             const set = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.set else self.t().any_error_id;
             if (self.ctx.symbolOf(name)) |sym| {
-                self.ctx.symbols.items[sym].ty = set;
+                (try self.ctx.symbolMut(sym)).ty = set;
                 try self.ctx.recordType(name, set);
             }
         }
@@ -20340,10 +20391,10 @@ const Checker = struct {
 
     /// A string literal where a `U8` goes is its one byte, and where a
     /// `[N]U8` goes, its bytes, as an integer literal takes the type its
-    /// context gives it: recorded (`SemContext.byte_literals`) for the
-    /// Parser wrapper to write as the integer or array literal it is, and
-    /// the module checked again on that tree (`Parser.byteLiterals`).
-    /// Null where `target` is neither, so the literal stays text.
+    /// context gives it: found (`bytes`) for its statement to be checked
+    /// again with the literal written as the integer or array literal it
+    /// is (`checkBytes`). Null where `target` is neither, so the literal
+    /// stays text.
     fn byteString(self: *Checker, e: Sexp, target: TypeId) Error!?TypeId {
         const len: ?u64 = switch (self.ctx.types.get(target)) {
             .array => |a| if (isU8(self.ctx, a.elem)) (sema.arrayLen(self.ctx, a) orelse return null) else return null,
@@ -20363,7 +20414,14 @@ const Checker = struct {
             try self.errAt(e, "{s}", .{try self.notOneByte(lit, bytes.len)});
             return self.t().invalid_id;
         }
-        try self.ctx.recordByteLiteral(e.src.pos, bytes, len != null);
+        // Every statement and declaration that holds a string literal is
+        // checked under a mark (`checkBytes`).
+        if (self.bytes_open == 0) {
+            try self.errAt(e, "internal error: string literal `{s}` is a byte here, outside any statement checked again", .{lit});
+            return self.t().invalid_id;
+        }
+        for (self.bytes.items) |l| if (l.pos == e.src.pos) return target;
+        try self.bytes.append(self.ctx.allocator, .{ .pos = e.src.pos, .bytes = bytes, .array = len != null });
         return target;
     }
 
@@ -21915,7 +21973,7 @@ const Checker = struct {
             }
             break :blk set;
         };
-        if (sym) |id| self.ctx.symbols.items[id].ty = bound;
+        if (sym) |id| (try self.ctx.symbolMut(id)).ty = bound;
         try self.ctx.recordType(name, bound);
         try self.ctx.recordType(pattern, bound);
         if (self.isPoison(bound)) {
@@ -22675,7 +22733,7 @@ const Checker = struct {
                 try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }
             try params.append(self.ctx.allocator, pty);
-            if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
+            if (self.ctx.symbolOf(pn)) |pid| (try self.ctx.symbolMut(pid)).ty = pty;
             try self.ctx.recordType(pn, pty);
         }
 
@@ -22703,22 +22761,22 @@ const Checker = struct {
             defer self.scope = bprev;
             const stmts = ir.Block.stmts(body);
             if (stmts.len > 0) {
-                for (stmts[0 .. stmts.len - 1]) |s| try self.checkStmt(s);
-                const last = stmts[stmts.len - 1];
+                for (stmts[0 .. stmts.len - 1]) |*s| try self.checkBytes(s, checkStmt, .{});
+                const last = &stmts[stmts.len - 1];
                 ends_in_return = last.isKind(.@"return") or last.isKind(.panic);
                 // A closure ending in a statement, or an `if` without
                 // `else`, returns nothing.
-                const no_value = self.yieldsNoValue(last) or ifWithoutValue(last);
+                const no_value = self.yieldsNoValue(last.*) or ifWithoutValue(last.*);
                 // A closure's value is its result: it leaves the body,
                 // as `return` takes it.
                 ret = if (no_value) blk: {
-                    try self.checkStmt(last);
+                    try self.checkBytes(last, checkStmt, .{});
                     break :blk self.t().void_id;
                 } else blk: {
-                    try self.recordUse(last, .take);
+                    try self.recordUse(last.*, .take);
                     const mark = self.ctx.diagnostics.items.len;
-                    const ty = try self.synthTail(last, null);
-                    if (self.ctx.diagnostics.items.len == mark) try self.keptViews(last, .returned);
+                    const ty = try self.checkBytes(last, synthTail, .{null});
+                    if (self.ctx.diagnostics.items.len == mark) try self.keptViews(last.*, .returned);
                     break :blk ty;
                 };
             }
@@ -22890,18 +22948,18 @@ const Checker = struct {
             } else true;
             if (!place) {
                 try self.err(pos, "a capture names a local or a field of one, and `{s}` is not a local: use `{s}` in the closure directly", .{ self.text(root), name });
-                self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+                (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
                 return;
             }
-            self.ctx.symbols.items[cap_sym].ty = ty;
-            if (root_sym) |r| self.ctx.symbols.items[cap_sym].origin = r;
+            (try self.ctx.symbolMut(cap_sym)).ty = ty;
+            if (root_sym) |r| (try self.ctx.symbolMut(cap_sym)).origin = r;
             try self.ctx.recordType(name_node, ty);
             return;
         }
 
         const outer_id = self.lookupAt(outer, name, pos) orelse {
             try self.err(pos, "captured name `{s}` is not in scope", .{name});
-            self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+            (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
             return;
         };
         const outer_sym = self.ctx.symbols.items[outer_id];
@@ -22913,21 +22971,21 @@ const Checker = struct {
         };
         if (!local) {
             try self.err(pos, "only a local can be captured; `{s}` is declared at module level, so use it in the closure directly", .{name});
-            self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+            (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
             return;
         }
         // A closure reaches outer locals only through its own captures,
         // so a closure nested in one captures from what that one holds.
         if (self.closureBetween(outer, name, pos)) {
             try self.err(pos, "`{s}` is a local outside the enclosing closure; capture `{s}` in the enclosing closure first", .{ name, name });
-            self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+            (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
             return;
         }
         const outer_ty = self.ctx.symbols.items[outer_id].ty;
         if (mode == .cap_read or mode == .cap_write) {
             const ty = try self.captureView(outer_id, name, pos, if (mode == .cap_read) .read else .write);
-            self.ctx.symbols.items[cap_sym].ty = ty;
-            self.ctx.symbols.items[cap_sym].origin = outer_id;
+            (try self.ctx.symbolMut(cap_sym)).ty = ty;
+            (try self.ctx.symbolMut(cap_sym)).origin = outer_id;
             try self.ctx.recordType(name_node, ty);
             return;
         }
@@ -22937,7 +22995,7 @@ const Checker = struct {
             .cap_weak => switch (self.ctx.types.get(outer_ty)) {
                 .shared => |inner| if (sema.frozenValue(self.ctx, inner) != null) {
                     try self.err(pos, "a frozen value has no weak handle: `|+{s}|` shares it", .{name});
-                    self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+                    (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
                     return;
                 } else try self.ctx.intern(.{ .weak = inner }),
                 else => null,
@@ -22953,8 +23011,8 @@ const Checker = struct {
         } else {
             try self.err(pos, "`|+{s}|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `{s}` is `{s}`, which has no clone; move it in with `|<{s}|`", .{ name, name, try self.tyName(outer_ty), name });
         };
-        self.ctx.symbols.items[cap_sym].ty = bound orelse self.t().invalid_id;
-        self.ctx.symbols.items[cap_sym].origin = outer_id;
+        (try self.ctx.symbolMut(cap_sym)).ty = bound orelse self.t().invalid_id;
+        (try self.ctx.symbolMut(cap_sym)).origin = outer_id;
         try self.ctx.recordType(name_node, bound orelse self.t().invalid_id);
     }
 
@@ -26205,7 +26263,7 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     // (a match, `as`, a loop), ownership the loan a view of it makes, and
     // emit how it binds: no pass derives a binding's mode another way.
     const decide = "sema." ++ "decideBindingAccess(";
-    const record = "].access" ++ " = ";
+    const record = ").access" ++ " = ";
     const tc = @embedFile("typecheck.zig");
     try std.testing.expectEqual(3, std.mem.count(u8, tc, decide));
     var at: usize = 0;

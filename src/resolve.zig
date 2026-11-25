@@ -2002,26 +2002,45 @@ fn foldModuleConsts(ctx: *SemContext, order: []const Sexp) Error!void {
             try resolveVariantsEarly(ctx, set);
             continue;
         }
-        const target = ir.Set.target(set);
-        if (target != .src or rig.bindingKindOf(ir.Set.op(set)) != .fixed) continue;
-        const id = ctx.symbolOf(target) orelse continue;
-        // A constant whose value names one the target sets is set by the
-        // target too, and has no value Rig knows.
-        if (sema.perTargetLeaf(ctx, ir.Set.value(set)) != null) {
-            ctx.symbols.items[id].flags.per_target = true;
-            continue;
-        }
-        const ty = ir.Set.type(set);
-        const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse continue;
-        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .literal = declared orelse .{}, .eval = ctx };
-        const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
-            .value => |t| t,
-            else => continue,
-        };
-        const int = declared orelse t.int orelse sema.IntInfo{};
-        if (t.int) |i| if (!std.meta.eql(i, int)) continue;
-        if (!sema.intInfoFits(int, t.v)) continue;
-        try ctx.const_ints.put(ctx.allocator, id, .{ .value = t.v, .int = int });
+        try foldModuleConst(ctx, set);
+    }
+}
+
+/// Fold integer module constant `set` into `const_ints`
+/// (`foldModuleConsts`).
+fn foldModuleConst(ctx: *SemContext, set: Sexp) Error!void {
+    const target = ir.Set.target(set);
+    if (target != .src or rig.bindingKindOf(ir.Set.op(set)) != .fixed) return;
+    const id = ctx.symbolOf(target) orelse return;
+    // A constant whose value names one the target sets is set by the
+    // target too, and has no value Rig knows.
+    if (sema.perTargetLeaf(ctx, ir.Set.value(set)) != null) {
+        ctx.symbols.items[id].flags.per_target = true;
+        return;
+    }
+    const ty = ir.Set.type(set);
+    const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse return;
+    const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .literal = declared orelse .{}, .eval = ctx };
+    const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
+        .value => |t| t,
+        else => return,
+    };
+    const int = declared orelse t.int orelse sema.IntInfo{};
+    if (t.int) |i| if (!std.meta.eql(i, int)) return;
+    if (!sema.intInfoFits(int, t.v)) return;
+    try ctx.const_ints.put(ctx.allocator, id, .{ .value = t.v, .int = int });
+}
+
+/// Fold again each module constant not folded yet, once typecheck has
+/// rewritten one's value (`Checker.checkRewritten`): a byte literal
+/// folds as the byte it is, and so does a constant that names it.
+pub fn refoldModuleConsts(ctx: *SemContext) Error!void {
+    for (ctx.const_order.items) |decl| {
+        const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        if (!set.isKind(.set)) continue;
+        const id = ctx.symbolOf(ir.Set.target(set)) orelse continue;
+        if (ctx.const_ints.contains(id)) continue;
+        try foldModuleConst(ctx, set);
     }
 }
 

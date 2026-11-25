@@ -664,6 +664,14 @@ serve no HTTP.
 
 ### Compiler
 
+- **A string literal where a byte goes is checked once, with its
+  statement:** a statement that holds a string literal is checked under
+  a mark, and when typecheck finds the literal is a `U8` or a `[N]U8`, it
+  rolls the statement back, writes the literal as the byte or the bytes
+  it is, and checks the statement again in that form. A module whose
+  only such rewrites are byte literals (std's `json` and `time`) is no
+  longer checked a second time; the emitted Zig is the same
+  (docs/internals/INTERNALS.md, "Strings as bytes").
 - **A `for` over a chain may not bind a name that hides a local,** as any
   `for` may not: `x = 1` then `for x in xs.filter(f)` is rejected with
   "`for` binding `x` shadows the local `x`; use a different name". A

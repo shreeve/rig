@@ -914,12 +914,13 @@ files is the unit of mutual recursion, as a Go package or a Rust
 crate is. An unreadable file or directory is reported at the `use`. A
 module whose import has errors is not checked further, since its
 errors would only be consequences; the import's own errors are
-reported. A module with a string literal where a byte goes, a chain,
-an option group, or a spread is checked twice, the second time on the
-tree they are rewritten into ([Strings as bytes](#strings-as-bytes),
-[Groups and spreads](#groups-and-spreads)), and only the second check's
-context is the module's; a `for` over an iterator is rewritten where
-typecheck finds it ([Loops over an iterator](#loops-over-an-iterator)).
+reported. A module with a chain, an option group, or a spread is
+checked twice, the second time on the tree they are rewritten into
+([Groups and spreads](#groups-and-spreads)), and only the second check's
+context is the module's; a `for` over an iterator, and a statement
+holding a string literal where a byte goes, are rewritten where
+typecheck finds them ([Loops over an iterator](#loops-over-an-iterator),
+[Strings as bytes](#strings-as-bytes)).
 The CLI prints at most 100 errors for a program and counts the rest.
 
 **Embedded files.** Typecheck records each `$embed("path")` as an
@@ -1798,9 +1799,10 @@ and to the per-node records `write_sites`, `untakeable`, and `discards`
 every column what it held at the mark, drops the diagnostics reported
 and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and
-a write costs nothing more. Symbols, scopes, and interned types are not
-taken back: each is made once for what it names, and asking again finds
-the same one. A rewrite of the tree, and the names and scopes of the
+a write costs nothing more. A symbol written through
+`SemContext.symbolMut` goes on the trail whole, so a rollback gives back
+its type and flags. Scopes and interned types are not taken back: each
+is made once for what it names, and asking again finds the same one. A rewrite of the tree, and the names and scopes of the
 nodes it makes, are written outside every mark (`pauseTrail`), since
 the tree keeps the rewrite.
 
@@ -4511,20 +4513,28 @@ one the program wrote.
 A string literal where a `U8` is expected is its one byte, and where a
 `[N]U8` is, the array of its bytes (SPEC, "Byte literals"). Only
 typecheck knows what a literal's context expects, so the literal is
-rewritten as `for` loops over an iterator are: `Checker.byteString`,
-reached where a literal meets its expected type (`checkContextual`), the
-other side of an operator (`byteBeside`), a conversion `U8('A')`, and a
-string pattern against a `U8` (`checkBytePattern`), checks the count of
-bytes and records the literal (`SemContext.byte_literals`). Then
-`ModuleGraph.check` calls `Parser.byteLiterals`, which writes each as the
-integer leaf of its byte, spanning the string, or as the array literal of
-its bytes, each a leaf inside the string so no two share a position,
-and checks the module again. A byte leaf reads as its decimal value
-(`rig.leafText`), so every pass after typecheck, and the second check,
-sees an integer literal where the program wrote a byte: a pattern's
-coverage, a constant's value, and emit need nothing of their own. A
-literal of the wrong size is not recorded, and the second check reports
-it again. Each round rewrites what it found, so the checks end.
+rewritten where typecheck finds it, with the statement that holds it.
+The Parser wrapper flags each statement of a block, and each declaration
+of the module, that is a string literal or holds one outside its own
+blocks (`Parser.byte_stmts`), and typecheck checks each of those under a
+mark on the trail (`Checker.checkBytes`). `Checker.byteString`, reached
+where a literal meets its expected type (`checkContextual`), the other
+side of an operator (`byteBeside`), a conversion `U8('A')`, and a string
+pattern against a `U8` (`checkBytePattern`), checks the count of bytes
+and keeps the literal (`Checker.bytes`). When the statement holds one,
+what checking it recorded is rolled back, `Parser.byteLiterals` writes
+each literal as the integer leaf of its byte, spanning the string, or as
+the array literal of its bytes, each a leaf inside the string so no two
+share a position, and the statement is checked again in that form. The
+whole statement is checked again, not the literal alone, because the
+checks of a range pattern, a module constant's value, and other forms
+hold the literal they read until they finish. A byte leaf reads as its
+decimal value (`rig.leafText`), so every pass after, and the check
+again, sees an integer literal where the program wrote a byte: a
+pattern's coverage, a constant's value, and emit need nothing of their
+own. A literal of the wrong size is not kept, and the check again
+reports it again. Each check rewrites what it found, so the checks
+end.
 
 ### Groups and spreads
 

@@ -2190,6 +2190,9 @@ pub const FactTrail = struct {
     open: u32 = 0,
 
     const Entry = struct { column: u16, key: [16]u8, old: u32 };
+    /// The `column` of an entry that holds a symbol as it was
+    /// (`SemContext.symbolMut`), keyed by its id.
+    const symbol_column: u16 = Column.count;
     /// The `old` of an entry whose key had no value.
     const absent = std.math.maxInt(u32);
 
@@ -4625,24 +4628,19 @@ pub const SemContext = struct {
     /// The parameters each function and method calls at most once, those
     /// written `f: once ?fun() -> T`, by where its name is declared.
     declared_once: FastMap(u32, ParamMask) = .empty,
-    /// The string literals typecheck found where a `U8` or a `[N]U8` goes,
-    /// each to be written as the byte or the array of bytes it is there
-    /// (`rig.ByteLiteral`); a module with any is checked again on the
-    /// rewritten tree, so no pass sees one.
-    byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
     /// Every `$embed` of the module (`EmbedSite`), recorded once each.
     embed_sites: std.ArrayList(EmbedSite) = .empty,
     /// The embedded files calls make records from (`EmbedRecord`).
     embed_records: std.ArrayList(EmbedRecord) = .empty,
     /// The iterator chains typecheck found (`rig.Chain`), each to be
-    /// rewritten into the loop it means; checked again, as for
-    /// `byte_literals`.
+    /// rewritten into the loop it means; a module with any is checked
+    /// again on the rewritten tree, so no pass sees one.
     chains: std.ArrayList(rig.Chain) = .empty,
     /// The groups typecheck found (`rig.GroupSite`), each to be made the
     /// parameters it means, and the uses of each in its function's body,
     /// by the position of the group's name; the spreads (`rig.SpreadSite`),
     /// each to be made the keyword arguments it means. Checked again, as
-    /// for `byte_literals`.
+    /// for `chains`.
     groups: std.ArrayList(rig.GroupSite) = .empty,
     /// The group each parameter that is a group's field belongs to, by
     /// name (`GroupParam`), for the message that the body reads it through
@@ -4744,7 +4742,6 @@ pub const SemContext = struct {
         self.group_params.deinit(self.allocator);
         self.group_uses.deinit(self.allocator);
         self.spreads.deinit(self.allocator);
-        self.byte_literals.deinit(self.allocator);
         self.embed_sites.deinit(self.allocator);
         self.embed_records.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
@@ -5269,6 +5266,13 @@ pub const SemContext = struct {
         try map.put(self.allocator, key, value);
     }
 
+    /// Symbol `id`, to be written through: what it was goes on the trail
+    /// while a mark is open, so a rollback gives it back.
+    pub fn symbolMut(self: *SemContext, id: SymbolId) std.mem.Allocator.Error!*Symbol {
+        if (self.trail.open > 0) try self.trail.log(self.allocator, FactTrail.symbol_column, id, @as(?Symbol, self.symbols.items[id]));
+        return &self.symbols.items[id];
+    }
+
     /// Remove `key` from column `c`, on the trail while a mark is open.
     pub fn removeIn(self: *SemContext, comptime c: Column, key: MapKey(c.Map())) std.mem.Allocator.Error!void {
         const map = self.columnMap(c);
@@ -5281,6 +5285,10 @@ pub const SemContext = struct {
 
     fn undo(self: *SemContext, e: FactTrail.Entry) std.mem.Allocator.Error!void {
         switch (e.column) {
+            FactTrail.symbol_column => {
+                const id = FactTrail.keyOf(SymbolId, e.key);
+                self.symbols.items[id] = std.mem.bytesToValue(Symbol, self.trail.olds.items[e.old..][0..@sizeOf(Symbol)]);
+            },
             inline 0...Column.count - 1 => |i| {
                 const map = self.columnMap(comptime Column.of(i));
                 const M = @TypeOf(map.*);
@@ -5298,13 +5306,6 @@ pub const SemContext = struct {
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
         if (node != .src or sym == symbol_invalid) return;
         try self.putIn(.{ .facts = .names }, node.src.pos, sym);
-    }
-
-    /// A string literal at `pos` that holds `bytes` where a `U8` goes, or
-    /// a `[N]U8` (`array`); recorded once.
-    pub fn recordByteLiteral(self: *SemContext, pos: u32, bytes: []const u8, array: bool) !void {
-        for (self.byte_literals.items) |l| if (l.pos == pos) return;
-        try self.byte_literals.append(self.allocator, .{ .pos = pos, .bytes = bytes, .array = array });
     }
 
     /// A `$embed` whose path's literal at `arg` holds `path`; recorded
@@ -5558,7 +5559,7 @@ pub const SemContext = struct {
     /// flags alone.
     pub fn recordWrite(self: *SemContext, node: Sexp, sym: SymbolId, kind: WriteKind) !void {
         try self.putIn(.{ .ctx = .write_sites }, recordKey(node), .{ .sym = sym, .kind = kind });
-        const flags = &self.symbols.items[sym].flags;
+        const flags = &(try self.symbolMut(sym)).flags;
         switch (kind) {
             .assign, .compound => flags.reassigned = true,
             .write_viewed, .elem_store, .take, .capture => flags.written = true,
@@ -17879,7 +17880,7 @@ pub fn captureList(captures: Sexp) []const Sexp {
 /// Whether literal text `text` is a string's, double- or single-quoted,
 /// or a piece of a template's text (`rig.isTemplateText`).
 pub fn isStringLiteralText(text: []const u8) bool {
-    return text.len > 0 and (text[0] == '"' or text[0] == '\'' or rig.isTemplateText(text));
+    return rig.isStringText(text);
 }
 
 /// The bytes a single-quoted string holds, one at a time: its body as
@@ -18076,7 +18077,7 @@ fn findNodes(node: Sexp, tag: Tag, out: *std.ArrayList(Sexp)) !void {
     for (node.items()) |c| try findNodes(c, tag, out);
 }
 
-test "trail: a rollback gives each fact the value it had at the mark" {
+test "trail: a rollback gives each fact and symbol the value it had at the mark" {
     var r = try factsRun(
         \\fun f(a: Int) -> Int
         \\  b = a + 1
@@ -18093,6 +18094,8 @@ test "trail: a rollback gives each fact the value it had at the mark" {
     const names = ctx.facts.names.count();
     const plus_use = ctx.useOf(plus);
     const diagnostics = ctx.diagnostics.items.len;
+    const b_sym = ctx.symbolAt(b).?;
+    const b_was = ctx.symbols.items[b_sym];
 
     const m = ctx.mark();
     // Changed, added, and removed facts, of a leaf and of a list node.
@@ -18101,6 +18104,10 @@ test "trail: a rollback gives each fact the value it had at the mark" {
     try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, 1);
     try ctx.removeIn(.{ .facts = .names }, b);
     try ctx.err(0, "a diagnostic the rollback drops", .{});
+    // A symbol written through `symbolMut`.
+    const s = try ctx.symbolMut(b_sym);
+    s.ty = ctx.types.bool_id;
+    s.flags.comptime_known = !b_was.flags.comptime_known;
     // A nested mark kept is taken back with the one around it.
     const inner = ctx.mark();
     try ctx.recordImplicitView(plus);
@@ -18115,6 +18122,8 @@ test "trail: a rollback gives each fact the value it had at the mark" {
     try std.testing.expect(ctx.symbolAt(b + 1000) == null);
     try std.testing.expectEqual(plus_use, ctx.useOf(plus));
     try std.testing.expectEqual(diagnostics, ctx.diagnostics.items.len);
+    try std.testing.expectEqual(b_was.ty, ctx.symbols.items[b_sym].ty);
+    try std.testing.expectEqual(b_was.flags, ctx.symbols.items[b_sym].flags);
     // With no mark open, nothing is on the trail.
     try std.testing.expectEqual(@as(usize, 0), ctx.trail.entries.items.len);
     try ctx.recordType(plus, ctx.types.bool_id);
