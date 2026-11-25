@@ -303,10 +303,9 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box, .template => .unit,
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .group_param, .field_of, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .item_type, .item_value, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .spread, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .exact, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive, .show => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
-        // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
-        // whose `paren` is dropped; `loop`, rewritten to a `while`: each
-        // before any pass reads a statement.
-        .wait, .once, .@"..=", .paren, .loop => .none,
+        // parameter; and `(e)`, whose `paren` is dropped; `loop`,
+        // rewritten to a `while`: each before any pass reads a statement.
+        .wait, .once, .paren, .loop => .none,
         // A function's marker, never a statement.
         .outside => .none,
     };
@@ -4409,7 +4408,6 @@ pub const Parser = struct {
             },
             // A function records which (`onceParams`).
             .once => return self.base.newNode(.@":", &.{ ir.get(out, .name), ir.get(out, .type) }, self.span(out)),
-            .@"..=" => return self.base.newNode(.@"..", &.{ ir.get(out, .left), ir.get(out, .right), .{ .tag = .inclusive } }, self.span(out)),
             .member, .index, .inst => self.waitTakesName(out, ir.get(out, .object)),
             .call => self.waitTakesName(out, ir.Call.callee(out)),
             .share, .box => try self.noteParenSuffix(out),

@@ -16566,9 +16566,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg, .spread => .none,
         // Patterns and arms.
         .arm, .item_type, .item_value, .alt_pattern, .paren_alts, .range_pattern, .variant_pattern, .set_pattern, .some_pattern, .none_pattern, .matches => .none,
-        // `>t`, `f: once T`, `a..=b`, `(e)`'s `paren`, and `loop`, which
-        // the Parser wrapper rewrites or drops first.
-        .wait, .once, .@"..=", .paren, .loop => .none,
+        // `>t`, `f: once T`, `(e)`'s `paren`, and `loop`, which the
+        // Parser wrapper rewrites or drops first.
+        .wait, .once, .paren, .loop => .none,
         // A function's marker.
         .outside => .none,
         // Types.
