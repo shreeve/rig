@@ -11,6 +11,7 @@
 //! the build with an internal error, never a trace that misses it.
 
 const std = @import("std");
+const rt = @import("names.zig").rt;
 
 /// What a traced method's record says of it (`rig.MapOp`), and how.
 const Method = struct {
@@ -29,7 +30,7 @@ const Method = struct {
 
 /// A lookup found its key; a write found it there when the length did
 /// not change; a take found it when the length fell.
-const found = "rig.mapTraceFound(r)";
+const found = rt(.mapTraceFound) ++ "(r)";
 const kept = "self.len == before";
 const fell = "self.len < before";
 
@@ -118,18 +119,18 @@ fn drift(what: *[]const u8, missing: []const u8) error{MapTraceDrift} {
 /// during it (`traceRebuilds`), with the index's lanes. A `reserve` is
 /// recorded only by its `grow`.
 fn writeWrapper(w: *std.Io.Writer, m: Method, value: []const u8) std.Io.Writer.Error!void {
-    try w.print("\n        pub inline fn {s}(self: rig.MapTraceParam(__rig_untraced_{s}, 0)", .{ m.name, m.name });
-    for (1..m.arity) |i| try w.print(", a{d}: rig.MapTraceParam(__rig_untraced_{s}, {d})", .{ i, m.name, i });
-    try w.print(") rig.MapTraceResult(__rig_untraced_{s}) {{\n", .{m.name});
-    try w.print("            rig.mapTraceSee(K, {s}, self);\n", .{value});
+    try w.print("\n        pub inline fn {s}(self: " ++ rt(.MapTraceParam) ++ "(__rig_untraced_{s}, 0)", .{ m.name, m.name });
+    for (1..m.arity) |i| try w.print(", a{d}: " ++ rt(.MapTraceParam) ++ "(__rig_untraced_{s}, {d})", .{ i, m.name, i });
+    try w.print(") " ++ rt(.MapTraceResult) ++ "(__rig_untraced_{s}) {{\n", .{m.name});
+    try w.print("            " ++ rt(.mapTraceSee) ++ "(K, {s}, self);\n", .{value});
     if (std.mem.indexOf(u8, m.hit, "before") != null) try w.writeAll("            const before = self.len;\n");
-    if (m.key) try w.writeAll("            const key = rig.mapTraceKey(K, a1);\n");
+    if (m.key) try w.writeAll("            const key = " ++ rt(.mapTraceKey) ++ "(K, a1);\n");
     try w.writeAll("            const builds = self.t.traceRebuilds();\n");
     try w.print("            const r = self.__rig_untraced_{s}(", .{m.name});
     for (1..m.arity) |i| try w.print("{s}a{d}", .{ if (i > 1) ", " else "", i });
     try w.writeAll(");\n");
-    try w.print("            if (self.t.traceRebuilds() != builds) rig.mapTraceOp(K, {s}, self, .grow, .{{}}, false, self.t.traceSlots());\n", .{value});
-    if (!std.mem.eql(u8, m.op, "reserve")) try w.print("            rig.mapTraceOp(K, {s}, self, .{s}, {s}, {s}, {s});\n", .{ value, m.op, if (m.key) "key" else ".{}", m.hit, m.extra });
+    try w.print("            if (self.t.traceRebuilds() != builds) " ++ rt(.mapTraceOp) ++ "(K, {s}, self, .grow, .{{}}, false, self.t.traceSlots());\n", .{value});
+    if (!std.mem.eql(u8, m.op, "reserve")) try w.print("            " ++ rt(.mapTraceOp) ++ "(K, {s}, self, .{s}, {s}, {s}, {s});\n", .{ value, m.op, if (m.key) "key" else ".{}", m.hit, m.extra });
     try w.writeAll("            return r;\n        }\n");
 }
 
