@@ -75,7 +75,7 @@ pub const Coverage = struct {
 
 /// Lower every body of module `tree` (a module sema checked without
 /// errors).
-pub fn lowerModule(gpa: std.mem.Allocator, ctx: *const SemContext, tree: Sexp) !Module {
+pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp) !Module {
     var m: Module = .{ .arena = .init(gpa) };
     errdefer m.deinit();
     const a = m.arena.allocator();
@@ -103,7 +103,7 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *const SemContext, tree: Sexp) !
 
 /// Lower module `tree` and check its LIR against the var table the plan
 /// made (`storage.plan`): an internal error where they differ.
-pub fn shadow(ctx: *const SemContext, tree: Sexp) !void {
+pub fn shadow(ctx: *SemContext, tree: Sexp) !void {
     if (ctx.hasErrors()) return;
     var cov: Coverage = .{};
     var m = try lowerModule(ctx.allocator, ctx, tree);
@@ -125,7 +125,7 @@ pub fn shadow(ctx: *const SemContext, tree: Sexp) !void {
 /// Write module `tree`'s LIR (`rig check --facts=lir`): each lowered
 /// body, then each body not lowered and the construct that stopped it,
 /// then what the check against the var table covered.
-pub fn writeModule(gpa: std.mem.Allocator, ctx: *const SemContext, tree: Sexp, w: *std.Io.Writer) !void {
+pub fn writeModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, w: *std.Io.Writer) !void {
     var m = try lowerModule(gpa, ctx, tree);
     defer m.deinit();
     for (m.owners.items) |o| if (o.func) |f| try lir.write(f, ctx, w);
@@ -254,7 +254,9 @@ const Error = error{ OutOfMemory, Uncovered };
 
 const Lowerer = struct {
     a: std.mem.Allocator,
-    ctx: *const SemContext,
+    /// Mutable only for the frame count a task's record asks
+    /// (`storage.taskRecordIn`).
+    ctx: *SemContext,
     module: *Module,
     f: *lir.Func = undefined,
     /// The region that declares the current statement's temporaries and
@@ -406,11 +408,14 @@ const Lowerer = struct {
     /// last, when `yields` and it is a value.
     fn stmts(l: *Lowerer, body: Sexp, into: RegionId, yields: bool) Error!?ExprId {
         const list: []const Sexp = if (body.isKind(.block)) ir.Block.stmts(body) else &.{body};
+        var value: ?ExprId = null;
         for (list, 0..) |s, i| {
-            if (yields and i == list.len - 1 and sema.yieldsValue(l.ctx.source, s) and !isStmtKind(s)) return try l.valueStmt(s);
-            try l.stmt(s, into);
+            if (yields and i == list.len - 1 and sema.yieldsValue(l.ctx.source, s) and !isStmtKind(s)) {
+                value = try l.valueStmt(s);
+            } else try l.stmt(s, into);
         }
-        return null;
+        try l.blockTasks(body, into);
+        return value;
     }
 
     /// The parameters whose header the body holds in a local
@@ -551,14 +556,18 @@ const Lowerer = struct {
         const saved = l.block;
         defer l.block = saved;
         l.block = b;
-        try l.blockTasks(body);
         _ = try l.stmts(body, b, false);
         return b;
     }
 
-    fn blockTasks(l: *Lowerer, block: Sexp) Error!void {
+    /// The tasks of `block` whose records stay in its frame, region `r`
+    /// (`storage.taskRecordIn`).
+    fn blockTasks(l: *Lowerer, block: Sexp, r: RegionId) Error!void {
         if (!block.isKind(.block)) return;
-        for (ir.Block.stmts(block)) |s| if (storage.frameTaskSite(l.ctx, s) != null and storage.taskStaysInFrame(l.ctx, s)) return l.uncovered(s, "tasks");
+        for (rig.children(block)) |s| {
+            const task = (try storage.taskRecordIn(l.ctx, s, block)) orelse continue;
+            _ = try l.hiddenVar(task, .task_record, .owned, .block, null, r);
+        }
     }
 
     fn jump(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
@@ -754,18 +763,12 @@ const Lowerer = struct {
                 return l.op(e);
             },
             .matches => return l.uncovered(e, "match"),
-            .lambda => return l.uncovered(e, "closures"),
-            .call => {
-                if (ir.get(e, .task) != .nil) return l.uncovered(e, "tasks");
-                if (l.ctx.isSelect(e)) return l.uncovered(e, "select");
-                return l.op(e);
-            },
+            .lambda => return l.closure(e),
             .block => {
                 const b = try l.f.addRegion(l.a, e, .block);
                 const saved = l.block;
                 l.block = b;
                 defer l.block = saved;
-                try l.blockTasks(e);
                 const value_3 = try l.stmts(e, b, true);
                 l.region(b).value = value_3;
                 const id = try l.addExpr(.{ .block = b });
@@ -863,7 +866,7 @@ const Lowerer = struct {
             // The parts of `return a, b`, made first when a later one can
             // leave, each held as the function's result in its place.
             .results => if (storage.hoistsResults(ctx, e)) try l.holdVar(e, .argument, .owned, .call, null, l.stmt_region),
-            .share => if (ir.Share.operand(e).isKind(.lambda)) return l.uncovered(e, "closures"),
+            .share => if (ir.Share.operand(e).isKind(.lambda)) try l.holdVar(ir.Share.operand(e), .closure_env, .owned, .expression, null, l.stmt_region),
             else => {},
         }
     }
@@ -929,7 +932,6 @@ const Lowerer = struct {
             l.region(r).value = v;
             return;
         }
-        try l.blockTasks(body);
         const value_6 = try l.stmts(body, r, value);
         l.region(r).value = value_6;
     }
@@ -1248,6 +1250,63 @@ const Lowerer = struct {
         return l.stmt_region;
     }
 
+    /// A closure literal: its captures' values, made here, and its body,
+    /// a body of its own, lowered as it is met.
+    fn closure(l: *Lowerer, e: Sexp) Error!ExprId {
+        const ctx = l.ctx;
+        const oi = ownerOf(l.module.owners.items, e) orelse return l.uncovered(e, "closures");
+        const caps = ir.get(e, .captures);
+        const cap_nodes: []const Sexp = if (caps == .list) rig.children(caps) else &.{};
+        const values = try l.a.alloc(ExprId, cap_nodes.len);
+        for (cap_nodes, values) |cap, *x| {
+            try l.consumed(cap);
+            const name = ir.get(cap, .name);
+            const value = ir.get(cap, .value);
+            if (value != .nil) {
+                x.* = try l.expr(value);
+            } else {
+                // `|x|` reads the binding it captures where the closure is
+                // made.
+                const origin: ?SymbolId = if (ctx.symbolOf(name)) |s| ctx.symbols.items[s].origin else null;
+                x.* = if (origin) |o| (if (l.bindings.get(o)) |v| try l.addExpr(.{ .@"var" = v }) else try l.addExpr(.{ .leaf = name })) else try l.addExpr(.{ .leaf = name });
+                try l.note(name, x.*);
+                try l.viewRules(name, x.*);
+            }
+        }
+        // The body, with the lowerer's state its own. A body not lowered
+        // stops its whole module's walk of the body around it, so the
+        // state need not come back on an error.
+        const saved = .{ l.f, l.stmt_region, l.block, l.results, l.guarded, l.as_match_scope, l.bindings };
+        l.bindings = .empty;
+        const f = try l.a.create(lir.Func);
+        f.* = .{ .root = e };
+        l.f = f;
+        f.body = try f.addRegion(l.a, e, .body);
+        l.block = f.body;
+        l.stmt_region = f.body;
+        l.as_match_scope = null;
+        l.results = if (storage.fnType(ctx, storage.typeOf(ctx, e))) |ft| sema.resultsOf(ctx, ft.returns) else null;
+        for (cap_nodes) |cap| {
+            const name = ir.get(cap, .name);
+            if (name != .nil) _ = try l.bindingVar(name, f.body);
+        }
+        const params = ir.get(e, .params);
+        if (params == .list) for (params.items()) |par| {
+            try l.consumed(par);
+            const name = sema.paramNameNode(par) orelse continue;
+            _ = try l.bindingVar(name, f.body);
+        };
+        const value = try l.stmts(ir.Lambda.body(e), f.body, storage.lambdaYields(ctx, e));
+        f.region(f.body).value = value;
+        l.module.owners.items[oi].func = f;
+        l.f, l.stmt_region, l.block, l.results, l.guarded, l.as_match_scope, l.bindings = saved;
+        const id = try l.addExpr(.{ .closure = .{ .node = e, .owner = oi, .captures = values } });
+        try l.note(e, id);
+        try l.temp(e);
+        try l.viewRules(e, id);
+        return id;
+    }
+
     // -------------------------------------------------------------------------
     // Calls
     // -------------------------------------------------------------------------
@@ -1274,18 +1333,30 @@ const Lowerer = struct {
         // arguments where they stand is viewed where Zig holds it.
         if (!hoists) for (ir.Call.args(c)) |a| if (ctx.viewsTempArray(storage.argValue(a))) try l.holdVar(storage.argValue(a), .zig_temp, .owned, .statement, null, l.stmt_region);
         if (ctx.elemCallOf(callee) != null) return;
-        if (callee.isKind(.lambda)) return l.uncovered(c, "closures");
+        // A closure literal called where it is written is built first.
+        if (callee.isKind(.lambda)) try l.hoistVar(callee, .invoked, .owned, .call, null, try l.callBlock(c, id));
         if (!hoists) return;
         const r = try l.callBlock(c, id);
+        // The parts of `task.select` are its arms' (`storage.hoistsArgs`).
+        if (ctx.isSelect(c)) {
+            for (ir.Call.args(c)) |a| try l.callParts(storage.argValue(a), .select, r);
+        } else try l.callParts(c, .call, r);
+    }
+
+    /// The parts of call `c` evaluated first, held in region `r` for
+    /// `life`: its self or callee (`storage.heldFirst`), then its
+    /// arguments.
+    fn callParts(l: *Lowerer, c: Sexp, life: StorageLife, r: RegionId) Error!void {
+        const ctx = l.ctx;
         if (storage.selfHold(ctx, c)) |hold| {
             const first: storage.HeldFirst = if (hold == .consumed) .{ .node = storage.consumedTemporary(ctx, c).?, .kind = .self } else storage.heldFirst(ctx, c).?;
             const by = hold.by(storage.hasStorage(ctx, first.node));
             const drop = if (hold == .consumed)
                 (if (ctx.viewsTempArray(first.node)) null else storage.dropOf(ctx, first.node))
             else if (by == .pointer or storage.isPtrViewExpr(ctx, first.node)) null else storage.dropOf(ctx, first.node);
-            try l.hoistVar(first.node, first.kind, by, .call, drop, r);
+            try l.hoistVar(first.node, first.kind, by, life, drop, r);
         }
-        for (ir.Call.args(c), 0..) |a, ai| try l.argument(storage.argValue(a), storage.argumentParam(ctx, c, ai), .call, r);
+        for (ir.Call.args(c), 0..) |a, ai| try l.argument(storage.argValue(a), storage.argumentParam(ctx, c, ai), life, r);
     }
 
     /// `v`, a part of a call or an array literal evaluated first, held in
@@ -1294,7 +1365,10 @@ const Lowerer = struct {
         const ctx = l.ctx;
         if (storage.isPureArg(ctx, v)) return;
         const by: StorageBy = switch (storage.argumentHold(ctx, v)) {
-            .closure => return l.uncovered(v, "closures"),
+            .closure => by: {
+                _ = try l.hiddenVar(v, .environment, .owned, life, null, r);
+                break :by .owned;
+            },
             .callable => .owned,
             .viewed => .pointer,
             .value => if (param) |t| (if (storage.isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,

@@ -67,6 +67,9 @@ pub const Expr = union(enum) {
     branch: struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId },
     /// `match` where a value goes: each arm yields one.
     choice: Choice,
+    /// A closure literal: the body it is (`owner`, a body of the
+    /// module), and the values its captures take, made here.
+    closure: struct { node: Sexp, owner: u32, captures: []const ExprId },
 
     pub const Op = struct { node: Sexp, args: []const ExprId };
 
@@ -289,6 +292,7 @@ const Verifier = struct {
                 if (b.@"else") |e| try v.region(gpa, e);
             },
             .choice => |c| try v.choice(gpa, c),
+            .closure => |c| for (c.captures) |x| try v.expr(gpa, x),
         }
     }
 
@@ -424,6 +428,14 @@ const Printer = struct {
             .block => |r| try p.region(r, depth),
             .branch => |b| try p.branch(b.cond, b.then, b.@"else", depth),
             .choice => |c| try p.choice(c, depth),
+            .closure => |c| {
+                try p.w.print("closure #{d}(", .{c.owner});
+                for (c.captures, 0..) |x, i| {
+                    if (i > 0) try p.w.writeAll(", ");
+                    try p.expr(x, depth);
+                }
+                try p.w.writeAll(")");
+            },
         }
     }
 
