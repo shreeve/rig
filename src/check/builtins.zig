@@ -422,7 +422,7 @@ pub fn listFromElems(self: *Checker, arg: Sexp, want: ?TypeId) Error!TypeId {
         }
         return self.t().invalid_id;
     }
-    return want orelse try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{elem}) } });
+    return want orelse try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.list.sym, .args = try self.ctx.dupeIds(&.{elem}) } });
 }
 
 /// Best-effort common type of two branches; reports on mismatch.

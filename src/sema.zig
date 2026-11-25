@@ -674,7 +674,7 @@ pub fn objectCell(ctx: *const SemContext, ty: TypeId) ?TypeId {
 fn objectCellAt(ctx: *const SemContext, ty: TypeId, depth: u32) ?TypeId {
     if (depth > max_alias_height or !ctx.typeInfo(ty).object) return null;
     switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id) return ty,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.cell) return ty,
         else => {},
     }
     var it: TypeChildren = .{ .ty = ctx.types.get(ty) };
@@ -1757,12 +1757,51 @@ pub fn strongest(apis: Apis) Apis {
     return out;
 }
 
-/// A symbol of the program: its module's id and its id there.
-pub const SymbolRef = struct { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
+/// A symbol of the program: its module's id and its id there. Two
+/// compare whole, with `==`.
+pub const SymbolRef = packed struct(u64) { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
+
+/// The built-ins' module: a built-in is named in module 0, which no
+/// file is; every module registers the built-ins first, at the same ids,
+/// and reads a module-0 symbol from its own table.
+pub const builtin_module: u32 = 0;
+
+/// The built-in types and enums, each by its `SymbolRef` in module 0
+/// (`resolve.registerBuiltins`). `Actor[T]` is a value one task at a time
+/// changes, behind `*`. `Table[T, n]` and `Slot[n]` are a table of `n`
+/// slots and a number that names one (`Type.slot`). `OrderedMap[K, V]`
+/// and `OrderedSet[K]` are the tables behind `Map` and `Set`, and
+/// `UnorderedMap[K, V]` and `UnorderedSet[K]` behind `HashMap` and
+/// `HashSet`, which only std.prelude names (`resolve.registerTables`).
+pub const Builtins = struct {
+    cell: SymbolRef = .{},
+    list: SymbolRef = .{},
+    signal: SymbolRef = .{},
+    actor: SymbolRef = .{},
+    chan: SymbolRef = .{},
+    frozen: SymbolRef = .{},
+    task: SymbolRef = .{},
+    tasks: SymbolRef = .{},
+    simd: SymbolRef = .{},
+    table: SymbolRef = .{},
+    slot: SymbolRef = .{},
+    ordered_map: SymbolRef = .{},
+    ordered_set: SymbolRef = .{},
+    unordered_map: SymbolRef = .{},
+    unordered_set: SymbolRef = .{},
+    box: SymbolRef = .{},
+    endian: SymbolRef = .{},
+    order: SymbolRef = .{},
+    printer: SymbolRef = .{},
+    hasher: SymbolRef = .{},
+    arch: SymbolRef = .{},
+    os: SymbolRef = .{},
+    feature: SymbolRef = .{},
+};
 
 /// The symbol `ref` names, in this module or another.
 pub fn symbolAt(ctx: *const SemContext, ref: SymbolRef) *const Symbol {
-    const home = if (ref.module_id == ctx.module_id) ctx else ctx.foreign_semas.get(ref.module_id).?;
+    const home = if (ref.module_id == ctx.module_id or ref.module_id == builtin_module) ctx else ctx.foreign_semas.get(ref.module_id).?;
     return &home.symbols.items[ref.sym];
 }
 
@@ -4252,15 +4291,12 @@ pub const SemContext = struct {
     /// taken back (`mark`, `rollback`).
     trail: FactTrail = .{},
 
-    cell_sym_id: SymbolId = symbol_invalid,
-    list_sym_id: SymbolId = symbol_invalid,
-    signal_sym_id: SymbolId = symbol_invalid,
-    /// `Actor[T]`: a value one task at a time changes, behind `*`.
-    actor_sym_id: SymbolId = symbol_invalid,
-    chan_sym_id: SymbolId = symbol_invalid,
-    frozen_sym_id: SymbolId = symbol_invalid,
-    task_sym_id: SymbolId = symbol_invalid,
-    tasks_sym_id: SymbolId = symbol_invalid,
+    /// The built-in types, by their names in module 0 (`Builtins`).
+    builtins: Builtins = .{},
+    /// The symbols below this id are the built-ins, which every module
+    /// registers first, at the same ids (`ref`); every symbol is, while
+    /// they are registered.
+    builtin_end: SymbolId = std.math.maxInt(SymbolId),
     /// The module makes a task (`f(x)&`): the program's root declares
     /// `__rig_tasks`, which runs it on the scheduler.
     makes_tasks: bool = false,
@@ -4282,27 +4318,6 @@ pub const SemContext = struct {
     /// as `main` starts (the program's root then declares no
     /// `__rig_start_early`).
     sets_workers: bool = false,
-    simd_sym_id: SymbolId = symbol_invalid,
-    /// `Table[T, n]` and `Slot[n]`: a table of `n` slots, and a number
-    /// that names one (`Type.slot`).
-    table_sym_id: SymbolId = symbol_invalid,
-    slot_sym_id: SymbolId = symbol_invalid,
-    /// `OrderedMap[K, V]` and `OrderedSet[K]`, the tables behind `Map`
-    /// and `Set`, and `UnorderedMap[K, V]` and `UnorderedSet[K]`, behind
-    /// `HashMap` and `HashSet`, which only std.prelude names
-    /// (`resolve.registerTables`).
-    ordered_map_sym_id: SymbolId = symbol_invalid,
-    ordered_set_sym_id: SymbolId = symbol_invalid,
-    unordered_map_sym_id: SymbolId = symbol_invalid,
-    unordered_set_sym_id: SymbolId = symbol_invalid,
-    box_sym_id: SymbolId = symbol_invalid,
-    endian_sym_id: SymbolId = symbol_invalid,
-    order_sym_id: SymbolId = symbol_invalid,
-    printer_sym_id: SymbolId = symbol_invalid,
-    hasher_sym_id: SymbolId = symbol_invalid,
-    arch_sym_id: SymbolId = symbol_invalid,
-    os_sym_id: SymbolId = symbol_invalid,
-    feature_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
     module_id: u32 = 0,
@@ -5026,6 +5041,12 @@ pub const SemContext = struct {
 
     pub fn symbolOf(self: *const SemContext, node: Sexp) ?SymbolId {
         return if (node == .src) self.symbolAt(node.src.pos) else null;
+    }
+
+    /// The program-wide name of this module's symbol `sym`: a built-in's
+    /// is in module 0 (`builtin_end`).
+    pub fn ref(self: *const SemContext, sym: SymbolId) SymbolRef {
+        return .{ .module_id = if (sym < self.builtin_end) builtin_module else self.module_id, .sym = sym };
     }
 
     /// The symbol named by the identifier at source position `pos`.
@@ -7073,7 +7094,7 @@ fn expandUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandIt
             gop.value_ptr.* = item.site;
             // A frozen value of a parameter is checked by its requirement
             // (`requireFrozen`), once for each parameter.
-            if (builtin and inst.sym == ctx.frozen_sym_id) continue;
+            if (builtin and ctx.ref(inst.sym) == ctx.builtins.frozen) continue;
             if (builtin) {
                 if (try resolve.builtinElementError(ctx, inst.sym, inst.args)) |msg| {
                     try ctx.err(item.site, "`{s}` instantiates `{s}`: {s}", .{ try rootName(ctx, item.root), try formatType(ctx, concrete), msg });
@@ -7643,8 +7664,10 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // value), whose release drops it.
     // A task owns its running call, and its drop waits for it.
     // A table owns its slots' memory, and drops each slot.
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id or id == ctx.table_sym_id or isHashTable(ctx, id)) c.glue = true;
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.table_sym_id or isHashTable(ctx, id) or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.chan_sym_id or id == ctx.frozen_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
+    const r = ctx.ref(id);
+    const b = ctx.builtins;
+    if (r == b.list or r == b.box or r == b.task or r == b.tasks or r == b.table or isHashTable(ctx, id)) c.glue = true;
+    if (r == b.list or r == b.box or r == b.table or isHashTable(ctx, id) or r == b.cell or r == b.signal or r == b.actor or r == b.chan or r == b.frozen or r == b.task or r == b.tasks) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -7858,7 +7881,7 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             // structure"). Its loans are never write views by type: a
             // task given a write view stays where it is bound. A set of tasks
             // keeps the loans of each.
-            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) {
+            if (ctx.ref(pn.sym) == ctx.builtins.task or ctx.ref(pn.sym) == ctx.builtins.tasks) {
                 var r: Reach = .{ .unique = true, .views = .{ .marked = true } };
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask, into));
                 break :blk r;
@@ -8356,20 +8379,24 @@ pub fn swapsTwoPlaces(ctx: *const SemContext, arg: Sexp, ty: ?TypeId) bool {
 /// a `^T` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
 /// `T` inline, and a `Signal[T]` its value and a pending one.)
 fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.list_sym_id or sym == ctx.box_sym_id or sym == ctx.table_sym_id or isHashTable(ctx, sym);
+    const r = ctx.ref(sym);
+    const b = ctx.builtins;
+    return r == b.list or r == b.box or r == b.table or isHashTable(ctx, sym);
 }
 
 /// One of the tables behind `Map`, `Set`, `HashMap`, and `HashSet`:
 /// held as a List is, its entries on the heap, owning each key and value
 /// (`resolve.registerTables`).
 pub fn isHashTable(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym != symbol_invalid and (sym == ctx.ordered_map_sym_id or sym == ctx.ordered_set_sym_id or sym == ctx.unordered_map_sym_id or sym == ctx.unordered_set_sym_id);
+    const r = ctx.ref(sym);
+    const b = ctx.builtins;
+    return sym != symbol_invalid and (r == b.ordered_map or r == b.ordered_set or r == b.unordered_map or r == b.unordered_set);
 }
 
 /// `UnorderedMap[K, V]` or `UnorderedSet[K]`, the tables behind `HashMap`
 /// and `HashSet` (`isHashTable`).
 fn isUnorderedTable(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym != symbol_invalid and (sym == ctx.unordered_map_sym_id or sym == ctx.unordered_set_sym_id);
+    return sym != symbol_invalid and (ctx.ref(sym) == ctx.builtins.unordered_map or ctx.ref(sym) == ctx.builtins.unordered_set);
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
@@ -8610,7 +8637,7 @@ fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Alloca
         .nominal => |sym| try fieldsOf(ctx, a, &out, sym, .empty),
         .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) {
             // A List, a table, and a box are sized without what they hold.
-        } else if (pn.sym == ctx.signal_sym_id) {
+        } else if (ctx.ref(pn.sym) == ctx.builtins.signal) {
             try out.append(a, pn.args[0]);
         } else try fieldsOf(ctx, a, &out, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
         else => {},
@@ -8663,9 +8690,9 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         // A List is its buffer's slice and length, a box its pointer. A
         // Cell is its value (its one field), a Signal its value, a pending
         // one, a flag, and a List of subscribers.
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id)
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.list)
             24
-        else if (pn.sym == ctx.table_sym_id)
+        else if (ctx.ref(pn.sym) == ctx.builtins.table)
             16
         else if (isUnorderedTable(ctx, pn.sym))
             // `unordered.zig`'s table: two pointers, three counts, and its
@@ -8675,9 +8702,9 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             // `ordered.zig`'s table: four pointers, five counts, its
             // shift, and two flags.
             56
-        else if (pn.sym == ctx.box_sym_id)
+        else if (ctx.ref(pn.sym) == ctx.builtins.box)
             8
-        else if (pn.sym == ctx.signal_sym_id) blk: {
+        else if (ctx.ref(pn.sym) == ctx.builtins.signal) blk: {
             const v = (try minBytesOf(ctx, pn.args[0], false)) orelse break :blk null;
             break :blk 2 *| v +| 2 +| 24;
         } else try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
@@ -9022,7 +9049,7 @@ pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
             for (f.params) |p| if (findHeapStacked(ctx, p)) |found| return found;
             return findHeapStacked(ctx, f.returns);
         },
-        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, pn.args[0])) return ty,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.box and pn.args.len == 1 and heapStacked(ctx, pn.args[0])) return ty,
         else => {},
     }
     var parts: TypeChildren = .held(ctx, ty);
@@ -9399,7 +9426,7 @@ pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool 
         // A read view of a word-sized object is the object (`wordBits`),
         // so its optional is the object's.
         .read_view => |viewed| wordBits(ctx, viewed) != null,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id) objectHeld(ctx, inner) == null else isCompound(ctx, inner),
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.box) objectHeld(ctx, inner) == null else isCompound(ctx, inner),
         else => isCompound(ctx, inner),
     };
 }
@@ -11120,7 +11147,7 @@ pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
 /// `T` of a `^T`; null for any other type.
 pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     return switch (ctx.types.get(ty_id)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.box and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -11155,20 +11182,26 @@ pub fn boxedReadView(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
 /// One of the built-in enums, `Endian`, `Arch`, `Os`, `Feature`, and
 /// `Order`: the runtime's own type, one in every module.
 pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.os_sym_id or sym == ctx.feature_sym_id or sym == ctx.order_sym_id;
+    const r = ctx.ref(sym);
+    const b = ctx.builtins;
+    return r == b.endian or r == b.arch or r == b.os or r == b.feature or r == b.order;
 }
 
 /// A built-in generic that is or holds a Cell of its own, whatever its
 /// arguments: a `Cell`, a `Signal`, a channel, or an actor (Core
 /// sentence 9). The one list `reachOf` and `holdsOwnCell` read.
 fn isCellBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.chan_sym_id;
+    const r = ctx.ref(sym);
+    const b = ctx.builtins;
+    return r == b.cell or r == b.signal or r == b.actor or r == b.chan;
 }
 
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
 /// `Task`, `Tasks`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.chan_sym_id or sym == ctx.frozen_sym_id or sym == ctx.task_sym_id or sym == ctx.tasks_sym_id;
+    const r = ctx.ref(sym);
+    const b = ctx.builtins;
+    return isHeapBuiltin(ctx, sym) or r == b.cell or r == b.signal or r == b.actor or r == b.chan or r == b.frozen or r == b.task or r == b.tasks;
 }
 
 /// The value member access on a `ty_id` reaches: through views,
@@ -11752,7 +11785,7 @@ pub fn isWordValue(ctx: *const SemContext, ty: TypeId) bool {
 /// change it at once, through handles of their own.
 pub fn isWordCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id and pn.args.len == 1 and isWordValue(ctx, pn.args[0]),
+        .parameterized_nominal => |pn| ctx.ref(pn.sym) == ctx.builtins.cell and pn.args.len == 1 and isWordValue(ctx, pn.args[0]),
         else => false,
     };
 }
@@ -11760,7 +11793,7 @@ pub fn isWordCell(ctx: *const SemContext, ty: TypeId) bool {
 /// The `T` of a `Chan[T]`, or null for any other type.
 pub fn chanValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.chan_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.chan and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -11780,7 +11813,7 @@ pub fn chanOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// The `T` of an `Actor[T]`, or null for any other type.
 pub fn actorValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.actor_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.actor and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -11797,7 +11830,7 @@ pub fn actorOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// The `T` of a `Frozen[T]`, or null for any other type.
 pub fn frozenValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.frozen_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.frozen and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -12000,7 +12033,7 @@ pub fn cellRefusalReason(ctx: *SemContext, inner: TypeId) std.mem.Allocator.Erro
 /// Whether `ty` is a `Cell[T]`.
 pub fn isCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id,
+        .parameterized_nominal => |pn| ctx.ref(pn.sym) == ctx.builtins.cell,
         else => false,
     };
 }
@@ -12939,7 +12972,7 @@ pub fn isSelectType(ctx: *const SemContext, sym: SymbolId) bool {
 /// Whether `ty` is a task, `Task[T]`.
 pub fn isTask(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn.sym == ctx.task_sym_id,
+        .parameterized_nominal => |pn| ctx.ref(pn.sym) == ctx.builtins.task,
         else => false,
     };
 }
@@ -12947,7 +12980,7 @@ pub fn isTask(ctx: *const SemContext, ty: TypeId) bool {
 /// Whether `ty` is a set of tasks, `Tasks[T]`.
 pub fn isTaskSet(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn.sym == ctx.tasks_sym_id,
+        .parameterized_nominal => |pn| ctx.ref(pn.sym) == ctx.builtins.tasks,
         else => false,
     };
 }
@@ -12963,7 +12996,7 @@ pub fn holdsCallLoans(ctx: *const SemContext, ty: TypeId) bool {
 /// The `T` of a `Task[T]` or a `Tasks[T]`: what each of its tasks gives.
 pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if ((pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if ((ctx.ref(pn.sym) == ctx.builtins.task or ctx.ref(pn.sym) == ctx.builtins.tasks) and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -13198,10 +13231,10 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
             if (blockerIn(ctx, part, how, local, walk)) |b| break b;
         } else null,
         .parameterized_nominal => |pn| blk: {
-            if (local and (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id)) break :blk null;
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.tasks_sym_id) break :blk here;
-            if (pn.sym == ctx.task_sym_id and how == .shares) break :blk here;
-            if (pn.sym != ctx.task_sym_id and !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.simd_sym_id) break :blk instanceBlock(ctx, ty, pn, how, local, walk);
+            if (local and (ctx.ref(pn.sym) == ctx.builtins.cell or ctx.ref(pn.sym) == ctx.builtins.signal)) break :blk null;
+            if (ctx.ref(pn.sym) == ctx.builtins.cell or ctx.ref(pn.sym) == ctx.builtins.signal or ctx.ref(pn.sym) == ctx.builtins.actor or ctx.ref(pn.sym) == ctx.builtins.chan or ctx.ref(pn.sym) == ctx.builtins.tasks) break :blk here;
+            if (ctx.ref(pn.sym) == ctx.builtins.task and how == .shares) break :blk here;
+            if (ctx.ref(pn.sym) != ctx.builtins.task and !isBuiltinGeneric(ctx, pn.sym) and ctx.ref(pn.sym) != ctx.builtins.simd) break :blk instanceBlock(ctx, ty, pn, how, local, walk);
             for (pn.args) |a| if (blockerIn(ctx, a, how, local, walk)) |b| break :blk b;
             break :blk null;
         },
@@ -13263,9 +13296,9 @@ fn frozenIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void))
             if (frozenIn(ctx, part, seen)) |b| break b;
         } else null,
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk here;
+            if (ctx.ref(pn.sym) == ctx.builtins.cell or ctx.ref(pn.sym) == ctx.builtins.signal or ctx.ref(pn.sym) == ctx.builtins.actor or ctx.ref(pn.sym) == ctx.builtins.chan or ctx.ref(pn.sym) == ctx.builtins.task or ctx.ref(pn.sym) == ctx.builtins.tasks) break :blk here;
             for (pn.args) |a| if (frozenIn(ctx, a, seen)) |b| break :blk b;
-            if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk null;
+            if (isBuiltinGeneric(ctx, pn.sym) or ctx.ref(pn.sym) == ctx.builtins.simd) break :blk null;
             break :blk fieldsFrozen(ctx, pn.sym, seen);
         },
         .nominal => |sym| fieldsFrozen(ctx, sym, seen),
@@ -13349,8 +13382,8 @@ fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) b
                 .parameterized_nominal => |pn| pn,
                 else => return false,
             };
-            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) return true;
-            return !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.simd_sym_id and fieldsHoldTask(ctx, pn.sym, seen);
+            if (ctx.ref(pn.sym) == ctx.builtins.task or ctx.ref(pn.sym) == ctx.builtins.tasks) return true;
+            return !isBuiltinGeneric(ctx, pn.sym) and ctx.ref(pn.sym) != ctx.builtins.simd and fieldsHoldTask(ctx, pn.sym, seen);
         },
     }
     return false;
@@ -14545,7 +14578,7 @@ fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: ?*const SymPath) bool 
         .parameterized_nominal => |pn| blk: {
             // A task's drop waits for its call, which uses the loans the
             // task keeps (CORE sentence 6).
-            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk true;
+            if (ctx.ref(pn.sym) == ctx.builtins.task or ctx.ref(pn.sym) == ctx.builtins.tasks) break :blk true;
             // A hash table drops in the runtime, which the
             // checker does not see, so it counts as running a body, as
             // a type declared in another module with glue does.
@@ -14790,14 +14823,14 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
         .optional => |inner| deepCloneable(ctx, inner, frame, seen),
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
+            if (ctx.ref(pn.sym) == ctx.builtins.list or ctx.ref(pn.sym) == ctx.builtins.box) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
             if (isHashTable(ctx, pn.sym)) {
                 for (pn.args) |a| if (!deepCloneable(ctx, a, frame, seen)) break :blk false;
                 break :blk true;
             }
             // A table is never cloned: a copy of a reserved one would
             // touch every page.
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.table_sym_id) break :blk false;
+            if (ctx.ref(pn.sym) == ctx.builtins.cell or ctx.ref(pn.sym) == ctx.builtins.signal or ctx.ref(pn.sym) == ctx.builtins.actor or ctx.ref(pn.sym) == ctx.builtins.chan or ctx.ref(pn.sym) == ctx.builtins.table) break :blk false;
             const decl = declaredAt(ctx, pn.sym) orelse break :blk false;
             const sym = decl.ctx.symbols.items[decl.sym];
             if (sym.kind != .generic_type) break :blk false;
@@ -15357,7 +15390,7 @@ fn membersOf(ctx: *const SemContext, peeled: TypeId) ?Members {
 pub fn lookupDataField(ctx: *SemContext, self_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedField {
     const m = membersOf(ctx, unwrapAccess(ctx, self_ty)) orelse return null;
     // A box's `value` names its constructor argument, not a field.
-    if (m.sym == ctx.box_sym_id) return null;
+    if (ctx.ref(m.sym) == ctx.builtins.box) return null;
     const f = m.fields[(try findMember(ctx, m.fields, name, .data)) orelse return null];
     return .{ .field = f, .ty = try substituteType(ctx, f.ty, m.subst), .nominal_sym = m.sym };
 }
@@ -15366,7 +15399,7 @@ pub fn lookupDataField(ctx: *SemContext, self_ty: TypeId, name: []const u8) std.
 /// (without substituting its type).
 pub fn lookupDataFieldConst(ctx: *const SemContext, self_ty: TypeId, name: []const u8) ?Field {
     const decl = nominalDecl(ctx, unwrapAccess(ctx, self_ty)) orelse return null;
-    if (decl.sym == decl.ctx.box_sym_id) return null;
+    if (decl.ctx.ref(decl.sym) == decl.ctx.builtins.box) return null;
     const fields = decl.symbol().fields orelse return null;
     return fields[memberIn(decl.ctx, fields, name, .data) orelse return null];
 }
@@ -15571,7 +15604,7 @@ pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: Typ
 /// `n`, the runtime's second argument (`InlineList(T, n)`).
 pub fn formatInlineListMarked(ctx: *const SemContext, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
     const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
-    const list = ctx.list_sym_id;
+    const list = ctx.builtins.list.sym;
     const elem = try p.param(ctx.symbols.items[list].type_params.?[0]);
     const len = try a.print("{c}n{c}", .{ type_param_mark, type_param_mark });
     return p.instance(ctx.symbols.items[list].name, try p.withInline(elem, len));
@@ -15648,7 +15681,7 @@ const TypePrinter = struct {
             .imported_nominal => |in| try p.foreign(in.module_id, in.sym_id),
             // Another module's generic type is its proxy, named as this
             // module spells it (`importSymbol`).
-            .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1)
+            .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.box and pn.args.len == 1)
                 try p.handle(pn.args[0], '^')
             else if (pn.inline_len > 0)
                 try p.instance(ctx.symbols.items[pn.sym].name, try p.withInline(try p.list(pn.args), try a.print("{d}", .{pn.inline_len})))
@@ -15735,7 +15768,7 @@ fn spelledPerInstance(ctx: *const SemContext, ty: TypeId) bool {
         .optional => |inner| paramOperand(ctx, inner),
         .fallible => |inner| paramOperand(ctx, inner.ok),
         .shared, .weak => |inner| ctx.types.get(inner) == .type_var,
-        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and ctx.types.get(pn.args[0]) == .type_var,
+        .parameterized_nominal => |pn| ctx.ref(pn.sym) == ctx.builtins.box and pn.args.len == 1 and ctx.types.get(pn.args[0]) == .type_var,
         else => false,
     };
 }
@@ -15746,7 +15779,7 @@ fn paramOperand(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .type_var => true,
         .shared, .weak => |inner| paramOperand(ctx, inner),
-        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and paramOperand(ctx, pn.args[0]),
+        .parameterized_nominal => |pn| ctx.ref(pn.sym) == ctx.builtins.box and pn.args.len == 1 and paramOperand(ctx, pn.args[0]),
         else => false,
     };
 }
@@ -15763,7 +15796,7 @@ fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .read_view, .write_view, .string_view, .function, .slice, .array => true,
         .shared, .weak => |inner| takesNoSuffix(ctx, inner),
-        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and takesNoSuffix(ctx, pn.args[0]),
+        .parameterized_nominal => |pn| ctx.ref(pn.sym) == ctx.builtins.box and pn.args.len == 1 and takesNoSuffix(ctx, pn.args[0]),
         else => false,
     };
 }
@@ -16052,7 +16085,7 @@ pub fn sliceView(ctx: *const SemContext, from: TypeId) ?View {
             _ = view.push(.elems);
             return view;
         },
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) {
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.list) {
             _ = view.push(.elems);
             return view;
         },
@@ -16214,7 +16247,7 @@ pub fn viewedElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// `T` of a `List[T]`; null for any other type.
 pub fn listElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.list and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -16226,7 +16259,7 @@ pub fn listElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// `T` of a `Table[T, n]`; null for any other type.
 pub fn tableElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.table_sym_id and pn.args.len == 2) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.table and pn.args.len == 2) pn.args[0] else null,
         else => null,
     };
 }
@@ -16235,7 +16268,7 @@ pub fn tableElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// any other type.
 pub fn tableSlot(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.table_sym_id and pn.args.len == 2) try ctx.intern(.{ .slot = pn.args[1] }) else null,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.table and pn.args.len == 2) try ctx.intern(.{ .slot = pn.args[1] }) else null,
         else => null,
     };
 }
@@ -16301,7 +16334,7 @@ fn fillOf(ctx: *const SemContext, ty: TypeId, depth: u32) TableFill {
         // A float's default may be `-0.0`, and an optional's none is not
         // zero bytes: each slot is made.
         .float, .string, .optional => return .made,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) return .made else if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.table_sym_id or pn.sym == ctx.simd_sym_id) return .none,
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.list) return .made else if (isBuiltinGeneric(ctx, pn.sym) or ctx.ref(pn.sym) == ctx.builtins.table or ctx.ref(pn.sym) == ctx.builtins.simd) return .none,
         .nominal, .imported_nominal => {},
         else => return .none,
     }
@@ -18737,7 +18770,7 @@ test "type facts: moves, copies, cloneable" {
     const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
     const v = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "V").? });
     const t = try ctx.intern(.{ .type_var = r.sym("T", 0).? });
-    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{ty.int_id} } });
+    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.list.sym, .args = &.{ty.int_id} } });
     const wrap_t = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{t} } });
     const wrap_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{ty.int_id} } });
     const read_p = try ctx.intern(.{ .read_view = p });
@@ -18809,14 +18842,14 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
     const ctx = &r.ctx;
     const ty = &ctx.types;
     const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
-    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{p} } });
+    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box.sym, .args = &.{p} } });
     const opt_p = try ctx.intern(.{ .optional = p });
-    const box_opt = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{opt_p} } });
+    const box_opt = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box.sym, .args = &.{opt_p} } });
     const opt_box = try ctx.intern(.{ .optional = box_p });
     const read_box = try ctx.intern(.{ .read_view = box_p });
     const shared_p = try ctx.intern(.{ .shared = p });
     const weak_p = try ctx.intern(.{ .weak = p });
-    const box_box = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{box_p} } });
+    const box_box = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box.sym, .args = &.{box_p} } });
     const spelled = struct {
         fn f(c: *SemContext, t: TypeId) ![]const u8 {
             return formatType(c, t);
@@ -18828,7 +18861,7 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
     try std.testing.expectEqualStrings("?^P", try spelled(ctx, read_box));
     try std.testing.expectEqualStrings("^^P", try spelled(ctx, box_box));
     // A box of a read view is written `^?P`, and an optional one `(^?P)?`.
-    const box_read = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{try ctx.intern(.{ .read_view = p })} } });
+    const box_read = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box.sym, .args = &.{try ctx.intern(.{ .read_view = p })} } });
     try std.testing.expectEqualStrings("^?P", try spelled(ctx, box_read));
     try std.testing.expectEqualStrings("(^?P)?", try spelled(ctx, try ctx.intern(.{ .optional = box_read })));
     // A box holds a value held no other way on the heap.
@@ -18867,16 +18900,16 @@ test "view table: each row makes its view" {
     }.f;
     const arr = try ctx.intern(.{ .array = .{ .elem = ty.int_id, .len = try ctInt(ctx, 3) } });
     const slice = try ctx.intern(.{ .slice = .{ .elem = ty.int_id } });
-    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{p} } });
-    const box_string = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{ty.string_id} } });
+    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box.sym, .args = &.{p} } });
+    const box_string = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box.sym, .args = &.{ty.string_id} } });
     const fn_ty = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ty.int_id, .is_sub = false } });
     const owned = try ctx.intern(.{ .shared = fn_ty });
     const callable = try callableOfFn(ctx, fn_ty);
     const opt_string_view = try ctx.intern(.{ .optional = ty.string_view_id });
     const opt_string = try ctx.intern(.{ .optional = ty.string_id });
-    const box_box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{box_p} } });
-    const box_arr = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{arr} } });
-    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{ty.int_id} } });
+    const box_box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box.sym, .args = &.{box_p} } });
+    const box_arr = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box.sym, .args = &.{arr} } });
+    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.list.sym, .args = &.{ty.int_id} } });
     const shared_p = try ctx.intern(.{ .shared = p });
     const shared_string = try ctx.intern(.{ .shared = ty.string_id });
     const opt_p = try ctx.intern(.{ .optional = p });
@@ -19003,8 +19036,8 @@ test "type facts: unique reaches what holds it inline" {
         try ctx.intern(.{ .read_view = u }),
         try ctx.intern(.{ .write_view = u }),
         try ctx.intern(.{ .slice = .{ .elem = u } }),
-        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{u} } }),
-        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{u} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.list.sym, .args = &.{u} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box.sym, .args = &.{u} } }),
         try ctx.intern(.{ .parameterized_nominal = .{ .sym = wrap, .args = &.{ctx.types.int_id} } }),
         try nominal(ctx, "Ptr"),
     };
@@ -19022,7 +19055,7 @@ test "type facts: unique reaches what holds it inline" {
     // A Cell, and what holds one inline, is unique, but owns nothing: an
     // array takes it. Behind a handle it is shared, not unique.
     const counter = try nominal(ctx, "Counter");
-    const cell_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.cell_sym_id, .args = &.{ctx.types.int_id} } });
+    const cell_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.cell.sym, .args = &.{ctx.types.int_id} } });
     for ([_]TypeId{ counter, cell_int, try ctx.intern(.{ .array = .{ .elem = counter, .len = two } }) }) |t| {
         try std.testing.expect(isUnique(ctx, t));
         try std.testing.expectEqual(Answer.yes, moves(ctx, t));

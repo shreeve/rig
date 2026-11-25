@@ -485,7 +485,7 @@ const Pass = struct {
     /// A `List[T]`, held by value.
     fn isList(p: *const Pass, ty: sema.TypeId) bool {
         return switch (p.ctx.types.get(ty)) {
-            .parameterized_nominal => |pn| pn.sym == p.ctx.list_sym_id,
+            .parameterized_nominal => |pn| p.ctx.ref(pn.sym) == p.ctx.builtins.list,
             else => false,
         };
     }

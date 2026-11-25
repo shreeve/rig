@@ -3143,7 +3143,7 @@ pub fn inCellList(self: *const Checker, target: Sexp) bool {
         if (!e.isKind(.index)) continue;
         const ty = types.exprType(self, ir.Index.object(e)) orelse continue;
         switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
-            .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id) return true,
+            .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.cell) return true,
             else => {},
         }
     }

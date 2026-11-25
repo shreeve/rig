@@ -359,7 +359,7 @@ pub fn genericSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     return switch (ctx.types.get(ty)) {
         .parameterized_nominal => |pn| pn.sym,
         // Every `Slot[n]` is one type constructor's.
-        .slot => ctx.slot_sym_id,
+        .slot => ctx.builtins.slot.sym,
         else => null,
     };
 }

@@ -255,9 +255,9 @@ pub fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
     // `f[...](args)`, `Wrap[Int](args)`: compile-time arguments.
     var ct: ?Sexp = null;
     if (rig.isBracketList(callee)) if (try CallCheck.instTarget(self, ir.get(callee, .object))) |target| switch (target) {
-        .generic => |nt| return if (nt.id == self.ctx.simd_sym_id)
+        .generic => |nt| return if (self.ctx.ref(nt.id) == self.ctx.builtins.simd)
             simdConvert(self, try CallCheck.typeInstance(self, callee, nt), args, self.startOf(callee))
-        else if (nt.id == self.ctx.slot_sym_id)
+        else if (self.ctx.ref(nt.id) == self.ctx.builtins.slot)
             slotMade(self, callee, try CallCheck.typeInstance(self, callee, nt), args)
         else
             CallCheck.constructInstance(self, node, callee, nt, args),
@@ -303,17 +303,17 @@ pub fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
             .nominal_type => return CallCheck.construct(self, sym_id, args, callee.src.pos, TypeSubst.empty, null),
             .type_alias => return aliasCall(self, node, callee, name, sym.ty, args, callee.src.pos),
             .generic_type => {
-                if (sym_id == self.ctx.list_sym_id) {
+                if (self.ctx.ref(sym_id) == self.ctx.builtins.list) {
                     // `List(a)` takes its element type from `a`'s.
                     if (args.len == 1 and !args[0].isKind(.kwarg)) return BuiltinCheck.listFromElems(self, args[0], null);
                     return CallCheck.badCall(self, args, callee, "`List()` needs its element type: name it (`List[T]()`), give it where the value goes (`v: List[T] = List()`), or make the List from an array, `List([1, 2, 3])`", .{});
                 }
-                if (sym_id == self.ctx.simd_sym_id) return CallCheck.badCall(self, args, callee, "a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`", .{});
-                if (sym_id == self.ctx.slot_sym_id) return CallCheck.badCall(self, args, callee, "a `Slot[n]` is made by `push`, by `Slot[n].of(i)`, or by a literal below `n`", .{});
-                if (sym_id == self.ctx.table_sym_id) return CallCheck.badCall(self, args, callee, "`Table()` needs its type: give it where the value goes (`t: Table[T, n] = Table()`), or name it, `Table[T, n]()`", .{});
-                if (sym_id == self.ctx.signal_sym_id and !CompatCheck.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
-                if (sym_id == self.ctx.actor_sym_id) return actorMake(self, node, callee, args);
-                if (sym_id == self.ctx.frozen_sym_id) return frozenMake(self, node, callee, args);
+                if (self.ctx.ref(sym_id) == self.ctx.builtins.simd) return CallCheck.badCall(self, args, callee, "a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`", .{});
+                if (self.ctx.ref(sym_id) == self.ctx.builtins.slot) return CallCheck.badCall(self, args, callee, "a `Slot[n]` is made by `push`, by `Slot[n].of(i)`, or by a literal below `n`", .{});
+                if (self.ctx.ref(sym_id) == self.ctx.builtins.table) return CallCheck.badCall(self, args, callee, "`Table()` needs its type: give it where the value goes (`t: Table[T, n] = Table()`), or name it, `Table[T, n]()`", .{});
+                if (self.ctx.ref(sym_id) == self.ctx.builtins.signal and !CompatCheck.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
+                if (self.ctx.ref(sym_id) == self.ctx.builtins.actor) return actorMake(self, node, callee, args);
+                if (self.ctx.ref(sym_id) == self.ctx.builtins.frozen) return frozenMake(self, node, callee, args);
                 return constructGeneric(self, callee, sym_id, args, name, callee.src.pos);
             },
             .module => return CallCheck.badCall(self, args, callee, "module `{s}` cannot be called", .{name}),
@@ -346,15 +346,15 @@ pub fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty:
     const nt = CallCheck.aliasNamedType(self, ty) orelse return CallCheck.badCall(self, args, callee, "`{s}` is a type alias for `{s}`, which has no constructor", .{ name, try self.tyName(ty) });
     if (nt.foreign) |fo| return CallCheck.construct(self, nt.id, args, pos, TypeSubst.empty, fo);
     if (nt.args) |targs| {
-        if (nt.id == self.ctx.list_sym_id) {
+        if (self.ctx.ref(nt.id) == self.ctx.builtins.list) {
             try BuiltinCheck.checkListConstruction(self, call, ty);
             return ty;
         }
-        if (nt.id == self.ctx.table_sym_id) {
+        if (self.ctx.ref(nt.id) == self.ctx.builtins.table) {
             try checkTableConstruction(self, call);
             return ty;
         }
-        if (nt.id == self.ctx.signal_sym_id and !CompatCheck.sameNode(call, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
+        if (self.ctx.ref(nt.id) == self.ctx.builtins.signal and !CompatCheck.sameNode(call, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
         return CallCheck.construct(self, nt.id, args, pos, .{ .params = nt.sym.type_params orelse &.{}, .args = targs }, null);
     }
     if (callee == .src) try self.ctx.recordName(callee, nt.id);
@@ -498,15 +498,15 @@ pub fn swapPlace(self: *Checker, arg: Sexp, what: []const u8) Error!?TypeId {
     // keeps plain data its handles only read; a Signal's set may be
     // running its subscribers. A handle is exchanged as itself.
     if (sema.holdsMarkedValue(self.ctx, place)) {
-        const sym: ?SymbolId = switch (self.ctx.types.get(place)) {
-            .parameterized_nominal => |pn| pn.sym,
+        const sym: ?sema.SymbolRef = switch (self.ctx.types.get(place)) {
+            .parameterized_nominal => |pn| self.ctx.ref(pn.sym),
             else => null,
         };
-        if (sym == self.ctx.cell_sym_id) {
+        if (sym == self.ctx.builtins.cell) {
             try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls, which every handle shares: exchange its value with the Cell's own `old = (!c).swap(v)`", .{ what, try self.tyName(place) });
-        } else if (sym == self.ctx.signal_sym_id) {
+        } else if (sym == self.ctx.builtins.signal) {
             try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
-        } else if (sym == self.ctx.chan_sym_id) {
+        } else if (sym == self.ctx.builtins.chan) {
             try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its sends and receives, marked calls every handle shares", .{ what, try self.tyName(place) });
         } else try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
         return null;
@@ -902,7 +902,7 @@ pub fn pushWide(self: *Checker, callee: Sexp, b: Sexp, pos: u32, args: []const S
             _ = try CallCheck.badCall(self, args, given[1], "`push` of a one-byte `{s}` takes no byte order: `push[{s}](byte)`", .{ try self.tyName(num), try self.tyName(num) });
             return false;
         }
-        const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
+        const endian = try self.ctx.intern(.{ .nominal = self.ctx.builtins.endian.sym });
         try self.checkCtValue(given[1], endian, 1, "push");
     } else if (!one_byte) {
         _ = try CallCheck.badCall(self, args, b, "`push` of a `{s}` takes a byte order too: `{s}`", .{ try self.tyName(num), example });
@@ -1109,7 +1109,7 @@ pub fn orderCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u
         },
         else => if ((try sema.lacks(self.ctx, value, .Ord)) != null) return null,
     }
-    const order_ty = try self.ctx.intern(.{ .nominal = self.ctx.order_sym_id });
+    const order_ty = try self.ctx.intern(.{ .nominal = self.ctx.builtins.order.sym });
     if (ViewCheck.isSelfSigil(self, obj) and !obj.isKind(.read)) try ViewCheck.misplacedSigil(self, obj, "order", "only reads `self`");
     if (!ViewCheck.hands(self, obj).hasStorage()) try ViewCheck.readLeaf(self, obj) else try ViewCheck.rejectResourceTemporary(self, obj, obj_ty);
     const view = try self.ctx.intern(.{ .read_view = value });
@@ -1145,7 +1145,7 @@ pub fn hasherAdd(self: *Checker, callee: Sexp, obj: Sexp, pos: u32, args: []cons
             } else try self.errAt(arg, "`!h.add(x)` takes a value that provides `Hash`, and `{s}` cannot be hashed{s}", .{ try self.tyName(value), try sema.lackDetail(self.ctx, self.ctx.arena.allocator(), value, .Hash, lack) });
         }
     }
-    const hasher = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .nominal = self.ctx.hasher_sym_id }) });
+    const hasher = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .nominal = self.ctx.builtins.hasher.sym }) });
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ hasher, ty }), .returns = self.t().void_id, .is_sub = true });
     try self.ctx.recordStringCall(callee, .hasher_add);
     return try noteMethod(self, callee, .write, self.t().void_id);
@@ -1161,7 +1161,7 @@ pub fn printerValue(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos
     try ViewCheck.recordUse(self, CompatCheck.stripSigil(obj), .view);
     try checkFormatArgs(self, args, "`value`", "print");
     const arg_ty = self.ctx.typeOf(args[0]) orelse self.t().invalid_id;
-    const printer = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .nominal = self.ctx.printer_sym_id }) });
+    const printer = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .nominal = self.ctx.builtins.printer.sym }) });
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ printer, arg_ty }), .returns = self.t().void_id, .is_sub = true });
     try self.ctx.recordStringCall(callee, .printer_value);
     return try noteMethod(self, callee, .write, self.t().void_id);
@@ -1209,7 +1209,7 @@ pub fn floatCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method
     if (ViewCheck.isSelfSigil(self, obj)) try ViewCheck.misplacedSigil(self, obj, method, "does not consume `self`");
     _ = try ViewCheck.readThrough(self, obj, obj_ty, value);
     if (op == .total_order) {
-        const order_ty = try self.ctx.intern(.{ .nominal = self.ctx.order_sym_id });
+        const order_ty = try self.ctx.intern(.{ .nominal = self.ctx.builtins.order.sym });
         const view = try self.ctx.intern(.{ .read_view = value });
         try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ view, view }), .returns = order_ty, .is_sub = false });
         try CallCheck.checkArgs(self, args, .{ .params = try self.ctx.dupeIds(&.{view}), .returns = order_ty, .is_sub = false }, .{ .names = &.{"other"} }, method, pos, .{ .has_self = true, .origins = .{ .result = 0, .stores = 0 }, .declared = &.{view} });
@@ -2438,7 +2438,7 @@ pub fn objectCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, o: se
     if (!self_arg) return apiMethodCall(self, callee, obj, obj_ty, object, am, .{ .table = .{ .api = o.api, .slot = m.slot.? } }, method, pos, rest, ct);
     // `Shape.area(s)`: self the first argument, with its sigil; a
     // method that consumes self takes the box, `Shape.close(<b)`.
-    const self_ty = if (m.field.self_mode == .value) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.box_sym_id, .args = try self.ctx.dupeIds(&.{object}) } }) else object;
+    const self_ty = if (m.field.self_mode == .value) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.box.sym, .args = try self.ctx.dupeIds(&.{object}) } }) else object;
     const fn_ty_id = (try apiMethodAt(self, am, self_ty)) orelse return CallCheck.skipCall(self, args);
     const fn_ty = self.ctx.types.get(fn_ty_id).function;
     const info = CallCheck.methodParams(m.field, false, home.source);
@@ -2784,7 +2784,7 @@ pub fn actorMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) E
     }
     try requireTask(self, ty, .moves, self.startOf(value), "is given to an actor's task", false);
     if (sema.mayHoldView(self.ctx, ty)) return CallCheck.badCall(self, args, value, "an actor's value holds no view, and a `{s}` may hold a view", .{try self.tyName(ty)});
-    const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.actor_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+    const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.actor.sym, .args = try self.ctx.dupeIds(&.{ty}) } });
     const params, const names = try optionParams(self, args, ty, "value");
     const call: FunctionType = .{ .params = params, .returns = actor, .is_sub = false };
     try noteCallee(self, call);
@@ -2813,7 +2813,7 @@ pub fn frozenMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) 
     if (try sema.frozenBlocker(self.ctx, ty)) |blocker| return CallCheck.badCall(self, args, value, "{s}", .{try sema.frozenMessage(self.ctx, ty, blocker)});
     if (sema.heapStacked(self.ctx, ty)) return CallCheck.badCall(self, args, value, "this value is already `{s}`; `*Frozen` would hold it twice; " ++ sema.heap_stacked_rule, .{try self.tyName(ty)});
     try sema.requireFrozen(self.ctx, ty, self.startOf(value));
-    const frozen = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.frozen_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+    const frozen = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.frozen.sym, .args = try self.ctx.dupeIds(&.{ty}) } });
     const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ty}), .returns = frozen, .is_sub = false };
     try noteCallee(self, call);
     try CallCheck.checkArgs(self, args, call, .{ .names = &.{"value"} }, "Frozen", self.startOf(callee), .{ .declared = call.params });
@@ -2877,7 +2877,7 @@ pub fn actorSupervised(self: *Checker, callee: Sexp, method: []const u8, pos: u3
         if (try statedCrossing(self, blocker, .moves, self.startOf(name_node))) return CallCheck.skipCall(self, args);
         return CallCheck.badCall(self, args, name_node, "the tasks that run the actor call the function that makes its value, and `{s}` {s}", .{ self.text(name_node), try blockerReason(self, blocker, false, if (blocker == cty) "is" else null) });
     }
-    const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.actor_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+    const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.actor.sym, .args = try self.ctx.dupeIds(&.{ty}) } });
     const params, const names = try optionParams(self, args, f_ty, "make");
     const call: FunctionType = .{ .params = params, .returns = actor, .is_sub = false };
     try noteCallee(self, call);
@@ -3703,7 +3703,7 @@ pub fn bytesCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: 
     } else if (given.len != 2) {
         return CallCheck.badCall(self, args, b, "`{s}` of a `{s}` takes a byte order too: `{s}`", .{ method, try self.tyName(num), example });
     } else {
-        const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
+        const endian = try self.ctx.intern(.{ .nominal = self.ctx.builtins.endian.sym });
         try self.checkCtValue(given[1], endian, 1, method);
     }
     for (args) |a| if (a.isKind(.kwarg)) return CallCheck.badCall(self, args, a, "`{s}` takes no keyword arguments", .{method});
@@ -3930,7 +3930,7 @@ pub fn parCall(self: *Checker, kind: sema.ParCall, pos: u32, args: []const Sexp)
                 try self.errAt(f, "`par.map` gives each call's value, and `{s}` gives none: to call it on each element, `par.each(!xs, ...)`", .{CallCheck.sourceText(self, f)});
                 return try CallCheck.skipClosureCall(self, args, f, &.{each_param}, false);
             }
-            const list = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
+            const list = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.list.sym, .args = try self.ctx.dupeIds(&.{value}) } });
             break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = list, .set = try waitSet(self, &.{self.ctx.types.get(returns).fallible.set}) } }) else list;
         },
         .each => if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id, .set = try waitSet(self, &.{self.ctx.types.get(returns).fallible.set}) } }) else self.t().void_id,
@@ -4030,7 +4030,7 @@ pub fn parWorkers(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
         fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ state_param, item_param }), .returns = gives, .is_sub = none } });
     }
-    const ok = if (none) value else try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
+    const ok = if (none) value else try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.list.sym, .args = try self.ctx.dupeIds(&.{value}) } });
     const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = ok, .set = try waitSet(self, &.{self.ctx.types.get(returns).fallible.set}) } }) else ok;
     const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ states_param, items_param, try sema.callableOfFn(self.ctx, fn_ty) }), .returns = result, .is_sub = none };
     try noteCallee(self, call);
@@ -4765,7 +4765,7 @@ pub fn taskSetWait(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, meth
     const fails = self.ctx.types.get(each) == .fallible;
     const value = if (fails) self.ctx.types.get(each).fallible.ok else each;
     const result = if (first) each else blk: {
-        const all = if (value == self.t().void_id) value else try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
+        const all = if (value == self.t().void_id) value else try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.list.sym, .args = try self.ctx.dupeIds(&.{value}) } });
         break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = all, .set = self.ctx.types.get(each).fallible.set } }) else all;
     };
     const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{set}), .returns = result, .is_sub = result == self.t().void_id };
@@ -4777,7 +4777,7 @@ pub fn taskSetWait(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, meth
         const saved_of = self.expect.self_of;
         defer self.expect.self_of = saved_of;
         self.expect.self_of = callee;
-        try ViewCheck.checkSelfMode(self, obj, .value, CompatCheck.classifySelfType(self.ctx, obj_ty, self.ctx.tasks_sym_id), method, pos, result);
+        try ViewCheck.checkSelfMode(self, obj, .value, CompatCheck.classifySelfType(self.ctx, obj_ty, self.ctx.builtins.tasks.sym), method, pos, result);
     }
     const shown = try ViewCheck.plainText(self, CompatCheck.stripSigil(obj));
     // Only tasks that can fail can be stopped: neither the first to
@@ -4879,7 +4879,7 @@ pub fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, ele
             const saved_of = self.expect.self_of;
             defer self.expect.self_of = saved_of;
             self.expect.self_of = callee;
-            try ViewCheck.checkSelfMode(self, obj, .write, CompatCheck.classifySelfType(self.ctx, obj_ty, self.ctx.cell_sym_id), method, pos, f.returns);
+            try ViewCheck.checkSelfMode(self, obj, .write, CompatCheck.classifySelfType(self.ctx, obj_ty, self.ctx.builtins.cell.sym), method, pos, f.returns);
         }
     }
     try CallCheck.checkArgs(self, args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub }, .{}, method, pos, .{ .has_self = true });

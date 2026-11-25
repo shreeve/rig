@@ -256,7 +256,7 @@ pub fn namedType(self: *Checker, obj: Sexp) Error!?Checker.NamedType {
         const target = (try instTarget(self, ir.get(obj, .object))) orelse return null;
         // `Simd[T, n]` and `Slot[n]` are built-in types, not nominal
         // ones (`builtinTypeNamed`).
-        if (target != .generic or target.generic.id == self.ctx.simd_sym_id or target.generic.id == self.ctx.slot_sym_id) return null;
+        if (target != .generic or self.ctx.ref(target.generic.id) == self.ctx.builtins.simd or self.ctx.ref(target.generic.id) == self.ctx.builtins.slot) return null;
         var nt = target.generic;
         const ty = try typeInstance(self, obj, nt);
         const arity = if (nt.sym.type_params) |tps| tps.len else 0;
@@ -584,7 +584,7 @@ pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId
         const kw = given[given.len - 1];
         given = given[0 .. given.len - 1];
         const key = self.text(ir.Kwarg.name(kw));
-        if (nt.id != self.ctx.list_sym_id or !std.mem.eql(u8, key, "inline")) {
+        if (self.ctx.ref(nt.id) != self.ctx.builtins.list or !std.mem.eql(u8, key, "inline")) {
             try self.errAt(kw, "`{s}:` names no argument of `{s}`; only a List takes one, `List[T, inline: n]`", .{ key, nt.sym.name });
             return self.t().invalid_id;
         }
@@ -598,7 +598,7 @@ pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId
     const args = try self.ctx.arena.allocator().alloc(TypeId, given.len);
     var bad = false;
     // What a task gives may fail: `Tasks[Int!]()`.
-    const gives = nt.id == self.ctx.task_sym_id or nt.id == self.ctx.tasks_sym_id;
+    const gives = self.ctx.ref(nt.id) == self.ctx.builtins.task or self.ctx.ref(nt.id) == self.ctx.builtins.tasks;
     for (given, args, params, 0..) |g, *a, tp, i| {
         a.* = if (self.ctx.symbols.items[tp].kind == .param)
             (try StdFormCheck.ctIntArg(self, g, tp, i, nt.sym.name)) orelse self.t().invalid_id
@@ -755,17 +755,17 @@ pub fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
 pub fn constructInstance(self: *Checker, call: Sexp, e: Sexp, nt: Checker.NamedType, args: []const Sexp) Error!TypeId {
     const ty = try typeInstance(self, e, nt);
     if (self.isPoison(ty)) return skipCall(self, args);
-    if (nt.id == self.ctx.list_sym_id) {
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.list) {
         try BuiltinCheck.checkListConstruction(self, call, ty);
         return ty;
     }
-    if (nt.id == self.ctx.table_sym_id) {
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.table) {
         try StdFormCheck.checkTableConstruction(self, call);
         return ty;
     }
-    if (nt.id == self.ctx.signal_sym_id and !CompatCheck.sameNode(call, self.expect.shared_operand)) return badCall(self, args, e, Checker.stack_signal, .{});
-    if (nt.id == self.ctx.chan_sym_id) return StdFormCheck.chanMake(self, call, e, ty, args);
-    if (nt.id == self.ctx.frozen_sym_id) {
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.signal and !CompatCheck.sameNode(call, self.expect.shared_operand)) return badCall(self, args, e, Checker.stack_signal, .{});
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.chan) return StdFormCheck.chanMake(self, call, e, ty, args);
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.frozen) {
         const made = try StdFormCheck.frozenMake(self, call, e, args);
         if (!self.isPoison(made) and made != ty) return badCall(self, args, e, "`{s}` freezes a `{s}`", .{ try self.tyName(ty), try self.tyName(made) });
         return made;
@@ -1391,7 +1391,7 @@ pub fn taskOf(self: *Checker, node: Sexp, ty: TypeId) Error!TypeId {
     // a `!` marks the call, making no write view.
     if (self.ctx.isActorCall(node)) {
         self.ctx.makes_tasks = true;
-        return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+        return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.task.sym, .args = try self.ctx.dupeIds(&.{ty}) } });
     }
     const target = self.ctx.callTargetOf(node) orelse .none;
     // A call through an API reaches a Rig method through its witness.
@@ -1470,7 +1470,7 @@ pub fn taskOf(self: *Checker, node: Sexp, ty: TypeId) Error!TypeId {
         try StdFormCheck.requireTask(self, result, .moves, self.startOf(callee), "is given back by a task", false);
     }
     self.ctx.makes_tasks = true;
-    return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+    return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.task.sym, .args = try self.ctx.dupeIds(&.{ty}) } });
 }
 
 /// Call a value: a function-typed binding, a closure, or an owned
@@ -4148,8 +4148,8 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
     if (ViewCheck.isSelfSigil(self, obj)) {
         const place = ir.get(obj, .operand);
         if ((try moduleNamed(self, place)) != null or (try namedType(self, place)) != null or
-            (try StdFormCheck.builtinTypeNamed(self, place, self.ctx.simd_sym_id, .simd)) != null or
-            (try StdFormCheck.builtinTypeNamed(self, place, self.ctx.slot_sym_id, .slot)) != null)
+            (try StdFormCheck.builtinTypeNamed(self, place, self.ctx.builtins.simd.sym, .simd)) != null or
+            (try StdFormCheck.builtinTypeNamed(self, place, self.ctx.builtins.slot.sym, .slot)) != null)
         {
             if (obj.isKind(.read)) {
                 try self.errAt(obj, "`{s}` is called through its type or module and has no `self`; to make a view of the call's result, write `?({s})`", .{ method, try FlowCheck.callWith(self, obj, sourceText(self, place), method) });
@@ -4167,13 +4167,13 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
         if (ct == null) if (try StdFormCheck.stdForm(self, id, method, pos, args)) |ty| return StdFormCheck.misreachedWrite(self, misreached, obj, method, ty);
         return StdFormCheck.misreachedWrite(self, misreached, obj, method, try ViewCheck.crossModuleCall(self, id, method, pos, args, ct));
     }
-    if (try StdFormCheck.builtinTypeNamed(self, obj, self.ctx.simd_sym_id, .simd)) |vt| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.simdTypeCall(self, callee, vt, method, pos, args, ct));
-    if (try StdFormCheck.builtinTypeNamed(self, obj, self.ctx.slot_sym_id, .slot)) |st| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.slotTypeCall(self, callee, st, method, pos, args, ct));
+    if (try StdFormCheck.builtinTypeNamed(self, obj, self.ctx.builtins.simd.sym, .simd)) |vt| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.simdTypeCall(self, callee, vt, method, pos, args, ct));
+    if (try StdFormCheck.builtinTypeNamed(self, obj, self.ctx.builtins.slot.sym, .slot)) |st| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.slotTypeCall(self, callee, st, method, pos, args, ct));
     if (StdFormCheck.symbolNamed(self, obj)) return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.symbolTypeCall(self, callee, method, pos, args, ct));
     if (try ViewCheck.numberType(self, obj)) |nty| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.numberTypeCall(self, callee, obj, nty, method, pos, args, ct));
     if (try StdFormCheck.apiNamedCallee(self, obj)) |ref| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.apiNameCall(self, ref, sourceText(self, obj), method, pos, args, ct));
     if (try namedType(self, obj)) |nt| {
-        if (nt.id == self.ctx.actor_sym_id) return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.actorSupervised(self, callee, method, pos, args));
+        if (self.ctx.ref(nt.id) == self.ctx.builtins.actor) return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.actorSupervised(self, callee, method, pos, args));
         return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.associatedCall(self, obj, nt, method, pos, args, ct));
     }
 
@@ -4216,9 +4216,9 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
     // `a.order(?b)`, unless the type declares an `order` of its own.
     if (resolved_method == null and ct == null and std.mem.eql(u8, method, "order") and !try StdFormCheck.hasDataField(self, obj_ty, method)) if (try StdFormCheck.orderCall(self, callee, obj, obj_ty, pos, args)) |ty| return ty;
     // `!h.add(x)` of a Hasher.
-    if (ct == null and std.mem.eql(u8, method, "add") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.hasher_sym_id })) return StdFormCheck.hasherAdd(self, callee, obj, pos, args);
+    if (ct == null and std.mem.eql(u8, method, "add") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.builtins.hasher.sym })) return StdFormCheck.hasherAdd(self, callee, obj, pos, args);
     // `!out.value(x)` of a Printer.
-    if (ct == null and std.mem.eql(u8, method, "value") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.printer_sym_id })) return StdFormCheck.printerValue(self, callee, obj, obj_ty, pos, args);
+    if (ct == null and std.mem.eql(u8, method, "value") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.builtins.printer.sym })) return StdFormCheck.printerValue(self, callee, obj, obj_ty, pos, args);
     // A method no type declares, which an API the type provides does.
     if (resolved_method == null) if (try StdFormCheck.apiShorthand(self, callee, obj, obj_ty, method, pos, args, ct)) |ty| return ty;
     // `x.f[i](args)` where `f` is a field: its element is called. A
@@ -4339,13 +4339,13 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
         return skipCall(self, args);
     };
     const self_mode = resolved.field.self_mode;
-    if (resolved.nominal_sym == self.ctx.cell_sym_id) {
+    if (self.ctx.ref(resolved.nominal_sym) == self.ctx.builtins.cell) {
         if (!try StdFormCheck.cellMethod(self, obj_ty, method, pos)) return skipCall(self, args);
         // On the Cell itself, or a view of it; a shared handle's is
         // its value's.
         const Change = enum { set, swap, compare_swap, add, sub };
         const own = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, obj_ty))) {
-            .parameterized_nominal => |pn| pn.sym == self.ctx.cell_sym_id,
+            .parameterized_nominal => |pn| self.ctx.ref(pn.sym) == self.ctx.builtins.cell,
             else => false,
         };
         if (own and std.meta.stringToEnum(Change, method) != null) try self.ctx.recordBuiltinCall(callee, .cell_change);

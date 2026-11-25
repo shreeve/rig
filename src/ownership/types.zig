@@ -146,7 +146,7 @@ pub fn isString(self: *const Checker, ty: ?TypeId) bool {
 pub fn isList(self: *const Checker, ty: TypeId) bool {
     const ctx = self.sema;
     const t = ctx.types.get(ty);
-    return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.list_sym_id;
+    return t == .parameterized_nominal and ctx.ref(t.parameterized_nominal.sym) == ctx.builtins.list;
 }
 
 /// A `List[T]` or a `Table[T, n]`: elements held behind it, in memory
@@ -197,7 +197,7 @@ pub fn kindLabel(self: *const Checker, t: TypeId) Owning {
         .shared => .shared,
         .weak => .weak,
         .string => .text,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) .list else if (pn.sym == ctx.box_sym_id) .box else .{ .drop_glue = name },
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.list) .list else if (ctx.ref(pn.sym) == ctx.builtins.box) .box else .{ .drop_glue = name },
         else => .{ .drop_glue = name },
     };
 }
@@ -321,10 +321,10 @@ pub fn builtinName(self: *const Checker, ty: ?TypeId) ?[]const u8 {
     while (true) switch (ctx.types.get(t)) {
         .read_view, .write_view, .shared => |i| t = i,
         .parameterized_nominal => |pn| {
-            if (pn.sym == ctx.cell_sym_id) return "Cell";
-            if (pn.sym == ctx.signal_sym_id) return "Signal";
-            if (pn.sym == ctx.list_sym_id) return "List";
-            if (pn.sym == ctx.chan_sym_id) return "Chan";
+            if (ctx.ref(pn.sym) == ctx.builtins.cell) return "Cell";
+            if (ctx.ref(pn.sym) == ctx.builtins.signal) return "Signal";
+            if (ctx.ref(pn.sym) == ctx.builtins.list) return "List";
+            if (ctx.ref(pn.sym) == ctx.builtins.chan) return "Chan";
             return null;
         },
         else => return null,

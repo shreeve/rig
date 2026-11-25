@@ -1341,8 +1341,8 @@ pub fn numberType(self: *Checker, obj: Sexp) Error!?TypeId {
 /// one: the built-in generics' element rules, and every generic's
 /// requirements (through its instantiation site).
 pub fn instantiate(self: *Checker, sym_id: SymbolId, args: []const TypeId, pos: u32) Error!TypeId {
-    if (sym_id == self.ctx.simd_sym_id) return resolve.simdInstance(self.ctx, args, pos);
-    if (sym_id == self.ctx.slot_sym_id) return resolve.slotInstance(self.ctx, args, pos);
+    if (self.ctx.ref(sym_id) == self.ctx.builtins.simd) return resolve.simdInstance(self.ctx, args, pos);
+    if (self.ctx.ref(sym_id) == self.ctx.builtins.slot) return resolve.slotInstance(self.ctx, args, pos);
     if (try resolve.builtinElementError(self.ctx, sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
     const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
     if (!sema.containsTypeVar(self.ctx, ty)) {
@@ -1540,9 +1540,9 @@ pub fn markNote(self: *Checker, recv: Sexp) []const u8 {
     const held = sema.unwrapAccess(self.ctx, ty);
     if (sema.chanValue(self.ctx, held) != null) return ": a channel changes as it sends and receives, and a change through a shared handle is marked with `!`";
     return switch (self.ctx.types.get(held)) {
-        .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id)
+        .parameterized_nominal => |pn| if (self.ctx.ref(pn.sym) == self.ctx.builtins.cell)
             ": changing a shared Cell is marked with `!`"
-        else if (pn.sym == self.ctx.signal_sym_id)
+        else if (self.ctx.ref(pn.sym) == self.ctx.builtins.signal)
             ": changing a shared Signal is marked with `!`"
         else
             ": changing a Cell it holds is marked with `!`",
@@ -2724,14 +2724,14 @@ pub fn contextualCall(self: *Checker, e: Sexp, expected: TypeId, target: TypeId)
     if (id != tt.parameterized_nominal.sym) return null;
     // `Frozen(x)` and `Actor(x)` take their types from `x`
     // (`frozenMake`, `actorMake`).
-    if (id == self.ctx.frozen_sym_id or id == self.ctx.actor_sym_id) return null;
+    if (self.ctx.ref(id) == self.ctx.builtins.frozen or self.ctx.ref(id) == self.ctx.builtins.actor) return null;
     _ = try ExprCheck.useName(self, callee);
-    if (id == self.ctx.signal_sym_id and !CompatCheck.sameNode(e, self.expect.shared_operand)) {
+    if (self.ctx.ref(id) == self.ctx.builtins.signal and !CompatCheck.sameNode(e, self.expect.shared_operand)) {
         try self.errAt(callee, Checker.stack_signal, .{});
         try CallCheck.synthArgs(self, ir.Call.args(e));
-    } else if (id == self.ctx.list_sym_id) {
+    } else if (self.ctx.ref(id) == self.ctx.builtins.list) {
         try BuiltinCheck.checkListConstruction(self, e, target);
-    } else if (id == self.ctx.table_sym_id) {
+    } else if (self.ctx.ref(id) == self.ctx.builtins.table) {
         try StdFormCheck.checkTableConstruction(self, e);
     } else {
         const sym = self.ctx.symbols.items[id];

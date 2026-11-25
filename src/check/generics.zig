@@ -82,7 +82,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         };
         const params = ctx.symbols.items[pn.sym].type_params orelse continue;
         // A box holds an API object through its allocation, `^{Shape}`.
-        if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) continue;
+        if (ctx.ref(pn.sym) == ctx.builtins.box and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) continue;
         if (try misplacedArgs(ctx, pn.args, entry.value_ptr.*)) continue;
         const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
         if (!try sema.checkBounds(ctx, params, pn.args, entry.value_ptr.*, of)) continue;
@@ -800,9 +800,9 @@ pub fn crossingReason(ctx: *SemContext, blocker: TypeId, shared: bool, verb: ?[]
             if (named.contains(.Syncs)) break :blk "an API object whose braces and API name no `Sends`, so what it hides may not go to another task";
             break :blk "an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task";
         },
-        .parameterized_nominal => |pn| if (pn.sym == ctx.task_sym_id and shared)
+        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.task and shared)
             "a task, which only the one that holds it may wait for"
-        else if (pn.sym == ctx.tasks_sym_id)
+        else if (ctx.ref(pn.sym) == ctx.builtins.tasks)
             "a set of tasks, which stays with the task that made it"
         else
             "a value that changes through handles that stay on this core",
@@ -1365,7 +1365,7 @@ pub fn fixedSignature(api: sema.Api) []const u8 {
 
 /// Whether `ty` is a write view of the built-in `Hasher`.
 pub fn isHasherView(ctx: *SemContext, ty: TypeId) Error!bool {
-    return ty == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.hasher_sym_id }) });
+    return ty == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.builtins.hasher.sym }) });
 }
 
 /// The method `m` of `sym`, by which it gives `api` its own meaning, has
@@ -1433,13 +1433,13 @@ pub fn apiMethodMismatch(ctx: *SemContext, api: sema.Api, m: Field) Error!?[]con
         const ok = switch (api) {
             .Eq, .Ord => p == self_view,
             .Hash => try isHasherView(ctx, p),
-            .Print => p == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.printer_sym_id }) }),
+            .Print => p == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.builtins.printer.sym }) }),
             else => true,
         };
         if (!ok) break :blk try a.print("takes `{s}` as `{s}`", .{ if (names.len > 1) names[1] else "?", try sema.formatType(ctx, p) });
         const want: TypeId = switch (api) {
             .Eq => ctx.types.bool_id,
-            .Ord => try ctx.intern(.{ .nominal = ctx.order_sym_id }),
+            .Ord => try ctx.intern(.{ .nominal = ctx.builtins.order.sym }),
             else => ctx.types.void_id,
         };
         if (f.returns != want) break :blk if (f.returns == ctx.types.void_id) "gives nothing" else try a.print("gives `{s}`", .{try sema.formatType(ctx, f.returns)});

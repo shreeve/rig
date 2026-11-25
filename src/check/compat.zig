@@ -184,7 +184,7 @@ pub fn classifySelfType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
         fn f(c: *const SemContext, id: TypeId, sym: SymbolId) bool {
             // A box's value is reached as the box is: owned, or viewed,
             // or through the read view it holds.
-            if (sym != c.box_sym_id) if (sema.boxedType(c, id)) |inner| return f(c, sema.unwrapViews(c, inner), sym);
+            if (c.ref(sym) != c.builtins.box) if (sema.boxedType(c, id)) |inner| return f(c, sema.unwrapViews(c, inner), sym);
             return switch (c.types.get(id)) {
                 .nominal => |s| s == sym,
                 .parameterized_nominal => |pn| pn.sym == sym,
@@ -197,9 +197,9 @@ pub fn classifySelfType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
     // the value through the handle, and so does a box of one, for a
     // method of the value (not the box's own).
     if (ctx.types.get(sema.unwrapViews(ctx, ty_id)) == .shared) return .shared;
-    if (nominal_sym != ctx.box_sym_id and sema.accessThroughShared(ctx, ty_id)) return .shared;
+    if (ctx.ref(nominal_sym) != ctx.builtins.box and sema.accessThroughShared(ctx, ty_id)) return .shared;
     // A box of a read view (`^?T`) reaches its value through the view.
-    if (nominal_sym != ctx.box_sym_id and sema.boxedReadView(ctx, ty_id) != null) return if (matches(ctx, sema.unwrapViews(ctx, ty_id), nominal_sym)) .read_view else .other;
+    if (ctx.ref(nominal_sym) != ctx.builtins.box and sema.boxedReadView(ctx, ty_id) != null) return if (matches(ctx, sema.unwrapViews(ctx, ty_id), nominal_sym)) .read_view else .other;
     return switch (ctx.types.get(ty_id)) {
         .read_view => |i| if (matches(ctx, i, nominal_sym)) .read_view else .other,
         .write_view => |i| if (matches(ctx, i, nominal_sym)) .write_view else .other,
@@ -223,7 +223,7 @@ pub fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    if (pn.sym != ctx.cell_sym_id or pn.args.len != 1) return null;
+    if (ctx.ref(pn.sym) != ctx.builtins.cell or pn.args.len != 1) return null;
     return pn.args[0];
 }
 
@@ -271,7 +271,7 @@ pub fn listElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    if (pn.sym != ctx.list_sym_id or pn.args.len != 1) return null;
+    if (ctx.ref(pn.sym) != ctx.builtins.list or pn.args.len != 1) return null;
     return pn.args[0];
 }
 

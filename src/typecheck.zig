@@ -834,7 +834,7 @@ pub const Checker = struct {
         const named = if (rig.isBracketList(callee)) ir.get(callee, .object) else callee;
         if (named != .src) return false;
         const id = self.ctx.symbolOf(named) orelse CallCheck.lookupQuiet(self, named) orelse return false;
-        return if (rig.isBracketList(callee)) id == self.ctx.simd_sym_id else self.ctx.symbols.items[id].kind == .type_alias;
+        return if (rig.isBracketList(callee)) self.ctx.ref(id) == self.ctx.builtins.simd else self.ctx.symbols.items[id].kind == .type_alias;
     }
 
     pub const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
@@ -1759,8 +1759,8 @@ pub const Checker = struct {
         if (rig.isBracketList(callee)) callee = ir.get(callee, .object);
         const args = ir.Call.args(e);
         if (callee == .src) if (CallCheck.lookupQuiet(self, callee)) |id| {
-            if (id == self.ctx.list_sym_id) return args.len == 0;
-            if (id == self.ctx.cell_sym_id) return args.len == 1 and CompatCheck.isDefaultLiteral(self.ctx.source, args[0]);
+            if (self.ctx.ref(id) == self.ctx.builtins.list) return args.len == 0;
+            if (self.ctx.ref(id) == self.ctx.builtins.cell) return args.len == 1 and CompatCheck.isDefaultLiteral(self.ctx.source, args[0]);
         };
         return args.len == 0 and try self.emptyConstructor(ir.Call.callee(e));
     }
