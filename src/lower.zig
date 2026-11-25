@@ -705,6 +705,13 @@ const Lowerer = struct {
                 .@"var" => |v| try w.read.append(l.gpa, v),
                 .op => |o| {
                     const kind = o.node.kind();
+                    // A `catch`, and a `!` in a function with no slot of
+                    // its own, give their value the slot its failure's
+                    // fields go in, which emit declares around it.
+                    if (kind == .@"catch" or kind == .propagate) {
+                        w.clean = false;
+                        return;
+                    }
                     for (o.args, 0..) |a, i| {
                         // `a and b`, `a or b`, and `a ?? b` run `b` only
                         // on a condition.
