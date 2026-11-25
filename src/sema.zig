@@ -17484,11 +17484,11 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark,
     // Changed, added, and removed facts, of a leaf and of a list node.
     try ctx.recordType(leafAt(r.tree, a).?, ctx.types.bool_id);
     try ctx.recordType(plus, ctx.types.bool_id);
-    try ctx.recordType(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, ctx.types.bool_id);
-    try ctx.removeIn(.check, .types, exprKey(.{ .src = .{ .pos = b, .len = 1, .id = 0 } }).?);
+    try ctx.recordType(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0, .leaf = 1000 } }, ctx.types.bool_id);
+    try ctx.removeIn(.check, .types, exprKey(leafAt(r.tree, b).?).?);
     try ctx.err(0, "a diagnostic the rollback drops", .{});
     // A name, and a symbol made since the mark, which stay.
-    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, 1);
+    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0, .leaf = 1000 } }, 1);
     const made = try ctx.addSymbol(b_was);
     (try ctx.symbolMut(made)).ty = ctx.types.bool_id;
     // A symbol written through `symbolMut`.
@@ -17505,7 +17505,7 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark,
     try std.testing.expectEqual(a_ty, r.leafType("a", 1).?);
     try std.testing.expectEqual(plus_ty, ctx.typeOf(plus).?);
     try std.testing.expectEqual(b_ty, r.leafType("b", 0).?);
-    try std.testing.expectEqual(null, ctx.typeOf(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }));
+    try std.testing.expectEqual(null, ctx.typeOf(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0, .leaf = 1000 } }));
     try std.testing.expectEqual(1, ctx.symbolAt(b + 1000).?);
     try std.testing.expectEqual(ctx.types.bool_id, ctx.symbols.items[made].ty);
     try std.testing.expectEqual(plus_use, ctx.useOf(plus));
