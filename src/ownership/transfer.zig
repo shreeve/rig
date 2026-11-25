@@ -2708,7 +2708,12 @@ pub fn walkDestructure(self: *Checker, node: Sexp) Error!void {
     defer self.results_of = saved_results;
     self.results_of = null;
     const temps_start = self.temps.items.len;
-    const whole = try walkConsumed(self, value, .binding);
+    // The value as the statement binds it to the results it holds.
+    const value_e: lowered.Expr = for (lowered.stepsOf(self, node)) |step| switch (step) {
+        .bind => |x| break lowered.stepOperand(self, value, x.value),
+        else => {},
+    } else lowered.exprAt(self, value);
+    const whole = try walkConsumedE(self, value_e, .binding);
     self.after_value.shrinkRetainingCapacity(mark);
     if (!self.reachable) return;
     const call = resultsCall(value);

@@ -277,10 +277,15 @@ fn noStmts(self: *Checker, body: Sexp) Error!Stmts {
 /// last, after the parts it holds first; null for a statement with no
 /// region of its own (a target of `q, r = f()`).
 pub fn stepOf(self: *const Checker, stmt: Sexp) ?lir.Step {
-    const b = self.lir_body orelse return null;
-    const r = b.stmts.get(sema.decisionKeyOf(stmt) orelse return null) orelse return null;
-    const steps = b.f.regions.items[r].steps.items;
+    const steps = stepsOf(self, stmt);
     return if (steps.len > 0) steps[steps.len - 1] else null;
+}
+
+/// The steps of statement `stmt`'s region, in order.
+pub fn stepsOf(self: *const Checker, stmt: Sexp) []const lir.Step {
+    const b = self.lir_body orelse return &.{};
+    const r = b.stmts.get(sema.decisionKeyOf(stmt) orelse return &.{}) orelse return &.{};
+    return b.f.regions.items[r].steps.items;
 }
 
 /// Statement `stmt`, whose value its body yields, as its region's value.
