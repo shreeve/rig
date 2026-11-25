@@ -126,9 +126,12 @@ pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
     const m = &(self.sema.lowered orelse return null);
     const i = m.roots.get(sema.decisionKeyOf(root) orelse return null) orelse return null;
     const f = m.owners[i].func orelse return null;
-    const a = self.arena();
+    // A function's index lives while its walk does: the function arena
+    // is reset after each module-level function.
+    const a = self.fn_arena_state.allocator();
     const out = try a.create(Body);
     out.* = .{ .f = f };
+    try out.exprs.ensureTotalCapacity(a, @intCast(f.exprs.items.len));
     if (self.on_lir) for (f.vars.items) |v| switch (v.name) {
         .binding => |s| if (sema.decisionKeyOf(v.node)) |key| try out.binds.put(a, key, s),
         .hidden => |k| if (k == .temp) if (sema.decisionKeyOf(v.node)) |key| try out.temps.put(a, key, {}),
