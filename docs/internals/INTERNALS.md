@@ -226,7 +226,8 @@ failed; after a panic it is non-zero, with no count.
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
 | `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian`, `Arch`, `Os`, and `Feature` as built-in enums, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
-| `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
+| `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary. It holds the `Checker`, its context (`Checker.Expect`), the module's walk, declarations, groups, and the checks after it (compatibility, generic requirements, APIs); the rest of the walk is in `src/check/` |
+| `src/check/*.zig` | the expression pass by concern, each a file of functions over `*Checker`: `stmt` (statements, bindings, the check of a statement again in its rewritten form), `flow` (conditions, `if`, loops, jumps), `patterns` (`match`), `expr` (names, operators, literals), `views` (views, loans, temporaries, checking against an expected type), `calls`, `stdforms` (the std forms typed by hand, where the compiler knows std by name), `builtins` (error names, enum literals, list construction, `$`-calls), `closures` |
 | `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
 | `src/storage.zig` | the storage facts: the var table of the hidden storage emit makes and how bindings hold their values, decided once for emit and the ownership checker |
 | `src/ownership.zig`, `src/ownership/` | the ownership checker, one file per part of the Core ([Ownership](#ownership)) |
@@ -4502,6 +4503,15 @@ self of the runtime's `upgrade` (`emitMemberBase`, then
 `.upgrade()`), and a take as `rig.upgradeTaken(t)`, which upgrades `t`
 and drops it. The reference checker lowers a read as `~h`'s read of a
 place and a take as `*<x`'s make.
+
+### Typecheck's context
+
+What the node being checked stands in, the call around it, the place a
+view of it reaches, the operand of the `!` or the `catch` that handles
+it, and some fifty more, is one value, `Checker.Expect`, held at
+`Checker.expect`. A construct sets what it means for the check below it
+and puts it back when that check returns, so a helper's context is
+read in one place rather than from fields scattered over the checker.
 
 ### Loops over an iterator
 
