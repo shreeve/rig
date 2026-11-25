@@ -833,7 +833,7 @@ records it on a module constant whose initializer names a flagged
 constant, in the order constants are folded (`foldModuleConsts`), and
 the checker on a `=!` local; `sema.perTargetLeaf` finds the flagged
 name in an expression. No fold gives such a constant a value
-(`ctFoldBy` folds a ternary only on an integer condition), so every
+(`cteval.fold` folds a ternary only on a condition it folds), so every
 place that needs one (an array length, a lane count, a compile-time
 integer argument, `lag`, a range pattern's bounds, an enum's value)
 rejects it, naming the flagged name, and a module constant's integer
@@ -1830,12 +1830,24 @@ and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and
 a write costs nothing more. A symbol written through
 `SemContext.symbolMut` goes on the trail whole, so a rollback gives back
-its type and flags. Scopes, interned types, and the lists of what a
+its type and flags; one made since the mark stays as it was written.
+Scopes, interned types, the symbol each name names (`names`, a kept
+column: the one in scope where it stands), and the lists of what a
 check makes for what it names (generic instances and uses, API calls,
 embedded files) are not taken back: each is made once for what it
 names, and asking again finds the same one. A rewrite of the tree, and the names and scopes of the
 nodes it makes, are written outside every mark (`pauseTrail`), since
 the tree keeps the rewrite.
+
+**Quiet checks.** A check run only to learn something, a type
+(`synthQuiet`), how many errors a closure has, or whether a place may
+be written, runs between `beginQuiet` and `endQuiet` (`check/flow.zig`):
+under a mark, with `quiet` set, so what it records and reports is taken
+back and the check that keeps them decides every fact. What a caller
+needs from it is a value it returns, never a fact it left: a chain's
+source keeps the type its quiet check learned (`chain_views`), and
+`Actor.supervised` reads its captures' types after the call checked
+the closure aloud.
 
 **Storage questions.** A few questions about a node that emit,
 lowering, and the checkers all act on are each a pure function of
@@ -2510,17 +2522,23 @@ interning makes `[LIMIT]Int` and `[4]Int` one type, and inference
 binds a `ct_param` exactly to the value the argument's type holds.
 `TypeResolver.resolveCtInt` reads an array size or a value argument:
 it folds integers, constants, and arithmetic on them with
-`sema.ctFoldBy` (in `sema.Wide`, an `i256`, which holds every `U128` and
+`cteval.foldInt` (in `sema.Wide`, an `i256`, which holds every `U128` and
 `I128` value and the checked results of operations on them, and wraps
-`+%`, `-%`, `*%` exactly). That one evaluator folds module and local
-constants, array lengths, compile-time arguments, and enum values; it
+`+%`, `-%`, `*%` exactly). That one evaluator, `cteval.fold`, folds
+module and local constants, array lengths, compile-time arguments, enum
+values, and constant conditions, integers and `Bool`s alike; it
 reads the program only through a names provider: `resolve.ConstNames`
 looks names up from a scope, and reads each constant's value and type
 from `const_ints` (module constants are folded into it once, in
 dependency order, before any type is resolved, their literals taking
 the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
-other module's, if it is public), and `sema.constInt` reads the facts
-of checked code. A compile-time parameter,
+other module's, if it is public), `cteval.constInt` reads the facts
+of checked code (`CheckedNames`), and inlining's guards read one
+instance of a generic function, in its partial mode, where a side of
+`and` or `or` decides it alone (`CheckedNames.partial`). Float
+constants fold in their own type, each literal and each operation
+rounded to it (`cteval.foldFloat`), for the float overflow and range
+checks and a constant `Float`'s value (`const_floats`). A compile-time parameter,
 or a `k =! n` binding of one (`ct_locals`), becomes its `ct_param`. A
 `ct_param` used as a length records the `array_len` requirement, so
 each instance's value is checked to be from 0 to 2^32 - 1. A generic
@@ -2535,9 +2553,9 @@ a pending one) and its subscriber list, a `List` its buffer's slice and
 length, a `^T` its pointer, and a read view the value it copies when it
 is viewed by copy (`viewByValue`: `?I128` is 16 bytes), else a pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
-from an argument, at that argument (`checkArraysIn`); a synthesis whose
-diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
-check that keeps them. An object or enum is checked after contents
+from an argument, at that argument (`checkArraysIn`); a quiet check
+(`synthQuiet`, under `quiet`) leaves it to the check that keeps its
+diagnostics. An object or enum is checked after contents
 are known (`checkTypeSizes`), and an array that mentions a generic
 parameter is kept in `generic_arrays` and checked, with the instance
 itself, at each instance (`checkInstanceSizes`). A type reported too
@@ -2842,7 +2860,7 @@ signature and one for its body (`cteval.CtFun`), so a signature that
 needs its own value is rejected rather than followed forever.
 
 A call is computed where it is first needed (`cteval.callAt`): where a
-type, a constant, or an enum value is resolved, `ctFoldBy` asks
+type, a constant, or an enum value is resolved, `cteval.foldInt` asks
 `ConstNames.ctCall`, which computes it; in a body, typecheck computes it
 (`Checker.synthCtCall`) and records it (`Facts.ct_calls`), which
 `CheckedNames.ctCall`, emit, and the oracle read. Either way its
@@ -2857,7 +2875,7 @@ each call's outcome, failures too (`State.memo`), for the same call
 again. `Eval` runs on a thread with a 512 MiB stack, and counts what it
 nests (`max_nest`) so that stack always holds it; it walks the checked
 IR of the body, reading each node's type from the checker, with the one
-arithmetic core of constant folding (`sema.ctArith`). Arrays are
+arithmetic of constant folding (`cteval.ctArith`). Arrays are
 values, stored as their types store them: one buffer of packed scalars
 per array, nested arrays row-major, an element of one a view of its row
 (`cteval.Arr`). Each buffer is owned by one binding, element, or result
@@ -3881,7 +3899,7 @@ type parameter's value read in place; none a value), reporting an
 internal error where one is not. `sema.checkTypedClean` checks too that
 a module typecheck accepted types no expression `invalid`: a rejection
 reports why, so an `invalid` with no error is a verdict whose diagnostic
-a quiet check dropped. `SemContext.bindingAccess` reads the fact, and gives a
+was dropped. `SemContext.bindingAccess` reads the fact, and gives a
 parameter's or local's from its type. Every pass reads it, and none
 decides a binding's mode another way (a unit test checks the sources):
 
