@@ -1017,10 +1017,10 @@ pub const Facts = struct {
         return sema.containsTypeVar(f.c(), ty);
     }
     pub fn isBuiltinEnum(f: Facts, sym: SymbolId) bool {
-        return sema.isBuiltinEnum(f.c(), sym);
+        return sema.isBuiltinEnum(f.c(), f.c().ref(sym));
     }
     pub fn isBuiltinGeneric(f: Facts, sym: SymbolId) bool {
-        return sema.isBuiltinGeneric(f.c(), sym);
+        return sema.isBuiltinGeneric(f.c(), f.c().ref(sym));
     }
     pub fn lookupDataFieldConst(f: Facts, self_ty: TypeId, name: []const u8) ?Field {
         return sema.lookupDataFieldConst(f.c(), self_ty, name);

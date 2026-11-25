@@ -957,7 +957,7 @@ pub fn declaredType(ctx: *const SemContext, ty: TypeId) bool {
         else => return false,
     }
     const decl = sema.nominalDecl(ctx, ty) orelse return false;
-    return decl.symbol().decl_pos != sema.builtin_decl_pos and !(decl.module_id == null and sema.isBuiltinGeneric(ctx, decl.sym));
+    return decl.symbol().decl_pos != sema.builtin_decl_pos and !(decl.module_id == null and sema.isBuiltinGeneric(ctx, ctx.ref(decl.sym)));
 }
 
 /// The method calls generic bodies make on the parameters `own`

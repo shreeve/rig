@@ -2454,7 +2454,7 @@ pub const TypeResolver = struct {
                 // Zig gives it a value of a type both sides spell alike.
                 const plain = switch (self.ctx.types.get(ty)) {
                     .bool, .int => true,
-                    .nominal => |r| self.ctx.owns(r) and sema.isBuiltinEnum(self.ctx, r.sym),
+                    .nominal => |r| sema.isBuiltinEnum(self.ctx, r),
                     else => false,
                 };
                 if (!plain and !self.isPoison(ty)) {

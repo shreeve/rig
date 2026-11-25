@@ -651,7 +651,7 @@ pub fn orderedBeside(self: *Checker, a: TypeId, b: TypeId) Error!bool {
 pub fn checkOrderedEnum(self: *Checker, at: Sexp, ty: TypeId, op: []const u8) Error!void {
     if (sema.isOrderedEnum(self.ctx, ty)) return;
     const builtin = switch (self.ctx.types.get(ty)) {
-        .nominal => |r| self.ctx.owns(r) and sema.isBuiltinEnum(self.ctx, r.sym),
+        .nominal => |r| sema.isBuiltinEnum(self.ctx, r),
         else => false,
     };
     if (builtin) {

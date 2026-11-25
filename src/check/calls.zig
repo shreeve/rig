@@ -972,7 +972,7 @@ pub fn hashFix(self: *Checker, e: Sexp, obj_ty: TypeId, idx_ty: TypeId) Error!bo
         .parameterized_nominal => |tp| tp.sym,
         else => return false,
     };
-    if (!sema.isHashTable(self.ctx, self.ctx.localSym(tsym))) return false;
+    if (!sema.isHashTable(self.ctx, tsym)) return false;
     if (pn.args.len != (if (is_set) @as(usize, 1) else 2)) return false;
     const key = pn.args[0];
     const object = ir.get(e, .object);
@@ -1607,7 +1607,7 @@ pub fn hasVariantNames(self: *Checker, ty: TypeId) bool {
 /// with no integer Rig fixes.
 pub fn isBuiltinEnumTy(self: *Checker, ty: TypeId) bool {
     const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, ty)) orelse return false;
-    return sema.isBuiltinEnum(decl.ctx, decl.sym);
+    return sema.isBuiltinEnum(decl.ctx, decl.ctx.ref(decl.sym));
 }
 
 /// The value of a variant named through its type, `Status.ok` or
@@ -3989,7 +3989,7 @@ pub fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field,
     // A built-in generic's value (a List's, box's, or Cell's) is no
     // field a Cell may be made in.
     const homes = switch (self.ctx.types.get(info.instance)) {
-        .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, self.ctx.localSym(pn.sym)),
+        .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, pn.sym),
         else => true,
     };
     if (args.len == 1 and !args[0].isKind(.kwarg)) {

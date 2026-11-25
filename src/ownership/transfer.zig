@@ -781,7 +781,7 @@ pub fn extendsPath(self: *const Checker, e: Sexp, at_root: bool, self_root: bool
     while (sema.boxedType(ctx, t)) |inner| t = inner;
     switch (ctx.types.get(t)) {
         .nominal => {},
-        .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(ctx, ctx.localSym(pn.sym))) return false,
+        .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(ctx, pn.sym)) return false,
         else => return false,
     }
     return sema.lookupDataFieldConst(ctx, t, types.text(self, ir.Member.name(e))) != null;

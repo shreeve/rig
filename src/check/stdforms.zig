@@ -2772,7 +2772,7 @@ pub fn actorMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) E
     const shown = CallCheck.sourceText(self, value);
     const declared = switch (self.ctx.types.get(ty)) {
         .nominal => true,
-        .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, self.ctx.localSym(pn.sym)),
+        .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, pn.sym),
         else => false,
     };
     if (!declared) {
@@ -2854,7 +2854,7 @@ pub fn actorSupervised(self: *Checker, callee: Sexp, method: []const u8, pos: u3
     if (self.ctx.types.get(ty) == .fallible) return CallCheck.badCall(self, args, f, "the function that makes an actor's value cannot fail; a panic in it ends the actor", .{});
     const declared = switch (self.ctx.types.get(ty)) {
         .nominal => true,
-        .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, self.ctx.localSym(pn.sym)),
+        .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, pn.sym),
         else => false,
     };
     if (!declared) return CallCheck.badCall(self, args, f, "an actor runs an object or an enum, whose methods its handles call; the function gives a value of type `{s}`", .{try self.tyName(ty)});

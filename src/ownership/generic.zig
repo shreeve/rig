@@ -630,7 +630,7 @@ pub fn viewsEntries(self: *const Checker, callee: Sexp) bool {
         .parameterized_nominal => |pn| pn,
         else => return false,
     };
-    if (!sema.isHashTable(ctx, ctx.localSym(pn.sym))) return false;
+    if (!sema.isHashTable(ctx, pn.sym)) return false;
     const name = types.text(self, ir.Member.name(callee));
     for (ctx.symbols.items[ctx.localSym(pn.sym)].fields orelse &.{}) |f| {
         if (f.is_method and std.mem.eql(u8, f.name, name)) return f.views_entries;

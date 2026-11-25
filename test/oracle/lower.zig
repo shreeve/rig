@@ -2902,7 +2902,7 @@ const Lowerer = struct {
         if (sema.boxedType(self.ctx, ty) != null) return .box;
         switch (self.ctx.types.get(ty)) {
             .nominal => {},
-            .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(self.ctx, self.ctx.localSym(pn.sym))) return .other,
+            .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(self.ctx, pn.sym)) return .other,
             else => return .other,
         }
         const decl = sema.nominalDecl(self.ctx, ty) orelse return .other;
@@ -4340,7 +4340,7 @@ const Lowerer = struct {
             .parameterized_nominal => |pn| pn,
             else => return params,
         };
-        if (!sema.isBuiltinGeneric(self.ctx, self.ctx.localSym(pn.sym))) return params;
+        if (!sema.isBuiltinGeneric(self.ctx, pn.sym)) return params;
         const tps = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].type_params orelse return params;
         const out = try self.a.dupe(TypeId, params);
         for (out) |*p| switch (self.ctx.types.get(p.*)) {
@@ -4466,7 +4466,7 @@ const Lowerer = struct {
             .fallible => |inner| return self.plainInstance(inner.ok),
             .results => |rs| for (rs) |r| try self.plainInstance(r),
             .parameterized_nominal => |pn| {
-                if (sema.isBuiltinGeneric(self.ctx, self.ctx.localSym(pn.sym)) or rigBuiltin(self.ctx, self.ctx.localSym(pn.sym))) {
+                if (sema.isBuiltinGeneric(self.ctx, pn.sym) or rigBuiltin(self.ctx, self.ctx.localSym(pn.sym))) {
                     for (pn.args) |a| try self.plainInstance(a);
                     return;
                 }

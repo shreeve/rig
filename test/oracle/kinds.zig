@@ -351,7 +351,7 @@ fn objectBlockerIn(ctx: *const SemContext, ty: TypeId, shares: bool, seen: anyty
         .parameterized_nominal => |pn| {
             if (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal or pn.sym == ctx.builtins.actor or pn.sym == ctx.builtins.chan or pn.sym == ctx.builtins.tasks) return null;
             for (pn.args) |a| if (try objectBlockerIn(ctx, a, shares, seen, depth + 1)) |b| return b;
-            if (sema.isBuiltinGeneric(ctx, ctx.localSym(pn.sym)) or pn.sym == ctx.builtins.task) return null;
+            if (sema.isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.builtins.task) return null;
             return objectFieldsBlock(ctx, ty, ctx.localSym(pn.sym), shares, seen, depth);
         },
         .nominal => |r| if (ctx.owns(r)) return objectFieldsBlock(ctx, ty, r.sym, shares, seen, depth) else {

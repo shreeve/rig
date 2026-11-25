@@ -7703,8 +7703,8 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // A table owns its slots' memory, and drops each slot.
     const r = ctx.ref(id);
     const b = ctx.builtins;
-    if (r == b.list or r == b.box or r == b.task or r == b.tasks or r == b.table or isHashTable(ctx, id)) c.glue = true;
-    if (r == b.list or r == b.box or r == b.table or isHashTable(ctx, id) or r == b.cell or r == b.signal or r == b.actor or r == b.chan or r == b.frozen or r == b.task or r == b.tasks) c.plain = false;
+    if (r == b.list or r == b.box or r == b.task or r == b.tasks or r == b.table or isHashTable(ctx, r)) c.glue = true;
+    if (r == b.list or r == b.box or r == b.table or isHashTable(ctx, r) or r == b.cell or r == b.signal or r == b.actor or r == b.chan or r == b.frozen or r == b.task or r == b.tasks) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -7764,7 +7764,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
             // A List, a box, or a table keeps its elements in heap memory,
             // so a parameter it holds is not held by value here: `W[T]`
             // with `up: ^T?` holds no `T` inline (`byValueTargets`).
-            const marks = if (isHeapBuiltin(ctx, ctx.localSym(pn.sym))) try ctx.arena.allocator().alloc(bool, held.len) else held;
+            const marks = if (isHeapBuiltin(ctx, pn.sym)) try ctx.arena.allocator().alloc(bool, held.len) else held;
             for (pn.args, 0..) |a, i| {
                 if (i >= c.held.len or !c.held[i]) continue;
                 const arg = try holdsIn(ctx, a, params, marks);
@@ -7926,12 +7926,12 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             // A Signal, a channel, and an actor hold a Cell of their own,
             // so each lives only behind `*` and changes by a marked call
             // through a handle (`isCellBuiltin`).
-            if (isCellBuiltin(ctx, ctx.localSym(pn.sym))) {
+            if (isCellBuiltin(ctx, pn.sym)) {
                 var r: Reach = .{ .cell = true };
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.string_only), into));
                 break :blk r;
             }
-            const m = if (isHeapBuiltin(ctx, ctx.localSym(pn.sym))) mask.within(Reach.views_only) else mask;
+            const m = if (isHeapBuiltin(ctx, pn.sym)) mask.within(Reach.views_only) else mask;
             var r: Reach = .{};
             if (into) |e| {
                 try e.edges.append(ctx.allocator, .{ .from = ctx.localSym(pn.sym), .to = e.owner, .mask = m });
@@ -8178,7 +8178,7 @@ const OptionalWalk = struct {
             .array => i == 0,
             .fallible => i == 0,
             .parameterized_nominal => |pn| blk: {
-                if (isHeapBuiltin(ctx, ctx.localSym(pn.sym))) break :blk false;
+                if (isHeapBuiltin(ctx, pn.sym)) break :blk false;
                 const held = contentsOf(ctx, ctx.localSym(pn.sym)).held;
                 break :blk i < held.len and held[i];
             },
@@ -8415,25 +8415,23 @@ pub fn swapsTwoPlaces(ctx: *const SemContext, arg: Sexp, ty: ?TypeId) bool {
 /// A built-in generic that keeps its values on the heap: a `List[T]` and
 /// a `^T` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
 /// `T` inline, and a `Signal[T]` its value and a pending one.)
-fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    const r = ctx.ref(sym);
+fn isHeapBuiltin(ctx: *const SemContext, r: SymbolRef) bool {
     const b = ctx.builtins;
-    return r == b.list or r == b.box or r == b.table or isHashTable(ctx, sym);
+    return r == b.list or r == b.box or r == b.table or isHashTable(ctx, r);
 }
 
 /// One of the tables behind `Map`, `Set`, `HashMap`, and `HashSet`:
 /// held as a List is, its entries on the heap, owning each key and value
 /// (`resolve.registerTables`).
-pub fn isHashTable(ctx: *const SemContext, sym: SymbolId) bool {
-    const r = ctx.ref(sym);
+pub fn isHashTable(ctx: *const SemContext, r: SymbolRef) bool {
     const b = ctx.builtins;
-    return sym != symbol_invalid and (r == b.ordered_map or r == b.ordered_set or r == b.unordered_map or r == b.unordered_set);
+    return r.sym != symbol_invalid and (r == b.ordered_map or r == b.ordered_set or r == b.unordered_map or r == b.unordered_set);
 }
 
 /// `UnorderedMap[K, V]` or `UnorderedSet[K]`, the tables behind `HashMap`
 /// and `HashSet` (`isHashTable`).
-fn isUnorderedTable(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym != symbol_invalid and (ctx.ref(sym) == ctx.builtins.unordered_map or ctx.ref(sym) == ctx.builtins.unordered_set);
+fn isUnorderedTable(ctx: *const SemContext, r: SymbolRef) bool {
+    return r.sym != symbol_invalid and (r == ctx.builtins.unordered_map or r == ctx.builtins.unordered_set);
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
@@ -8446,7 +8444,7 @@ fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symbol
         .array => |a| try byValueTargets(ctx, a.elem, out, every_arg),
         .nominal => |s| if (ctx.owns(s)) try out.append(ctx.allocator, s.sym),
         .parameterized_nominal => |pn| {
-            if (!every_arg and isHeapBuiltin(ctx, ctx.localSym(pn.sym))) return;
+            if (!every_arg and isHeapBuiltin(ctx, pn.sym)) return;
             try out.append(ctx.allocator, ctx.localSym(pn.sym));
             const held = symbolAt(ctx, pn.sym).contents.held;
             for (pn.args, 0..) |arg, i| {
@@ -8672,7 +8670,7 @@ fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Alloca
         .simd => |v| try out.append(a, v.elem),
         .read_view => |inner| if (viewByValue(ctx, inner)) try out.append(a, inner),
         .nominal => |sym| if (ctx.owns(sym)) try fieldsOf(ctx, a, &out, sym.sym, .empty),
-        .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, ctx.localSym(pn.sym))) {
+        .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) {
             // A List, a table, and a box are sized without what they hold.
         } else if (pn.sym == ctx.builtins.signal) {
             try out.append(a, pn.args[0]);
@@ -8731,11 +8729,11 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             24
         else if (pn.sym == ctx.builtins.table)
             16
-        else if (isUnorderedTable(ctx, ctx.localSym(pn.sym)))
+        else if (isUnorderedTable(ctx, pn.sym))
             // `unordered.zig`'s table: two pointers, three counts, and its
             // shift.
             48
-        else if (isHashTable(ctx, ctx.localSym(pn.sym)))
+        else if (isHashTable(ctx, pn.sym))
             // `ordered.zig`'s table: four pointers, five counts, its
             // shift, and two flags.
             56
@@ -8911,7 +8909,7 @@ pub fn valueDepth(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!u32 {
                 break :blk foreign.value_depths.get(declared) orelse 1;
             },
             // A List, a table, and a box hold their elements apart.
-            .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, ctx.localSym(pn.sym))) 0 else deepest +| 1,
+            .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) 0 else deepest +| 1,
             else => 0,
         };
         try ctx.value_depths.put(ctx.allocator, done.ty, depth);
@@ -9516,7 +9514,7 @@ pub fn enumValues(ctx: *const SemContext, ty: TypeId) ?bool {
 /// integers. A built-in enum (`Endian`, `Arch`) has no integer values.
 pub fn isOrderedEnum(ctx: *const SemContext, ty: TypeId) bool {
     switch (ctx.types.get(ty)) {
-        .nominal => |r| if (ctx.owns(r) and isBuiltinEnum(ctx, r.sym)) return false,
+        .nominal => |r| if (isBuiltinEnum(ctx, r)) return false,
         else => return false,
     }
     return enumValues(ctx, ty) orelse false;
@@ -9792,7 +9790,7 @@ fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey,
                 .parameterized_nominal => |pn| pn,
                 else => return null,
             };
-            return if (isBuiltinGeneric(ctx, ctx.localSym(pn.sym))) null else objectUnownedFields(ctx, ctx.localSym(pn.sym), seen);
+            return if (isBuiltinGeneric(ctx, pn.sym)) null else objectUnownedFields(ctx, ctx.localSym(pn.sym), seen);
         },
     }
 }
@@ -10894,7 +10892,7 @@ const EquatableWalk = struct {
         const ctx = self.ctx;
         const ty = self.items.items[i].ty;
         const decl = nominalDecl(ctx, ty) orelse return null;
-        if (isBuiltinGeneric(decl.ctx, decl.sym)) return .no_eq;
+        if (isBuiltinGeneric(decl.ctx, decl.ctx.ref(decl.sym))) return .no_eq;
         const sym = decl.symbol();
         // An error set compares by its member and the member's fields, as
         // an enum does by its variant; a union, as the sets it joins.
@@ -11171,7 +11169,7 @@ pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     const inner = unwrapAccess(ctx, box);
     return switch (ctx.types.get(inner)) {
         .nominal => inner,
-        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, ctx.localSym(pn.sym))) null else inner,
+        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym)) null else inner,
         else => null,
     };
 }
@@ -11213,8 +11211,7 @@ pub fn boxedReadView(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
 
 /// One of the built-in enums, `Endian`, `Arch`, `Os`, `Feature`, and
 /// `Order`: the runtime's own type, one in every module.
-pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
-    const r = ctx.ref(sym);
+pub fn isBuiltinEnum(ctx: *const SemContext, r: SymbolRef) bool {
     const b = ctx.builtins;
     return r == b.endian or r == b.arch or r == b.os or r == b.feature or r == b.order;
 }
@@ -11222,18 +11219,16 @@ pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
 /// A built-in generic that is or holds a Cell of its own, whatever its
 /// arguments: a `Cell`, a `Signal`, a channel, or an actor (Core
 /// sentence 9). The one list `reachOf` and `holdsOwnCell` read.
-fn isCellBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    const r = ctx.ref(sym);
+fn isCellBuiltin(ctx: *const SemContext, r: SymbolRef) bool {
     const b = ctx.builtins;
     return r == b.cell or r == b.signal or r == b.actor or r == b.chan;
 }
 
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
 /// `Task`, `Tasks`.
-pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    const r = ctx.ref(sym);
+pub fn isBuiltinGeneric(ctx: *const SemContext, r: SymbolRef) bool {
     const b = ctx.builtins;
-    return isHeapBuiltin(ctx, sym) or r == b.cell or r == b.signal or r == b.actor or r == b.chan or r == b.frozen or r == b.task or r == b.tasks;
+    return isHeapBuiltin(ctx, r) or r == b.cell or r == b.signal or r == b.actor or r == b.chan or r == b.frozen or r == b.task or r == b.tasks;
 }
 
 /// The value member access on a `ty_id` reaches: through views,
@@ -11915,7 +11910,7 @@ fn cellDecl(ctx: *const SemContext, ty: TypeId) ?CloneSeen {
             const d = nominalDecl(ctx, ty) orelse break :blk null;
             break :blk .{ .ctx = d.ctx, .sym = d.sym };
         },
-        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, ctx.localSym(pn.sym)) or isHashTable(ctx, ctx.localSym(pn.sym))) null else declaredAt(ctx, ctx.localSym(pn.sym)),
+        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym) or isHashTable(ctx, pn.sym)) null else declaredAt(ctx, ctx.localSym(pn.sym)),
         else => null,
     };
 }
@@ -12196,7 +12191,7 @@ fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
 fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .nominal => holdsCellByValue(ctx, ty),
-        .parameterized_nominal => |pn| isCellBuiltin(ctx, ctx.localSym(pn.sym)) or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
+        .parameterized_nominal => |pn| isCellBuiltin(ctx, pn.sym) or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
             if (holdsCellByValue(ctx, a)) break false;
         } else true),
         else => false,
@@ -13266,7 +13261,7 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
             if (local and (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal)) break :blk null;
             if (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal or pn.sym == ctx.builtins.actor or pn.sym == ctx.builtins.chan or pn.sym == ctx.builtins.tasks) break :blk here;
             if (pn.sym == ctx.builtins.task and how == .shares) break :blk here;
-            if (pn.sym != ctx.builtins.task and !isBuiltinGeneric(ctx, ctx.localSym(pn.sym)) and pn.sym != ctx.builtins.simd) break :blk instanceBlock(ctx, ty, pn, how, local, walk);
+            if (pn.sym != ctx.builtins.task and !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.builtins.simd) break :blk instanceBlock(ctx, ty, pn, how, local, walk);
             for (pn.args) |a| if (blockerIn(ctx, a, how, local, walk)) |b| break :blk b;
             break :blk null;
         },
@@ -13329,7 +13324,7 @@ fn frozenIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void))
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal or pn.sym == ctx.builtins.actor or pn.sym == ctx.builtins.chan or pn.sym == ctx.builtins.task or pn.sym == ctx.builtins.tasks) break :blk here;
             for (pn.args) |a| if (frozenIn(ctx, a, seen)) |b| break :blk b;
-            if (isBuiltinGeneric(ctx, ctx.localSym(pn.sym)) or pn.sym == ctx.builtins.simd) break :blk null;
+            if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.builtins.simd) break :blk null;
             break :blk fieldsFrozen(ctx, ctx.localSym(pn.sym), seen);
         },
         .nominal => |r| if (ctx.owns(r)) fieldsFrozen(ctx, r.sym, seen) else blk: {
@@ -13412,7 +13407,7 @@ fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) b
                 else => return false,
             };
             if (pn.sym == ctx.builtins.task or pn.sym == ctx.builtins.tasks) return true;
-            return !isBuiltinGeneric(ctx, ctx.localSym(pn.sym)) and pn.sym != ctx.builtins.simd and fieldsHoldTask(ctx, ctx.localSym(pn.sym), seen);
+            return !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.builtins.simd and fieldsHoldTask(ctx, ctx.localSym(pn.sym), seen);
         },
     }
     return false;
@@ -13659,7 +13654,7 @@ fn viewAtom(ctx: *const SemContext, ty: TypeId) u64 {
     const t = ctx.types.get(ty);
     const tag: u64 = @backingInt(std.meta.activeTag(t));
     const decl: ?struct { module: u32, sym: SymbolId } = switch (t) {
-        .nominal => |r| if (!ctx.owns(r)) .{ .module = r.module_id, .sym = r.sym } else if (isBuiltinEnum(ctx, r.sym)) .{ .module = 0, .sym = symbol_invalid } else .{ .module = ctx.module_id, .sym = r.sym },
+        .nominal => |r| if (!ctx.owns(r)) .{ .module = r.module_id, .sym = r.sym } else if (isBuiltinEnum(ctx, r)) .{ .module = 0, .sym = symbol_invalid } else .{ .module = ctx.module_id, .sym = r.sym },
         .parameterized_nominal => |pn| blk: {
             const sym = symbolAt(ctx, pn.sym);
             if (sym.decl_pos == builtin_decl_pos) break :blk .{ .module = 0, .sym = pn.sym.sym };
@@ -14272,7 +14267,7 @@ fn selfPathIn(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, f: Funct
         while (boxedType(ctx, holder)) |inner| holder = inner;
         const ok = switch (ctx.types.get(holder)) {
             .nominal => true,
-            .parameterized_nominal => |pn| !isBuiltinGeneric(ctx, ctx.localSym(pn.sym)),
+            .parameterized_nominal => |pn| !isBuiltinGeneric(ctx, pn.sym),
             else => false,
         };
         if (!ok) {
@@ -14609,7 +14604,7 @@ fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: ?*const SymPath) bool 
             // A hash table drops in the runtime, which the
             // checker does not see, so it counts as running a body, as
             // a type declared in another module with glue does.
-            if (isHashTable(ctx, ctx.localSym(pn.sym))) break :blk true;
+            if (isHashTable(ctx, pn.sym)) break :blk true;
             for (pn.args) |a| if (runsDropBody(ctx, a, path)) break :blk true;
             break :blk fieldsRunDropBody(ctx, ctx.localSym(pn.sym), path);
         },
@@ -14851,7 +14846,7 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.builtins.list or pn.sym == ctx.builtins.box) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
-            if (isHashTable(ctx, ctx.localSym(pn.sym))) {
+            if (isHashTable(ctx, pn.sym)) {
                 for (pn.args) |a| if (!deepCloneable(ctx, a, frame, seen)) break :blk false;
                 break :blk true;
             }
@@ -16355,7 +16350,7 @@ fn fillOf(ctx: *const SemContext, ty: TypeId, depth: u32) TableFill {
         // A float's default may be `-0.0`, and an optional's none is not
         // zero bytes: each slot is made.
         .float, .string, .optional => return .made,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.list) return .made else if (isBuiltinGeneric(ctx, ctx.localSym(pn.sym)) or pn.sym == ctx.builtins.table or pn.sym == ctx.builtins.simd) return .none,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.list) return .made else if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.builtins.table or pn.sym == ctx.builtins.simd) return .none,
         .nominal => {},
         else => return .none,
     }
