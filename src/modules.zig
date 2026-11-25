@@ -47,6 +47,8 @@ const ownership = @import("ownership.zig");
 const diag = @import("diag.zig");
 const timing = @import("timing.zig");
 const program = @import("program.zig");
+const inlining = @import("inlining.zig");
+const returns = @import("returns.zig");
 const ir = parser.ir;
 const std_lib = @import("rig_std");
 
@@ -203,6 +205,32 @@ pub const ModuleGraph = struct {
         };
         for (self.modules.items) |m| m.sema.program = t;
         return t;
+    }
+
+    /// The program-wide decisions, made once every module of a program
+    /// with no errors is checked, into the program table: which
+    /// word-sized objects are held as one word (the whole program's views
+    /// decide it), each enum an `exact` object holds its tag type, what is
+    /// inlined (which reports a cycle of marked `inline` functions, which
+    /// Zig cannot inline), what never returns, and the text tables.
+    pub fn decide(self: *ModuleGraph) Error!void {
+        const t1 = timing.start(self.timing);
+        const t = try self.table();
+        const n = self.modules.items.len;
+        const ctxs = try self.allocator.alloc(*sema.SemContext, n);
+        defer self.allocator.free(ctxs);
+        const trees = try self.allocator.alloc(parser.Sexp, n);
+        defer self.allocator.free(trees);
+        for (self.modules.items, ctxs, trees) |*m, *c, *tree| {
+            c.* = m.sema;
+            tree.* = m.ir;
+        }
+        try program.decideWords(ctxs, trees, t);
+        try program.decideExactEnums(ctxs, t);
+        try inlining.decide(self.allocator, self, inlining.max_size);
+        try returns.decide(self.allocator, self);
+        timing.stop(self.timing, .inlining, t1);
+        try self.markTextTables();
     }
 
     /// Marks each plain enum some module calls `from_text` on, which its
