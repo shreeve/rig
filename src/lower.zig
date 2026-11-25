@@ -12,8 +12,9 @@
 //! and `shadow` asserts, per body, that the hidden vars and their order
 //! are the var table's (`storage.Vars`), each held the same way, that
 //! each statement's temporaries are `sema.stmtTemps`', and that each
-//! binding drops as its row says. Nothing reads LIR yet: a body using a
-//! construct lowering does not cover is skipped and counted.
+//! binding drops as its row says. Emit lowers each module it writes and
+//! reads the storage it writes from the vars, regions, and statement
+//! temporaries indexed in `Module`.
 
 const std = @import("std");
 const parser = @import("parser.zig");
