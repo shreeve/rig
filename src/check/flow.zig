@@ -24,13 +24,15 @@ const StdFormCheck = @import("stdforms.zig");
 const StmtCheck = @import("stmt.zig");
 const ViewCheck = @import("views.zig");
 
-/// Synthesize without reporting diagnostics (the full check reports them).
+/// `e`'s type, checked only to learn it: what the check records and
+/// reports is taken back (`SemContext.rollback`), so the check that
+/// keeps them decides every fact.
 pub fn synthQuiet(self: *Checker, e: Sexp) Error!TypeId {
-    const mark = self.ctx.diagnostics.items.len;
+    const m = self.ctx.mark();
     self.ctx.quiet += 1;
     defer self.ctx.quiet -= 1;
     const ty = try PatternCheck.synthExpr(self, e);
-    self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+    try self.ctx.rollback(m);
     return ty;
 }
 
