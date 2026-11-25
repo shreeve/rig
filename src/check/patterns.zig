@@ -324,8 +324,7 @@ pub fn guardWrite(self: *Checker, g: Sexp, subject: Sexp, pattern: Sexp) ?Sexp {
 /// `.nil` for any other subject.
 pub fn madeBase(self: *Checker, subject: Sexp) Sexp {
     if (ViewCheck.hands(self, subject).kind != .part_of_made) return .nil;
-    var base = subject;
-    while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+    const base = sema.pathRoot(subject);
     return if (ViewCheck.hands(self, base).kind == .made) base else .nil;
 }
 
@@ -433,11 +432,7 @@ pub fn writeMatchAdvice(self: *Checker, subject: Sexp) Error![]const u8 {
     switch (ViewCheck.hands(self, subject).kind) {
         // A part of a value made in the header: the value is named
         // first.
-        .part_of_made => {
-            var base = subject;
-            while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
-            return a.print("bind `{s}` to a name first, then match its part with `match !`", .{try ViewCheck.plainText(self, base)});
-        },
+        .part_of_made => return a.print("bind `{s}` to a name first, then match its part with `match !`", .{try ViewCheck.plainText(self, sema.pathRoot(subject))}),
         .place, .view => if (StmtCheck.placeOf(self, subject).named()) return a.print("match with `match !{s}`", .{try ViewCheck.plainText(self, subject)}),
         // Each branch gets a write view: `match (!a if c else !b)`; the
         // value inside an optional gets one with `if !o as x`.

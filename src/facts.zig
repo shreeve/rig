@@ -50,6 +50,7 @@ pub const ThroughWrite = storage.ThroughWrite;
 pub const CompoundCall = storage.CompoundCall;
 pub const BindHold = storage.BindHold;
 pub const SwapCall = sema.SwapCall;
+pub const Builtin = sema.Builtin;
 pub const Wide = sema.Wide;
 pub const Type = sema.Type;
 pub const TypeStore = sema.TypeStore;
@@ -396,10 +397,10 @@ pub const Facts = struct {
     pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
         return f.c().elemCallOf(callee);
     }
-    /// What `call` of the built-in `swap` exchanges
-    /// (`SemContext.swapCallOf`); null for any other call.
-    pub fn swapCallOf(f: Facts, call: Sexp) ?SwapCall {
-        return f.c().swapCallOf(call);
+    /// The built-in function `call` names (`SemContext.builtinOf`);
+    /// null for any other call.
+    pub fn builtinOf(f: Facts, call: Sexp) ?Builtin {
+        return f.c().builtinOf(call);
     }
     /// The built-in type's method a call's callee names, which emit
     /// lowers on its own (`sema.BuiltinCall`).
@@ -754,13 +755,10 @@ pub const Facts = struct {
         return f.c().stringNumOf(callee);
     }
     pub fn isPrintCall(f: Facts, call: Sexp) bool {
-        return storage.isPrintCall(f.c(), call);
-    }
-    pub fn printCall(f: Facts, call: Sexp) ?storage.PrintCall {
-        return storage.printCall(f.c(), call);
+        return f.c().isPrintCall(call);
     }
     pub fn isNoneLeaf(f: Facts, e: Sexp) bool {
-        return storage.isNoneLeaf(f.c(), e);
+        return sema.isNoneLeaf(f.c(), e);
     }
     /// Whether the object of a call's callee names a type or a module.
     pub fn isTypeCallee(f: Facts, obj: Sexp) bool {
@@ -1209,7 +1207,7 @@ test "a Facts method about a node reads what a checker recorded" {
     const readers = [_][]const u8{
         "callsRigFunction", "patternConst",    "stmtErasedCopies",
         "constIntOf",       "intLimit",        "stringCall",
-        "isPrintCall",      "printCall",       "isNoneLeaf",
+        "isNoneLeaf",
         "isTypeCallee",     "moduleMemberSym", "selfOf",
         "heldFirst",        "selfWrites",      "argParams",
         "lambdaYields",     "matchedType",

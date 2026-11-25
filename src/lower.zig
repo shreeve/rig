@@ -1611,7 +1611,7 @@ const Lowerer = struct {
         switch (how) {
             .place, .part, .view, .jump => {},
             .made => if (!l.ctx.dropsTemp(e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),
-            .literal => if (!storage.isNoneLeaf(l.ctx, e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),
+            .literal => if (!sema.isNoneLeaf(l.ctx, e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),
             .@"if" => {
                 try l.leaf(storage.lastValue(ir.If.then(e)));
                 try l.leaf(storage.lastValue(ir.If.@"else"(e)));
@@ -1835,7 +1835,7 @@ fn answerAll(m: *Module, ctx: *const SemContext, e: Sexp) !void {
             try x.put(e, .self_hold, storage.selfHold(ctx, e));
             try x.put(e, .consumes_self, storage.consumedTemporary(ctx, e) != null);
             for (ir.Call.args(e)) |a| try x.put(storage.argValue(a), .argument_hold, storage.argumentHold(ctx, storage.argValue(a)));
-            if (storage.isPrintCall(ctx, e) or storage.stringCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
+            if (ctx.isPrintCall(e) or storage.stringCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
                 try x.put(a, .prints_by_address, storage.printsByAddress(ctx, a));
             };
         },

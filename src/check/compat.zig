@@ -79,18 +79,12 @@ pub fn viewedPlace(e: Sexp) Sexp {
     return p;
 }
 
-/// The leaf a place starts from: `a` in `!a.b[i]`.
+/// The leaf a place starts from, through views and moves of its parts:
+/// `a` in `!(!a.b)[i]`.
 pub fn placeRoot(e: Sexp) ?Sexp {
-    var x = e;
-    while (true) {
-        if (x == .src) return x;
-        const h = x.kind() orelse return null;
-        x = switch (h) {
-            .member, .index => ir.get(x, .object),
-            .read, .write, .move => ir.get(x, .operand),
-            else => return null,
-        };
-    }
+    const x = sema.pathRoot(e);
+    if (x == .src) return x;
+    return if (x.isKind(.read) or x.isKind(.write) or x.isKind(.move)) placeRoot(ir.get(x, .operand)) else null;
 }
 
 /// The first `<x` in `e`, if any.

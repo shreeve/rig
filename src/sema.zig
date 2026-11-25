@@ -2000,9 +2000,9 @@ pub const Facts = struct {
     /// its check (`ConstMaker`): the call gives the plain `T` of its
     /// callee's `T!`, which emit unwraps.
     const_makers: FastMap(NodeKey, void) = .empty,
-    /// Calls of the built-in `swap`, not hidden by a declaration: whether
-    /// each exchanges two places or puts a value in one.
-    swap_calls: FastMap(NodeKey, SwapCall) = .empty,
+    /// Calls of a built-in function, not hidden by a declaration: which
+    /// one each names (`Builtin`).
+    builtins: FastMap(NodeKey, Builtin) = .empty,
     /// Temporary arrays passed as a `[]T` argument to a call that keeps
     /// no view of them (`SemContext.viewsTempArray`).
     temp_arrays: FastMap(NodeKey, void) = .empty,
@@ -2210,6 +2210,19 @@ pub const Column = blk: {
 /// The columns' declarations: every column the module check writes,
 /// keyed as its key type says (`NodeKey` by node, `u64` by expression),
 /// except those named here.
+///
+/// Four columns of the check take facts from both its resolver and its
+/// type checker, each key from one of them: `names` (the resolver's for
+/// a declaration, a type's name, an assignment's target, and a constant
+/// pattern, which the type checker names again as a value, alike; the
+/// type checker's for a value's name), `types` (the
+/// resolver's for a function's name; the type checker's for the rest),
+/// `write_sites` (the resolver's for an assignment, a store into a
+/// part, a write view, and a write capture, which a local's declaration
+/// asks of the binding's later writes; the type checker's for a move
+/// and a take, which need types), and `const_ints` (the resolver's for
+/// a module constant, folded before any type names it; the type
+/// checker's for a local).
 pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .names = .{ .key = .raw },
     .writes = .{ .key = .raw },
@@ -3225,7 +3238,11 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     if (comptime std.mem.eql(u8, name, "task_joins")) return w.writeAll(if (v) " values" else " nothing");
     switch (V) {
-        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall, ViewKind => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, ViewKind => try w.print(" {s}", .{@tagName(v)}),
+        Builtin => switch (v) {
+            .swap => |swap| try w.print(" swap {s}", .{@tagName(swap)}),
+            else => try w.print(" {s}", .{@tagName(v)}),
+        },
         Duration => if (v.unit_ns == 0) try w.writeAll(" value") else try w.print(" {d}ns {s}{s}", .{ v.unit_ns, if (v.float) "Float" else "Int", if (v.ty == type_invalid) "" else " Duration" }),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
@@ -5534,10 +5551,23 @@ pub const SemContext = struct {
         return self.facts.const_makers.contains(nodeKey(call) orelse return false);
     }
 
-    /// What `call` of the built-in `swap` exchanges (`Facts.swap_calls`);
-    /// null for any other call.
+    /// The built-in function `call` names (`Facts.builtins`); null for
+    /// any other call.
+    pub fn builtinOf(self: *const SemContext, call: Sexp) ?Builtin {
+        return self.get(.builtins, call);
+    }
+
+    /// Whether `call` is `print(...)` or `warn(...)`.
+    pub fn isPrintCall(self: *const SemContext, call: Sexp) bool {
+        const b = self.builtinOf(call) orelse return false;
+        return b == .print or b == .warn;
+    }
+
+    /// What `call` of the built-in `swap` exchanges; null for any other
+    /// call.
     pub fn swapCallOf(self: *const SemContext, call: Sexp) ?SwapCall {
-        return self.facts.swap_calls.get(nodeKey(call) orelse return null);
+        const b = self.builtinOf(call) orelse return null;
+        return if (b == .swap) b.swap else null;
     }
 
     /// Emit holds a value of `node` in hidden var `v` (`storage.plan`). A
@@ -7965,6 +7995,17 @@ pub fn isBuiltinCallName(name: []const u8) bool {
 /// !b)`, or a place and a value it puts there, giving back what was
 /// there, `old = swap(!x, v)` (`swapsTwoPlaces`, recorded by typecheck).
 pub const SwapCall = enum { places, value };
+
+/// The built-in function a call names, decided once, where typecheck
+/// checks the call, and read by every later pass: `print(...)`,
+/// `warn(...)`, a conversion to a number type named by its built-in
+/// name (`I32(x)`), or `swap`, with what it exchanges.
+pub const Builtin = union(enum) { print, warn, conversion, swap: SwapCall };
+
+/// `none`, the absent optional, as a leaf.
+pub fn isNoneLeaf(ctx: *const SemContext, e: Sexp) bool {
+    return e == .src and ctx.symbolOf(e) == null and std.mem.eql(u8, rig.leafText(ctx.source, e.src), "none");
+}
 
 /// Whether the built-in `swap`'s second argument `arg`, of type `ty`
 /// where known, is a second place given a write view, `!b` or a held `!T`: the

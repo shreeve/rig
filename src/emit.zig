@@ -7397,7 +7397,7 @@ pub const Emitter = struct {
         return facts.syntax.yieldsValue(self.source, s);
     }
 
-    /// `storage.isNoneLeaf`.
+    /// `sema.isNoneLeaf`.
     fn isNoneLeaf(self: *Emitter, e: Sexp) bool {
         return self.facts.isNoneLeaf(e);
     }
@@ -8941,7 +8941,7 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// `storage.isPrintCall`.
+    /// `SemContext.isPrintCall`.
     fn isPrintCall(self: *Emitter, call: Sexp) bool {
         return self.facts.isPrintCall(call);
     }
@@ -9524,13 +9524,13 @@ pub const Emitter = struct {
         const callee = self.facts.calleeOf(sexp);
         const args = ir.Call.args(sexp);
 
-        if (self.facts.printCall(sexp)) |which| return switch (which) {
+        if (self.facts.builtinOf(sexp)) |b| return switch (b) {
             .print => self.emitPrint(args),
             .warn => self.emitWarn(args),
+            .conversion => self.emitConversion(sexp),
+            .swap => |swap| self.emitSwapCall(args, swap),
         };
         if (self.stringCall(sexp)) |op| return self.emitStringCall(sexp, op);
-        if (self.facts.swapCallOf(sexp)) |swap| return self.emitSwapCall(args, swap);
-        if (callee == .src and self.facts.symbolOf(callee) == null and facts.syntax.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         // A call through an alias: a conversion to the number type it
         // names, or a value of the object it names.
         if (self.isAliasCallee(callee)) {
