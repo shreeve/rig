@@ -174,8 +174,9 @@ pub const Config = struct {
     /// The program makes tasks, which run on the scheduler.
     tasks: bool = false,
     /// The guard below each task's stack, at least twice the largest
-    /// frame the program's code may take (`sema.taskGuard`).
-    task_guard: usize = guard_sizes[guard_sizes.len - 1],
+    /// frame the program's code may take (`sema.taskGuard`); else the
+    /// largest guard.
+    task_guard: ?usize = null,
     /// How far apart dense stacks lie (`sema.denseStride`).
     dense_stride: usize = 1 << 20,
     /// It makes tasks and never names `task.workers`: its workers start
@@ -8031,7 +8032,7 @@ pub const task_stack_extra: usize = 1 << 20;
 /// this much room left on its caller's stack unless the compiler proves
 /// it needs less (`tasks.roomInline`).
 pub const task_stack_promise = stack_size;
-pub const task_guard: usize = config.task_guard;
+pub const task_guard: usize = config.task_guard orelse guard_sizes[guard_sizes.len - 1];
 
 /// How far apart dense stacks lie (`sched.takeDense`), guard included, as
 /// `bin/rig` chose for the target (`sema.denseStride`). A page table covers
