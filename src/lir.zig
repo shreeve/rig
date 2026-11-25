@@ -64,7 +64,7 @@ pub const Expr = union(enum) {
     /// A region that yields a value.
     block: RegionId,
     /// `if cond, then, else` where a value goes: each branch yields one.
-    branch: struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId },
+    branch: If,
     /// `match` where a value goes: each arm yields one.
     choice: Choice,
     /// A closure literal: the body it is (`owner`, a body of the
@@ -72,6 +72,9 @@ pub const Expr = union(enum) {
     closure: struct { node: Sexp, owner: u32, captures: []const ExprId },
 
     pub const Op = struct { node: Sexp, args: []const ExprId };
+
+    /// An `if`: its condition, then the branch it picks.
+    pub const If = struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId };
 
     /// A `match`: its subject, then the arm whose pattern it fits.
     pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId };
@@ -92,7 +95,7 @@ pub const Step = union(enum) {
     /// A region run in place.
     region: RegionId,
     /// `if cond, then, else`.
-    @"if": struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId },
+    @"if": Expr.If,
     /// `while cond: step`, running `body` while `cond` holds, then
     /// `step`.
     loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId },
@@ -192,11 +195,9 @@ pub fn verify(gpa: std.mem.Allocator, f: *const Func) !?Problem {
     v.seen_exprs = try std.DynamicBitSetUnmanaged.initEmpty(gpa, f.exprs.items.len);
     v.seen_regions = try std.DynamicBitSetUnmanaged.initEmpty(gpa, f.regions.items.len);
     v.open = try std.DynamicBitSetUnmanaged.initEmpty(gpa, f.vars.items.len);
-    v.region(gpa, f.body) catch |e| switch (e) {
-        error.Invalid => return v.problem,
-        else => |o| return o,
-    };
+    v.region(f.body) catch return v.problem;
     for (v.declared, 0..) |d, i| if (d == null) return .{ .node = f.vars.items[i].node, .what = "a var no region declares" };
+    for (f.regions.items, 0..) |r, i| if (!v.seen_regions.isSet(i)) return .{ .node = r.node, .what = "a region the body never reaches" };
     return null;
 }
 
@@ -209,7 +210,7 @@ const Verifier = struct {
     open: std.DynamicBitSetUnmanaged = .{},
     problem: ?Problem = null,
 
-    const Error = error{ Invalid, OutOfMemory };
+    const Error = error{Invalid};
 
     fn deinit(v: *Verifier, gpa: std.mem.Allocator) void {
         gpa.free(v.declared);
@@ -223,7 +224,7 @@ const Verifier = struct {
         return error.Invalid;
     }
 
-    fn region(v: *Verifier, gpa: std.mem.Allocator, id: RegionId) Error!void {
+    fn region(v: *Verifier, id: RegionId) Error!void {
         if (id >= v.f.regions.items.len) return v.fail(v.f.root, "a region out of range");
         const r = &v.f.regions.items[id];
         if (v.seen_regions.isSet(id)) return v.fail(r.node, "a region reached twice");
@@ -238,33 +239,33 @@ const Verifier = struct {
         for (r.steps.items) |s| switch (s) {
             .bind => |b| {
                 try v.use(b.v, r.node);
-                try v.expr(gpa, b.value);
+                try v.expr(b.value);
             },
             .store => |st| {
-                try v.expr(gpa, st.target);
-                try v.expr(gpa, st.value);
+                try v.expr(st.target);
+                try v.expr(st.value);
             },
-            .eval => |e| try v.expr(gpa, e),
+            .eval => |e| try v.expr(e),
             .drop => |x| try v.use(x, r.node),
-            .jump => |j| if (j.value) |e| try v.expr(gpa, e),
-            .region => |sub| try v.region(gpa, sub),
+            .jump => |j| if (j.value) |e| try v.expr(e),
+            .region => |sub| try v.region(sub),
             .@"if" => |i| {
-                try v.expr(gpa, i.cond);
-                try v.region(gpa, i.then);
-                if (i.@"else") |e| try v.region(gpa, e);
+                try v.expr(i.cond);
+                try v.region(i.then);
+                if (i.@"else") |e| try v.region(e);
             },
             .loop => |lp| {
-                try v.expr(gpa, lp.cond);
-                try v.region(gpa, lp.body);
-                if (lp.step) |st| try v.region(gpa, st);
+                try v.expr(lp.cond);
+                try v.region(lp.body);
+                if (lp.step) |st| try v.region(st);
             },
             .each => |ea| {
-                try v.expr(gpa, ea.source);
-                try v.region(gpa, ea.body);
+                try v.expr(ea.source);
+                try v.region(ea.body);
             },
-            .match => |c| try v.choice(gpa, c),
+            .match => |c| try v.choice(c),
         };
-        if (r.value) |e| try v.expr(gpa, e);
+        if (r.value) |e| try v.expr(e);
         for (r.decls.items) |x| v.open.unset(x);
     }
 
@@ -273,32 +274,32 @@ const Verifier = struct {
         if (!v.open.isSet(x)) return v.fail(v.f.vars.items[x].node, "a var used outside the region that declares it");
     }
 
-    fn expr(v: *Verifier, gpa: std.mem.Allocator, id: ExprId) Error!void {
+    fn expr(v: *Verifier, id: ExprId) Error!void {
         if (id >= v.f.exprs.items.len) return v.fail(v.f.root, "an expression out of range");
         if (v.seen_exprs.isSet(id)) return v.fail(v.f.root, "an expression reached twice");
         v.seen_exprs.set(id);
         switch (v.f.exprs.items[id]) {
             .@"var" => |x| try v.use(x, v.f.root),
             .leaf => {},
-            .op => |o| for (o.args) |a| try v.expr(gpa, a),
+            .op => |o| for (o.args) |a| try v.expr(a),
             .hold => |h| {
                 try v.use(h.v, v.f.root);
-                try v.expr(gpa, h.value);
+                try v.expr(h.value);
             },
-            .block => |r| try v.region(gpa, r),
+            .block => |r| try v.region(r),
             .branch => |b| {
-                try v.expr(gpa, b.cond);
-                try v.region(gpa, b.then);
-                if (b.@"else") |e| try v.region(gpa, e);
+                try v.expr(b.cond);
+                try v.region(b.then);
+                if (b.@"else") |e| try v.region(e);
             },
-            .choice => |c| try v.choice(gpa, c),
-            .closure => |c| for (c.captures) |x| try v.expr(gpa, x),
+            .choice => |c| try v.choice(c),
+            .closure => |c| for (c.captures) |x| try v.expr(x),
         }
     }
 
-    fn choice(v: *Verifier, gpa: std.mem.Allocator, c: Expr.Choice) Error!void {
-        try v.expr(gpa, c.subject);
-        for (c.arms) |a| try v.region(gpa, a);
+    fn choice(v: *Verifier, c: Expr.Choice) Error!void {
+        try v.expr(c.subject);
+        for (c.arms) |a| try v.region(a);
     }
 };
 
