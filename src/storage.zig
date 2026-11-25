@@ -1,14 +1,16 @@
 //! Storage facts: the hidden storage emit makes, decided once.
 //!
-//! After a module's expressions are checked, `plan` walks it and records,
-//! for each expression or construct emit holds in hidden storage, a
-//! `sema.Storage`: what the storage holds (`kind`), how (`by`), and for
-//! how long (`life`) (docs/internals/INTERNALS.md, "Storage facts"). The
+//! After a module's expressions are checked, `plan` walks it and fills its
+//! var table (`Vars`): for each expression or construct emit holds in
+//! hidden storage, a `Var`, what the storage holds (`kind`), how (`by`),
+//! for how long (`life`), and how it drops what it holds (`drop`); and for
+//! each binding, how it drops its value and whether a use may move it out
+//! (`Binding`) (docs/internals/INTERNALS.md, "Storage facts"). The
 //! predicates that decide where emit makes storage are here, and emit
-//! asks the same ones; it names each storage location through the fact
+//! asks the same ones; it names each storage location through its var
 //! (`Emitter.hiddenStorage`), which must exist and agree. So the ownership
 //! checker can walk the storage the emitted program has, from the same
-//! facts. Emit never makes storage that no fact names.
+//! table. Emit never makes storage that no var names.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -22,9 +24,248 @@ const Tag = rig.Tag;
 const SemContext = sema.SemContext;
 const TypeId = sema.TypeId;
 const SymbolId = sema.SymbolId;
-const Storage = sema.Storage;
-const StorageBy = sema.StorageBy;
-const StorageLife = sema.StorageLife;
+
+// =============================================================================
+// The var table
+// =============================================================================
+
+/// A hidden var: storage emit makes for an expression or construct
+/// (docs/internals/INTERNALS.md, "Storage facts"), decided once, before
+/// ownership is checked, so the ownership checker walks the storage the
+/// emitted program has, and emit declares no storage without one
+/// (`SemContext.varOf`).
+pub const Var = struct {
+    kind: StorageKind,
+    by: StorageBy,
+    life: StorageLife,
+    /// How it drops the value it holds when nothing takes it on
+    /// (`sema.resourceKind` of the value's type), or null when it owns
+    /// nothing to drop: recorded for the vars emit drops by it (`held`,
+    /// `new_value`, `argument`, `self`, `discard`).
+    drop: ?sema.ResourceKind = null,
+    /// The several results it holds, a destructure's `results` or the
+    /// `argument` of `return a, b`: how each part drops.
+    parts: []const ?sema.ResourceKind = &.{},
+};
+
+/// How a parameter, local, or capture holds its value: its row of the
+/// var table.
+pub const Binding = struct {
+    /// How it drops its value (`sema.resourceKind` of its type), or null
+    /// for one that owns nothing to drop. Emit gives such a binding `var`
+    /// storage and a drop guard of this kind, and the ownership checker
+    /// asserts it treats the binding as owning exactly when this is set.
+    drop: ?sema.ResourceKind = null,
+    /// A use may move it out (`planConsumed`), so its drop is armed
+    /// behind an alive flag the move clears. Whether the flag exists is
+    /// this fact; how it is spelled and named is emit's.
+    flag: bool = false,
+};
+
+/// The var table of a module (`SemContext.vars`), which `plan` fills: the
+/// hidden vars in the order the plan makes them, each found by the node
+/// it is made for (`exprKey`) and its kind, and a row per symbol for the
+/// bindings.
+pub const Vars = struct {
+    rows: std.ArrayList(Var) = .empty,
+    index: sema.FastMap(Key, u32) = .empty,
+    bindings: std.ArrayList(Binding) = .empty,
+
+    pub const Key = struct { node: u64, kind: StorageKind };
+
+    pub fn deinit(vars: *Vars, a: std.mem.Allocator) void {
+        vars.rows.deinit(a);
+        vars.index.deinit(a);
+        vars.bindings.deinit(a);
+    }
+
+    /// Record `v` for the node keyed `node`. One node's var of one kind
+    /// is decided once; recorded again, it may only gain its parts.
+    pub fn put(vars: *Vars, a: std.mem.Allocator, node: u64, v: Var) !void {
+        const gop = try vars.index.getOrPut(a, .{ .node = node, .kind = v.kind });
+        if (gop.found_existing) {
+            const row = &vars.rows.items[gop.value_ptr.*];
+            std.debug.assert(row.by == v.by and row.life == v.life and row.drop == v.drop);
+            if (v.parts.len > 0) row.parts = v.parts;
+            return;
+        }
+        gop.value_ptr.* = @intCast(vars.rows.items.len);
+        try vars.rows.append(a, v);
+    }
+
+    pub fn get(vars: *const Vars, node: u64, kind: StorageKind) ?*const Var {
+        return &vars.rows.items[vars.index.get(.{ .node = node, .kind = kind }) orelse return null];
+    }
+
+    /// The row of binding `sym`: a symbol the plan never saw holds
+    /// nothing.
+    pub fn binding(vars: *const Vars, sym: SymbolId) Binding {
+        return if (sym < vars.bindings.items.len) vars.bindings.items[sym] else .{};
+    }
+};
+
+/// What a hidden storage location holds, and the Zig name emit gives it.
+pub const StorageKind = enum {
+    /// An owning temporary its statement or header drops at its end
+    /// (`__rig_tmp`): `dropsTemp`.
+    temp,
+    /// The value of a header that makes statement temporaries, yielded
+    /// by the block that ends them (`__rig_hdr`).
+    header_value,
+    /// The construct (`match`, `for`, `as`) binds the parts of that
+    /// yielded value, a copy of its subject: `copiesHeader`. No name of
+    /// its own: the storage is the header's value.
+    header_copy,
+    /// The made value a header's subject is a part of, held for the
+    /// construct (`__rig_held`): `Header.held`.
+    held,
+    /// The array a `for` takes, held for the loop (`__rig_src`):
+    /// `Header.taken`.
+    taken,
+    /// The iterator a consuming `for` hands its elements over from
+    /// (`__rig_it`).
+    iterator,
+    /// The element a consuming `for` hands over, before its binding
+    /// takes it (`__rig_elem`).
+    element,
+    /// A range `for`'s counter, from the range's start (`__rig_i`).
+    range_start,
+    /// A range `for`'s end (`__rig_end`).
+    range_end,
+    /// Whether an inclusive range `for` runs again (`__rig_more`): its
+    /// counter never steps past the end, which may be its type's largest
+    /// value.
+    range_more,
+    /// A `match` subject evaluated once, before its arms (`__rig_subject`).
+    subject,
+    /// The whole value a `match <x` arm takes (`__rig_whole`).
+    whole,
+    /// A variant's payload an arm captures (`__rig_payload`).
+    payload,
+    /// What `if … as` or `while … as` captures (`__rig_opt`).
+    as_value,
+    /// A mutable copy of what an `as` captures, which its binding views
+    /// (`__rig_opt_N_v`).
+    as_copy,
+    /// The value inside an optional a view reaches (`__rig_viewed`).
+    viewed,
+    /// The copy an API object of a read view of plain data, or of a type
+    /// parameter's value, views (`Erasure.copy`), a local of the erasing
+    /// block (`__rig_erased`).
+    erased_copy,
+    /// The payload a branch of a value read where its leaves are takes,
+    /// captured by address (`__rig_leaf`).
+    leaf,
+    /// The error a `catch |e|` handler names (`__rig_err`).
+    error_value,
+    /// An argument of a call whose arguments are evaluated first
+    /// (`__rig_arg`).
+    argument,
+    /// The self of such a call, or an actor's handle, or a select
+    /// arm's channel (`__rig_recv`): `storage.heldFirst`.
+    self,
+    /// The environment of a closure literal passed to a call (`__rig_env`).
+    environment,
+    /// A closure literal called where it is written, or the callee of a
+    /// call whose arguments are evaluated first, which a value the call
+    /// reaches is (`__rig_fn`): `storage.heldFirst`.
+    invoked,
+    /// The environment an owned closure allocates (`__rig_env`), which
+    /// the closure value then owns.
+    closure_env,
+    /// An assignment's value, made before the store (`__rig_new`).
+    new_value,
+    /// The value an assignment's target path starts from, evaluated after
+    /// the value and before the indexes (`__rig_base`).
+    base,
+    /// An index of an assignment's target, evaluated before the store
+    /// (`__rig_ix`).
+    index,
+    /// The place an assignment stores to, found once (`__rig_slot`).
+    slot,
+    /// The API object a call through its table reads twice, for the
+    /// table and the value, evaluated once (`__rig_obj`): a copy of the
+    /// view or box, which nothing views.
+    api_object,
+    /// The place a call through an API object's table writes its result
+    /// to (`TableEntry.result_out`), copied out as the call returns
+    /// (`__rig_res`).
+    result_place,
+    /// The several results a call gives, held for its statement while
+    /// each target takes its own, left to right (`__rig_res`): a
+    /// destructure's, `q, r = f()`. A result no target takes (`_`) it
+    /// drops at the statement's end.
+    results,
+    /// The header (pointer, length, and capacity) of a String or List a
+    /// write view parameter views, held in a local for the function's
+    /// body and written back as it returns (`__rig_header`;
+    /// `storage.planHeldHeaders`): the parameter's name views the local,
+    /// so a loop keeps the header in registers.
+    held_header,
+    /// The record of a task made by `t = f(x)&` that stays in its
+    /// maker's frame and is waited for there (`storage.taskRecordIn`): a
+    /// fork. Emit makes it in this slot, `var __rig_task_N =
+    /// rig.Task(T).frame.spawn(f, .{ x })`, and starts it there,
+    /// `t = __rig_task_N.start()`; it counts in the frame
+    /// (`typecheck.checkFrames`).
+    task_record,
+    /// A value made here whose address emit takes where Zig holds it, in
+    /// no slot: a leaf no statement slot keeps (`storage.leafStep` is
+    /// `made`, and not `dropsTemp`), or a literal, reached by address.
+    /// No name of its own: the storage is Zig's, which keeps it until its
+    /// statement ends.
+    zig_temp,
+    /// Not storage: the value of `_ = e`, or of a statement `<e` of
+    /// anything but a name, which Zig drops at once. It is in the table
+    /// for its `drop`, and has no name.
+    discard,
+};
+
+/// How a hidden storage location holds what it holds.
+pub const StorageBy = enum {
+    /// The value is its own: made there, or taken, and dropped there if
+    /// nothing takes it on.
+    owned,
+    /// A copy of a value that is still held where it was: a view of the
+    /// storage views the copy, not that value.
+    copy,
+    /// The address of a place, or of storage another fact records.
+    pointer,
+    /// Text a template makes where a `?String` reads it, held in the
+    /// storage itself while it fits 256 bytes, and in a heap block the
+    /// storage frees past them (`rig.TextBuf`): no String is made.
+    buffer,
+};
+
+/// How long a hidden storage location lives.
+pub const StorageLife = enum {
+    /// Until its statement ends; a header is its own statement.
+    statement,
+    /// Until its header ends.
+    header,
+    /// Until the construct (`match`, `for`, `if … as`) ends.
+    construct,
+    /// For one iteration of a loop.
+    iteration,
+    /// Until its `match` arm ends.
+    arm,
+    /// Until the body of its `if … as` or `while … as` ends.
+    body,
+    /// Until its `catch` handler ends.
+    handler,
+    /// Until the expression it is made in ends.
+    expression,
+    /// Until its call returns.
+    call,
+    /// Until the `task.select` whose arm it is a part of returns: the
+    /// select makes every arm, then runs the one it commits.
+    select,
+    /// Until its assignment's store.
+    assignment,
+    /// Until the block it is made in ends: each pass of a loop's body
+    /// makes it anew.
+    block,
+};
 
 // =============================================================================
 // The predicates emit and the plan share
@@ -253,7 +494,7 @@ pub fn heldFirst(ctx: *const SemContext, call: Sexp) ?HeldFirst {
 /// storage that holds it.
 pub const HeldFirst = struct {
     node: Sexp,
-    kind: sema.StorageKind,
+    kind: StorageKind,
 };
 
 /// Whether `call` passes a self, its callee's object, as its first
@@ -1310,16 +1551,10 @@ fn dropsOld(ctx: *const SemContext, set: Sexp) bool {
     return ctx.writesThrough(set) and !isPtrViewTy(ctx, pointee) and owns(ctx, pointee);
 }
 
-/// How the value of `e`, which emit holds in hidden storage or
-/// discards, is held and dropped when nothing takes it, decided once
-/// (`sema.resourceKind` of its type): the base a header holds, an
-/// assignment's new value, an argument or self a call holds, and the
-/// value of `_ = e` or `<e`.
-pub fn dropKind(ctx: *const SemContext, e: Sexp) ?sema.ResourceKind {
-    return decide(ctx, e, .drop_kind);
-}
-
-fn decideDropKind(ctx: *const SemContext, e: Sexp) ?sema.ResourceKind {
+/// How the value of `e`, which emit holds in a var or discards, drops
+/// when nothing takes it (`sema.resourceKind` of its type), or null when
+/// it owns nothing (`Var.drop`).
+fn dropOf(ctx: *const SemContext, e: Sexp) ?sema.ResourceKind {
     return sema.resourceKind(ctx, typeOf(ctx, e) orelse return null);
 }
 
@@ -1510,7 +1745,6 @@ pub fn Answer(comptime q: sema.Question) type {
         .set_order => SetOrder,
         .step_point => StepPoint,
         .fold => ?Fold,
-        .drop_kind => ?sema.ResourceKind,
         .through_write => ?ThroughWrite,
         .compound_call => ?CompoundCall,
         .bind_hold => BindHold,
@@ -1558,7 +1792,6 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .set_order => Node.of(decideSetOrder),
         .step_point => Node.of(decideStepPoint),
         .fills_in_place => Node.of(decideFillsInPlace),
-        .drop_kind => Node.of(decideDropKind),
         .catch_all => Node.of(decideCatchesAll),
         .match_selects => Node.of(decideMatchSelects),
         .binds_string_bytes => Node.of(decideBindsStringBytes),
@@ -1642,7 +1875,7 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     var names = ctx.facts.names.iterator();
     while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.* and !ctx.facts.rebinds.contains(e.key_ptr.*)) ctx.used.set(e.value_ptr.*);
     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < ctx.used.bit_length) ctx.used.set(s.origin);
-    planHolds(ctx);
+    try planHolds(ctx);
     try p.walk(tree);
     try planConsumed(ctx, tree);
     try rig.eachBody(tree, ctx, planHeldHeaders);
@@ -1650,12 +1883,13 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     verifyDecisions(ctx);
 }
 
-/// Record how each parameter, local, and capture holds its value
-/// (`Symbol.hold`), which emit reads to give a binding `var` storage and
-/// a drop guard.
-fn planHolds(ctx: *SemContext) void {
-    for (ctx.symbols.items) |*s| switch (s.kind) {
-        .param, .local, .capture => s.hold = if (known(ctx, s.ty)) |t| sema.resourceKind(ctx, t) else null,
+/// Record a row for each symbol (`Binding`): how each parameter, local,
+/// and capture drops its value, which emit reads to give it `var` storage
+/// and a drop guard.
+fn planHolds(ctx: *SemContext) !void {
+    try ctx.vars.bindings.appendNTimes(ctx.allocator, .{}, ctx.symbols.items.len);
+    for (ctx.symbols.items, ctx.vars.bindings.items) |s, *b| switch (s.kind) {
+        .param, .local, .capture => b.drop = if (known(ctx, s.ty)) |t| sema.resourceKind(ctx, t) else null,
         else => {},
     };
 }
@@ -1695,7 +1929,7 @@ fn planHeldHeaders(ctx: *SemContext, decl: Sexp, body: Sexp) !void {
         if (!holdsHeaderType(ctx, ty)) continue;
         if (!usedIn(ctx, body, sym, .loop)) continue;
         if (usedIn(ctx, body, sym, .escape)) continue;
-        try ctx.recordStorage(name_node, .{ .kind = .held_header, .by = .copy, .life = .block });
+        try ctx.recordVar(name_node, .{ .kind = .held_header, .by = .copy, .life = .block });
     }
 }
 
@@ -1773,7 +2007,7 @@ fn planUnits(ctx: *SemContext, owner: Sexp, body: Sexp) !void {
     try rig.eachUnit(body, Units{ .ctx = ctx });
 }
 
-/// Record the bindings a use may move out (`SemContext.consumed`): the
+/// Record the bindings a use may move out (`Binding.flag`): the
 /// name `<x` takes, as a move or a drop, a `for x in <v` source, a
 /// `|<x|` capture, and a bare name at a tail of a value that leaves its scope
 /// (`sema.eachTailPart`): `return x`, `break x`, a function's or a
@@ -1809,7 +2043,9 @@ fn planConsumed(ctx: *SemContext, e: Sexp) !void {
         },
         .@"if" => if (ir.If.@"else"(e) != .nil) try consumeTail(ctx, e),
         .@"??", .@"catch", .match, .@"while", .raw_block => try consumeTail(ctx, e),
-        .cap_move => if (ctx.symbolOf(ir.get(e, .name))) |cap| try ctx.consumed.put(ctx.allocator, ctx.symbols.items[cap].origin, {}),
+        .cap_move => if (ctx.symbolOf(ir.get(e, .name))) |cap| {
+            ctx.vars.bindings.items[ctx.symbols.items[cap].origin].flag = true;
+        },
         .fun => if (ir.Fun.returns(e) != .nil) try consumeTail(ctx, ir.Fun.body(e)),
         .lambda => if (lambdaYields(ctx, e)) try consumeTail(ctx, ir.Lambda.body(e)),
         else => {},
@@ -1820,7 +2056,7 @@ fn planConsumed(ctx: *SemContext, e: Sexp) !void {
 fn consumeName(ctx: *SemContext, node: Sexp) !void {
     if (node != .src) return;
     const sym = ctx.symbolOf(node) orelse return;
-    try ctx.consumed.put(ctx.allocator, sym, {});
+    ctx.vars.bindings.items[sym].flag = true;
 }
 
 /// Record the field `<p.a.b` may move out of binding `p`
@@ -1878,23 +2114,32 @@ const Planner = struct {
     /// The several results of the function or closure being walked.
     results: ?[]const TypeId = null,
 
-    fn record(p: *Planner, node: Sexp, kind: sema.StorageKind, by: StorageBy, life: sema.StorageLife) !void {
-        try p.ctx.recordStorage(node, .{ .kind = kind, .by = by, .life = life });
-        // How the storage drops the value it holds, for emit to read.
-        switch (kind) {
-            .held => _ = dropKind(p.ctx, p.ctx.heldBaseOf(node) orelse return),
-            .new_value, .argument, .self, .invoked => _ = dropKind(p.ctx, node),
-            else => {},
-        }
+    fn record(p: *Planner, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife) !void {
+        try p.recordDrop(node, kind, by, life, null);
     }
 
-    /// How each of the parts `tys` that `node` holds is held
-    /// (`SemContext.part_drops`).
-    fn partDrops(p: *Planner, node: Sexp, tys: []const TypeId) !void {
-        const kinds = try p.ctx.allocator.alloc(?sema.ResourceKind, tys.len);
-        defer p.ctx.allocator.free(kinds);
+    /// A var that drops what it holds by `drop`, for emit to read.
+    fn recordDrop(p: *Planner, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind) !void {
+        try p.ctx.recordVar(node, .{ .kind = kind, .by = by, .life = life, .drop = drop });
+    }
+
+    /// The made value the subject of header `e` is a part of, held for
+    /// the construct (`Header.held`).
+    fn held(p: *Planner, e: Sexp) !void {
+        try p.recordDrop(e, .held, .owned, .construct, if (p.ctx.heldBaseOf(e)) |base| dropOf(p.ctx, base) else null);
+    }
+
+    /// An assignment's value, made before its store.
+    fn newValue(p: *Planner, value: Sexp) !void {
+        try p.recordDrop(value, .new_value, .owned, .assignment, dropOf(p.ctx, value));
+    }
+
+    /// The var of `kind` that holds the several results `node` gives,
+    /// and how each of their parts `tys` drops.
+    fn parts(p: *Planner, node: Sexp, kind: StorageKind, life: StorageLife, tys: []const TypeId) !void {
+        const kinds = try p.ctx.arena.allocator().alloc(?sema.ResourceKind, tys.len);
         for (tys, kinds) |t, *k| k.* = sema.resourceKind(p.ctx, t);
-        try p.ctx.recordPartDrops(node, kinds);
+        try p.ctx.recordVar(node, .{ .kind = kind, .by = .owned, .life = life, .parts = kinds });
     }
 
     /// The several results a function or closure gives, or null.
@@ -1988,23 +2233,21 @@ const Planner = struct {
             .array => try p.array(e),
             // The call's results, which each target takes in its turn.
             .destructure => {
-                try p.record(e, .results, .owned, .statement);
-                if (typeOf(ctx, ir.Destructure.value(e))) |t| switch (ctx.types.get(t)) {
-                    .results => |parts| try p.partDrops(e, parts),
-                    else => {},
-                };
+                const tys: []const TypeId = if (typeOf(ctx, ir.Destructure.value(e))) |t| switch (ctx.types.get(t)) {
+                    .results => |r| r,
+                    else => &.{},
+                } else &.{};
+                try p.parts(e, .results, .statement, tys);
             },
             // The parts of `return a, b`, made first when a later one can
             // leave, each held as the function's result in its place.
             .results => if (hoistsResults(ctx, e)) try p.record(e, .argument, .owned, .call),
             .@"return" => {
                 const value = ir.Return.value(e);
-                if (value.isKind(.results) and hoistsResults(ctx, value)) if (p.results) |tys| try p.partDrops(value, tys);
+                if (value.isKind(.results) and hoistsResults(ctx, value)) if (p.results) |tys| try p.parts(value, .argument, .call, tys);
             },
             // `<e` of anything but a name drops what it takes.
-            .drop => if (ir.Drop.target(e) != .src) {
-                _ = dropKind(ctx, ir.Drop.target(e));
-            },
+            .drop => if (ir.Drop.target(e) != .src) try p.recordDrop(ir.Drop.target(e), .discard, .owned, .statement, dropOf(ctx, ir.Drop.target(e))),
             .box => _ = fillsInPlace(ctx, e),
             .@"+", .@"-", .@"*", .neg => _ = laneChecked(ctx, e),
             .@"for" => try p.forLoop(e),
@@ -2080,7 +2323,7 @@ const Planner = struct {
         // A place, or a part of a value the `if` holds, is bound where it
         // stands.
         if (ctx.headerOf(cond)) |how| {
-            if (how == .held) try p.record(cond, .held, .owned, .construct);
+            if (how == .held) try p.held(cond);
             try p.subjectHeader(value);
             if (used) try p.record(cond, .as_value, .pointer, .body);
             return;
@@ -2132,7 +2375,7 @@ const Planner = struct {
             return p.header(source);
         }
         const how = ctx.headerOf(loop);
-        if (how == .held) try p.record(loop, .held, .owned, .construct);
+        if (how == .held) try p.held(loop);
         if (how == .taken) {
             try p.record(loop, .taken, .owned, .construct);
             return p.header(source);
@@ -2160,7 +2403,7 @@ const Planner = struct {
                 };
             };
         }
-        if (ctx.headerOf(m) == .held) try p.record(m, .held, .owned, .construct);
+        if (ctx.headerOf(m) == .held) try p.held(m);
         var reread = false;
         var temp = false;
         if (matchBlock(ctx, m)) {
@@ -2242,7 +2485,14 @@ const Planner = struct {
         const ctx = p.ctx;
         if (selfHold(ctx, c)) |hold| {
             const first: HeldFirst = if (hold == .consumed) .{ .node = consumedTemporary(ctx, c).?, .kind = .self } else heldFirst(ctx, c).?;
-            try p.record(first.node, first.kind, hold.by(hasStorage(ctx, first.node)), life);
+            const by = hold.by(hasStorage(ctx, first.node));
+            // A consumed temporary is held as an argument is; any other,
+            // by its address or as a value, unless it is a view held as
+            // a pointer.
+            const drop = if (hold == .consumed)
+                (if (ctx.viewsTempArray(first.node)) null else dropOf(ctx, first.node))
+            else if (by == .pointer or isPtrViewExpr(ctx, first.node)) null else dropOf(ctx, first.node);
+            try p.recordDrop(first.node, first.kind, by, life, drop);
         }
         for (ir.Call.args(c), 0..) |a, ai| try p.argument(argValue(a), argumentParam(ctx, c, ai), life);
     }
@@ -2291,7 +2541,9 @@ const Planner = struct {
             .viewed => .pointer,
             .value => if (param) |t| (if (isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
         };
-        try p.record(v, .argument, by, life);
+        // Held as a view, or a temporary array viewed in its slot, it owns
+        // nothing to drop.
+        try p.recordDrop(v, .argument, by, life, if (by == .pointer or ctx.viewsTempArray(v)) null else dropOf(ctx, v));
     }
 
     fn assignment(p: *Planner, set: Sexp) !void {
@@ -2310,10 +2562,7 @@ const Planner = struct {
             return;
         }
         // `_ = e` drops what it takes.
-        if (std.mem.eql(u8, srcText(ctx, target), "_")) {
-            _ = dropKind(ctx, value);
-            return;
-        }
+        if (std.mem.eql(u8, srcText(ctx, target), "_")) return p.recordDrop(value, .discard, .owned, .statement, dropOf(ctx, value));
         const sym = ctx.symbolOf(target) orelse return;
         if (ctx.symbols.items[sym].decl_pos == target.src.pos) {
             _ = bindHold(ctx, set);
@@ -2322,8 +2571,7 @@ const Planner = struct {
         // A reassigned resource's new value is made before the old one
         // is dropped. Any other store whose value can act makes its value
         // first, as every assignment does (`storesAfterValue`).
-        if (order.drops_old or storesAfterValue(ctx, set))
-            try p.record(value, .new_value, .owned, .assignment);
+        if (order.drops_old or storesAfterValue(ctx, set)) try p.newValue(value);
     }
 
     /// An assignment to a field or element (`emitPlaceAssign`).
@@ -2338,7 +2586,7 @@ const Planner = struct {
         const holds_view = if (through) (if (place_ty) |t| isPtrViewTy(ctx, t) else false) else (target != .src and isPtrViewExpr(ctx, target));
         if (holds_view) return p.openAssign(set, order);
         if (!order.drops_old) return p.openAssign(set, order);
-        try p.record(ir.Set.value(set), .new_value, .owned, .assignment);
+        try p.newValue(ir.Set.value(set));
         if (order.held) try p.targetSteps(set, order);
         try p.record(target, .slot, .pointer, .assignment);
     }
@@ -2348,7 +2596,7 @@ const Planner = struct {
     /// (`openAssign`).
     fn openAssign(p: *Planner, set: Sexp, order: SetOrder) !void {
         if (!order.held) return;
-        if (!isPureArg(p.ctx, ir.Set.value(set))) try p.record(ir.Set.value(set), .new_value, .owned, .assignment);
+        if (!isPureArg(p.ctx, ir.Set.value(set))) try p.newValue(ir.Set.value(set));
         try p.targetSteps(set, order);
     }
 
