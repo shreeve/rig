@@ -83,7 +83,7 @@ pub fn resolveIterWhile(ctx: *SemContext, loop: Sexp, w: rig.Parser.IterWhile) E
     const scope = ctx.scopeOf(loop).?;
     try ctx.removeIn(.check, .scopes, loop.list.id);
     const as = ir.While.cond(w.loop);
-    try ctx.recordScope(as, scope);
+    try ctx.record(.scopes, as, scope);
     if (ctx.symbolOf(ir.As.name(as))) |x| ctx.symbols.items[x].flags.as_bound = true;
     const view = ir.Member.object(ir.Call.callee(ir.As.value(as)));
     const hold = w.hold orelse {
@@ -302,7 +302,7 @@ const SymbolResolver = struct {
                     const names = self.ctx.scopeOf(loop).?;
                     const body = self.ctx.scopeOf(ir.For.body(loop)).?;
                     self.ctx.scopes.items[names].parent = self.scope;
-                    try self.ctx.recordScope(sexp, body);
+                    try self.ctx.record(.scopes, sexp, body);
                     const saved_scope = self.scope;
                     const saved_outer = self.outer;
                     defer {
@@ -398,7 +398,7 @@ const SymbolResolver = struct {
     /// Open a scope for `node` and make it current; returns the previous scope.
     fn enter(self: *SymbolResolver, node: Sexp, kind: sema.ScopeKind) Error!ScopeId {
         const s = try self.ctx.pushScopeKind(self.scope, kind);
-        try self.ctx.recordScope(node, s);
+        try self.ctx.record(.scopes, node, s);
         const prev = self.scope;
         self.scope = s;
         return prev;

@@ -2064,7 +2064,7 @@ clears. Whether a binding has an alive flag is this fact; how emit
 spells and names the flag is printing. Whether an assignment drops the
 value it replaces is `SetOrder.drops_old`. Two kinds are facts the table already
 keeps: `temp` is `dropsTemp` and `header_copy` is `copiesHeader`, which
-typecheck records where it decides them (`recordTempDrop`,
+typecheck records where it decides them (`Facts.temp_drops`,
 `rejectHeaderCopy`). Bookkeeping that holds no value of the program is
 not storage: alive and `else` flags, a loop's index counter, a guarded
 match's arm number, labels, and renamed parameters.
@@ -2699,7 +2699,7 @@ written in the type's module or the API's, so only those are searched,
 and one type provides an API once in the program.
 
 **Dispatch.** Each method call records how it reaches its method,
-`sema.Dispatch` (`SemContext.recordDispatch`): `direct`, the method of
+`sema.Dispatch` (`Facts.dispatch`): `direct`, the method of
 self's type, which Zig finds on the value; `static`, through a
 `Witness`, a bound's compile-time parameter (`W_T_Shape`) or a
 conformance's struct (`__rig_impl_Shape_Square`); or `dynamic`, through
@@ -3100,7 +3100,7 @@ The table owns its slots' memory (`symbolContents` gives it glue,
 behind the table as a List's elements are, and `push` is a write call
 on it. Which slots are written is a fact: `Checker.requireAccess`, which
 every write of a place passes, records each table index on the written
-place's path (`recordTableWrite`), and emit reaches those with `slot` and
+place's path (`Facts.table_writes`), and emit reaches those with `slot` and
 every other slot with `constSlot` or `at` (`Facts.isTableWrite`), so a
 table held as it is written never grows for a read. It is not cloned
 (`deepCloneable`), and it is no field's default
@@ -3901,7 +3901,7 @@ and each desugars into forms the checker already walks:
 
 | Form | Desugars to |
 |---|---|
-| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write view written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would view nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeViewRead` first, and `print`, `?!x`, a read view's slot, a `?@` self, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
+| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `Facts.reads` marks, as for a `?Int` (`copiedThrough`); a write view written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would view nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeViewRead` first, and `print`, `?!x`, a read view's slot, a `?@` self, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
 | `x = w` with a `!T` of a `T` that copies | `x: T = w` |
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
@@ -4854,7 +4854,7 @@ through a `!T` binding is recorded where typecheck decides it
 (`writesThrough`, with the binding's `rebound` flag for its Zig `var`),
 and whether an element read copies the element where its type is
 recorded and where a method call views it as self (`copiesElem`,
-`recordElemViewed`), and how a binding or a hidden storage holds a
+`Facts.elem_viewed`), and how a binding or a hidden storage holds a
 value that moves where the storage plan decides it (the var table's
 `drop`, `parts`, and `flag`, and `SetOrder.drops_old`; "Storage facts"). Emit
 makes no decision with a classifier the checkers also call: a unit test

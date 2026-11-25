@@ -215,7 +215,7 @@ pub fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
     if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
     if (try StdFormCheck.discardedSwap(self, stmt)) return;
     // A test's last line is its value: a `Bool` decides the test.
-    if (self.body.in_test and CompatCheck.sameSite(stmt, self.expect.test_tail) and ExprCheck.canonical(self, ty) == self.t().bool_id) return self.ctx.recordTestCheck(stmt, try testReport(self, stmt));
+    if (self.body.in_test and CompatCheck.sameSite(stmt, self.expect.test_tail) and ExprCheck.canonical(self, ty) == self.t().bool_id) return self.ctx.record(.test_checks, stmt, try testReport(self, stmt));
     if (!hasEffect(stmt)) {
         // A statement `<e` is a drop everywhere but on a line whose
         // value is used, which a closure's last line is, though this
@@ -292,7 +292,7 @@ pub fn checkReturn(self: *Checker, node: Sexp) Error!void {
         const ty = try PatternCheck.synthExpr(self, value);
         if (self.isPoison(ty)) return;
         if (ExprCheck.canonical(self, ty) != self.t().bool_id) return self.errAt(value, "a test returns a `Bool`, and `false` fails it; this `return` gives `{s}`", .{try self.tyName(ty)});
-        return self.ctx.recordTestCheck(node, try testReport(self, node));
+        return self.ctx.record(.test_checks, node, try testReport(self, node));
     }
     if (self.body.returns) |sites| {
         const ty: ?TypeId = if (value == .nil) null else try PatternCheck.synthExpr(self, value);
@@ -696,11 +696,11 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
         return;
     }
     if (repoints) {
-        try self.ctx.recordRepoint(node);
+        try self.ctx.record(.repoints, node, {});
         (try self.ctx.symbolMut(sym_id)).flags.repointed = true;
     }
     if (writes_through) {
-        try self.ctx.recordWriteThrough(node);
+        try self.ctx.record(.write_throughs, node, {});
     } else if (!is_decl) (try self.ctx.symbolMut(sym_id)).flags.rebound = true;
     // Assigning a binding writes it without reading it; writing
     // through a `!T` binding reaches the viewed value.
@@ -1268,14 +1268,14 @@ pub fn requireAccess(self: *Checker, place_in: Checker.Place, access: Checker.Ac
 }
 
 /// Every slot of a table on the path of place `e`, which a write
-/// reaches: reached to write (`SemContext.recordTableWrite`), where any
+/// reaches: reached to write (`Facts.table_writes`), where any
 /// other slot is reached read-only.
 pub fn recordTableWrites(self: *Checker, e: Sexp) Error!void {
     var p = CompatCheck.stripSigil(e);
     while (p.isKind(.member) or p.isKind(.index)) : (p = ir.get(p, .object)) {
         if (!p.isKind(.index)) continue;
         const ty = self.ctx.typeOf(ir.get(p, .object)) orelse continue;
-        if (sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, ty)) != null) try self.ctx.recordTableWrite(p);
+        if (sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, ty)) != null) try self.ctx.record(.table_writes, p, {});
     }
 }
 

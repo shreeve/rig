@@ -45,13 +45,13 @@ const StmtCheck = @import("stmt.zig");
 pub fn recordLoan(self: *Checker, e: Sexp, view: TypeId) Error!void {
     var viewed = switch (self.ctx.types.get(view)) {
         .write_view => |base| base,
-        else => return self.ctx.recordLoan(e, .write),
+        else => return self.ctx.record(.loans, e, .write),
     };
     if (CompatCheck.sameNode(e, self.expect.self_obj)) switch (self.ctx.types.get(viewed)) {
         .shared => |inner| viewed = inner,
         else => {},
     };
-    try self.ctx.recordLoan(e, sema.loanOfView(self.ctx, viewed));
+    try self.ctx.record(.loans, e, sema.loanOfView(self.ctx, viewed));
 }
 
 pub fn makeViewOf(self: *Checker, e: Sexp, kind: Checker.ViewKind) Error!TypeId {
@@ -338,7 +338,7 @@ pub fn checkWriteView(self: *Checker, operand: Sexp) Error!bool {
     const base = if (hands(self, operand).hasStorage()) StmtCheck.placeOf(self, operand).base else operand;
     if (!try viewsBranch(self, operand, .nil, .write)) return false;
     try viewTemp(self, operand);
-    if (base == .list) try self.ctx.recordWrittenTemp(base);
+    if (base == .list) try self.ctx.record(.written_temps, base, {});
     return true;
 }
 
@@ -445,7 +445,7 @@ pub fn writeSlice(self: *Checker, slice: Sexp) Error!TypeId {
     const obj_ty = if (!hands(self, object).hasStorage()) try PatternCheck.synthExpr(self, object) else try synthOperand(self, object);
     try CallCheck.checkSliceRange(self, range);
     if (self.isPoison(obj_ty)) return obj_ty;
-    if (sema.sliceView(self.ctx, obj_ty)) |view| try self.ctx.recordSliceView(slice, view);
+    if (sema.sliceView(self.ctx, obj_ty)) |view| try self.ctx.record(.slice_views, slice, view);
     const peeled = sema.unwrapViews(self.ctx, obj_ty);
     var len: ?u64 = null;
     const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -501,7 +501,7 @@ pub fn synthMove(self: *Checker, e: Sexp) Error!TypeId {
     if (try StdFormCheck.rejectLane(self, operand, .take)) return self.t().invalid_id;
     if (try rejectMadeParts(self, e, operand)) return self.t().invalid_id;
     if (sema.moveSource(self.ctx, operand) != .optional_part) return ty;
-    try self.ctx.recordTake(e);
+    try self.ctx.record(.takes, e, {});
     const place = StmtCheck.placeOf(self, operand);
     if (place.cell_list_elem != null) {
         try self.errAt(e, "an element of a Cell's List is read and written whole: copy it out with `c[i]`, then write `c[i] = none`", .{});
@@ -627,7 +627,7 @@ pub fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
 /// it reads a view, a place, a part of a value, `?x` or `!x`, or a
 /// branching value, and takes a weak handle made there (`*<w`, `*~h`,
 /// `*f()`), which is dropped once upgraded. Recorded
-/// (`SemContext.recordUpgrade`), which the ownership checker and emit
+/// (`Facts.upgrades`), which the ownership checker and emit
 /// read: a read is `w`'s, as a `?@` method's self is read; a
 /// take moves `w` as `*<x` moves `x`.
 pub fn weakUpgrade(self: *Checker, e: Sexp, ty: TypeId) Error!?TypeId {
@@ -653,7 +653,7 @@ pub fn weakUpgrade(self: *Checker, e: Sexp, ty: TypeId) Error!?TypeId {
         if (hands(self, operand).kind == .branches and !try viewsBranch(self, operand, e, .read)) return self.t().invalid_id;
         try rejectResourceTemporary(self, operand, ty);
     }
-    try self.ctx.recordUpgrade(e, how);
+    try self.ctx.record(.upgrades, e, how);
     return try self.ctx.intern(.{ .optional = try self.ctx.intern(.{ .shared = inner }) });
 }
 
@@ -1138,7 +1138,7 @@ pub fn meetsOwnerBounds(self: *Checker, m: Field, owner: sema.Symbol, module: ?u
         }
     }
     const ws = (try sema.ownerWitnesses(self.ctx, m.owner_bounds, args)) orelse return false;
-    if (ws.len > 0) if (self.expect.current_call) |call| try self.ctx.recordOwnerWitnesses(call, .{ .witnesses = ws, .self_arg = self_arg });
+    if (ws.len > 0) if (self.expect.current_call) |call| try self.ctx.record(.owner_witnesses, call, .{ .witnesses = ws, .self_arg = self_arg });
     return true;
 }
 
@@ -1205,7 +1205,7 @@ pub fn viewTempIn(self: *Checker, operand: Sexp, whole: Sexp) Error!void {
     if (base != .list) return;
     const ty = self.ctx.typeOf(base) orelse return;
     if (sema.moves(self.ctx, ty) == .yes or self.ctx.types.get(ty) == .write_view) if (!try viewsBranch(self, operand, whole, .read)) return;
-    try self.ctx.recordTempDrop(base);
+    try self.ctx.record(.temp_drops, base, {});
 }
 
 /// A leaf of `e` that is a value a name holds, where `e` hands over
@@ -1251,7 +1251,7 @@ pub fn readLeafAs(self: *Checker, e: Sexp, record_use: bool) Error!void {
         const leaf_hands = hands(self, leaf);
         // A name's value, or a part of one, is read where it is.
         if (leaf_hands.hasStorage()) {
-            if (leaves.items.len > 1) try self.ctx.recordReadInPlace(leaf);
+            if (leaves.items.len > 1) try self.ctx.record(.in_place_reads, leaf, {});
             continue;
         }
         if (leaf_hands.kind != .made) continue;
@@ -1264,7 +1264,7 @@ pub fn readLeafAs(self: *Checker, e: Sexp, record_use: bool) Error!void {
             .fallible => |inner| inner.ok,
             else => ty,
         };
-        if (try needsCleanup(self, held, self.startOf(leaf), "leaves a temporary")) try self.ctx.recordTempDrop(leaf);
+        if (try needsCleanup(self, held, self.startOf(leaf), "leaves a temporary")) try self.ctx.record(.temp_drops, leaf, {});
     }
 }
 
@@ -1288,7 +1288,7 @@ pub fn synthMember(self: *Checker, e: Sexp) Error!TypeId {
     if (try numberType(self, obj)) |ty| return numberLimit(self, obj, ty, field, pos);
     if (try CallCheck.namedType(self, obj)) |nt| {
         const ty = try CallCheck.typeMember(self, nt, field, pos);
-        if (nt.sym.flags.error_set and !self.isPoison(ty)) try self.ctx.recordErrorMember(e);
+        if (nt.sym.flags.error_set and !self.isPoison(ty)) try self.ctx.record(.error_members, e, {});
         return ty;
     }
     // A field of a temporary is read where it stands, and the
@@ -1383,7 +1383,7 @@ pub fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, p
             // whose form has an error of its own asks for no `!` besides.
             if (sema.duration.isMaker(found.ctx, name) and self.ctx.diagnostics.items.len > mark) return self.t().invalid_id;
             if (sema.duration.isMaker(found.ctx, name)) if (self.expect.current_call) |call| if (!StdFormCheck.formFolds(self, call, args) and ir.Call.task(call) == .nil) {
-                try self.ctx.recordConstMaker(call);
+                try self.ctx.record(.const_makers, call, {});
                 return switch (self.ctx.types.get(f.returns)) {
                     .fallible => |fl| fl.ok,
                     else => f.returns,
@@ -1860,7 +1860,7 @@ pub fn viewByRows(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Err
     // makes a write view of the value it holds where the view goes
     // through the handle (`recordLoan`).
     if (e.isKind(.write) and !sliced) switch (self.ctx.types.get(from)) {
-        .shared => |inner| try self.ctx.recordLoan(e, if (made.has(.handle)) sema.loanOfView(self.ctx, inner) else .write),
+        .shared => |inner| try self.ctx.record(.loans, e, if (made.has(.handle)) sema.loanOfView(self.ctx, inner) else .write),
         else => {},
     };
     const view = sema.isReadOrWriteView(self.ctx, actual);
@@ -2003,7 +2003,7 @@ pub fn erase(self: *Checker, e: Sexp, actual: TypeId, from: TypeId, made: sema.V
         .read_view => |inner| self.ctx.types.get(inner) == .type_var or sema.holdsNoLoanButText(self.ctx, inner),
         else => false,
     };
-    try self.ctx.recordErasure(e, .{ .api = ov.object.api, .from = reached, .view = view, .witness = witness, .form = ov.form, .copy = copy });
+    try self.ctx.record(.erasures, e, .{ .api = ov.object.api, .from = reached, .view = view, .witness = witness, .form = ov.form, .copy = copy });
     return true;
 }
 
@@ -2016,7 +2016,7 @@ pub fn eraseBox(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error
     const into = heldInto(self, actual, expected, .box) orelse return false;
     const reached = sema.boxedType(self.ctx, into.value) orelse return false;
     const witness = (try erasable(self, e, e, actual, reached, into.want, into.object)) orelse return true;
-    try self.ctx.recordErasure(e, .{ .api = into.object.api, .from = reached, .view = into.want, .witness = witness, .form = .box, .optional = into.optional });
+    try self.ctx.record(.erasures, e, .{ .api = into.object.api, .from = reached, .view = into.want, .witness = witness, .form = .box, .optional = into.optional });
     try recordLift(self, e, if (into.optional) expected else into.want, expected);
     return true;
 }
@@ -2081,7 +2081,7 @@ pub fn eraseShared(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Er
     }
     const reached = frozen orelse inner;
     const witness = (try erasable(self, e, e, actual, reached, want, into.object)) orelse return true;
-    try self.ctx.recordErasure(e, .{ .api = into.object.api, .from = reached, .view = want, .witness = witness, .form = .shared, .holding = if (frozen != null) .frozen else .counted, .optional = into.optional });
+    try self.ctx.record(.erasures, e, .{ .api = into.object.api, .from = reached, .view = want, .witness = witness, .form = .shared, .holding = if (frozen != null) .frozen else .counted, .optional = into.optional });
     try recordLift(self, e, if (into.optional) expected else want, expected);
     return true;
 }
@@ -2411,8 +2411,8 @@ pub fn sliceArgRejected(self: *Checker, e: Sexp, actual: TypeId, expected: TypeI
 /// (`checkReadView`).
 pub fn viewTempArray(self: *Checker, e: Sexp, array: TypeId, expected: TypeId) Error!void {
     const elem = self.ctx.types.get(array).array.elem;
-    if (!sema.typeHasDropGlue(self.ctx, elem) and !sema.maybeDropGlue(self.ctx, elem)) return self.ctx.recordTempArray(e);
-    var view = sema.viewAs(self.ctx, array, .read, expected) orelse return self.ctx.recordTempArray(e);
+    if (!sema.typeHasDropGlue(self.ctx, elem) and !sema.maybeDropGlue(self.ctx, elem)) return self.ctx.record(.temp_arrays, e, {});
+    var view = sema.viewAs(self.ctx, array, .read, expected) orelse return self.ctx.record(.temp_arrays, e, {});
     try checkReadView(self, e);
     view.implicit = true;
     try self.ctx.recordImplicitView(e);
@@ -2954,7 +2954,7 @@ pub fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) 
 pub fn recordCodeWidening(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
     if (!sema.isErrorSet(self.ctx, actual) or sema.setHasFields(self.ctx, actual)) return;
     const into = sema.unwrapOptionals(self.ctx, expected);
-    if (into == self.t().any_error_id or (sema.isErrorSet(self.ctx, into) and sema.setHasFields(self.ctx, into))) try self.ctx.recordCodeWidening(e);
+    if (into == self.t().any_error_id or (sema.isErrorSet(self.ctx, into) and sema.setHasFields(self.ctx, into))) try self.ctx.record(.code_widenings, e, {});
 }
 
 /// Record the optional `e`'s value becomes where `expected` goes
@@ -3216,7 +3216,7 @@ pub fn ownSpan(self: *Checker, s: Sexp) parser.Span {
     return sp;
 }
 
-/// Record that `e`, a view of type `ty`, is read through (`recordRead`),
+/// Record that `e`, a view of type `ty`, is read through (`Facts.reads`),
 /// the one place type checking records it: a read as a value is first
 /// decided by `writeViewRead`.
 pub fn readOf(self: *Checker, e: Sexp, ty: TypeId, how: Checker.ViewRead) Error!void {
@@ -3224,7 +3224,7 @@ pub fn readOf(self: *Checker, e: Sexp, ty: TypeId, how: Checker.ViewRead) Error!
         .slot, .value, .read_view_of_write, .read_view, .read_self, .path => if (try writeViewRead(self, e, ty, how)) return,
         .narrow, .reach => {},
     }
-    try self.ctx.recordRead(e);
+    try self.ctx.record(.reads, e, {});
 }
 
 /// The write view written at `e`, of type `ty`: `!x`, or `<!x`, which

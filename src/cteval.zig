@@ -1199,7 +1199,7 @@ pub fn recordCall(ctx: *SemContext, e: Sexp, t: Target, args: []const CtVal, c: 
     }
     const i: u32 = @intCast(ctx.ct.results.items.len);
     try ctx.ct.results.append(ctx.allocator, .{ .value = c.value, .ty = c.ty, .hidden = hidden });
-    try ctx.recordCtCall(e, .{ .result = i });
+    try ctx.record(.ct_calls, e, .{ .result = i });
 }
 
 /// Write value `v` of type `ty` as `print` writes it: `7`, `true`,
