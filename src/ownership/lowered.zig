@@ -33,8 +33,10 @@ const Checker = state.Checker;
 /// A body lowered, and what the walk looks up in it by tree node.
 pub const Body = struct {
     f: *const lir.Func,
-    /// The outermost expression made for each node, by its key.
+    /// The outermost expression made for each node, by its key: each
+    /// list node's, and in the shadow each leaf's too (`leaves`).
     exprs: sema.FastMap(u64, lir.ExprId) = .empty,
+    leaves: bool = false,
     /// The region made for each block, by its node's key: the body's
     /// by the key of the function's block.
     regions: sema.FastMap(u64, lir.RegionId) = .empty,
@@ -61,6 +63,9 @@ pub const Expr = struct {
 /// expression made for it, in a lowered body.
 pub fn exprAt(self: *const Checker, node: Sexp) Expr {
     const b = self.lir_body orelse return .{ .node = node };
+    // A leaf's expression has no operands: only the shadow, which reads
+    // the var a name's use reads, looks one up.
+    if (!b.leaves and node != .list) return .{ .node = node };
     return .{ .node = node, .id = b.exprs.get(sema.decisionKeyOf(node) orelse return .{ .node = node }) };
 }
 
@@ -130,8 +135,10 @@ pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
     // is reset after each module-level function.
     const a = self.fn_arena_state.allocator();
     const out = try a.create(Body);
-    out.* = .{ .f = f };
-    try out.exprs.ensureTotalCapacity(a, @intCast(f.exprs.items.len));
+    out.* = .{ .f = f, .leaves = self.on_lir };
+    var n: u32 = 0;
+    for (f.exprs.items) |e| n += @intFromBool(out.leaves or nodeOfExpr(e) == .list);
+    try out.exprs.ensureTotalCapacity(a, n);
     if (self.on_lir) for (f.vars.items) |v| switch (v.name) {
         .binding => |s| if (sema.decisionKeyOf(v.node)) |key| try out.binds.put(a, key, s),
         .hidden => |k| if (k == .temp) if (sema.decisionKeyOf(v.node)) |key| try out.temps.put(a, key, {}),
@@ -187,9 +194,10 @@ fn index(b: *Body, a: std.mem.Allocator, r: lir.RegionId) Error!void {
     if (reg.value) |e| try expr(b, a, e);
 }
 
-fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
-    const e = b.f.exprs.items[id];
-    const node: Sexp = switch (e) {
+/// The node expression `e` is indexed by: none for a hold or a block,
+/// whose value is indexed by its own.
+fn nodeOfExpr(e: lir.Expr) Sexp {
+    return switch (e) {
         .@"var" => |x| x.node,
         .leaf => |l| l,
         .op => |o| o.node,
@@ -199,10 +207,15 @@ fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
         .closure => |x| x.node,
         .coerce => |x| x.node,
     };
-    if (sema.decisionKeyOf(node)) |key| {
-        const gop = try b.exprs.getOrPut(a, key);
+}
+
+fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
+    const e = b.f.exprs.items[id];
+    const node = nodeOfExpr(e);
+    if (b.leaves or node == .list) if (sema.decisionKeyOf(node)) |key| {
+        const gop = b.exprs.getOrPutAssumeCapacity(key);
         if (!gop.found_existing) gop.value_ptr.* = id;
-    }
+    };
     switch (e) {
         .@"var", .leaf, .closure => {},
         .op => |o| for (o.args) |x| try expr(b, a, x),
