@@ -278,7 +278,7 @@ const Pass = struct {
     instances: std.AutoHashMapUnmanaged(OwnerKey, Instances) = .empty,
     /// The compile-time parameters some instance the program makes binds,
     /// each by its declaration (`instanceMade`).
-    bound: std.AutoHashMapUnmanaged(sema.ForeignRef, void) = .empty,
+    bound: std.AutoHashMapUnmanaged(sema.SymbolRef, void) = .empty,
     max: u32,
     /// Whether this build compiles the root module's tests.
     with_tests: bool,
@@ -366,7 +366,7 @@ const Pass = struct {
     fn paramsBound(self: *Pass, c: *const SemContext, ty: sema.TypeId) !bool {
         if (!c.typeInfo(ty).has_type_var) return true;
         switch (c.types.get(ty)) {
-            .type_var, .ct_param => |sym| return self.bound.contains(originOf(c, sym)),
+            .type_var, .ct_param => |sym| return self.bound.contains(originOf(c, sym.sym)),
             else => {},
         }
         var it = sema.typeChildren(c, ty);
@@ -377,9 +377,8 @@ const Pass = struct {
     /// The parameters every instance module `c` makes binds (`bound`):
     /// a generic type's, and a generic function's, its type's included.
     fn bind(self: *Pass, c: *const SemContext) !void {
-        var it = c.instantiation_sites.keyIterator();
-        while (it.next()) |ty| switch (c.types.get(ty.*)) {
-            .parameterized_nominal => |pn| for (c.symbols.items[pn.sym].type_params orelse &.{}) |p| try self.bound.put(self.a, originOf(c, p), {}),
+        for (c.instantiation_sites.keys()) |ty| switch (c.types.get(ty)) {
+            .parameterized_nominal => |pn| for (c.symbols.items[c.localSym(pn.sym)].type_params orelse &.{}) |p| try self.bound.put(self.a, originOf(c, p), {}),
             else => {},
         };
         for (c.fn_instances.items) |f| for (f.inst.params) |p| try self.bound.put(self.a, originOf(c, p), {});
@@ -1422,7 +1421,7 @@ const Pass = struct {
 
 /// The declaration parameter `sym` of `c` stands for: its proxy's
 /// origin, or itself.
-fn originOf(c: *const SemContext, sym: sema.SymbolId) sema.ForeignRef {
+fn originOf(c: *const SemContext, sym: sema.SymbolId) sema.SymbolRef {
     const s = c.symbols.items[sym];
     return if (sema.isProxy(s)) s.from else .{ .module_id = c.module_id, .sym = sym };
 }

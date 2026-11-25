@@ -780,7 +780,7 @@ pub fn extendsPath(self: *const Checker, e: Sexp, at_root: bool, self_root: bool
     };
     while (sema.boxedType(ctx, t)) |inner| t = inner;
     switch (ctx.types.get(t)) {
-        .nominal, .imported_nominal => {},
+        .nominal => {},
         .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(ctx, pn.sym)) return false,
         else => return false,
     }
@@ -894,9 +894,9 @@ pub fn staysInRoot(self: *const Checker, e: Sexp) bool {
 pub fn holdsInline(self: *const Checker, ty: TypeId) bool {
     const ctx = self.sema;
     return switch (ctx.types.get(ty)) {
-        .array, .nominal, .imported_nominal => true,
+        .array, .nominal => true,
         .parameterized_nominal => |pn| blk: {
-            const sym = ctx.symbols.items[pn.sym];
+            const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
             break :blk sym.kind == .generic_type and sym.decl_pos < sema.imported_decl_pos;
         },
         else => false,
@@ -2372,7 +2372,7 @@ pub fn walkCallBody(self: *Checker, node: Sexp) Error!Value {
     // arguments, and hold none of them past the call: a String keeps
     // their text, not them.
     const text_op = self.sema.stringCallOf(node) orelse self.sema.stringCallOf(callee);
-    if (storage.isPrintCall(self.sema, node) or text_op != null) {
+    if (self.sema.isPrintCall(node) or text_op != null) {
         try walkReadArgs(self, args);
         if (recv_root) |id| if (recv_loan == .write) {
             const reserved = self.temps.orderedRemove(reservation);
@@ -3143,7 +3143,7 @@ pub fn inCellList(self: *const Checker, target: Sexp) bool {
         if (!e.isKind(.index)) continue;
         const ty = types.exprType(self, ir.Index.object(e)) orelse continue;
         switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
-            .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id) return true,
+            .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.cell) return true,
             else => {},
         }
     }
@@ -3469,8 +3469,7 @@ pub fn holdBase(self: *Checker, node: Sexp) Error!void {
 /// Whether place `e` is a path from the value a header holds.
 pub fn heldPath(self: *const Checker, e: Sexp) bool {
     const h = self.held orelse return false;
-    var base = e;
-    while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+    const base = sema.pathRoot(e);
     return base == .list and base.list.ptr == h.base.list.ptr;
 }
 

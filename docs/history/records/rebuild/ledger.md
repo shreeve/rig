@@ -18,6 +18,7 @@ as it lands. Newest entries first.
 | Pilot front F1: the recorder's trail | I | front | pilot-front | merged | #1258 | +232 |
 | Front F2: byte literals, by statement re-check (redesigned) | I | front | front | claimed | | |
 | Front F4–F6: chains, option groups and spreads; the module loop deleted | I | front | front | claimed | | |
+| Front 5: one decider per fact (shared columns, place walker, builtin column) | I | front | deciders | in review | #1283 | −6 |
 | Pilot front F3: iterator loops at the `for` | I | front | pilot-front | merged | #1259 | +70 |
 | Pilot back: the var table | I | back | pilot-back | merged | #1256 | +20 |
 | Back 1: LIR in shadow | I | back | back | claimed | | |

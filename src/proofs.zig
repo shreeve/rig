@@ -474,7 +474,7 @@ const Pass = struct {
 
     /// A slice view: a `?String`, `[]T`, or `![]T`.
     fn isSliceView(p: *const Pass, ty: sema.TypeId) bool {
-        const types = &p.ctx.types;
+        const types = p.ctx.types;
         return switch (types.get(ty)) {
             .string_view, .slice => true,
             .write_view => |inner| types.get(inner) == .slice,
@@ -485,7 +485,7 @@ const Pass = struct {
     /// A `List[T]`, held by value.
     fn isList(p: *const Pass, ty: sema.TypeId) bool {
         return switch (p.ctx.types.get(ty)) {
-            .parameterized_nominal => |pn| pn.sym == p.ctx.list_sym_id,
+            .parameterized_nominal => |pn| pn.sym == p.ctx.builtins.list,
             else => false,
         };
     }
@@ -494,7 +494,7 @@ const Pass = struct {
     /// what holds it says so.
     fn isObject(p: *const Pass, ty: sema.TypeId) bool {
         return switch (p.ctx.types.get(ty)) {
-            .nominal, .imported_nominal => true,
+            .nominal => true,
             else => false,
         };
     }
@@ -570,7 +570,7 @@ const Pass = struct {
         const sym = p.ctx.symbolOf(e) orelse return null;
         if (!p.ownBinding(sym)) return null;
         return switch (p.ctx.types.get(p.ctx.symbols.items[sym].ty)) {
-            .nominal, .imported_nominal => sym,
+            .nominal => sym,
             else => null,
         };
     }
@@ -1867,7 +1867,7 @@ const Summaries = struct {
             return .{ .whole = hi };
         }
         switch (ctx.types.get(ret)) {
-            .nominal => {},
+            .nominal => |r| if (!ctx.owns(r)) return null,
             else => return null,
         }
         // The fields some value gives a bound, each kept when every value

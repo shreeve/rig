@@ -660,7 +660,6 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
         _ = try PatternCheck.synthExpr(self, rhs);
         return;
     };
-    try self.ctx.recordName(target, sym_id);
     // A copy: resolving the annotation may add symbols (`sema.proxyOf`).
     const sym = self.ctx.symbols.items[sym_id];
     const is_decl = sym.decl_pos == target.src.pos;
@@ -995,7 +994,7 @@ pub fn checkCompound(self: *Checker, kind: rig.BindingKind, target_ty: TypeId, r
     };
     if (sema.simdOf(self.ctx, target_ty) != null) return StdFormCheck.simdCompound(self, op, spelled, sema.unwrapViews(self.ctx, target_ty), rhs, pos);
     const tv: ?SymbolId = switch (self.ctx.types.get(target_ty)) {
-        .type_var => |tv| tv,
+        .type_var => |tv| self.ctx.localSym(tv),
         else => null,
     };
     if (tv) |param| {

@@ -236,32 +236,6 @@ pub fn isLiteralText(t: []const u8) bool {
     return std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false");
 }
 
-pub fn isNoneLeaf(ctx: *const SemContext, e: Sexp) bool {
-    return e == .src and ctx.symbolOf(e) == null and std.mem.eql(u8, srcText(ctx, e), "none");
-}
-
-/// Which of the built-ins that write their values as `print` does a
-/// call is.
-pub const PrintCall = enum {
-    /// `print(...)`, to stdout.
-    print,
-    /// `warn(...)`, to stderr.
-    warn,
-};
-
-/// The built-in `call` is, `print(...)` or `warn(...)`, unless a
-/// declaration hides it.
-pub fn printCall(ctx: *const SemContext, call: Sexp) ?PrintCall {
-    const callee = ctx.calleeOf(call);
-    if (callee != .src or ctx.symbolOf(callee) != null) return null;
-    return std.meta.stringToEnum(PrintCall, srcText(ctx, callee));
-}
-
-/// `print(...)` or `warn(...)` (`printCall`).
-pub fn isPrintCall(ctx: *const SemContext, call: Sexp) bool {
-    return printCall(ctx, call) != null;
-}
-
 /// The built-in String operation `call` is: `String(...)`, `!t.add(...)`,
 /// or `!t.clear()`.
 pub fn stringCall(ctx: *const SemContext, call: Sexp) ?sema.StringCall {
@@ -341,7 +315,7 @@ pub fn laneChecked(ctx: *const SemContext, e: Sexp) bool {
 pub fn isPureArg(ctx: *const SemContext, e: Sexp) bool {
     switch (e) {
         .src => {
-            if (isLiteralText(srcText(ctx, e)) or isNoneLeaf(ctx, e)) return true;
+            if (isLiteralText(srcText(ctx, e)) or sema.isNoneLeaf(ctx, e)) return true;
             const sym = ctx.symbolOf(e) orelse return false;
             const s = ctx.symbols.items[sym];
             return switch (s.kind) {
@@ -481,7 +455,7 @@ pub fn hoistsArgs(ctx: *const SemContext, call: Sexp) bool {
 }
 
 fn callHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
-    if (isPrintCall(ctx, call) or stringCall(ctx, call) != null) return false;
+    if (ctx.isPrintCall(call) or stringCall(ctx, call) != null) return false;
     const args = ir.Call.args(call);
     // A closure literal passed to the call gets an environment first.
     for (args) |a| if (viewedLiteral(ctx, argValue(a))) return true;
@@ -645,7 +619,7 @@ pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     const ty = typeOf(ctx, e) orelse return false;
     if (!sema.readByAddress(ctx, ty)) return false;
     return switch (ctx.types.get(ty)) {
-        .string, .array, .nominal, .parameterized_nominal, .imported_nominal => true,
+        .string, .array, .nominal, .parameterized_nominal => true,
         else => false,
     };
 }
@@ -1071,7 +1045,7 @@ pub fn fold(ctx: *const SemContext, loop: Sexp) ?Fold {
     if (walked != sema.unwrapViews(ctx, t)) return null;
     const elem = switch (ctx.types.get(walked)) {
         .slice => |sl| sl.elem,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) pn.args[0] else return null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.list) pn.args[0] else return null,
         else => return null,
     };
     switch (ctx.types.get(elem)) {
@@ -1124,7 +1098,7 @@ fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
     const elem = switch (ctx.types.get(t)) {
         .array => |a| a.elem,
         .slice => |sl| sl.elem,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.table_sym_id) pn.args[0] else return false,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.list or pn.sym == ctx.builtins.table) pn.args[0] else return false,
         else => return false,
     };
     return sema.viewsStringBytes(ctx, elem, bound);
@@ -1841,7 +1815,7 @@ pub fn compoundCall(ctx: *const SemContext, set: Sexp) ?CompoundCall {
 
 fn isListTy(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
-        .parameterized_nominal => |pn| pn.sym == ctx.list_sym_id,
+        .parameterized_nominal => |pn| pn.sym == ctx.builtins.list,
         else => false,
     };
 }
@@ -1849,7 +1823,7 @@ fn isListTy(ctx: *const SemContext, ty: TypeId) bool {
 /// A Cell holding a List, reached by value, view, or shared handle.
 pub fn isCellListTy(ctx: *const SemContext, ty: TypeId) bool {
     const cell = switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id and pn.args.len == 1) pn.args[0] else return false,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.cell and pn.args.len == 1) pn.args[0] else return false,
         else => return false,
     };
     return isListTy(ctx, cell);

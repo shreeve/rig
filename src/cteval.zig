@@ -268,7 +268,7 @@ pub fn isPlain(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .int, .int_literal, .bool => true,
         .array => |a| isPlain(ctx, a.elem),
-        .nominal, .imported_nominal => sema.isPlainEnum(ctx, ty),
+        .nominal => sema.isPlainEnum(ctx, ty),
         else => false,
     };
 }
@@ -278,7 +278,7 @@ pub fn isPlain(ctx: *const SemContext, ty: TypeId) bool {
 fn isScalar(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .int, .bool => true,
-        .nominal, .imported_nominal => sema.isPlainEnum(ctx, ty),
+        .nominal => sema.isPlainEnum(ctx, ty),
         else => false,
     };
 }
@@ -760,7 +760,7 @@ fn resultIn(t: Target, f: sema.FunctionType, args: []const CtVal) Error!TypeId {
     const a = t.ctx.arena.allocator();
     for (f.ct_params, 0..) |pty, i| {
         if (t.ctx.types.get(pty) != .int or i >= f.ct_syms.len or args[i] != .int) continue;
-        try params.append(a, f.ct_syms[i]);
+        try params.append(a, t.ctx.localSym(f.ct_syms[i]));
         try vals.append(a, try sema.ctInt(t.ctx, args[i].int));
     }
     if (params.items.len == 0) return f.returns;
@@ -1609,7 +1609,7 @@ pub const Eval = struct {
             self.depth -= 1;
             _ = self.frames.pop();
         }
-        for (fn_ty.ct_syms, args) |sym, v| try env.put(self.gpa, sym, v);
+        for (fn_ty.ct_syms, args) |sym, v| try env.put(self.gpa, self.ctx.localSym(sym), v);
         const body = ir.Fun.body(def);
         const v = self.blockValue(body) catch |e| switch (e) {
             error.Jump => switch (self.jump) {
@@ -1644,7 +1644,7 @@ pub const Eval = struct {
                 const info = t.ctx.types.get(fn_ty.ct_params[i]).int;
                 if (!sema.intInfoFits(info, v.int)) {
                     const r = sema.intRange(info);
-                    return self.failAt(g, "passes {d} to `{s}`, which holds {d}..{d}", .{ v.int, t.ctx.symbols.items[fn_ty.ct_syms[i]].name, r.min, r.max });
+                    return self.failAt(g, "passes {d} to `{s}`, which holds {d}..{d}", .{ v.int, t.ctx.symbols.items[t.ctx.localSym(fn_ty.ct_syms[i])].name, r.min, r.max });
                 }
             };
             out.* = v;

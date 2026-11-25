@@ -634,7 +634,7 @@ pub const Checker = struct {
     }
 
     pub fn t(self: *Checker) *sema.TypeStore {
-        return &self.ctx.types;
+        return self.ctx.types;
     }
 
     pub fn isPoison(self: *Checker, ty: TypeId) bool {
@@ -813,7 +813,7 @@ pub const Checker = struct {
         const named = if (rig.isBracketList(callee)) ir.get(callee, .object) else callee;
         if (named != .src) return false;
         const id = self.ctx.symbolOf(named) orelse CallCheck.lookupQuiet(self, named) orelse return false;
-        return if (rig.isBracketList(callee)) id == self.ctx.simd_sym_id else self.ctx.symbols.items[id].kind == .type_alias;
+        return if (rig.isBracketList(callee)) self.ctx.ref(id) == self.ctx.builtins.simd else self.ctx.symbols.items[id].kind == .type_alias;
     }
 
     pub const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
@@ -823,7 +823,7 @@ pub const Checker = struct {
     /// limits an owner, goes to any task, and drops without running a
     /// `drop` body (CORE, "A failure moves its error").
     pub fn checkErrorFields(self: *Checker, sym: SymbolId, fields: []const sema.Field) Error!void {
-        const self_ty = try self.ctx.intern(.{ .nominal = sym });
+        const self_ty = try self.ctx.intern(.{ .nominal = self.ctx.ref(sym) });
         for (fields) |f| {
             if (!f.is_variant) continue;
             // Whether the member's fields compare and hash, which the
@@ -864,7 +864,7 @@ pub const Checker = struct {
     pub fn checkErrorJoin(self: *Checker, node: Sexp) Error!void {
         const name = ir.ErrorJoin.name(node);
         const sym = self.ctx.symbolOf(name) orelse return;
-        const self_ty = try self.ctx.intern(.{ .nominal = sym });
+        const self_ty = try self.ctx.intern(.{ .nominal = self.ctx.ref(sym) });
         for (ir.ErrorJoin.members(node)) |m| {
             const shown = if (m == .src) self.text(m) else try ViewCheck.plainText(self, m);
             try self.errAt(m, "a union of error sets lists no members of its own; declare a set for `{s}` and join it", .{shown});
@@ -991,7 +991,7 @@ pub const Checker = struct {
         const params = sym.type_params orelse return;
         const prev = self.nominal;
         // `Item` names the API's associated type, as in its signatures.
-        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = params[0] }), .type_params = params[1..] };
+        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = self.ctx.ref(params[0]) }), .type_params = params[1..] };
         defer self.nominal = prev;
         const prev_scope = self.enter(node);
         defer self.scope = prev_scope;
@@ -1092,10 +1092,9 @@ pub const Checker = struct {
     pub fn groupType(self: *Checker, ty: TypeId) Error!?GroupType {
         const a = self.ctx.arena.allocator();
         const sym: sema.Symbol, const module: ?u32, const id: SymbolId, const foreign: ?*SemContext = switch (self.ctx.types.get(ty)) {
-            .nominal => |id| .{ self.ctx.symbols.items[id], null, id, null },
-            .imported_nominal => |n| blk: {
-                const fc = self.ctx.foreign_semas.get(n.module_id) orelse return null;
-                break :blk .{ fc.symbols.items[n.sym_id], n.module_id, n.sym_id, fc };
+            .nominal => |r| if (self.ctx.owns(r)) .{ self.ctx.symbols.items[r.sym], null, r.sym, null } else blk: {
+                const fc = self.ctx.foreign_semas.get(r.module_id) orelse return null;
+                break :blk .{ fc.symbols.items[r.sym], r.module_id, r.sym, fc };
             },
             else => return null,
         };
@@ -1153,7 +1152,7 @@ pub const Checker = struct {
             else => return self.groupType(result),
         };
         const a = self.ctx.arena.allocator();
-        const subst: TypeSubst = .{ .params = self.ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args };
+        const subst: TypeSubst = .{ .params = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].type_params orelse &.{}, .args = pn.args };
         var data: std.ArrayList(Field) = .empty;
         var tys: std.ArrayList(TypeId) = .empty;
         for (fields) |f| {
@@ -1161,7 +1160,7 @@ pub const Checker = struct {
             try data.append(a, f);
             try tys.append(a, try sema.substituteType(self.ctx, f.ty, subst));
         }
-        return .{ .name = self.ctx.symbols.items[pn.sym].name, .fields = data.items, .tys = tys.items, .module = null, .sym = pn.sym };
+        return .{ .name = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].name, .fields = data.items, .tys = tys.items, .module = null, .sym = self.ctx.localSym(pn.sym) };
     }
 
     /// Where field `f` of `gt` is declared, as a note.
@@ -1738,8 +1737,8 @@ pub const Checker = struct {
         if (rig.isBracketList(callee)) callee = ir.get(callee, .object);
         const args = ir.Call.args(e);
         if (callee == .src) if (CallCheck.lookupQuiet(self, callee)) |id| {
-            if (id == self.ctx.list_sym_id) return args.len == 0;
-            if (id == self.ctx.cell_sym_id) return args.len == 1 and CompatCheck.isDefaultLiteral(self.ctx.source, args[0]);
+            if (self.ctx.ref(id) == self.ctx.builtins.list) return args.len == 0;
+            if (self.ctx.ref(id) == self.ctx.builtins.cell) return args.len == 1 and CompatCheck.isDefaultLiteral(self.ctx.source, args[0]);
         };
         return args.len == 0 and try self.emptyConstructor(ir.Call.callee(e));
     }

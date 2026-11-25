@@ -125,7 +125,7 @@ pub const FunctionType = struct {
     /// what a `type_var` or `ct_param` in the signature names. In a
     /// function type imported from another module, a type or integer
     /// parameter's proxy, and `symbol_invalid` for any other.
-    ct_syms: []const SymbolId = &.{},
+    ct_syms: []const SymbolRef = &.{},
 };
 
 pub const SliceType = struct { elem: TypeId };
@@ -438,22 +438,21 @@ pub const Type = union(enum) {
     /// `callable`, called through a `rig.FnRef`. (A `?T` whose `T` is a
     /// function type is a read view of a function value.)
     callable: TypeId,
-    /// An object, enum, error set, or opaque declared in this module.
-    nominal: SymbolId,
-    /// A nominal declared in another module. Identity is the origin
-    /// module plus the symbol there, never the shape.
-    imported_nominal: ImportedNominal,
+    /// An object, enum, error set, or opaque, of this module or another.
+    /// Identity is the declaring module plus the symbol there, never the
+    /// shape.
+    nominal: SymbolRef,
     /// A generic type applied to arguments: `Wrap[Int]`.
     parameterized_nominal: ParamNominal,
     /// A generic parameter (`T` inside `obj Wrap[T]`).
-    type_var: SymbolId,
+    type_var: SymbolRef,
     /// A compile-time integer where a type argument or an array length
     /// goes: `4` in `Ring[Int, 4]` and `[4]Int`. Not a type of values.
     ct_value: CtValue,
     /// A compile-time value parameter used where a `ct_value` goes, the
     /// way a `type_var` stands for a type: `n` in `[n]T` inside `fun
     /// f[n: Int]` or `obj Ring[T, n: Int]`.
-    ct_param: SymbolId,
+    ct_param: SymbolRef,
     /// `{Shape}`: an API object, a value of some type that provides an
     /// API of a program's own, its type erased (docs/design/apis.md,
     /// Stage 4). It has no size of its own, so it stands only behind a
@@ -676,7 +675,7 @@ pub fn objectCell(ctx: *const SemContext, ty: TypeId) ?TypeId {
 fn objectCellAt(ctx: *const SemContext, ty: TypeId, depth: u32) ?TypeId {
     if (depth > max_alias_height or !ctx.typeInfo(ty).object) return null;
     switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id) return ty,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.cell) return ty,
         else => {},
     }
     var it: TypeChildren = .{ .ty = ctx.types.get(ty) };
@@ -758,7 +757,7 @@ fn methodLeftOut(home: *const SemContext, f: Field, self_sym: SymbolId) ?LeftOut
         else => return null,
     };
     for (fn_ty.ct_syms) |p| {
-        if (p != symbol_invalid and home.symbols.items[p].flags.set_param) return .{ .set_param = home.symbols.items[p].name };
+        if (p.sym != symbol_invalid and symbolAt(home, p).flags.set_param) return .{ .set_param = symbolAt(home, p).name };
     }
     if (fn_ty.ct_params.len > 0) return .ct_params;
     const params = if (f.self_mode == .none) fn_ty.params else fn_ty.params[@min(1, fn_ty.params.len)..];
@@ -771,7 +770,7 @@ fn methodLeftOut(home: *const SemContext, f: Field, self_sym: SymbolId) ?LeftOut
 fn namesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId, depth: u32) bool {
     if (depth > max_alias_height or !ctx.typeInfo(ty).has_type_var) return false;
     const t = ctx.types.get(ty);
-    if (t == .type_var and t.type_var == sym) return true;
+    if (t == .type_var and t.type_var == ctx.ref(sym)) return true;
     var it: TypeChildren = .{ .ty = t };
     while (it.next()) |c| if (namesTypeVar(ctx, c, sym, depth + 1)) return true;
     return false;
@@ -792,16 +791,11 @@ pub const Fallible = struct {
 };
 
 pub const ParamNominal = struct {
-    sym: SymbolId,
+    sym: SymbolRef,
     args: []const TypeId,
     /// `List[T, inline: n]`: how many of its first elements live inside
     /// the List; 0 for every other instance.
     inline_len: u32 = 0,
-};
-
-pub const ImportedNominal = struct {
-    module_id: u32,
-    sym_id: SymbolId,
 };
 
 /// Module id -> the module's context, at index id. Ids run from 1, one
@@ -1021,7 +1015,7 @@ pub const TypeStore = struct {
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 std.mem.eql(TypeId, af.ct_params, b.function.ct_params) and
-                std.mem.eql(SymbolId, af.ct_syms, b.function.ct_syms) and
+                std.mem.eql(SymbolRef, af.ct_syms, b.function.ct_syms) and
                 std.mem.eql(TypeId, af.params, b.function.params),
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
                 x.inline_len == b.parameterized_nominal.inline_len and
@@ -1175,7 +1169,7 @@ pub const GroupParam = struct {
     ty: TypeId,
     /// The type's declaration, by module and symbol, which a spread's
     /// value must have (`nominalRef`), and its name.
-    ref: ?ForeignRef = null,
+    ref: ?SymbolRef = null,
     type_name: []const u8 = "",
     /// The parameter is the group as written, not one of its fields.
     whole: bool = false,
@@ -1335,7 +1329,7 @@ pub const Symbol = struct {
     /// A proxy (`proxyOf`): the other module's generic type or
     /// compile-time parameter it stands for. `.{}` for a symbol declared
     /// here.
-    from: ForeignRef = .{},
+    from: SymbolRef = .{},
     /// A type parameter: its bounds (`[T: Ord]`), with what they imply
     /// (`implied`). A nominal or generic type: the APIs its header names
     /// (`obj Name: Eq + Hash`), which it gives a meaning of its own. An
@@ -1598,7 +1592,7 @@ pub fn reportStated(ctx: *SemContext, at: u32, param: SymbolId, api: Api, op: []
 pub fn reportStatedLack(ctx: *SemContext, at: u32, api: Api, lack: Lack, does: ?[]const u8) std.mem.Allocator.Error!bool {
     if (!lack.bound) return false;
     return switch (ctx.types.get(lack.ty)) {
-        .type_var => |p| reportStatedBound(ctx, at, p, .{ .api = api }, does orelse try boundUse(ctx.arena.allocator(), api, ctx.symbols.items[p].name, "")),
+        .type_var => |p| reportStatedBound(ctx, at, ctx.localSym(p), .{ .api = api }, does orelse try boundUse(ctx.arena.allocator(), api, ctx.symbols.items[ctx.localSym(p)].name, "")),
         else => false,
     };
 }
@@ -1607,7 +1601,7 @@ pub fn reportStatedLack(ctx: *SemContext, at: u32, api: Api, lack: Lack, does: ?
 /// parameter `arg` does not provide, the body doing what `does` says.
 pub fn reportStatedUser(ctx: *SemContext, at: u32, arg: TypeId, api: ApiRef, does: []const u8) std.mem.Allocator.Error!bool {
     return switch (ctx.types.get(arg)) {
-        .type_var => |p| reportStatedBound(ctx, at, p, .{ .user = api }, does),
+        .type_var => |p| reportStatedBound(ctx, at, ctx.localSym(p), .{ .user = api }, does),
         else => false,
     };
 }
@@ -1759,8 +1753,53 @@ pub fn strongest(apis: Apis) Apis {
     return out;
 }
 
-/// A symbol of another module: the module's id and the symbol's id there.
-pub const ForeignRef = struct { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
+/// A symbol of the program: its module's id and its id there. Two
+/// compare whole, with `==`.
+pub const SymbolRef = packed struct(u64) { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
+
+/// The built-ins' module: a built-in is named in module 0, which no
+/// file is; every module registers the built-ins first, at the same ids,
+/// and reads a module-0 symbol from its own table.
+pub const builtin_module: u32 = 0;
+
+/// The built-in types and enums, each by its `SymbolRef` in module 0
+/// (`resolve.registerBuiltins`). `Actor[T]` is a value one task at a time
+/// changes, behind `*`. `Table[T, n]` and `Slot[n]` are a table of `n`
+/// slots and a number that names one (`Type.slot`). `OrderedMap[K, V]`
+/// and `OrderedSet[K]` are the tables behind `Map` and `Set`, and
+/// `UnorderedMap[K, V]` and `UnorderedSet[K]` behind `HashMap` and
+/// `HashSet`, which only std.prelude names (`resolve.registerTables`).
+pub const Builtins = struct {
+    cell: SymbolRef = .{},
+    list: SymbolRef = .{},
+    signal: SymbolRef = .{},
+    actor: SymbolRef = .{},
+    chan: SymbolRef = .{},
+    frozen: SymbolRef = .{},
+    task: SymbolRef = .{},
+    tasks: SymbolRef = .{},
+    simd: SymbolRef = .{},
+    table: SymbolRef = .{},
+    slot: SymbolRef = .{},
+    ordered_map: SymbolRef = .{},
+    ordered_set: SymbolRef = .{},
+    unordered_map: SymbolRef = .{},
+    unordered_set: SymbolRef = .{},
+    box: SymbolRef = .{},
+    endian: SymbolRef = .{},
+    order: SymbolRef = .{},
+    printer: SymbolRef = .{},
+    hasher: SymbolRef = .{},
+    arch: SymbolRef = .{},
+    os: SymbolRef = .{},
+    feature: SymbolRef = .{},
+};
+
+/// The symbol `ref` names, in this module or another.
+pub fn symbolAt(ctx: *const SemContext, ref: SymbolRef) *const Symbol {
+    const home = if (ref.module_id == ctx.module_id or ref.module_id == builtin_module) ctx else ctx.foreign_semas.get(ref.module_id).?;
+    return &home.symbols.items[ref.sym];
+}
 
 /// Whether `sym` stands for another module's declaration (`proxyOf`).
 pub fn isProxy(sym: Symbol) bool {
@@ -1961,9 +2000,9 @@ pub const Facts = struct {
     /// its check (`ConstMaker`): the call gives the plain `T` of its
     /// callee's `T!`, which emit unwraps.
     const_makers: FastMap(NodeKey, void) = .empty,
-    /// Calls of the built-in `swap`, not hidden by a declaration: whether
-    /// each exchanges two places or puts a value in one.
-    swap_calls: FastMap(NodeKey, SwapCall) = .empty,
+    /// Calls of a built-in function, not hidden by a declaration: which
+    /// one each names (`Builtin`).
+    builtins: FastMap(NodeKey, Builtin) = .empty,
     /// Temporary arrays passed as a `[]T` argument to a call that keeps
     /// no view of them (`SemContext.viewsTempArray`).
     temp_arrays: FastMap(NodeKey, void) = .empty,
@@ -2171,6 +2210,19 @@ pub const Column = blk: {
 /// The columns' declarations: every column the module check writes,
 /// keyed as its key type says (`NodeKey` by node, `u64` by expression),
 /// except those named here.
+///
+/// Four columns of the check take facts from both its resolver and its
+/// type checker, each key from one of them: `names` (the resolver's for
+/// a declaration, a type's name, an assignment's target, and a constant
+/// pattern, which the type checker names again as a value, alike; the
+/// type checker's for a value's name), `types` (the
+/// resolver's for a function's name; the type checker's for the rest),
+/// `write_sites` (the resolver's for an assignment, a store into a
+/// part, a write view, and a write capture, which a local's declaration
+/// asks of the binding's later writes; the type checker's for a move
+/// and a take, which need types), and `const_ints` (the resolver's for
+/// a module constant, folded before any type names it; the type
+/// checker's for a local).
 pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .names = .{ .key = .raw },
     .writes = .{ .key = .raw },
@@ -3172,8 +3224,8 @@ fn witnessBaseName(home: *const SemContext, a: std.mem.Allocator, index: u32) st
     const conf = home.conformances.items[index];
     const api = (apiSymbol(home, conf.api) orelse return "__rig_impl_unknown").name;
     var shown: []const u8 = switch (home.types.get(conf.ty)) {
-        .nominal => |s| home.symbols.items[s].name,
-        .parameterized_nominal => |pn| home.symbols.items[pn.sym].name,
+        .nominal => |s| if (home.owns(s)) home.symbols.items[s.sym].name else try formatTypeIn(home, a, conf.ty),
+        .parameterized_nominal => |pn| symbolAt(home, pn.sym).name,
         else => try formatTypeIn(home, a, conf.ty),
     };
     if (std.mem.indexOfScalar(u8, shown, '[')) |i| shown = shown[0..i];
@@ -3194,7 +3246,11 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     if (comptime std.mem.eql(u8, name, "task_joins")) return w.writeAll(if (v) " values" else " nothing");
     switch (V) {
-        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall, ViewKind => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, ViewKind => try w.print(" {s}", .{@tagName(v)}),
+        Builtin => switch (v) {
+            .swap => |swap| try w.print(" swap {s}", .{@tagName(swap)}),
+            else => try w.print(" {s}", .{@tagName(v)}),
+        },
         Duration => if (v.unit_ns == 0) try w.writeAll(" value") else try w.print(" {d}ns {s}{s}", .{ v.unit_ns, if (v.float) "Float" else "Int", if (v.ty == type_invalid) "" else " Duration" }),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
@@ -3516,7 +3572,7 @@ pub const GenericMethodCall = struct {
 /// give it a type that is no function (`Requirement.not_function`).
 pub fn requireHandleOf(ctx: *SemContext, inner: TypeId, pos: u32, op: []const u8) !void {
     switch (ctx.types.get(inner)) {
-        .type_var => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .not_function, .pos = pos, .op = op }),
+        .type_var => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = ctx.localSym(param), .req = .not_function, .pos = pos, .op = op }),
         else => {},
     }
 }
@@ -3612,13 +3668,13 @@ fn recordPlainFacts(ctx: *SemContext) std.mem.Allocator.Error!void {
     for (ctx.plain_tests.items) |ty| try ctx.plain_test_bits.put(ctx.allocator, ty, try plainBitOf(ctx, ty));
     if (!ctx.uses_plain_bits) return;
     var i: usize = 0;
-    while (i < ctx.types.items.items.len) : (i += 1) {
-        const ty: TypeId = @intCast(i);
+    while (i < ctx.interned.items.len) : (i += 1) {
+        const ty = ctx.interned.items[i];
         const pn = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+        const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
         const bits = try plainArgs(ctx, params, pn.args);
         if (bits.len > 0) try ctx.type_plain_bits.put(ctx.allocator, ty, bits);
     }
@@ -3633,13 +3689,12 @@ fn recordPlainFacts(ctx: *SemContext) std.mem.Allocator.Error!void {
 fn recordInstancePlain(ctx: *SemContext) std.mem.Allocator.Error!void {
     if (ctx.plain_regions.items.len == 0) return;
     for (ctx.fn_instances.items) |f| try recordArgsPlain(ctx, f.inst.params, f.inst.args);
-    var it = ctx.instantiation_sites.keyIterator();
-    while (it.next()) |ty| {
-        const pn = switch (ctx.types.get(ty.*)) {
+    for (ctx.instantiation_sites.keys()) |ty| {
+        const pn = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        try recordArgsPlain(ctx, ctx.symbols.items[pn.sym].type_params orelse continue, pn.args);
+        try recordArgsPlain(ctx, ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue, pn.args);
     }
     for (ctx.body_reaches.items) |r| try recordArgsPlain(ctx, r.params, r.args);
 }
@@ -3811,14 +3866,15 @@ fn computePlainBits(ctx: *SemContext) std.mem.Allocator.Error!void {
     ctx.uses_plain_bits = true;
     while (true) {
         changed = false;
-        var t: TypeId = 0;
-        while (t < ctx.types.items.items.len) : (t += 1) {
+        var i: usize = 0;
+        while (i < ctx.interned.items.len) : (i += 1) {
+            const t = ctx.interned.items[i];
             const pn = switch (ctx.types.get(t)) {
                 .parameterized_nominal => |pn| pn,
                 else => continue,
             };
             if (!ctx.typeInfo(t).has_type_var) continue;
-            const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+            const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
             changed = (try passPlainBits(ctx, params, pn.args, &leaves)) or changed;
         }
         for (ctx.generic_fn_uses.items) |use| {
@@ -4048,9 +4104,22 @@ pub const SemContext = struct {
     symbols: std.ArrayList(Symbol) = .empty,
     /// Scope 1 is the module scope.
     scopes: std.ArrayList(Scope) = .empty,
-    types: TypeStore,
-    /// Facts of each interned type, by TypeId.
-    type_info: std.ArrayList(TypeInfo) = .empty,
+    /// The program's type store (`program.Types`), which every module
+    /// interns in.
+    types: *TypeStore,
+    /// The store with the facts of each type in it (`program.Types`).
+    program_types: *program.Types,
+    /// The context made `program_types` itself, outside a graph, and
+    /// frees it.
+    owns_types: bool = false,
+    /// The first type this module may have interned: the facts of every
+    /// type before it are an earlier module's, and final.
+    types_start: TypeId = 0,
+    /// The types this module has interned, in the order it first did,
+    /// and which they are (`interned_set`): what a walk over "the
+    /// module's types" walks, whatever other modules interned.
+    interned: std.ArrayList(TypeId) = .empty,
+    interned_set: std.DynamicBitSetUnmanaged = .{},
     /// Where among `diagnostics` a form holding an API object was
     /// reported as not built yet (`objectUnbuiltError`); a report a quiet
     /// check took back no longer counts (`objectRejected`).
@@ -4098,15 +4167,12 @@ pub const SemContext = struct {
     /// build.
     sealed: std.StaticBitSet(n_columns) = .empty,
 
-    cell_sym_id: SymbolId = symbol_invalid,
-    list_sym_id: SymbolId = symbol_invalid,
-    signal_sym_id: SymbolId = symbol_invalid,
-    /// `Actor[T]`: a value one task at a time changes, behind `*`.
-    actor_sym_id: SymbolId = symbol_invalid,
-    chan_sym_id: SymbolId = symbol_invalid,
-    frozen_sym_id: SymbolId = symbol_invalid,
-    task_sym_id: SymbolId = symbol_invalid,
-    tasks_sym_id: SymbolId = symbol_invalid,
+    /// The built-in types, by their names in module 0 (`Builtins`).
+    builtins: Builtins = .{},
+    /// The symbols below this id are the built-ins, which every module
+    /// registers first, at the same ids (`ref`); every symbol is, while
+    /// they are registered.
+    builtin_end: SymbolId = std.math.maxInt(SymbolId),
     /// The module makes a task (`f(x)&`): the program's root declares
     /// `__rig_tasks`, which runs it on the scheduler.
     makes_tasks: bool = false,
@@ -4128,27 +4194,6 @@ pub const SemContext = struct {
     /// as `main` starts (the program's root then declares no
     /// `__rig_start_early`).
     sets_workers: bool = false,
-    simd_sym_id: SymbolId = symbol_invalid,
-    /// `Table[T, n]` and `Slot[n]`: a table of `n` slots, and a number
-    /// that names one (`Type.slot`).
-    table_sym_id: SymbolId = symbol_invalid,
-    slot_sym_id: SymbolId = symbol_invalid,
-    /// `OrderedMap[K, V]` and `OrderedSet[K]`, the tables behind `Map`
-    /// and `Set`, and `UnorderedMap[K, V]` and `UnorderedSet[K]`, behind
-    /// `HashMap` and `HashSet`, which only std.prelude names
-    /// (`resolve.registerTables`).
-    ordered_map_sym_id: SymbolId = symbol_invalid,
-    ordered_set_sym_id: SymbolId = symbol_invalid,
-    unordered_map_sym_id: SymbolId = symbol_invalid,
-    unordered_set_sym_id: SymbolId = symbol_invalid,
-    box_sym_id: SymbolId = symbol_invalid,
-    endian_sym_id: SymbolId = symbol_invalid,
-    order_sym_id: SymbolId = symbol_invalid,
-    printer_sym_id: SymbolId = symbol_invalid,
-    hasher_sym_id: SymbolId = symbol_invalid,
-    arch_sym_id: SymbolId = symbol_invalid,
-    os_sym_id: SymbolId = symbol_invalid,
-    feature_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
     module_id: u32 = 0,
@@ -4218,8 +4263,9 @@ pub const SemContext = struct {
     alias_in_progress: FastMap(SymbolId, void) = .empty,
     /// Operations generic bodies apply to their type parameters.
     generic_requirements: std.ArrayList(GenericRequirement) = .empty,
-    /// Instantiated generic type -> position of its first spelling.
-    instantiation_sites: FastMap(TypeId, u32) = .empty,
+    /// Instantiated generic type -> position of its first spelling, in
+    /// the order the check finds them, which no TypeId decides.
+    instantiation_sites: fastmap.OrderedMap(TypeId, u32) = .empty,
     /// Instances of user generics spelled with type parameters, inside
     /// generic declarations (`Opt[T]` in `Wrap[T]`'s methods). See
     /// `expandInstantiations`.
@@ -4336,7 +4382,7 @@ pub const SemContext = struct {
     cell_objects: FastMap(SymbolId, CellVerdict) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
-    imported: FastMap(ForeignRef, SymbolId) = .empty,
+    imported: FastMap(SymbolRef, SymbolId) = .empty,
     /// How many imports `importSymbol` is nested in, and the proxies made
     /// past its limit, which the outermost fills in.
     import_depth: u32 = 0,
@@ -4441,7 +4487,7 @@ pub const SemContext = struct {
     large_foreign_frames: std.ArrayList(ForeignFrame) = .empty,
     /// The plain enums, of any module, that this module calls
     /// `from_text` on (`recordTextTable`).
-    text_tables: std.ArrayList(ForeignRef) = .empty,
+    text_tables: std.ArrayList(SymbolRef) = .empty,
     /// Facts of types worked out on their first ask (`TypeMemo`).
     type_memo: *TypeMemo,
     /// The `from` clause of each function and method that writes one
@@ -4506,13 +4552,34 @@ pub const SemContext = struct {
     ct: cteval.State = .{},
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
+        return initIn(allocator, source, null);
+    }
+
+    /// A context that interns in `shared`, the program's types, or in a
+    /// store of its own when null.
+    pub fn initIn(allocator: std.mem.Allocator, source: []const u8, shared: ?*program.Types) !SemContext {
+        const types = shared orelse made: {
+            const t = try allocator.create(program.Types);
+            errdefer allocator.destroy(t);
+            t.* = try program.Types.init(allocator);
+            break :made t;
+        };
+        errdefer if (shared == null) {
+            types.deinit(allocator);
+            allocator.destroy(types);
+        };
         var ctx: SemContext = .{
             .allocator = allocator,
             .source = source,
             .arena = std.heap.ArenaAllocator.init(allocator),
-            .types = try TypeStore.init(allocator),
+            .types = &types.store,
+            .program_types = types,
+            .owns_types = shared == null,
+            .types_start = if (types.ready) @intCast(types.store.items.items.len) else 0,
             .type_memo = undefined,
         };
+        // The types every store starts with are every module's.
+        for (0..types.primitives) |i| try ctx.noteInterned(@intCast(i));
         ctx.type_memo = try allocator.create(TypeMemo);
         ctx.type_memo.* = .{};
         errdefer allocator.destroy(ctx.type_memo);
@@ -4535,8 +4602,12 @@ pub const SemContext = struct {
         }
         self.scopes.deinit(self.allocator);
         self.symbols.deinit(self.allocator);
-        self.types.deinit(self.allocator);
-        self.type_info.deinit(self.allocator);
+        if (self.owns_types) {
+            self.program_types.deinit(self.allocator);
+            self.allocator.destroy(self.program_types);
+        }
+        self.interned.deinit(self.allocator);
+        self.interned_set.deinit(self.allocator);
         self.deferred_checks.deinit(self.allocator);
         self.conformances.deinit(self.allocator);
         self.type_witnesses.deinit(self.allocator);
@@ -4880,6 +4951,31 @@ pub const SemContext = struct {
 
     pub fn symbolOf(self: *const SemContext, node: Sexp) ?SymbolId {
         return if (node == .src) self.symbolAt(node.src.pos) else null;
+    }
+
+    /// The program-wide name of this module's symbol `sym`: a built-in's
+    /// is in module 0 (`builtin_end`).
+    pub fn ref(self: *const SemContext, sym: SymbolId) SymbolRef {
+        return .{ .module_id = if (sym < self.builtin_end) builtin_module else self.module_id, .sym = sym };
+    }
+
+    /// `ref` of each of `syms`, in the arena.
+    pub fn refs(self: *SemContext, syms: []const SymbolId) std.mem.Allocator.Error![]const SymbolRef {
+        const out = try self.arena.allocator().alloc(SymbolRef, syms.len);
+        for (syms, out) |s, *r| r.* = self.ref(s);
+        return out;
+    }
+
+    /// Whether `r` names a symbol of this module's table: its own, or a
+    /// built-in, which every module registers.
+    pub fn owns(self: *const SemContext, r: SymbolRef) bool {
+        return r.module_id == self.module_id or r.module_id == builtin_module;
+    }
+
+    /// The id in this module's table of `r`, a symbol it `owns`.
+    pub fn localSym(self: *const SemContext, r: SymbolRef) SymbolId {
+        std.debug.assert(self.owns(r));
+        return r.sym;
     }
 
     /// The symbol named by the identifier at source position `pos`.
@@ -5474,10 +5570,23 @@ pub const SemContext = struct {
         return self.facts.const_makers.contains(nodeKey(call) orelse return false);
     }
 
-    /// What `call` of the built-in `swap` exchanges (`Facts.swap_calls`);
-    /// null for any other call.
+    /// The built-in function `call` names (`Facts.builtins`); null for
+    /// any other call.
+    pub fn builtinOf(self: *const SemContext, call: Sexp) ?Builtin {
+        return self.get(.builtins, call);
+    }
+
+    /// Whether `call` is `print(...)` or `warn(...)`.
+    pub fn isPrintCall(self: *const SemContext, call: Sexp) bool {
+        const b = self.builtinOf(call) orelse return false;
+        return b == .print or b == .warn;
+    }
+
+    /// What `call` of the built-in `swap` exchanges; null for any other
+    /// call.
     pub fn swapCallOf(self: *const SemContext, call: Sexp) ?SwapCall {
-        return self.facts.swap_calls.get(nodeKey(call) orelse return null);
+        const b = self.builtinOf(call) orelse return null;
+        return if (b == .swap) b.swap else null;
     }
 
     /// `stmt` is an expression statement, whose value nothing uses: the
@@ -5939,7 +6048,7 @@ pub const SemContext = struct {
         if (!self.typeInfo(ty).has_type_var) return;
         switch (self.types.get(ty)) {
             .type_var, .ct_param => |sym| {
-                const gop = try self.generic_index.getOrPut(self.allocator, .{ .list = list, .param = sym });
+                const gop = try self.generic_index.getOrPut(self.allocator, .{ .list = list, .param = self.localSym(sym) });
                 if (!gop.found_existing) gop.value_ptr.* = .empty;
                 const entries = gop.value_ptr;
                 if (entries.items.len == 0 or entries.getLast() != at) try entries.append(self.allocator, at);
@@ -5991,20 +6100,29 @@ pub const SemContext = struct {
             else => {},
         }
         const id = try self.types.intern(self.allocator, ty);
+        try self.noteInterned(id);
         try self.syncTypeInfo();
         return id;
     }
 
+    /// Record that this module interned `id` (`interned`).
+    fn noteInterned(self: *SemContext, id: TypeId) std.mem.Allocator.Error!void {
+        if (id >= self.interned_set.bit_length) try self.interned_set.resize(self.allocator, @max(id + 1, self.interned_set.bit_length * 2), false);
+        if (self.interned_set.isSet(id)) return;
+        self.interned_set.set(id);
+        try self.interned.append(self.allocator, id);
+    }
+
     /// Record the facts of every type interned since the last call.
     fn syncTypeInfo(self: *SemContext) std.mem.Allocator.Error!void {
-        while (self.type_info.items.len < self.types.items.items.len) {
-            const info = try computeTypeInfo(self, @intCast(self.type_info.items.len));
-            try self.type_info.append(self.allocator, info);
+        while (self.program_types.info.items.len < self.types.items.items.len) {
+            const info = try computeTypeInfo(self, @intCast(self.program_types.info.items.len));
+            try self.program_types.info.append(self.allocator, info);
         }
     }
 
     pub fn typeInfo(self: *const SemContext, ty: TypeId) TypeInfo {
-        return if (ty < self.type_info.items.len) self.type_info.items[ty] else .{};
+        return if (ty < self.program_types.info.items.len) self.program_types.info.items[ty] else .{};
     }
 
     /// `typeInfo` for the ownership facts, known once declarations are
@@ -6018,13 +6136,16 @@ pub const SemContext = struct {
     /// arguments) may be temporary: they are copied into the arena only
     /// when the type is new.
     pub fn internCopy(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
-        if (self.types.find(ty)) |id| return id;
+        if (self.types.find(ty)) |id| {
+            try self.noteInterned(id);
+            return id;
+        }
         var owned = ty;
         switch (owned) {
             .function => |*f| {
                 f.params = try self.dupeIds(f.params);
                 f.ct_params = try self.dupeIds(f.ct_params);
-                f.ct_syms = try self.arena.allocator().dupe(SymbolId, f.ct_syms);
+                f.ct_syms = try self.arena.allocator().dupe(SymbolRef, f.ct_syms);
             },
             .parameterized_nominal => |*pn| pn.args = try self.dupeIds(pn.args),
             .results => |*parts| parts.* = try self.dupeIds(parts.*),
@@ -6043,6 +6164,9 @@ pub const SemContext = struct {
 // =============================================================================
 
 pub const CheckOptions = struct {
+    /// The program's type store, which the module interns in; null for a
+    /// module checked alone, which gets its own.
+    types: ?*program.Types = null,
     /// The parser that built the tree, for node spans in diagnostics.
     parser: ?*parser.Parser = null,
     /// What the module's `use` declarations resolve to.
@@ -6148,7 +6272,7 @@ pub fn notPublic(ctx: *SemContext, pos: u32, module: []const u8, name: []const u
 /// Check one module.
 pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts: CheckOptions) !SemContext {
     var t0 = timing.start(opts.timing);
-    var ctx = try SemContext.init(allocator, source);
+    var ctx = try SemContext.initIn(allocator, source, opts.types);
     errdefer ctx.deinit();
 
     ctx.parser = opts.parser;
@@ -6589,9 +6713,9 @@ fn expandUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandIt
         };
         if (reached == null and ctx.uses_plain_bits) {
             const generic = ctx.types.get(use).parameterized_nominal;
-            if (!try plainBitsAgree(ctx, ctx.symbols.items[inst.sym].type_params orelse &.{}, generic.args, inst.args, item.subst, item.site, try formatType(ctx, concrete))) return true;
+            if (!try plainBitsAgree(ctx, ctx.symbols.items[ctx.localSym(inst.sym)].type_params orelse &.{}, generic.args, inst.args, item.subst, item.site, try formatType(ctx, concrete))) return true;
         }
-        const builtin = ctx.symbols.items[inst.sym].decl_pos == builtin_decl_pos;
+        const builtin = ctx.symbols.items[ctx.localSym(inst.sym)].decl_pos == builtin_decl_pos;
         if (reached) |r| {
             if (builtin or (try r.types.getOrPut(ctx.allocator, concrete)).found_existing) continue;
         } else {
@@ -6600,9 +6724,9 @@ fn expandUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandIt
             gop.value_ptr.* = item.site;
             // A frozen value of a parameter is checked by its requirement
             // (`requireFrozen`), once for each parameter.
-            if (builtin and inst.sym == ctx.frozen_sym_id) continue;
+            if (builtin and inst.sym == ctx.builtins.frozen) continue;
             if (builtin) {
-                if (try resolve.builtinElementError(ctx, inst.sym, inst.args)) |msg| {
+                if (try resolve.builtinElementError(ctx, ctx.localSym(inst.sym), inst.args)) |msg| {
                     try ctx.err(item.site, "`{s}` instantiates `{s}`: {s}", .{ try rootName(ctx, item.root), try formatType(ctx, concrete), msg });
                 }
                 continue;
@@ -6875,9 +6999,9 @@ fn selfSeed(ctx: *SemContext, name: []const u8, outer: []const SymbolId, ty: Typ
     var params: std.ArrayList(SymbolId) = .empty;
     try params.appendSlice(a, outer);
     for (f.ct_syms, 0..) |p, i| {
-        if (p == symbol_invalid or i >= f.ct_params.len) continue;
+        if (p.sym == symbol_invalid or i >= f.ct_params.len) continue;
         switch (ctx.types.get(f.ct_params[i])) {
-            .type_var, .int => try params.append(a, p),
+            .type_var, .int => try params.append(a, ctx.localSym(p)),
             else => {},
         }
     }
@@ -6907,7 +7031,7 @@ fn typeItem(ctx: *const SemContext, ty: TypeId) ?TypeSubst {
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    return .{ .params = ctx.symbols.items[pn.sym].type_params orelse return null, .args = pn.args };
+    return .{ .params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse return null, .args = pn.args };
 }
 
 /// Whether `args` are distinct type or integer parameters: an instance at
@@ -6925,14 +7049,14 @@ fn isRenaming(ctx: *const SemContext, args: []const TypeId) bool {
 
 /// Set `args` to `params` themselves.
 fn ownParamArgs(ctx: *SemContext, params: []const SymbolId, args: []TypeId) std.mem.Allocator.Error!void {
-    for (params, args) |p, *arg| arg.* = try ctx.intern(if (ctx.symbols.items[p].kind == .param) .{ .ct_param = p } else .{ .type_var = p });
+    for (params, args) |p, *arg| arg.* = try ctx.intern(if (ctx.symbols.items[p].kind == .param) .{ .ct_param = ctx.ref(p) } else .{ .type_var = ctx.ref(p) });
 }
 
 /// Whether every type or integer parameter `ty` mentions is one of `params`.
 fn usesOnlyParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return true;
     switch (ctx.types.get(ty)) {
-        .type_var, .ct_param => |sym| return std.mem.findScalar(SymbolId, params, sym) != null,
+        .type_var, .ct_param => |sym| return std.mem.findScalar(SymbolId, params, ctx.localSym(sym)) != null,
         else => {},
     }
     var it = typeChildren(ctx, ty);
@@ -6970,7 +7094,7 @@ const max_instance_depth = 24;
 pub fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return false;
     switch (ctx.types.get(ty)) {
-        .type_var, .ct_param => |sym| return std.mem.findScalar(SymbolId, params, sym) != null,
+        .type_var, .ct_param => |sym| return std.mem.findScalar(SymbolId, params, ctx.localSym(sym)) != null,
         else => {},
     }
     var it = typeChildren(ctx, ty);
@@ -7103,8 +7227,9 @@ fn computeContents(ctx: *SemContext) std.mem.Allocator.Error![]const SymbolId {
     for (c.order.items) |id| try symbolContents(ctx, id);
     try computeReach(ctx);
     ctx.contents_ready = true;
-    ctx.type_info.clearRetainingCapacity();
+    ctx.program_types.info.shrinkRetainingCapacity(ctx.types_start);
     try ctx.syncTypeInfo();
+    ctx.program_types.ready = true;
     return ctx.arena.allocator().dupe(SymbolId, c.order.items);
 }
 
@@ -7122,13 +7247,13 @@ pub fn beginEarlyContents(ctx: *SemContext) std.mem.Allocator.Error!bool {
     ctx.ct.window.clearRetainingCapacity();
     for (ctx.symbols.items, 0..) |sym, i| {
         if (sym.kind != .nominal_type or sym.fields == null or sym.contents.done or sym.decl_pos >= imported_decl_pos) continue;
-        if (!isPlainEnum(ctx, try ctx.intern(.{ .nominal = @intCast(i) }))) continue;
+        if (!isPlainEnum(ctx, try ctx.intern(.{ .nominal = ctx.ref(@intCast(i)) }))) continue;
         try symbolContents(ctx, @intCast(i));
         try ctx.ct.window.append(ctx.allocator, @intCast(i));
     }
     ctx.contents_ready = true;
     ctx.ct.window_open = true;
-    ctx.type_info.clearRetainingCapacity();
+    ctx.program_types.info.shrinkRetainingCapacity(ctx.types_start);
     try ctx.syncTypeInfo();
     return true;
 }
@@ -7138,7 +7263,7 @@ pub fn endEarlyContents(ctx: *SemContext) std.mem.Allocator.Error!void {
     ctx.ct.window.clearRetainingCapacity();
     ctx.contents_ready = false;
     ctx.ct.window_open = false;
-    ctx.type_info.clearRetainingCapacity();
+    ctx.program_types.info.shrinkRetainingCapacity(ctx.types_start);
     try ctx.syncTypeInfo();
 }
 
@@ -7170,8 +7295,10 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // value), whose release drops it.
     // A task owns its running call, and its drop waits for it.
     // A table owns its slots' memory, and drops each slot.
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id or id == ctx.table_sym_id or isHashTable(ctx, id)) c.glue = true;
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.table_sym_id or isHashTable(ctx, id) or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.chan_sym_id or id == ctx.frozen_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
+    const r = ctx.ref(id);
+    const b = ctx.builtins;
+    if (r == b.list or r == b.box or r == b.task or r == b.tasks or r == b.table or isHashTable(ctx, r)) c.glue = true;
+    if (r == b.list or r == b.box or r == b.table or isHashTable(ctx, r) or r == b.cell or r == b.signal or r == b.actor or r == b.chan or r == b.frozen or r == b.task or r == b.tasks) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -7191,8 +7318,8 @@ const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool =
 /// whose parameters are `params` (empty elsewhere): each parameter it
 /// holds by value is marked in `held` and counts as plain.
 fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool) std.mem.Allocator.Error!Holds {
-    if (params.len == 0 and ctx.contents_ready and ty < ctx.type_info.items.len) {
-        const info = ctx.type_info.items[ty];
+    if (params.len == 0 and ctx.contents_ready and ty < ctx.program_types.info.items.len) {
+        const info = ctx.program_types.info.items[ty];
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var, .vector = info.vector, .any_error = info.any_error };
     }
     return switch (ctx.types.get(ty)) {
@@ -7213,20 +7340,20 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         // An API object's type is erased, so it may hold anything, and
         // its drop runs through its table (docs/design/apis.md, Stage 4).
         .api_object => .{ .glue = true },
-        .nominal, .imported_nominal => blk: {
+        .nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk .{};
             const c = contentsOf(decl.ctx, decl.sym);
             break :blk .{ .glue = c.glue, .plain = c.plain, .vector = c.vector, .any_error = c.any_error };
         },
         // A set parameter's value is an error, whatever set binds it.
         .type_var => |sym| blk: {
-            if (ctx.symbols.items[sym].flags.set_param) break :blk .{ .glue = true, .any_error = true };
-            const i = std.mem.findScalar(SymbolId, params, sym) orelse break :blk .{ .type_var = true };
+            if (ctx.symbols.items[ctx.localSym(sym)].flags.set_param) break :blk .{ .glue = true, .any_error = true };
+            const i = std.mem.findScalar(SymbolId, params, ctx.localSym(sym)) orelse break :blk .{ .type_var = true };
             held[i] = true;
             break :blk .{ .plain = true, .type_var = true };
         },
         .parameterized_nominal => |pn| blk: {
-            const c = contentsOf(ctx, pn.sym);
+            const c = contentsOf(ctx, ctx.localSym(pn.sym));
             var h: Holds = .{ .glue = c.glue, .plain = c.plain, .vector = c.vector, .any_error = c.any_error };
             // A List, a box, or a table keeps its elements in heap memory,
             // so a parameter it holds is not held by value here: `W[T]`
@@ -7372,12 +7499,12 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         .array => |a| return reachOf(ctx, a.elem, mask, into),
         // A `*{A + Syncs}` holds a frozen value, which holds no view.
         .shared, .weak => |inner| return if (frozenObject(ctx, inner)) .{} else reachOf(ctx, inner, mask.within(Reach.views_only), into),
-        .nominal => |sym| blk: {
-            const e = into orelse break :blk Reach.of(ctx.symbols.items[sym].contents);
-            try e.edges.append(ctx.allocator, .{ .from = sym, .to = e.owner, .mask = mask });
+        .nominal => |r| blk: {
+            if (!ctx.owns(r)) break :blk Reach.of((nominalDecl(ctx, ty) orelse return .{}).symbol().contents);
+            const e = into orelse break :blk Reach.of(ctx.symbols.items[r.sym].contents);
+            try e.edges.append(ctx.allocator, .{ .from = r.sym, .to = e.owner, .mask = mask });
             break :blk .{};
         },
-        .imported_nominal => Reach.of((nominalDecl(ctx, ty) orelse return .{}).symbol().contents),
         .parameterized_nominal => |pn| blk: {
             // A task keeps the loans of its call's arguments, which its
             // type does not name, so it may always hold a view: a shared
@@ -7385,7 +7512,7 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             // structure"). Its loans are never write views by type: a
             // task given a write view stays where it is bound. A set of tasks
             // keeps the loans of each.
-            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) {
+            if (pn.sym == ctx.builtins.task or pn.sym == ctx.builtins.tasks) {
                 var r: Reach = .{ .unique = true, .views = .{ .marked = true } };
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask, into));
                 break :blk r;
@@ -7401,13 +7528,13 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             const m = if (isHeapBuiltin(ctx, pn.sym)) mask.within(Reach.views_only) else mask;
             var r: Reach = .{};
             if (into) |e| {
-                try e.edges.append(ctx.allocator, .{ .from = pn.sym, .to = e.owner, .mask = m });
-            } else r = Reach.of(ctx.symbols.items[pn.sym].contents);
+                try e.edges.append(ctx.allocator, .{ .from = ctx.localSym(pn.sym), .to = e.owner, .mask = m });
+            } else r = Reach.of(ctx.symbols.items[ctx.localSym(pn.sym)].contents);
             // A Cell an argument holds is inline only where the generic
             // holds that parameter by value (`Contents.held`, the rule
             // `holdsIn` follows), not behind a handle, a view, or a
             // container's heap memory.
-            const held = contentsOf(ctx, pn.sym).held;
+            const held = contentsOf(ctx, ctx.localSym(pn.sym)).held;
             for (pn.args, 0..) |a, i| {
                 const by_value = i < held.len and held[i];
                 r = r.with(try reachOf(ctx, a, if (by_value) m else m.within(Reach.no_cell), into));
@@ -7433,7 +7560,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     var highest: ?u8 = null;
     var it: TypeChildren = .{ .ty = ty };
     while (it.next()) |c| {
-        const ci = ctx.type_info.items[c];
+        const ci = ctx.program_types.info.items[c];
         info.has_type_var = info.has_type_var or ci.has_type_var;
         info.object = info.object or ci.object;
         info.poison = info.poison or ci.poison;
@@ -7568,11 +7695,11 @@ const OptionalWalk = struct {
     /// for any other: a type parameter is no object or enum, so the walk
     /// from either meets the same objects' and enums' optionals.
     fn ownInstance(w: *OptionalWalk, ctx: *SemContext, pn: ParamNominal) std.mem.Allocator.Error!?TypeId {
-        const params = ctx.symbols.items[pn.sym].type_params orelse return null;
+        const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse return null;
         if (params.len != pn.args.len) return null;
         for (pn.args) |arg| if (ctx.types.get(arg) != .type_var) return null;
         w.own.clearRetainingCapacity();
-        for (params) |p| try w.own.append(ctx.allocator, try ctx.intern(.{ .type_var = p }));
+        for (params) |p| try w.own.append(ctx.allocator, try ctx.intern(.{ .type_var = ctx.ref(p) }));
         return try ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = w.own.items, .inline_len = pn.inline_len } });
     }
 
@@ -7595,7 +7722,7 @@ const OptionalWalk = struct {
         var met = false;
         while (w.stack.pop()) |step| {
             const t = switch (ctx.types.get(step.ty)) {
-                .parameterized_nominal => |pn| if (genericDecl(ctx.symbols.items[pn.sym])) (try w.ownInstance(ctx, pn)) orelse step.ty else step.ty,
+                .parameterized_nominal => |pn| if (genericDecl(ctx.symbols.items[ctx.localSym(pn.sym)])) (try w.ownInstance(ctx, pn)) orelse step.ty else step.ty,
                 else => step.ty,
             };
             const k = step.key();
@@ -7613,7 +7740,7 @@ const OptionalWalk = struct {
             w.parts.clearRetainingCapacity();
             switch (here) {
                 .parameterized_nominal => |pn| {
-                    const decl = ctx.symbols.items[pn.sym];
+                    const decl = ctx.symbols.items[ctx.localSym(pn.sym)];
                     if (genericDecl(decl) and instanceNests(ctx, pn)) {
                         const subst: TypeSubst = .{ .params = decl.type_params.?, .args = pn.args };
                         for (decl.fields orelse &.{}) |*f| for (dataFields(f)) |*d| try w.parts.append(a, .{ .ty = try substituteType(ctx, d.ty, subst), .inl = step.inl, .late = !step.inl });
@@ -7646,7 +7773,7 @@ const OptionalWalk = struct {
             .fallible => i == 0,
             .parameterized_nominal => |pn| blk: {
                 if (isHeapBuiltin(ctx, pn.sym)) break :blk false;
-                const held = contentsOf(ctx, pn.sym).held;
+                const held = contentsOf(ctx, ctx.localSym(pn.sym)).held;
                 break :blk i < held.len and held[i];
             },
             else => false,
@@ -7672,8 +7799,8 @@ fn instanceNests(ctx: *const SemContext, pn: ParamNominal) bool {
 /// The local declaration a nominal type or generic instance names.
 fn declaredSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     return switch (ctx.types.get(ty)) {
-        .nominal => |s| s,
-        .parameterized_nominal => |pn| pn.sym,
+        .nominal => |s| if (ctx.owns(s)) s.sym else null,
+        .parameterized_nominal => |pn| ctx.localSym(pn.sym),
         else => null,
     };
 }
@@ -7729,8 +7856,8 @@ fn cycleFix(ctx: *SemContext, d: *const Field, target: SymbolId) std.mem.Allocat
         else => .{ d.ty, false },
     };
     const names_target = switch (ctx.types.get(inner)) {
-        .nominal => |s| s == target,
-        .parameterized_nominal => |pn| pn.sym == target,
+        .nominal => |s| s == ctx.ref(target),
+        .parameterized_nominal => |pn| pn.sym == ctx.ref(target),
         else => false,
     };
     if (!names_target) {
@@ -7869,6 +7996,17 @@ pub fn isBuiltinCallName(name: []const u8) bool {
 /// there, `old = swap(!x, v)` (`swapsTwoPlaces`, recorded by typecheck).
 pub const SwapCall = enum { places, value };
 
+/// The built-in function a call names, decided once, where typecheck
+/// checks the call, and read by every later pass: `print(...)`,
+/// `warn(...)`, a conversion to a number type named by its built-in
+/// name (`I32(x)`), or `swap`, with what it exchanges.
+pub const Builtin = union(enum) { print, warn, conversion, swap: SwapCall };
+
+/// `none`, the absent optional, as a leaf.
+pub fn isNoneLeaf(ctx: *const SemContext, e: Sexp) bool {
+    return e == .src and ctx.symbolOf(e) == null and std.mem.eql(u8, rig.leafText(ctx.source, e.src), "none");
+}
+
 /// Whether the built-in `swap`'s second argument `arg`, of type `ty`
 /// where known, is a second place given a write view, `!b` or a held `!T`: the
 /// call exchanges two places. Otherwise it is a value the call puts in
@@ -7882,21 +8020,23 @@ pub fn swapsTwoPlaces(ctx: *const SemContext, arg: Sexp, ty: ?TypeId) bool {
 /// A built-in generic that keeps its values on the heap: a `List[T]` and
 /// a `^T` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
 /// `T` inline, and a `Signal[T]` its value and a pending one.)
-fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.list_sym_id or sym == ctx.box_sym_id or sym == ctx.table_sym_id or isHashTable(ctx, sym);
+fn isHeapBuiltin(ctx: *const SemContext, r: SymbolRef) bool {
+    const b = ctx.builtins;
+    return r == b.list or r == b.box or r == b.table or isHashTable(ctx, r);
 }
 
 /// One of the tables behind `Map`, `Set`, `HashMap`, and `HashSet`:
 /// held as a List is, its entries on the heap, owning each key and value
 /// (`resolve.registerTables`).
-pub fn isHashTable(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym != symbol_invalid and (sym == ctx.ordered_map_sym_id or sym == ctx.ordered_set_sym_id or sym == ctx.unordered_map_sym_id or sym == ctx.unordered_set_sym_id);
+pub fn isHashTable(ctx: *const SemContext, r: SymbolRef) bool {
+    const b = ctx.builtins;
+    return r.sym != symbol_invalid and (r == b.ordered_map or r == b.ordered_set or r == b.unordered_map or r == b.unordered_set);
 }
 
 /// `UnorderedMap[K, V]` or `UnorderedSet[K]`, the tables behind `HashMap`
 /// and `HashSet` (`isHashTable`).
-fn isUnorderedTable(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym != symbol_invalid and (sym == ctx.unordered_map_sym_id or sym == ctx.unordered_set_sym_id);
+fn isUnorderedTable(ctx: *const SemContext, r: SymbolRef) bool {
+    return r.sym != symbol_invalid and (r == ctx.builtins.unordered_map or r == ctx.builtins.unordered_set);
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
@@ -7907,11 +8047,11 @@ fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symbol
         .optional => |inner| try byValueTargets(ctx, inner, out, every_arg),
         .fallible => |inner| try byValueTargets(ctx, inner.ok, out, every_arg),
         .array => |a| try byValueTargets(ctx, a.elem, out, every_arg),
-        .nominal => |s| try out.append(ctx.allocator, s),
+        .nominal => |s| if (ctx.owns(s)) try out.append(ctx.allocator, s.sym),
         .parameterized_nominal => |pn| {
             if (!every_arg and isHeapBuiltin(ctx, pn.sym)) return;
-            try out.append(ctx.allocator, pn.sym);
-            const held = ctx.symbols.items[pn.sym].contents.held;
+            try out.append(ctx.allocator, ctx.localSym(pn.sym));
+            const held = symbolAt(ctx, pn.sym).contents.held;
             for (pn.args, 0..) |arg, i| {
                 if (every_arg or (i < held.len and held[i])) try byValueTargets(ctx, arg, out, every_arg);
             }
@@ -7987,7 +8127,7 @@ pub fn holdsUnownedParam(ctx: *const SemContext, ty: TypeId) bool {
     switch (t) {
         // A set parameter's value is an error, whatever set binds it.
         .type_var => |id| {
-            const sym = ctx.symbols.items[id];
+            const sym = ctx.symbols.items[ctx.localSym(id)];
             return !sym.flags.set_param and !boundOwned(ctx, sym);
         },
         .function, .ct_param => return false,
@@ -8134,12 +8274,12 @@ fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Alloca
         .array => |arr| try out.append(a, arr.elem),
         .simd => |v| try out.append(a, v.elem),
         .read_view => |inner| if (viewByValue(ctx, inner)) try out.append(a, inner),
-        .nominal => |sym| try fieldsOf(ctx, a, &out, sym, .empty),
+        .nominal => |sym| if (ctx.owns(sym)) try fieldsOf(ctx, a, &out, sym.sym, .empty),
         .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) {
             // A List, a table, and a box are sized without what they hold.
-        } else if (pn.sym == ctx.signal_sym_id) {
+        } else if (pn.sym == ctx.builtins.signal) {
             try out.append(a, pn.args[0]);
-        } else try fieldsOf(ctx, a, &out, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        } else try fieldsOf(ctx, a, &out, ctx.localSym(pn.sym), .{ .params = symbolAt(ctx, pn.sym).type_params orelse &.{}, .args = pn.args }),
         else => {},
     }
     return out.items;
@@ -8180,19 +8320,19 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const e = (try minBytesOf(ctx, v.elem, false)) orelse break :blk null;
             break :blk n * e;
         },
-        .nominal => |sym| try fieldBytes(ctx, sym, .empty),
-        // Sized where it is declared (`checkTypeSizes`).
-        .imported_nominal => |in| blk: {
-            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
-            const declared = foreign.types.find(.{ .nominal = in.sym_id }) orelse break :blk null;
+        // One of another module is sized where it is declared
+        // (`checkTypeSizes`).
+        .nominal => |r| if (ctx.owns(r)) try fieldBytes(ctx, r.sym, .empty) else blk: {
+            const foreign = ctx.foreign_semas.get(r.module_id) orelse break :blk null;
+            const declared = foreign.types.find(.{ .nominal = r }) orelse break :blk null;
             break :blk foreign.byte_sizes.get(declared) orelse null;
         },
         // A List is its buffer's slice and length, a box its pointer. A
         // Cell is its value (its one field), a Signal its value, a pending
         // one, a flag, and a List of subscribers.
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id)
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.list)
             24
-        else if (pn.sym == ctx.table_sym_id)
+        else if (pn.sym == ctx.builtins.table)
             16
         else if (isUnorderedTable(ctx, pn.sym))
             // `unordered.zig`'s table: two pointers, three counts, and its
@@ -8202,12 +8342,12 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             // `ordered.zig`'s table: four pointers, five counts, its
             // shift, and two flags.
             56
-        else if (pn.sym == ctx.box_sym_id)
+        else if (pn.sym == ctx.builtins.box)
             8
-        else if (pn.sym == ctx.signal_sym_id) blk: {
+        else if (pn.sym == ctx.builtins.signal) blk: {
             const v = (try minBytesOf(ctx, pn.args[0], false)) orelse break :blk null;
             break :blk 2 *| v +| 2 +| 24;
-        } else try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        } else try fieldBytes(ctx, ctx.localSym(pn.sym), .{ .params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse &.{}, .args = pn.args }),
         // Several results are held together, as an object's fields are.
         .results => |parts| blk: {
             var total: u128 = 0;
@@ -8329,7 +8469,7 @@ fn checkTypeSizes(ctx: *SemContext, order: []const SymbolId) std.mem.Allocator.E
     for (order) |id| {
         const sym = ctx.symbols.items[id];
         if (sym.kind != .nominal_type or sym.decl_pos >= imported_decl_pos) continue;
-        const ty = try ctx.intern(.{ .nominal = id });
+        const ty = try ctx.intern(.{ .nominal = ctx.ref(id) });
         if (try oversizedByItself(ctx, ty, id, .empty)) |bytes| {
             try reportOversized(ctx, sym.decl_pos, ty, bytes);
         } else if (try tooDeepByItself(ctx, ty, id, .empty)) |depth| try reportTooDeep(ctx, sym.decl_pos, ty, depth);
@@ -8365,15 +8505,16 @@ pub fn valueDepth(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!u32 {
         var deepest: u32 = 0;
         for (done.parts) |part| deepest = @max(deepest, ctx.value_depths.get(part) orelse 0);
         const depth: u32 = switch (ctx.types.get(done.ty)) {
-            .optional, .array, .simd, .nominal => deepest +| 1,
-            // A List, a table, and a box hold their elements apart.
-            .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) 0 else deepest +| 1,
-            // Measured where it is declared (`checkTypeSizes`).
-            .imported_nominal => |in| blk: {
-                const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk 1;
-                const declared = foreign.types.find(.{ .nominal = in.sym_id }) orelse break :blk 1;
+            .optional, .array, .simd => deepest +| 1,
+            // One of another module is measured where it is declared
+            // (`checkTypeSizes`).
+            .nominal => |r| if (ctx.owns(r)) deepest +| 1 else blk: {
+                const foreign = ctx.foreign_semas.get(r.module_id) orelse break :blk 1;
+                const declared = foreign.types.find(.{ .nominal = r }) orelse break :blk 1;
                 break :blk foreign.value_depths.get(declared) orelse 1;
             },
+            // A List, a table, and a box hold their elements apart.
+            .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) 0 else deepest +| 1,
             else => 0,
         };
         try ctx.value_depths.put(ctx.allocator, done.ty, depth);
@@ -8549,7 +8690,7 @@ pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
             for (f.params) |p| if (findHeapStacked(ctx, p)) |found| return found;
             return findHeapStacked(ctx, f.returns);
         },
-        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, pn.args[0])) return ty,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.box and pn.args.len == 1 and heapStacked(ctx, pn.args[0])) return ty,
         else => {},
     }
     var parts: TypeChildren = .held(ctx, ty);
@@ -8565,7 +8706,7 @@ pub fn instanceHeapStacked(ctx: *SemContext, inst: TypeId) std.mem.Allocator.Err
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    const sym = ctx.symbols.items[pn.sym];
+    const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
     if (sym.decl_pos == builtin_decl_pos) return null;
     const subst: TypeSubst = .{ .params = sym.type_params orelse return null, .args = pn.args };
     for (sym.fields orelse &.{}) |f| {
@@ -8600,7 +8741,7 @@ pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {
 /// hold.
 pub fn isSetParam(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .type_var => |sym| ctx.symbols.items[sym].flags.set_param,
+        .type_var => |sym| ctx.symbols.items[ctx.localSym(sym)].flags.set_param,
         else => false,
     };
 }
@@ -8677,7 +8818,7 @@ fn handleAt(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) bool {
         // An API object's hidden value may hold one (Core §4).
         .shared, .weak, .api_object => true,
         .range, .callable => |inner| handleAt(ctx, inner, path),
-        .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, path),
+        .nominal => fieldsHoldHandle(ctx, ty, path),
         else => blk: {
             var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (handleAt(ctx, part, path)) break :blk true;
@@ -8721,7 +8862,7 @@ pub fn viewsCovariant(ctx: *const SemContext, f: TypeId, want: TypeId) bool {
 /// A type declared with `error`: a set, or a union of sets.
 pub fn isErrorSet(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .nominal, .imported_nominal => (nominalDecl(ctx, ty) orelse return false).symbol().flags.error_set,
+        .nominal => (nominalDecl(ctx, ty) orelse return false).symbol().flags.error_set,
         else => false,
     };
 }
@@ -8737,8 +8878,8 @@ pub const SetKey = struct {
 
     /// The set as a type of the module asking.
     pub fn typeIn(key: SetKey, ctx: *SemContext) std.mem.Allocator.Error!TypeId {
-        if (key.module_id) |m| return ctx.intern(.{ .imported_nominal = .{ .module_id = m, .sym_id = key.sym } });
-        return ctx.intern(.{ .nominal = key.sym });
+        if (key.module_id) |m| return ctx.intern(.{ .nominal = .{ .module_id = m, .sym = key.sym } });
+        return ctx.intern(.{ .nominal = ctx.ref(key.sym) });
     }
 };
 
@@ -8841,9 +8982,9 @@ fn collectErrorSets(ctx: *SemContext, in: *const SemContext, module_id: ?u32, na
         for (sym.fields orelse &.{}) |f| {
             if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
             try out.append(a, if (module_id) |m|
-                try ctx.intern(.{ .imported_nominal = .{ .module_id = m, .sym_id = @intCast(i) } })
+                try ctx.intern(.{ .nominal = .{ .module_id = m, .sym = @intCast(i) } })
             else
-                try ctx.intern(.{ .nominal = @intCast(i) }));
+                try ctx.intern(.{ .nominal = ctx.ref(@intCast(i)) }));
             break;
         }
     }
@@ -8853,9 +8994,8 @@ fn collectErrorSets(ctx: *SemContext, in: *const SemContext, module_id: ?u32, na
 /// enum, an error set, or a built-in type.
 pub fn isObject(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .nominal => |sym| isObjectSym(ctx, sym),
-        .parameterized_nominal => |pn| isObjectSym(ctx, pn.sym),
-        .imported_nominal => |n| isObjectSym(ctx.foreign_semas.get(n.module_id) orelse return false, n.sym_id),
+        .nominal => |r| isObjectSym(if (ctx.owns(r)) ctx else ctx.foreign_semas.get(r.module_id) orelse return false, r.sym),
+        .parameterized_nominal => |pn| isObjectSym(ctx, ctx.localSym(pn.sym)),
         else => false,
     };
 }
@@ -8875,9 +9015,8 @@ pub fn isCompoundSym(ctx: *const SemContext, sym_id: SymbolId) bool {
 /// is a pointer whatever its type arguments (`copiedByReadView`).
 pub fn isCompound(ctx: *const SemContext, ty: TypeId) bool {
     const sym, const in = switch (ctx.types.get(ty)) {
-        .nominal => |sym| .{ sym, ctx },
-        .parameterized_nominal => |pn| .{ pn.sym, ctx },
-        .imported_nominal => |n| .{ n.sym_id, ctx.foreign_semas.get(n.module_id) orelse return false },
+        .nominal => |r| .{ r.sym, if (ctx.owns(r)) ctx else ctx.foreign_semas.get(r.module_id) orelse return false },
+        .parameterized_nominal => |pn| .{ ctx.localSym(pn.sym), ctx },
         else => return false,
     };
     return switch (declaredKind(in, sym)) {
@@ -8926,7 +9065,7 @@ pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool 
         // A read view of a word-sized object is the object (`wordBits`),
         // so its optional is the object's.
         .read_view => |viewed| wordBits(ctx, viewed) != null,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id) objectHeld(ctx, inner) == null else isCompound(ctx, inner),
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.box) objectHeld(ctx, inner) == null else isCompound(ctx, inner),
         else => isCompound(ctx, inner),
     };
 }
@@ -8941,8 +9080,7 @@ pub const NamedNone = struct { field: []const u8, value: Wide, variant: ?[]const
 /// null for any other type.
 pub fn namedNoneOf(ctx: *const SemContext, ty: TypeId) ?NamedNone {
     return switch (ctx.types.get(ty)) {
-        .nominal => |sym| ctx.named_nones.get(sym),
-        .imported_nominal => |in| (ctx.foreign_semas.get(in.module_id) orelse return null).named_nones.get(in.sym_id),
+        .nominal => |r| (if (ctx.owns(r)) ctx else ctx.foreign_semas.get(r.module_id) orelse return null).named_nones.get(r.sym),
         else => null,
     };
 }
@@ -8981,8 +9119,7 @@ pub fn enumValues(ctx: *const SemContext, ty: TypeId) ?bool {
 /// integers. A built-in enum (`Endian`, `Arch`) has no integer values.
 pub fn isOrderedEnum(ctx: *const SemContext, ty: TypeId) bool {
     switch (ctx.types.get(ty)) {
-        .nominal => |sym| if (isBuiltinEnum(ctx, sym)) return false,
-        .imported_nominal => {},
+        .nominal => |r| if (isBuiltinEnum(ctx, r)) return false,
         else => return false,
     }
     return enumValues(ctx, ty) orelse false;
@@ -9128,7 +9265,7 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
         if (objectHeld(ctx, ty)) |h| return if (objectMeets(ctx, h.object, h.form, api)) null else .{ .ty = ty };
     }
     switch (ctx.types.get(ty)) {
-        .type_var => |sym| return boundLack(ctx, ty, sym, api),
+        .type_var => |sym| return boundLack(ctx, ty, ctx.localSym(sym), api),
         else => {},
     }
     switch (api) {
@@ -9180,7 +9317,7 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
             if (found.ctx != ctx) return .{ .ty = ty };
             const blocker = found.ty;
             return switch (ctx.types.get(blocker)) {
-                .type_var => |sym| boundLack(ctx, blocker, sym, api),
+                .type_var => |sym| boundLack(ctx, blocker, ctx.localSym(sym), api),
                 else => .{ .ty = blocker },
             };
         },
@@ -9246,8 +9383,7 @@ fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey,
             for (parts) |part| if (try objectUnownedIn(ctx, part, seen)) |o| return o;
             return null;
         },
-        .nominal => |sym| return objectUnownedFields(ctx, sym, seen),
-        .imported_nominal => {
+        .nominal => |r| if (ctx.owns(r)) return objectUnownedFields(ctx, r.sym, seen) else {
             const decl = nominalDecl(ctx, ty) orelse return null;
             // Found in another module's table: the whole type names it.
             return if (try objectUnownedFields(decl.ctx, decl.sym, seen) != null) ty else null;
@@ -9259,7 +9395,7 @@ fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey,
                 .parameterized_nominal => |pn| pn,
                 else => return null,
             };
-            return if (isBuiltinGeneric(ctx, pn.sym)) null else objectUnownedFields(ctx, pn.sym, seen);
+            return if (isBuiltinGeneric(ctx, pn.sym)) null else objectUnownedFields(ctx, ctx.localSym(pn.sym), seen);
         },
     }
 }
@@ -9408,7 +9544,7 @@ fn boundsHold(ctx: *SemContext, given_params: []const SymbolId, given_args: []co
                 // A type parameter `$plain` has narrowed where the call is
                 // copies and holds no loan.
                 if (plainApis().contains(api)) switch (ctx.types.get(lack.ty)) {
-                    .type_var => |p| if (narrowedAt(ctx, 0, r.at, p)) continue,
+                    .type_var => |p| if (narrowedAt(ctx, 0, r.at, ctx.localSym(p))) continue,
                     else => {},
                 };
                 if (try reportStatedLack(ctx, r.at, api, lack, try ctx.arena.allocator().print("{s} `{s}`, which needs `{s}: {s}`", .{ if (r.of == .func) "calls" else "names", try rootName(ctx, r.of), sym.name, @tagName(api) }))) return false;
@@ -9447,7 +9583,7 @@ pub fn unprovidedFix(ctx: *SemContext, arg: TypeId, api: ApiRef) std.mem.Allocat
     const fix: []const u8 = fix: {
         switch (ctx.types.get(arg)) {
             .type_var => |p| {
-                const sym = ctx.symbols.items[p];
+                const sym = ctx.symbols.items[ctx.localSym(p)];
                 if (!hasBounds(sym)) break :fix try a.print("; give it the bound: `[{s}: {s}]`", .{ sym.name, iname });
                 break :fix try a.print("; add `{s}` to its bounds: `[{s}: {s} + {s}]`", .{ iname, sym.name, try formatBounds(ctx, a, sym, null), iname });
             },
@@ -9552,8 +9688,8 @@ fn providesAt(ctx: *SemContext, ty: TypeId, api: ApiRef, depth: u32) std.mem.All
     const a = scratch.allocator();
     if (ctx.types.get(ty) == .type_var) {
         const p = ctx.types.get(ty).type_var;
-        for (ctx.symbols.items[p].user_apis) |b| {
-            for (try apiClosure(ctx, a, b)) |c| if (c.eql(api)) return .{ .bound = p };
+        for (ctx.symbols.items[ctx.localSym(p)].user_apis) |b| {
+            for (try apiClosure(ctx, a, b)) |c| if (c.eql(api)) return .{ .bound = ctx.localSym(p) };
         }
         return null;
     }
@@ -9602,7 +9738,7 @@ fn conditionsMet(ctx: *SemContext, ty: TypeId, home: *const SemContext, conf: Co
             .type_var => |p| p,
             else => continue,
         };
-        const bound = home.symbols.items[p];
+        const bound = home.symbols.items[home.localSym(p)];
         for (bound.user_apis) |u| if (try providesAt(ctx, args[i], u, depth + 1) == null) return false;
         var it = implied(bound.apis).iterator();
         while (it.next()) |b| if (try lacks(ctx, args[i], b) != null) return false;
@@ -9627,9 +9763,8 @@ const TypeKey = struct {
 
 fn typeKey(ctx: *const SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error!?TypeKey {
     return switch (ctx.types.get(ty)) {
-        .nominal => |s| symKey(ctx, s),
-        .parameterized_nominal => |pn| symKey(ctx, pn.sym),
-        .imported_nominal => |n| .{ .module_id = n.module_id, .sym = n.sym_id },
+        .nominal => |r| if (ctx.owns(r)) symKey(ctx, r.sym) else .{ .module_id = r.module_id, .sym = r.sym },
+        .parameterized_nominal => |pn| symKey(ctx, ctx.localSym(pn.sym)),
         .int, .float, .bool, .string, .static, .symbol => .{ .name = try formatTypeIn(ctx, a, ty) },
         // Every `Slot[n]`, whatever its `n`, as `add Slot[n]` names it.
         .slot => .{ .name = "Slot" },
@@ -9687,7 +9822,7 @@ pub fn witnessFor(ctx: *SemContext, ty: TypeId, api: ApiRef) std.mem.Allocator.E
             // The parameters whose bounds the witness takes: an addition's
             // own, or the generic type's.
             const params: []const SymbolId = if (found.conf.kind == .add) found.conf.params else switch (found.home.types.get(found.conf.ty)) {
-                .parameterized_nominal => |pn| found.home.symbols.items[pn.sym].type_params orelse &.{},
+                .parameterized_nominal => |pn| found.home.symbols.items[found.home.localSym(pn.sym)].type_params orelse &.{},
                 else => &.{},
             };
             const arg_ws = (try argWitnesses(ctx, found.home, params, args)) orelse return null;
@@ -9721,7 +9856,7 @@ pub fn typeWitnesses(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?[]co
         .parameterized_nominal => |pn| pn,
         else => return &.{},
     };
-    const params = ctx.symbols.items[pn.sym].type_params orelse return &.{};
+    const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse return &.{};
     return argWitnesses(ctx, ctx, params, pn.args);
 }
 
@@ -9731,13 +9866,13 @@ pub fn typeWitnesses(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?[]co
 /// them after the arguments they follow.
 pub fn recordTypeWitnesses(ctx: *SemContext) std.mem.Allocator.Error!void {
     var i: usize = 0;
-    while (i < ctx.types.items.items.len) : (i += 1) {
-        const ty: TypeId = @intCast(i);
+    while (i < ctx.interned.items.len) : (i += 1) {
+        const ty = ctx.interned.items[i];
         const pn = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+        const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
         const bounded = for (params) |p| {
             if (p != symbol_invalid and ctx.symbols.items[p].user_apis.len > 0) break true;
         } else false;
@@ -9771,11 +9906,11 @@ pub const IterShape = union(enum) { not_iterator, malformed: []const u8, item: T
 pub fn iterItem(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!IterShape {
     const peeled = unwrapViews(ctx, ty);
     switch (ctx.types.get(peeled)) {
-        .nominal, .imported_nominal => {},
+        .nominal => {},
         .parameterized_nominal => if (listElem(ctx, peeled) != null or tableElem(ctx, peeled) != null) return .not_iterator,
         .type_var => |p| {
-            if (!boundApis(ctx, ctx.symbols.items[p]).contains(.Iter)) return .not_iterator;
-            return .{ .item = try ctx.intern(.{ .type_var = try assocParam(ctx, p, .iter, "Item") }) };
+            if (!boundApis(ctx, ctx.symbols.items[ctx.localSym(p)]).contains(.Iter)) return .not_iterator;
+            return .{ .item = try ctx.intern(.{ .type_var = ctx.ref(try assocParam(ctx, ctx.localSym(p), .iter, "Item")) }) };
         },
         else => return .not_iterator,
     }
@@ -9898,8 +10033,8 @@ pub fn assocParam(ctx: *SemContext, base: SymbolId, api: AssocApi, name: []const
 /// such API.
 pub fn assocType(ctx: *SemContext, ty: TypeId, api: AssocApi, name: []const u8) std.mem.Allocator.Error!?TypeId {
     switch (ctx.types.get(ty)) {
-        .type_var => |p| switch (try assocApiOf(ctx, p, name)) {
-            .one => |found| if (found.sameApi(api)) return try ctx.intern(.{ .type_var = try assocParam(ctx, p, found, name) }),
+        .type_var => |p| switch (try assocApiOf(ctx, ctx.localSym(p), name)) {
+            .one => |found| if (found.sameApi(api)) return try ctx.intern(.{ .type_var = ctx.ref(try assocParam(ctx, ctx.localSym(p), found, name)) }),
             else => {},
         },
         else => {},
@@ -9940,7 +10075,7 @@ pub fn conformanceAssoc(ctx: *SemContext, ty: TypeId, api: ApiRef, name: []const
     // In the conformance's own parameters: an addition's, or the generic
     // type's for a header.
     const home_params: []const SymbolId = if (found.conf.kind == .add) found.conf.params else switch (found.home.types.get(found.conf.ty)) {
-        .parameterized_nominal => |pn| found.home.symbols.items[pn.sym].type_params orelse &.{},
+        .parameterized_nominal => |pn| found.home.symbols.items[found.home.localSym(pn.sym)].type_params orelse &.{},
         else => &.{},
     };
     const args = try conformanceArgs(ctx, ctx.arena.allocator(), ty);
@@ -9996,7 +10131,7 @@ pub fn matchAssoc(ctx: *const SemContext, pattern: TypeId, actual: TypeId, targe
     if (depth > 32) return null;
     const p = ctx.types.get(pattern);
     const x = ctx.types.get(actual);
-    if (p == .type_var and p.type_var == target) return actual;
+    if (p == .type_var and p.type_var == ctx.ref(target)) return actual;
     // `?String` is the one text view, the type `?Item` takes at `String`.
     if (p == .read_view and x == .string_view) return matchAssoc(ctx, p.read_view, ctx.types.string_id, target, depth + 1);
     switch (p) {
@@ -10181,7 +10316,7 @@ pub fn reportLack(ctx: *SemContext, at: u32, inst: []const u8, pname: []const u8
 pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, lack: Lack) std.mem.Allocator.Error![]const u8 {
     if (lack.bound) {
         const sym = ctx.types.get(lack.ty).type_var;
-        return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), ctx.symbols.items[sym].name, try formatBounds(ctx, a, ctx.symbols.items[sym], api) });
+        return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), ctx.symbols.items[ctx.localSym(sym)].name, try formatBounds(ctx, a, ctx.symbols.items[ctx.localSym(sym)], api) });
     }
     if (lack.own_eq) return "";
     if (api == .Iter) return a.print(": {s}", .{(try iterLack(ctx, ty)) orelse "it declares no `fun next(!@) -> T?`"});
@@ -10242,7 +10377,7 @@ fn boundLack(ctx: *const SemContext, ty: TypeId, sym: SymbolId, api: Api) ?Lack 
 fn paramsLack(ctx: *SemContext, params: []const SymbolId, api: Api) std.mem.Allocator.Error!?Lack {
     for (params) |p| {
         if (!checkedByBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(api)) continue;
-        return .{ .ty = try ctx.intern(.{ .type_var = p }), .bound = true };
+        return .{ .ty = try ctx.intern(.{ .type_var = ctx.ref(p) }), .bound = true };
     }
     return null;
 }
@@ -10266,7 +10401,7 @@ fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?La
     if (depth > 64) return .{ .ty = ty };
     if (isText(ctx, ty)) return null;
     switch (ctx.types.get(ty)) {
-        .type_var => |sym| return boundLack(ctx, ty, sym, .Ord),
+        .type_var => |sym| return boundLack(ctx, ty, ctx.localSym(sym), .Ord),
         .int, .int_literal, .bool, .slot => return null,
         .float, .float_literal => return .{ .ty = ty },
         .read_view, .write_view => |inner| return ordLack(ctx, inner, depth + 1),
@@ -10276,7 +10411,7 @@ fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?La
         .shared => |inner| return if (frozenValue(ctx, inner)) |value| ordLack(ctx, value, depth + 1) else .{ .ty = ty },
         .array => |arr| return ordLack(ctx, arr.elem, depth + 1),
         .slice => |sl| return ordLack(ctx, sl.elem, depth + 1),
-        .nominal, .imported_nominal => {
+        .nominal => {
             if (isOrderedEnum(ctx, ty)) return null;
             const decl = nominalDecl(ctx, ty) orelse return .{ .ty = ty };
             // Its fields were checked where it is declared.
@@ -10286,7 +10421,7 @@ fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?La
         // A generic type that names `Ord` orders by its fields at its
         // instance's types.
         .parameterized_nominal => |pn| {
-            const sym = ctx.symbols.items[pn.sym];
+            const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
             if (!sym.apis.contains(.Ord)) return .{ .ty = ty };
             const subst: TypeSubst = .{ .params = sym.type_params orelse &.{}, .args = pn.args };
             for (sym.fields orelse &.{}) |f| {
@@ -10350,8 +10485,8 @@ const EquatableWalk = struct {
             .api_object => return .object,
             // A parameter of another module's generic type is always
             // bound by the instance that reaches it.
-            .type_var => |sym| if (self.params) |out| if (!isProxy(ctx.symbols.items[sym]) and std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(ctx.allocator, sym),
-            .nominal, .imported_nominal, .parameterized_nominal => return self.stepDecl(i),
+            .type_var => |sym| if (self.params) |out| if (!isProxy(ctx.symbols.items[ctx.localSym(sym)]) and std.mem.findScalar(SymbolId, out.items, ctx.localSym(sym)) == null) try out.append(ctx.allocator, ctx.localSym(sym)),
+            .nominal, .parameterized_nominal => return self.stepDecl(i),
             .void, .fallible, .range => return .no_eq,
             else => {},
         }
@@ -10362,7 +10497,7 @@ const EquatableWalk = struct {
         const ctx = self.ctx;
         const ty = self.items.items[i].ty;
         const decl = nominalDecl(ctx, ty) orelse return null;
-        if (isBuiltinGeneric(decl.ctx, decl.sym)) return .no_eq;
+        if (isBuiltinGeneric(decl.ctx, decl.ctx.ref(decl.sym))) return .no_eq;
         const sym = decl.symbol();
         // An error set compares by its member and the member's fields, as
         // an enum does by its variant; a union, as the sets it joins.
@@ -10638,7 +10773,7 @@ pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     if (boxedType(ctx, box) == null) return null;
     const inner = unwrapAccess(ctx, box);
     return switch (ctx.types.get(inner)) {
-        .nominal, .imported_nominal => inner,
+        .nominal => inner,
         .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym)) null else inner,
         else => null,
     };
@@ -10647,7 +10782,7 @@ pub fn boxedNominal(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
 /// `T` of a `^T`; null for any other type.
 pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     return switch (ctx.types.get(ty_id)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.box and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -10681,21 +10816,24 @@ pub fn boxedReadView(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
 
 /// One of the built-in enums, `Endian`, `Arch`, `Os`, `Feature`, and
 /// `Order`: the runtime's own type, one in every module.
-pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.os_sym_id or sym == ctx.feature_sym_id or sym == ctx.order_sym_id;
+pub fn isBuiltinEnum(ctx: *const SemContext, r: SymbolRef) bool {
+    const b = ctx.builtins;
+    return r == b.endian or r == b.arch or r == b.os or r == b.feature or r == b.order;
 }
 
 /// A built-in generic that is or holds a Cell of its own, whatever its
 /// arguments: a `Cell`, a `Signal`, a channel, or an actor (Core
 /// sentence 9). The one list `reachOf` and `holdsOwnCell` read.
-fn isCellBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.chan_sym_id;
+fn isCellBuiltin(ctx: *const SemContext, r: SymbolRef) bool {
+    const b = ctx.builtins;
+    return r == b.cell or r == b.signal or r == b.actor or r == b.chan;
 }
 
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
 /// `Task`, `Tasks`.
-pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.chan_sym_id or sym == ctx.frozen_sym_id or sym == ctx.task_sym_id or sym == ctx.tasks_sym_id;
+pub fn isBuiltinGeneric(ctx: *const SemContext, r: SymbolRef) bool {
+    const b = ctx.builtins;
+    return isHeapBuiltin(ctx, r) or r == b.cell or r == b.signal or r == b.actor or r == b.chan or r == b.frozen or r == b.task or r == b.tasks;
 }
 
 /// The value member access on a `ty_id` reaches: through views,
@@ -10738,13 +10876,12 @@ pub const NominalDecl = struct {
 /// imported.
 pub fn nominalDecl(ctx: *const SemContext, ty_id: TypeId) ?NominalDecl {
     return switch (ctx.types.get(unwrapViews(ctx, ty_id))) {
-        .nominal => |s| .{ .ctx = ctx, .sym = s },
-        .parameterized_nominal => |pn| .{ .ctx = ctx, .sym = pn.sym },
-        .imported_nominal => |in| blk: {
-            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
-            if (in.sym_id >= foreign.symbols.items.len) break :blk null;
-            break :blk .{ .ctx = foreign, .sym = in.sym_id, .module_id = in.module_id };
+        .nominal => |r| if (ctx.owns(r)) .{ .ctx = ctx, .sym = r.sym } else blk: {
+            const foreign = ctx.foreign_semas.get(r.module_id) orelse break :blk null;
+            if (r.sym >= foreign.symbols.items.len) break :blk null;
+            break :blk .{ .ctx = foreign, .sym = r.sym, .module_id = r.module_id };
         },
+        .parameterized_nominal => |pn| .{ .ctx = ctx, .sym = ctx.localSym(pn.sym) },
         else => null,
     };
 }
@@ -10773,8 +10910,8 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     if (subst.isEmpty() or !ctx.typeInfo(ty_id).has_type_var) return ty_id;
     const ty = ctx.types.get(ty_id);
     switch (ty) {
-        .type_var => |sym| return subst.lookup(sym) orelse (try assocSubst(ctx, sym, subst)) orelse ty_id,
-        .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
+        .type_var => |sym| return subst.lookup(ctx.localSym(sym)) orelse (try assocSubst(ctx, ctx.localSym(sym), subst)) orelse ty_id,
+        .ct_param => |sym| return subst.lookup(ctx.localSym(sym)) orelse ty_id,
         inline .read_view, .write_view, .shared, .weak, .optional, .range, .callable, .slot => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
@@ -10845,7 +10982,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
 /// (`FunctionType.ct_params`) declares; null for a value parameter.
 pub fn typeParamOf(ctx: *const SemContext, slot: TypeId) ?SymbolId {
     return switch (ctx.types.get(slot)) {
-        .type_var => |sym| sym,
+        .type_var => |sym| ctx.localSym(sym),
         else => null,
     };
 }
@@ -10863,9 +11000,9 @@ pub fn ownParamOf(ctx: *const SemContext, f: FunctionType, i: usize) ?SymbolId {
 /// value parameter (`n: Int`), which an instance binds; null for any
 /// other slot.
 pub fn intParamOf(ctx: *const SemContext, f: FunctionType, i: usize) ?SymbolId {
-    if (i >= f.ct_syms.len or f.ct_syms[i] == symbol_invalid) return null;
+    if (i >= f.ct_syms.len or f.ct_syms[i].sym == symbol_invalid) return null;
     if (ctx.types.get(f.ct_params[i]) != .int) return null;
-    return f.ct_syms[i];
+    return ctx.localSym(f.ct_syms[i]);
 }
 
 /// Whether a function takes type parameters: a generic function.
@@ -10909,7 +11046,7 @@ fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
         .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .slice, .function, .callable, .simd, .slot, .read_view => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
-        .nominal, .imported_nominal => isPlainEnum(ctx, ty) or (isErrorSet(ctx, ty) and !isErrorValueForm(ctx, ty)) or wordBits(ctx, ty) != null,
+        .nominal => isPlainEnum(ctx, ty) or (isErrorSet(ctx, ty) and !isErrorValueForm(ctx, ty)) or wordBits(ctx, ty) != null,
         else => false,
     };
 }
@@ -10927,7 +11064,7 @@ fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
 /// one of its fields by address (`program.decideWords`).
 pub fn wordBits(ctx: *const SemContext, ty: TypeId) ?u8 {
     const decl = switch (ctx.types.get(ty)) {
-        .nominal, .imported_nominal => nominalDecl(ctx, ty) orelse return null,
+        .nominal => nominalDecl(ctx, ty) orelse return null,
         else => return null,
     };
     return wordBitsOfSym(decl.ctx, decl.sym);
@@ -10952,7 +11089,7 @@ pub fn wordBitsOfSym(dctx: *const SemContext, sym_id: SymbolId) ?u8 {
         bits += switch (dctx.types.get(f.ty)) {
             .int => |i| if (i.width() <= 64) i.width() else return null,
             .slot => |n| 8 * @as(u32, @intCast(slotBytes(slotCount(dctx, n) orelse return null))),
-            .nominal, .imported_nominal => wordBits(dctx, f.ty) orelse return null,
+            .nominal => wordBits(dctx, f.ty) orelse return null,
             else => return null,
         };
         any = true;
@@ -11094,7 +11231,10 @@ fn placeIn(a: std.mem.Allocator, name: []const u8, path: []const u8) std.mem.All
 fn shownFrom(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Allocator.Error![]const u8 {
     const a = ctx.arena.allocator();
     const text = try formatTypeIn(home, a, ty);
-    if (home == ctx or home.types.get(ty) != .nominal) return text;
+    switch (home.types.get(ty)) {
+        .nominal => |r| if (home == ctx or !home.owns(r)) return text,
+        else => return text,
+    }
     return a.print("{s}.{s}", .{ home.name, text });
 }
 
@@ -11134,12 +11274,12 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
             }
             return .{ .record = .{ .size = elem.size * len, .alignment = elem.alignment, .checks = checks.items } };
         },
-        .parameterized_nominal => |pn| return .{ .not = .{ .shown = shown, .why = switch (declaredKind(home, pn.sym)) {
+        .parameterized_nominal => |pn| return .{ .not = .{ .shown = shown, .why = switch (declaredKind(home, ctx.localSym(pn.sym))) {
             .object => .generic,
             .payload_enum => .enumeration,
             .other => .other,
         } } },
-        .nominal, .imported_nominal => {},
+        .nominal => {},
         else => return .{ .not = .{ .shown = shown, .why = .other } },
     }
     var decl = nominalDecl(home, ty) orelse return .{ .not = .{ .shown = shown, .why = .other } };
@@ -11177,7 +11317,7 @@ fn recordIn(ctx: *SemContext, home: *const SemContext, ty: TypeId) std.mem.Alloc
     // A value no object of it holds: `xs.get(i)`, `pop`, and a `T?` would
     // read one made from bytes as `none`.
     if (decl.ctx.named_nones.get(decl.sym)) |none| return .{ .not = .{ .shown = shown, .why = .{ .named_none = none } } };
-    if (!try isPlain(ctx, if (home == ctx) ty else try ctx.intern(.{ .imported_nominal = .{ .module_id = module.?, .sym_id = decl.sym } }))) return .{ .not = .{ .shown = shown, .why = .not_plain } };
+    if (!try isPlain(ctx, if (home == ctx) ty else try ctx.intern(.{ .nominal = .{ .module_id = module.?, .sym = decl.sym } }))) return .{ .not = .{ .shown = shown, .why = .not_plain } };
     // Another module's private fields are its own to set.
     const foreign: ?*const SemContext = if (module) |m| (if (m == ctx.module_id) null else ctx.foreign_semas.get(m)) else null;
     const sets_all = if (foreign) |f| f.is_std and ctx.is_std else true;
@@ -11279,7 +11419,7 @@ pub fn isWordValue(ctx: *const SemContext, ty: TypeId) bool {
 /// change it at once, through handles of their own.
 pub fn isWordCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id and pn.args.len == 1 and isWordValue(ctx, pn.args[0]),
+        .parameterized_nominal => |pn| pn.sym == ctx.builtins.cell and pn.args.len == 1 and isWordValue(ctx, pn.args[0]),
         else => false,
     };
 }
@@ -11287,7 +11427,7 @@ pub fn isWordCell(ctx: *const SemContext, ty: TypeId) bool {
 /// The `T` of a `Chan[T]`, or null for any other type.
 pub fn chanValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.chan_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.chan and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -11307,7 +11447,7 @@ pub fn chanOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// The `T` of an `Actor[T]`, or null for any other type.
 pub fn actorValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.actor_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.actor and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -11324,7 +11464,7 @@ pub fn actorOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// The `T` of a `Frozen[T]`, or null for any other type.
 pub fn frozenValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.frozen_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.frozen and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -11371,12 +11511,11 @@ pub fn cellObjectSym(ctx: *const SemContext, sym: SymbolId) bool {
 /// for a built-in type or one that names no object.
 fn cellDecl(ctx: *const SemContext, ty: TypeId) ?CloneSeen {
     return switch (ctx.types.get(ty)) {
-        .nominal => |sym| declaredAt(ctx, sym),
-        .imported_nominal => blk: {
+        .nominal => |r| if (ctx.owns(r)) declaredAt(ctx, r.sym) else blk: {
             const d = nominalDecl(ctx, ty) orelse break :blk null;
             break :blk .{ .ctx = d.ctx, .sym = d.sym };
         },
-        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym) or isHashTable(ctx, pn.sym)) null else declaredAt(ctx, pn.sym),
+        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym) or isHashTable(ctx, pn.sym)) null else declaredAt(ctx, ctx.localSym(pn.sym)),
         else => null,
     };
 }
@@ -11527,7 +11666,7 @@ pub fn cellRefusalReason(ctx: *SemContext, inner: TypeId) std.mem.Allocator.Erro
 /// Whether `ty` is a `Cell[T]`.
 pub fn isCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id,
+        .parameterized_nominal => |pn| pn.sym == ctx.builtins.cell,
         else => false,
     };
 }
@@ -11656,7 +11795,7 @@ fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
 /// argument, which is decided where it stands.
 fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .nominal, .imported_nominal => holdsCellByValue(ctx, ty),
+        .nominal => holdsCellByValue(ctx, ty),
         .parameterized_nominal => |pn| isCellBuiltin(ctx, pn.sym) or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
             if (holdsCellByValue(ctx, a)) break false;
         } else true),
@@ -11754,7 +11893,7 @@ pub fn selectType(ctx: *SemContext, names: []const []const u8, payloads: []const
                 if (held.len != 1 or held[0].ty != ty) continue :found;
             } else if (held.len != 0) continue :found;
         }
-        return ctx.intern(.{ .nominal = id });
+        return ctx.intern(.{ .nominal = ctx.ref(id) });
     }
     const a = ctx.arena.allocator();
     const fields = try a.alloc(Field, names.len);
@@ -11779,7 +11918,7 @@ pub fn selectType(ctx: *SemContext, names: []const []const u8, payloads: []const
     ctx.symbols.items[id].contents.cell = r.cell;
     ctx.symbols.items[id].contents.unique = r.unique;
     ctx.symbols.items[id].contents.views = r.views;
-    return ctx.intern(.{ .nominal = id });
+    return ctx.intern(.{ .nominal = ctx.ref(id) });
 }
 
 /// How a call writes a length of time (SPEC §18, "Durations"). A
@@ -11865,8 +12004,7 @@ pub const duration = struct {
 /// Whether `ty` is std.time's `Duration`.
 pub fn isDurationType(ctx: *const SemContext, ty: TypeId) bool {
     const sym, const in = switch (ctx.types.get(ty)) {
-        .nominal => |s| .{ s, ctx },
-        .imported_nominal => |n| .{ n.sym_id, ctx.foreign_semas.get(n.module_id) orelse return false },
+        .nominal => |r| .{ r.sym, if (ctx.owns(r)) ctx else ctx.foreign_semas.get(r.module_id) orelse return false },
         else => return false,
     };
     return in.is_std and std.mem.eql(u8, in.name, "std.time") and std.mem.eql(u8, in.symbols.items[sym].name, "Duration");
@@ -12466,7 +12604,7 @@ pub fn isSelectType(ctx: *const SemContext, sym: SymbolId) bool {
 /// Whether `ty` is a task, `Task[T]`.
 pub fn isTask(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn.sym == ctx.task_sym_id,
+        .parameterized_nominal => |pn| pn.sym == ctx.builtins.task,
         else => false,
     };
 }
@@ -12474,7 +12612,7 @@ pub fn isTask(ctx: *const SemContext, ty: TypeId) bool {
 /// Whether `ty` is a set of tasks, `Tasks[T]`.
 pub fn isTaskSet(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn.sym == ctx.tasks_sym_id,
+        .parameterized_nominal => |pn| pn.sym == ctx.builtins.tasks,
         else => false,
     };
 }
@@ -12490,7 +12628,7 @@ pub fn holdsCallLoans(ctx: *const SemContext, ty: TypeId) bool {
 /// The `T` of a `Task[T]` or a `Tasks[T]`: what each of its tasks gives.
 pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if ((pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if ((pn.sym == ctx.builtins.task or pn.sym == ctx.builtins.tasks) and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -12565,7 +12703,7 @@ fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
     reachedTypeVars(ctx, ty, &params, ctx.allocator) catch return null;
     for (params.items) |p| {
         if (!checkedByBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(if (how == .moves) .Sends else .Syncs)) continue;
-        return ctx.types.find(.{ .type_var = p }) orelse ty;
+        return ctx.types.find(.{ .type_var = ctx.ref(p) }) orelse ty;
     }
     return null;
 }
@@ -12702,7 +12840,7 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
         // instance's (`instanceBlock`), or a declaration's (`taskParams`).
         .type_var => |param| blk: {
             const out = walk.reached orelse break :blk null;
-            const got: TaskParam = .{ .param = param, .reach = .{ .how = how, .local = local } };
+            const got: TaskParam = .{ .param = ctx.localSym(param), .reach = .{ .how = how, .local = local } };
             for (out.items) |r| if (std.meta.eql(r, got)) break :blk null;
             out.append(ctx.allocator, got) catch {
                 walk.failed = true;
@@ -12725,15 +12863,14 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
             if (blockerIn(ctx, part, how, local, walk)) |b| break b;
         } else null,
         .parameterized_nominal => |pn| blk: {
-            if (local and (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id)) break :blk null;
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.tasks_sym_id) break :blk here;
-            if (pn.sym == ctx.task_sym_id and how == .shares) break :blk here;
-            if (pn.sym != ctx.task_sym_id and !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.simd_sym_id) break :blk instanceBlock(ctx, ty, pn, how, local, walk);
+            if (local and (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal)) break :blk null;
+            if (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal or pn.sym == ctx.builtins.actor or pn.sym == ctx.builtins.chan or pn.sym == ctx.builtins.tasks) break :blk here;
+            if (pn.sym == ctx.builtins.task and how == .shares) break :blk here;
+            if (pn.sym != ctx.builtins.task and !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.builtins.simd) break :blk instanceBlock(ctx, ty, pn, how, local, walk);
             for (pn.args) |a| if (blockerIn(ctx, a, how, local, walk)) |b| break :blk b;
             break :blk null;
         },
-        .nominal => |sym| fieldsBlock(ctx, sym, how, local, walk),
-        .imported_nominal => blk: {
+        .nominal => |r| if (ctx.owns(r)) fieldsBlock(ctx, r.sym, how, local, walk) else blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk here;
             var found = fieldsBlock(decl.ctx, decl.sym, how, local, walk) orelse break :blk null;
             if (found.module == null) found.module = decl.module_id;
@@ -12790,13 +12927,12 @@ fn frozenIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void))
             if (frozenIn(ctx, part, seen)) |b| break b;
         } else null,
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk here;
+            if (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal or pn.sym == ctx.builtins.actor or pn.sym == ctx.builtins.chan or pn.sym == ctx.builtins.task or pn.sym == ctx.builtins.tasks) break :blk here;
             for (pn.args) |a| if (frozenIn(ctx, a, seen)) |b| break :blk b;
-            if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk null;
-            break :blk fieldsFrozen(ctx, pn.sym, seen);
+            if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.builtins.simd) break :blk null;
+            break :blk fieldsFrozen(ctx, ctx.localSym(pn.sym), seen);
         },
-        .nominal => |sym| fieldsFrozen(ctx, sym, seen),
-        .imported_nominal => blk: {
+        .nominal => |r| if (ctx.owns(r)) fieldsFrozen(ctx, r.sym, seen) else blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk here;
             var found = fieldsFrozen(decl.ctx, decl.sym, seen) orelse break :blk null;
             if (found.module == null) found.module = decl.module_id;
@@ -12864,8 +13000,7 @@ fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) b
         .results => |parts| for (parts) |part| {
             if (taskIn(ctx, part, seen)) return true;
         },
-        .nominal => |sym| return fieldsHoldTask(ctx, sym, seen),
-        .imported_nominal => {
+        .nominal => |r| if (ctx.owns(r)) return fieldsHoldTask(ctx, r.sym, seen) else {
             const decl = nominalDecl(ctx, ty) orelse return false;
             return fieldsHoldTask(decl.ctx, decl.sym, seen);
         },
@@ -12876,8 +13011,8 @@ fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) b
                 .parameterized_nominal => |pn| pn,
                 else => return false,
             };
-            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) return true;
-            return !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.simd_sym_id and fieldsHoldTask(ctx, pn.sym, seen);
+            if (pn.sym == ctx.builtins.task or pn.sym == ctx.builtins.tasks) return true;
+            return !isBuiltinGeneric(ctx, pn.sym) and pn.sym != ctx.builtins.simd and fieldsHoldTask(ctx, ctx.localSym(pn.sym), seen);
         },
     }
     return false;
@@ -12897,10 +13032,10 @@ fn fieldsHoldTask(ctx: *const SemContext, sym: SymbolId, seen: *FastMap(SymbolKe
 /// fields hold its parameter (`r: ?T` reads a `T` from every task that
 /// reads the value).
 fn instanceBlock(ctx: *const SemContext, ty: TypeId, pn: ParamNominal, how: Crossing, local: bool, walk: *Walk) ?Blocker {
-    const decl = declaredAt(ctx, pn.sym) orelse return .{ .ctx = ctx, .ty = ty };
+    const decl = declaredAt(ctx, ctx.localSym(pn.sym)) orelse return .{ .ctx = ctx, .ty = ty };
     if (fieldsBlock(decl.ctx, decl.sym, how, local, walk)) |found| {
         var b = found;
-        if (b.module == null and decl.ctx != ctx) b.module = ctx.symbols.items[pn.sym].from.module_id;
+        if (b.module == null and decl.ctx != ctx) b.module = ctx.symbols.items[ctx.localSym(pn.sym)].from.module_id;
         return b;
     }
     const params = decl.ctx.symbols.items[decl.sym].type_params orelse &.{};
@@ -13124,13 +13259,12 @@ fn viewAtom(ctx: *const SemContext, ty: TypeId) u64 {
     const t = ctx.types.get(ty);
     const tag: u64 = @backingInt(std.meta.activeTag(t));
     const decl: ?struct { module: u32, sym: SymbolId } = switch (t) {
-        .nominal => |sym| if (isBuiltinEnum(ctx, sym)) .{ .module = 0, .sym = symbol_invalid } else .{ .module = ctx.module_id, .sym = sym },
-        .imported_nominal => |n| .{ .module = n.module_id, .sym = n.sym_id },
+        .nominal => |r| if (!ctx.owns(r)) .{ .module = r.module_id, .sym = r.sym } else if (isBuiltinEnum(ctx, r)) .{ .module = 0, .sym = symbol_invalid } else .{ .module = ctx.module_id, .sym = r.sym },
         .parameterized_nominal => |pn| blk: {
-            const sym = ctx.symbols.items[pn.sym];
-            if (sym.decl_pos == builtin_decl_pos) break :blk .{ .module = 0, .sym = pn.sym };
-            if (isProxy(sym)) break :blk .{ .module = sym.from.module_id, .sym = sym.from.sym };
-            break :blk .{ .module = ctx.module_id, .sym = pn.sym };
+            const sym = symbolAt(ctx, pn.sym);
+            if (sym.decl_pos == builtin_decl_pos) break :blk .{ .module = 0, .sym = pn.sym.sym };
+            if (isProxy(sym.*)) break :blk .{ .module = sym.from.module_id, .sym = sym.from.sym };
+            break :blk .{ .module = ctx.module_id, .sym = ctx.localSym(pn.sym) };
         },
         else => null,
     };
@@ -13173,7 +13307,7 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
         .optional, .shared, .weak => |inner| try f.visit(.{ .ctx = ctx, .ty = inner, .args = node.args, .held = true }),
         .fallible => |inner| try f.visit(.{ .ctx = ctx, .ty = inner.ok, .args = node.args, .held = true }),
         .array => |a| try f.visit(.{ .ctx = ctx, .ty = a.elem, .args = node.args, .elem = true, .held = true }),
-        .nominal, .imported_nominal => {
+        .nominal => {
             const decl = nominalDecl(ctx, node.ty) orelse return;
             for (decl.symbol().fields orelse &.{}) |*fld| {
                 for (dataFields(fld)) |d| try f.visit(.{ .ctx = decl.ctx, .ty = d.ty, .held = true });
@@ -13181,7 +13315,7 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
         },
         .parameterized_nominal => |pn| {
             for (pn.args) |arg| try f.visit(.{ .ctx = ctx, .ty = arg, .args = node.args, .elem = true, .held = true });
-            for (ctx.symbols.items[pn.sym].fields orelse &.{}) |*fld| {
+            for (symbolAt(ctx, pn.sym).fields orelse &.{}) |*fld| {
                 for (dataFields(fld)) |d| try f.visit(.{ .ctx = ctx, .ty = d.ty, .args = .{ .ctx = ctx, .tys = pn.args }, .held = true });
             }
         },
@@ -13737,7 +13871,7 @@ fn selfPathIn(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, f: Funct
         var holder = t;
         while (boxedType(ctx, holder)) |inner| holder = inner;
         const ok = switch (ctx.types.get(holder)) {
-            .nominal, .imported_nominal => true,
+            .nominal => true,
             .parameterized_nominal => |pn| !isBuiltinGeneric(ctx, pn.sym),
             else => false,
         };
@@ -14006,7 +14140,7 @@ fn unprintedIn(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator, find: e
         }
         switch (c.types.get(item.ty)) {
             .type_var => |param| {
-                if (item.top) if (vars) |v| if (std.mem.findScalar(SymbolId, v.out.items, param) == null) try v.out.append(v.a, param);
+                if (item.top) if (vars) |v| if (std.mem.findScalar(SymbolId, v.out.items, ctx.localSym(param)) == null) try v.out.append(v.a, ctx.localSym(param));
                 continue;
             },
             .slice => |sl| {
@@ -14026,7 +14160,7 @@ fn unprintedIn(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator, find: e
                 try todo.append(a, .{ .ctx = c, .ty = arr.elem, .top = item.top });
                 continue;
             },
-            .parameterized_nominal, .nominal, .imported_nominal => {},
+            .parameterized_nominal, .nominal => {},
             else => continue,
         }
         const decl = nominalDecl(c, item.ty) orelse continue;
@@ -14064,21 +14198,20 @@ fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: ?*const SymPath) bool 
         .shared, .optional => |i| runsDropBody(ctx, i, path),
         .fallible => |i| runsDropBody(ctx, i.ok, path),
         .array => |a| runsDropBody(ctx, a.elem, path),
-        .imported_nominal => typeHasDropGlue(ctx, ty),
-        .nominal => |sid| fieldsRunDropBody(ctx, sid, path),
+        .nominal => |r| if (ctx.owns(r)) fieldsRunDropBody(ctx, r.sym, path) else typeHasDropGlue(ctx, ty),
         // An API object's value may have a `drop` body, which may read
         // its loans (docs/design/apis.md, Stage 4).
         .api_object => true,
         .parameterized_nominal => |pn| blk: {
             // A task's drop waits for its call, which uses the loans the
             // task keeps (CORE sentence 6).
-            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk true;
+            if (pn.sym == ctx.builtins.task or pn.sym == ctx.builtins.tasks) break :blk true;
             // A hash table drops in the runtime, which the
             // checker does not see, so it counts as running a body, as
             // a type declared in another module with glue does.
             if (isHashTable(ctx, pn.sym)) break :blk true;
             for (pn.args) |a| if (runsDropBody(ctx, a, path)) break :blk true;
-            break :blk fieldsRunDropBody(ctx, pn.sym, path);
+            break :blk fieldsRunDropBody(ctx, ctx.localSym(pn.sym), path);
         },
         else => false,
     };
@@ -14179,7 +14312,7 @@ pub fn copies(ctx: *const SemContext, ty: TypeId) Answer {
     // A type parameter whose bounds name `Copy` copies in every instance,
     // and so does an optional of one.
     switch (ctx.types.get(ty)) {
-        .type_var => |param| if (boundApis(ctx, ctx.symbols.items[param]).contains(.Copy)) return .yes,
+        .type_var => |param| if (boundApis(ctx, ctx.symbols.items[ctx.localSym(param)]).contains(.Copy)) return .yes,
         .optional => |inner| if (copies(ctx, inner) == .yes) return .yes,
         else => {},
     }
@@ -14299,9 +14432,9 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
     switch (ctx.types.get(ty)) {
         .type_var => |sym| {
             // A set parameter's value is an error, which clones.
-            if (ctx.symbols.items[sym].flags.set_param) return true;
+            if (ctx.symbols.items[ctx.localSym(sym)].flags.set_param) return true;
             const f = frame orelse return false;
-            const i = std.mem.findScalar(SymbolId, f.params, sym) orelse return false;
+            const i = std.mem.findScalar(SymbolId, f.params, ctx.localSym(sym)) orelse return false;
             return deepCloneable(f.args_ctx, f.args[i], f.parent, seen);
         },
         else => {},
@@ -14317,28 +14450,28 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
         .optional => |inner| deepCloneable(ctx, inner, frame, seen),
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
+            if (pn.sym == ctx.builtins.list or pn.sym == ctx.builtins.box) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
             if (isHashTable(ctx, pn.sym)) {
                 for (pn.args) |a| if (!deepCloneable(ctx, a, frame, seen)) break :blk false;
                 break :blk true;
             }
             // A table is never cloned: a copy of a reserved one would
             // touch every page.
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.table_sym_id) break :blk false;
-            const decl = declaredAt(ctx, pn.sym) orelse break :blk false;
+            if (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal or pn.sym == ctx.builtins.actor or pn.sym == ctx.builtins.chan or pn.sym == ctx.builtins.table) break :blk false;
+            const decl = declaredAt(ctx, ctx.localSym(pn.sym)) orelse break :blk false;
             const sym = decl.ctx.symbols.items[decl.sym];
             if (sym.kind != .generic_type) break :blk false;
             const inner: CloneFrame = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .args_ctx = ctx, .parent = frame };
             break :blk fieldsCloneable(decl.ctx, decl.sym, &inner, seen);
         },
-        .nominal => |sym| blk: {
-            const decl = declaredAt(ctx, sym) orelse break :blk false;
+        .nominal => |r| blk: {
+            if (!ctx.owns(r)) {
+                const foreign = ctx.foreign_semas.get(r.module_id) orelse break :blk false;
+                if (r.sym >= foreign.symbols.items.len) break :blk false;
+                break :blk fieldsCloneable(foreign, r.sym, null, seen);
+            }
+            const decl = declaredAt(ctx, r.sym) orelse break :blk false;
             break :blk fieldsCloneable(decl.ctx, decl.sym, null, seen);
-        },
-        .imported_nominal => |in| blk: {
-            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
-            if (in.sym_id >= foreign.symbols.items.len) break :blk false;
-            break :blk fieldsCloneable(foreign, in.sym_id, null, seen);
         },
         else => false,
     };
@@ -14388,13 +14521,13 @@ pub fn readsAsValue(ctx: *const SemContext, ty: TypeId) bool {
 pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
     if (!ctx.holds(ty).holds_type_var) return;
     switch (ctx.types.get(ty)) {
-        .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
+        .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, ctx.localSym(sym)) == null) try out.append(a, ctx.localSym(sym)),
         .optional => |inner| try heldTypeVars(ctx, inner, out, a),
         .fallible => |inner| try heldTypeVars(ctx, inner.ok, out, a),
         .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
         .results => |parts| for (parts) |part| try heldTypeVars(ctx, part, out, a),
         .parameterized_nominal => |pn| {
-            const held = ctx.symbols.items[pn.sym].contents.held;
+            const held = ctx.symbols.items[ctx.localSym(pn.sym)].contents.held;
             for (pn.args, 0..) |arg, i| {
                 if (i < held.len and held[i]) try heldTypeVars(ctx, arg, out, a);
             }
@@ -14414,7 +14547,7 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symb
 pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
     if (!ctx.typeInfo(ty).has_type_var) return;
     switch (ctx.types.get(ty)) {
-        .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
+        .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, ctx.localSym(sym)) == null) try out.append(a, ctx.localSym(sym)),
         else => {
             var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| try reachedTypeVars(ctx, part, out, a);
@@ -14427,7 +14560,7 @@ pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(S
 pub fn reachesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return false;
     switch (ctx.types.get(ty)) {
-        .type_var => |s| return s == sym,
+        .type_var => |s| return s == ctx.ref(sym),
         .results => |parts| for (parts) |part| {
             if (reachesTypeVar(ctx, part, sym)) return true;
         },
@@ -14445,7 +14578,7 @@ pub fn reachesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId) bool {
 pub fn setParamAsValue(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     if (!ctx.typeInfo(ty).has_type_var) return null;
     switch (ctx.types.get(ty)) {
-        .type_var => |sym| return if (ctx.symbols.items[sym].flags.set_param) sym else null,
+        .type_var => |sym| return if (ctx.symbols.items[ctx.localSym(sym)].flags.set_param) ctx.localSym(sym) else null,
         .callable, .range, .slot => |inner| return setParamAsValue(ctx, inner),
         .simd => |v| return setParamAsValue(ctx, v.elem),
         .results => |parts| for (parts) |part| {
@@ -14477,7 +14610,7 @@ pub fn setParamUnviewed(ctx: *const SemContext, ty: TypeId) ?SymbolId {
         },
         .function => |f| blk: {
             const ret = ctx.types.get(f.returns);
-            if (ret == .fallible and isSetParam(ctx, ret.fallible.set)) break :blk ctx.types.get(ret.fallible.set).type_var;
+            if (ret == .fallible and isSetParam(ctx, ret.fallible.set)) break :blk ctx.localSym(ctx.types.get(ret.fallible.set).type_var);
             for (f.params) |param| if (setParamUnviewed(ctx, param)) |sym| break :blk sym;
             break :blk setParamUnviewed(ctx, okOf(ctx, f.returns));
         },
@@ -14499,8 +14632,8 @@ pub fn okOf(ctx: *const SemContext, ty: TypeId) TypeId {
     };
 }
 
-/// Copy a type from another module's store into `local_ctx`. Nominals
-/// declared there become `imported_nominal` tagged with their origin.
+/// Copy a type from another module's store into `local_ctx`. A nominal
+/// keeps its ref, which names its declaring module.
 pub fn importType(
     local_ctx: *SemContext,
     foreign_ctx: *const SemContext,
@@ -14540,29 +14673,24 @@ pub fn importType(
             // A type or integer parameter's symbol is its proxy, which an
             // instance binds; a parameter of another type is given in
             // brackets and needs none.
-            const syms = try local_ctx.arena.allocator().alloc(SymbolId, f.ct_syms.len);
+            const syms = try local_ctx.arena.allocator().alloc(SymbolRef, f.ct_syms.len);
             for (f.ct_syms, syms, 0..) |p, *out, i| {
                 const slot = if (i < f.ct_params.len) foreign_ctx.types.get(f.ct_params[i]) else .invalid;
-                out.* = if (p != symbol_invalid and (slot == .type_var or slot == .int)) try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = p }) else symbol_invalid;
+                out.* = local_ctx.ref(if (p.sym != symbol_invalid and (slot == .type_var or slot == .int)) try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = p.sym }) else symbol_invalid);
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        // A built-in type (`Endian`, `Arch`, `Os`, `Feature`, `Order`,
-        // `Printer`, `Hasher`) has the same id in every module, which
-        // registers the built-ins first.
-        .nominal => |sym_id| return local_ctx.intern(if (foreign_ctx.symbols.items[sym_id].decl_pos == builtin_decl_pos)
-            .{ .nominal = sym_id }
-        else
-            .{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
-        .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
+        // A nominal type is named by its declaring module's ref in every
+        // module, a built-in (`Endian`, `Order`, `Hasher`) by module 0's.
+        .nominal => return local_ctx.intern(ty),
         // A generic type of another module is its proxy's instance.
         .parameterized_nominal => |pn| {
-            const sym = try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = pn.sym });
+            const sym = try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = pn.sym.sym });
             if (sym == symbol_invalid) return local_ctx.types.invalid_id;
             var args: std.ArrayList(TypeId) = .empty;
             defer args.deinit(local_ctx.allocator);
             for (pn.args) |a| try args.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, a, origin_module_id));
-            return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym, .args = args.items } });
+            return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = local_ctx.ref(sym), .args = args.items } });
         },
         .results => |parts| {
             var out: std.ArrayList(TypeId) = .empty;
@@ -14571,9 +14699,9 @@ pub fn importType(
             return local_ctx.internCopy(.{ .results = out.items });
         },
         inline .type_var, .ct_param => |sym, tag| {
-            const p = try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = sym });
+            const p = try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = sym.sym });
             if (p == symbol_invalid) return local_ctx.types.invalid_id;
-            return local_ctx.intern(@unionInit(Type, @tagName(tag), p));
+            return local_ctx.intern(@unionInit(Type, @tagName(tag), local_ctx.ref(p)));
         },
     }
 }
@@ -14583,7 +14711,7 @@ pub fn importType(
 /// (`importSymbol`), or the symbol itself for a built-in generic's,
 /// which has the same id in every module. A proxy of a proxy is one of
 /// the declaration itself, so every path to it gives one symbol here.
-pub fn proxyOf(ctx: *SemContext, ref: ForeignRef) std.mem.Allocator.Error!SymbolId {
+pub fn proxyOf(ctx: *SemContext, ref: SymbolRef) std.mem.Allocator.Error!SymbolId {
     const foreign = ctx.foreign_semas.get(ref.module_id) orelse return symbol_invalid;
     if (ref.sym >= foreign.symbols.items.len) return symbol_invalid;
     const fsym = foreign.symbols.items[ref.sym];
@@ -14600,7 +14728,7 @@ pub fn proxyOf(ctx: *SemContext, ref: ForeignRef) std.mem.Allocator.Error!Symbol
 /// declaration's contents, its parameters' proxies, and its members with
 /// their types imported; a parameter's proxy has the requirements the
 /// bodies that use it record (`importParam`).
-fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!SymbolId {
+fn importSymbol(ctx: *SemContext, origin: SymbolRef) std.mem.Allocator.Error!SymbolId {
     const foreign = ctx.foreign_semas.get(origin.module_id).?;
     const fsym = foreign.symbols.items[origin.sym];
     const a = ctx.arena.allocator();
@@ -14608,7 +14736,7 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
     const id = try ctx.addSymbol(.{
         // A generic type is named as this module spells it: `lib.Wrap`,
         // as the type printer names it.
-        .name = if (generic) try formatTypeValue(ctx, a, .{ .imported_nominal = .{ .module_id = origin.module_id, .sym_id = origin.sym } }) else fsym.name,
+        .name = if (generic) try formatTypeValue(ctx, a, .{ .nominal = .{ .module_id = origin.module_id, .sym = origin.sym } }) else fsym.name,
         .kind = fsym.kind,
         .ty = ctx.types.unknown_id,
         .decl_pos = imported_decl_pos,
@@ -14652,14 +14780,14 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
 const max_import_depth = 64;
 
 /// A proxy `importSymbol` made and has yet to fill in.
-pub const PendingProxy = struct { id: SymbolId, origin: ForeignRef };
+pub const PendingProxy = struct { id: SymbolId, origin: SymbolRef };
 
 /// Fill in the proxy `id` of `origin`: a parameter's type and what its
 /// declaring module's bodies record of it, or a generic type's parameters
 /// and members. Only the outermost import reads a proxy, once every one
 /// it made is filled in; the facts of a type that names one, as it is
 /// made, read only its contents, copied when the proxy is made.
-fn fillProxy(ctx: *SemContext, id: SymbolId, origin: ForeignRef) std.mem.Allocator.Error!void {
+fn fillProxy(ctx: *SemContext, id: SymbolId, origin: SymbolRef) std.mem.Allocator.Error!void {
     const foreign = ctx.foreign_semas.get(origin.module_id).?;
     const fsym = foreign.symbols.items[origin.sym];
     const a = ctx.arena.allocator();
@@ -14693,7 +14821,7 @@ fn fillProxy(ctx: *SemContext, id: SymbolId, origin: ForeignRef) std.mem.Allocat
 /// with their positions there, and the generic instances, arrays, and
 /// stack frames that mention it, which each instance made here makes
 /// concrete (`expandInstantiations`) and checks.
-fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Allocator.Error!void {
+fn importParam(ctx: *SemContext, proxy: SymbolId, origin: SymbolRef) std.mem.Allocator.Error!void {
     const foreign = ctx.foreign_semas.get(origin.module_id).?;
     const m = origin.module_id;
     const a = ctx.arena.allocator();
@@ -14788,7 +14916,7 @@ fn isModuleFunction(ctx: *const SemContext, use: FnInstance) bool {
     const sym = ctx.symbols.items[top];
     if (sym.kind != .function) return false;
     return switch (ctx.types.get(sym.ty)) {
-        .function => |f| std.mem.findScalar(SymbolId, f.ct_syms, use.params[0]) != null,
+        .function => |f| std.mem.findScalar(SymbolRef, f.ct_syms, ctx.ref(use.params[0])) != null,
         else => false,
     };
 }
@@ -14819,12 +14947,12 @@ pub const NominalContext = struct {
 pub fn makeNominalContext(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.Error!NominalContext {
     const sym = ctx.symbols.items[sym_id];
     switch (sym.kind) {
-        .nominal_type => return .{ .sym = sym_id, .self_type = try ctx.intern(.{ .nominal = sym_id }), .type_params = &.{} },
+        .nominal_type => return .{ .sym = sym_id, .self_type = try ctx.intern(.{ .nominal = ctx.ref(sym_id) }), .type_params = &.{} },
         .generic_type => {
             const tparams = sym.type_params orelse &.{};
             const args = try ctx.arena.allocator().alloc(TypeId, tparams.len);
-            for (tparams, 0..) |tp, i| args[i] = try ctx.intern(if (ctx.symbols.items[tp].kind == .param) .{ .ct_param = tp } else .{ .type_var = tp });
-            const self_type = try ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args } });
+            for (tparams, 0..) |tp, i| args[i] = try ctx.intern(if (ctx.symbols.items[tp].kind == .param) .{ .ct_param = ctx.ref(tp) } else .{ .type_var = ctx.ref(tp) });
+            const self_type = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(sym_id), .args = args } });
             return .{ .sym = sym_id, .self_type = self_type, .type_params = tparams };
         },
         else => return NominalContext.none,
@@ -14866,11 +14994,11 @@ const Members = struct {
 
 fn membersOf(ctx: *const SemContext, peeled: TypeId) ?Members {
     switch (ctx.types.get(peeled)) {
-        .nominal => |s| return .{ .sym = s, .fields = ctx.symbols.items[s].fields orelse return null, .subst = TypeSubst.empty },
+        .nominal => |r| return if (ctx.owns(r)) .{ .sym = r.sym, .fields = ctx.symbols.items[r.sym].fields orelse return null, .subst = TypeSubst.empty } else null,
         .parameterized_nominal => |pn| {
-            const sym = ctx.symbols.items[pn.sym];
+            const sym = symbolAt(ctx, pn.sym);
             return .{
-                .sym = pn.sym,
+                .sym = ctx.localSym(pn.sym),
                 .fields = sym.fields orelse return null,
                 .subst = .{ .params = sym.type_params orelse &.{}, .args = pn.args },
             };
@@ -14884,7 +15012,7 @@ fn membersOf(ctx: *const SemContext, peeled: TypeId) ?Members {
 pub fn lookupDataField(ctx: *SemContext, self_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedField {
     const m = membersOf(ctx, unwrapAccess(ctx, self_ty)) orelse return null;
     // A box's `value` names its constructor argument, not a field.
-    if (m.sym == ctx.box_sym_id) return null;
+    if (ctx.ref(m.sym) == ctx.builtins.box) return null;
     const f = m.fields[(try findMember(ctx, m.fields, name, .data)) orelse return null];
     return .{ .field = f, .ty = try substituteType(ctx, f.ty, m.subst), .nominal_sym = m.sym };
 }
@@ -14893,7 +15021,7 @@ pub fn lookupDataField(ctx: *SemContext, self_ty: TypeId, name: []const u8) std.
 /// (without substituting its type).
 pub fn lookupDataFieldConst(ctx: *const SemContext, self_ty: TypeId, name: []const u8) ?Field {
     const decl = nominalDecl(ctx, unwrapAccess(ctx, self_ty)) orelse return null;
-    if (decl.sym == decl.ctx.box_sym_id) return null;
+    if (decl.ctx.ref(decl.sym) == decl.ctx.builtins.box) return null;
     const fields = decl.symbol().fields orelse return null;
     return fields[memberIn(decl.ctx, fields, name, .data) orelse return null];
 }
@@ -15098,10 +15226,10 @@ pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: Typ
 /// `n`, the runtime's second argument (`InlineList(T, n)`).
 pub fn formatInlineListMarked(ctx: *const SemContext, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
     const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
-    const list = ctx.list_sym_id;
-    const elem = try p.param(ctx.symbols.items[list].type_params.?[0]);
+    const list = ctx.builtins.list;
+    const elem = try p.param(ctx.symbols.items[ctx.localSym(list)].type_params.?[0]);
     const len = try a.print("{c}n{c}", .{ type_param_mark, type_param_mark });
-    return p.instance(ctx.symbols.items[list].name, try p.withInline(elem, len));
+    return p.instance(ctx.symbols.items[ctx.localSym(list)].name, try p.withInline(elem, len));
 }
 
 pub fn formatGenericSelfMarked(ctx: *const SemContext, a: std.mem.Allocator, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
@@ -15171,17 +15299,16 @@ const TypePrinter = struct {
                 try a.print("sub({s}){s}", .{ try p.list(f.params), if (f.returns == ctx.types.void_id) "" else "!" })
             else
                 try a.print("fun({s}) -> {s}", .{ try p.list(f.params), try p.id(f.returns) }),
-            .nominal => |sym| ctx.symbols.items[sym].name,
-            .imported_nominal => |in| try p.foreign(in.module_id, in.sym_id),
+            .nominal => |r| if (ctx.owns(r)) ctx.symbols.items[r.sym].name else try p.foreign(r.module_id, r.sym),
             // Another module's generic type is its proxy, named as this
             // module spells it (`importSymbol`).
-            .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1)
+            .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.box and pn.args.len == 1)
                 try p.handle(pn.args[0], '^')
             else if (pn.inline_len > 0)
-                try p.instance(ctx.symbols.items[pn.sym].name, try p.withInline(try p.list(pn.args), try a.print("{d}", .{pn.inline_len})))
+                try p.instance(ctx.symbols.items[ctx.localSym(pn.sym)].name, try p.withInline(try p.list(pn.args), try a.print("{d}", .{pn.inline_len})))
             else
-                try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
-            .type_var, .ct_param => |sym| try p.param(sym),
+                try p.instance(ctx.symbols.items[ctx.localSym(pn.sym)].name, try p.list(pn.args)),
+            .type_var, .ct_param => |sym| try p.param(ctx.localSym(sym)),
             .ct_value => |v| try a.print("{d}", .{v.int}),
             .results => |parts| try a.print("({s})", .{try p.list(parts)}),
         };
@@ -15262,7 +15389,7 @@ fn spelledPerInstance(ctx: *const SemContext, ty: TypeId) bool {
         .optional => |inner| paramOperand(ctx, inner),
         .fallible => |inner| paramOperand(ctx, inner.ok),
         .shared, .weak => |inner| ctx.types.get(inner) == .type_var,
-        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and ctx.types.get(pn.args[0]) == .type_var,
+        .parameterized_nominal => |pn| pn.sym == ctx.builtins.box and pn.args.len == 1 and ctx.types.get(pn.args[0]) == .type_var,
         else => false,
     };
 }
@@ -15273,7 +15400,7 @@ fn paramOperand(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .type_var => true,
         .shared, .weak => |inner| paramOperand(ctx, inner),
-        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and paramOperand(ctx, pn.args[0]),
+        .parameterized_nominal => |pn| pn.sym == ctx.builtins.box and pn.args.len == 1 and paramOperand(ctx, pn.args[0]),
         else => false,
     };
 }
@@ -15290,7 +15417,7 @@ fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .read_view, .write_view, .string_view, .function, .slice, .array => true,
         .shared, .weak => |inner| takesNoSuffix(ctx, inner),
-        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and takesNoSuffix(ctx, pn.args[0]),
+        .parameterized_nominal => |pn| pn.sym == ctx.builtins.box and pn.args.len == 1 and takesNoSuffix(ctx, pn.args[0]),
         else => false,
     };
 }
@@ -15579,7 +15706,7 @@ pub fn sliceView(ctx: *const SemContext, from: TypeId) ?View {
             _ = view.push(.elems);
             return view;
         },
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.list) {
             _ = view.push(.elems);
             return view;
         },
@@ -15594,7 +15721,7 @@ pub fn viewAs(ctx: *const SemContext, from: TypeId, kind: ViewKind, view: TypeId
 }
 
 fn viewRows(ctx: *const SemContext, from: TypeId, kind: ViewKind, view: TypeId, made: *View) bool {
-    const types = &ctx.types;
+    const types = ctx.types;
     // Any `T` gives `?T`, and `!T` to write; a write view may be read. A
     // write view of an API object gives its read view, one of another
     // Zig type (`rig.ApiView`).
@@ -15741,7 +15868,7 @@ pub fn viewedElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// `T` of a `List[T]`; null for any other type.
 pub fn listElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id and pn.args.len == 1) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.list and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
 }
@@ -15753,7 +15880,7 @@ pub fn listElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// `T` of a `Table[T, n]`; null for any other type.
 pub fn tableElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.table_sym_id and pn.args.len == 2) pn.args[0] else null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.table and pn.args.len == 2) pn.args[0] else null,
         else => null,
     };
 }
@@ -15762,7 +15889,7 @@ pub fn tableElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// any other type.
 pub fn tableSlot(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
     return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (pn.sym == ctx.table_sym_id and pn.args.len == 2) try ctx.intern(.{ .slot = pn.args[1] }) else null,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.table and pn.args.len == 2) try ctx.intern(.{ .slot = pn.args[1] }) else null,
         else => null,
     };
 }
@@ -15828,8 +15955,8 @@ fn fillOf(ctx: *const SemContext, ty: TypeId, depth: u32) TableFill {
         // A float's default may be `-0.0`, and an optional's none is not
         // zero bytes: each slot is made.
         .float, .string, .optional => return .made,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) return .made else if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.table_sym_id or pn.sym == ctx.simd_sym_id) return .none,
-        .nominal, .imported_nominal => {},
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.list) return .made else if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.builtins.table or pn.sym == ctx.builtins.simd) return .none,
+        .nominal => {},
         else => return .none,
     }
     const decl = nominalDecl(ctx, ty) orelse return .none;
@@ -15877,7 +16004,7 @@ fn zeroDefault(decl_ctx: *const SemContext, d: Sexp, fty: TypeId, depth: u32) bo
         .int, .slot => return d == .src and zeroLiteralText(identAt(src, d) orelse return false),
         .bool => return d == .src and std.mem.eql(u8, identAt(src, d) orelse return false, "false"),
         .array => |a| return d.isKind(.array_fill) and zeroDefault(decl_ctx, ir.ArrayFill.value(d), a.elem, depth + 1),
-        .nominal, .imported_nominal, .parameterized_nominal => {
+        .nominal, .parameterized_nominal => {
             if (isPlainEnum(decl_ctx, fty)) {
                 if (!d.isKind(.enum_lit)) return false;
                 const name = identAt(src, ir.EnumLit.name(d)) orelse return false;
@@ -17213,12 +17340,11 @@ pub fn paramNameNode(param: Sexp) ?Sexp {
 
 /// The declaration of a nominal type `ty` names, by module and symbol, the
 /// same from every module, and its name; null for another type.
-pub fn nominalRef(ctx: *const SemContext, ty: TypeId) ?struct { ref: ForeignRef, name: []const u8 } {
+pub fn nominalRef(ctx: *const SemContext, ty: TypeId) ?struct { ref: SymbolRef, name: []const u8 } {
     return switch (ctx.types.get(ty)) {
-        .nominal => |id| .{ .ref = .{ .module_id = ctx.module_id, .sym = id }, .name = ctx.symbols.items[id].name },
-        .imported_nominal => |n| blk: {
-            const foreign = ctx.foreign_semas.get(n.module_id) orelse break :blk null;
-            break :blk .{ .ref = .{ .module_id = n.module_id, .sym = n.sym_id }, .name = foreign.symbols.items[n.sym_id].name };
+        .nominal => |r| if (ctx.owns(r)) .{ .ref = .{ .module_id = ctx.module_id, .sym = r.sym }, .name = ctx.symbols.items[r.sym].name } else blk: {
+            const foreign = ctx.foreign_semas.get(r.module_id) orelse break :blk null;
+            break :blk .{ .ref = r, .name = foreign.symbols.items[r.sym].name };
         },
         else => null,
     };
@@ -18050,7 +18176,7 @@ test "origins: a view reached through a read view is that view's" {
     defer arena.deinit();
     const ty = struct {
         fn of(run: *FactsRun, name: []const u8) TypeId {
-            return run.ctx.intern(.{ .nominal = run.sym(name, 0).? }) catch unreachable;
+            return run.ctx.intern(.{ .nominal = run.ctx.ref(run.sym(name, 0).?) }) catch unreachable;
         }
     }.of;
     const item = ty(&r, "Item");
@@ -18235,9 +18361,9 @@ test "check: a long chain of types each holding the next by value" {
     defer ctx.deinit();
     try std.testing.expectEqual(@as(usize, 1), ctx.diagnostics.items.len);
     try std.testing.expect(std.mem.find(u8, ctx.diagnostics.items[0].message, "`S4000` nests 1001 types deep by value") != null);
-    const s0 = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "S0").? });
+    const s0 = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "S0").?) });
     try std.testing.expectEqual(@as(u32, n + 1), try valueDepth(&ctx, s0));
-    const last = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "S4999").? });
+    const last = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "S4999").?) });
     try std.testing.expectEqual(@as(?u128, 8), try minBytes(&ctx, last));
 }
 
@@ -18263,13 +18389,13 @@ test "type facts: moves, copies, cloneable" {
     );
     defer r.deinit();
     const ctx = &r.ctx;
-    const ty = &ctx.types;
-    const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
-    const v = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "V").? });
-    const t = try ctx.intern(.{ .type_var = r.sym("T", 0).? });
-    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{ty.int_id} } });
-    const wrap_t = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{t} } });
-    const wrap_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.lookup(module_scope, "Wrap").?, .args = &.{ty.int_id} } });
+    const ty = ctx.types;
+    const p = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "P").?) });
+    const v = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "V").?) });
+    const t = try ctx.intern(.{ .type_var = ctx.ref(r.sym("T", 0).?) });
+    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.list, .args = &.{ty.int_id} } });
+    const wrap_t = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(ctx.lookup(module_scope, "Wrap").?), .args = &.{t} } });
+    const wrap_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(ctx.lookup(module_scope, "Wrap").?), .args = &.{ty.int_id} } });
     const read_p = try ctx.intern(.{ .read_view = p });
     const write_p = try ctx.intern(.{ .write_view = p });
     // A value that holds a write view: an optional one, `(!P)?`.
@@ -18337,16 +18463,16 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
     );
     defer r.deinit();
     const ctx = &r.ctx;
-    const ty = &ctx.types;
-    const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
-    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{p} } });
+    const ty = ctx.types;
+    const p = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "P").?) });
+    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{p} } });
     const opt_p = try ctx.intern(.{ .optional = p });
-    const box_opt = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{opt_p} } });
+    const box_opt = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{opt_p} } });
     const opt_box = try ctx.intern(.{ .optional = box_p });
     const read_box = try ctx.intern(.{ .read_view = box_p });
     const shared_p = try ctx.intern(.{ .shared = p });
     const weak_p = try ctx.intern(.{ .weak = p });
-    const box_box = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{box_p} } });
+    const box_box = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{box_p} } });
     const spelled = struct {
         fn f(c: *SemContext, t: TypeId) ![]const u8 {
             return formatType(c, t);
@@ -18358,7 +18484,7 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
     try std.testing.expectEqualStrings("?^P", try spelled(ctx, read_box));
     try std.testing.expectEqualStrings("^^P", try spelled(ctx, box_box));
     // A box of a read view is written `^?P`, and an optional one `(^?P)?`.
-    const box_read = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{try ctx.intern(.{ .read_view = p })} } });
+    const box_read = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{try ctx.intern(.{ .read_view = p })} } });
     try std.testing.expectEqualStrings("^?P", try spelled(ctx, box_read));
     try std.testing.expectEqualStrings("(^?P)?", try spelled(ctx, try ctx.intern(.{ .optional = box_read })));
     // A box holds a value held no other way on the heap.
@@ -18383,8 +18509,8 @@ test "view table: each row makes its view" {
     );
     defer r.deinit();
     const ctx = &r.ctx;
-    const ty = &ctx.types;
-    const p = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "P").? });
+    const ty = ctx.types;
+    const p = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "P").?) });
     const read = struct {
         fn f(c: *SemContext, t: TypeId) !TypeId {
             return c.intern(.{ .read_view = t });
@@ -18397,16 +18523,16 @@ test "view table: each row makes its view" {
     }.f;
     const arr = try ctx.intern(.{ .array = .{ .elem = ty.int_id, .len = try ctInt(ctx, 3) } });
     const slice = try ctx.intern(.{ .slice = .{ .elem = ty.int_id } });
-    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{p} } });
-    const box_string = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{ty.string_id} } });
+    const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{p} } });
+    const box_string = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{ty.string_id} } });
     const fn_ty = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ty.int_id, .is_sub = false } });
     const owned = try ctx.intern(.{ .shared = fn_ty });
     const callable = try callableOfFn(ctx, fn_ty);
     const opt_string_view = try ctx.intern(.{ .optional = ty.string_view_id });
     const opt_string = try ctx.intern(.{ .optional = ty.string_id });
-    const box_box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{box_p} } });
-    const box_arr = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{arr} } });
-    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{ty.int_id} } });
+    const box_box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{box_p} } });
+    const box_arr = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{arr} } });
+    const list_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.list, .args = &.{ty.int_id} } });
     const shared_p = try ctx.intern(.{ .shared = p });
     const shared_string = try ctx.intern(.{ .shared = ty.string_id });
     const opt_p = try ctx.intern(.{ .optional = p });
@@ -18505,7 +18631,7 @@ test "type facts: unique reaches what holds it inline" {
     const ctx = &r.ctx;
     const nominal = struct {
         fn of(c: *SemContext, name: []const u8) !TypeId {
-            return c.intern(.{ .nominal = c.lookup(module_scope, name).? });
+            return c.intern(.{ .nominal = c.ref(c.lookup(module_scope, name).?) });
         }
     }.of;
     const u = try nominal(ctx, "U");
@@ -18516,8 +18642,8 @@ test "type facts: unique reaches what holds it inline" {
         u,
         try ctx.intern(.{ .array = .{ .elem = u, .len = two } }),
         try ctx.intern(.{ .optional = u }),
-        try ctx.intern(.{ .parameterized_nominal = .{ .sym = wrap, .args = &.{u} } }),
-        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ring, .args = &.{ctx.types.int_id} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(wrap), .args = &.{u} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(ring), .args = &.{ctx.types.int_id} } }),
         try nominal(ctx, "Holder"),
         try nominal(ctx, "Far"),
         try nominal(ctx, "Slot"),
@@ -18533,9 +18659,9 @@ test "type facts: unique reaches what holds it inline" {
         try ctx.intern(.{ .read_view = u }),
         try ctx.intern(.{ .write_view = u }),
         try ctx.intern(.{ .slice = .{ .elem = u } }),
-        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.list_sym_id, .args = &.{u} } }),
-        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.box_sym_id, .args = &.{u} } }),
-        try ctx.intern(.{ .parameterized_nominal = .{ .sym = wrap, .args = &.{ctx.types.int_id} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.list, .args = &.{u} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{u} } }),
+        try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(wrap), .args = &.{ctx.types.int_id} } }),
         try nominal(ctx, "Ptr"),
     };
     for (not_unique, 0..) |t, i| {
@@ -18552,7 +18678,7 @@ test "type facts: unique reaches what holds it inline" {
     // A Cell, and what holds one inline, is unique, but owns nothing: an
     // array takes it. Behind a handle it is shared, not unique.
     const counter = try nominal(ctx, "Counter");
-    const cell_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.cell_sym_id, .args = &.{ctx.types.int_id} } });
+    const cell_int = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.cell, .args = &.{ctx.types.int_id} } });
     for ([_]TypeId{ counter, cell_int, try ctx.intern(.{ .array = .{ .elem = counter, .len = two } }) }) |t| {
         try std.testing.expect(isUnique(ctx, t));
         try std.testing.expectEqual(Answer.yes, moves(ctx, t));

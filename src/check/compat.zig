@@ -79,18 +79,12 @@ pub fn viewedPlace(e: Sexp) Sexp {
     return p;
 }
 
-/// The leaf a place starts from: `a` in `!a.b[i]`.
+/// The leaf a place starts from, through views and moves of its parts:
+/// `a` in `!(!a.b)[i]`.
 pub fn placeRoot(e: Sexp) ?Sexp {
-    var x = e;
-    while (true) {
-        if (x == .src) return x;
-        const h = x.kind() orelse return null;
-        x = switch (h) {
-            .member, .index => ir.get(x, .object),
-            .read, .write, .move => ir.get(x, .operand),
-            else => return null,
-        };
-    }
+    const x = sema.pathRoot(e);
+    if (x == .src) return x;
+    return if (x.isKind(.read) or x.isKind(.write) or x.isKind(.move)) placeRoot(ir.get(x, .operand)) else null;
 }
 
 /// The first `<x` in `e`, if any.
@@ -130,7 +124,7 @@ pub fn optionalDepth(ctx: *const SemContext, ty: TypeId) u32 {
 /// required?
 pub fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     if (actual == expected) return true;
-    const ts = &ctx.types;
+    const ts = ctx.types;
     if (actual == ts.invalid_id or actual == ts.unknown_id or expected == ts.invalid_id or expected == ts.unknown_id) return true;
     if (actual == ts.noreturn_id) return true;
     const a = ts.get(actual);
@@ -164,7 +158,7 @@ pub fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
             else => {},
         },
         // A union holds an error of each set it joins.
-        .nominal, .imported_nominal => if (sema.isErrorUnion(ctx, expected) and sema.isErrorSet(ctx, actual) and sema.errorSubset(ctx, actual, expected)) return true,
+        .nominal => if (sema.isErrorUnion(ctx, expected) and sema.isErrorSet(ctx, actual) and sema.errorSubset(ctx, actual, expected)) return true,
         else => {},
     }
     return switch (a) {
@@ -184,11 +178,10 @@ pub fn classifySelfType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
         fn f(c: *const SemContext, id: TypeId, sym: SymbolId) bool {
             // A box's value is reached as the box is: owned, or viewed,
             // or through the read view it holds.
-            if (sym != c.box_sym_id) if (sema.boxedType(c, id)) |inner| return f(c, sema.unwrapViews(c, inner), sym);
+            if (c.ref(sym) != c.builtins.box) if (sema.boxedType(c, id)) |inner| return f(c, sema.unwrapViews(c, inner), sym);
             return switch (c.types.get(id)) {
-                .nominal => |s| s == sym,
-                .parameterized_nominal => |pn| pn.sym == sym,
-                .imported_nominal => sym == sema.symbol_invalid,
+                .nominal => |s| if (c.owns(s)) s.sym == sym else sym == sema.symbol_invalid,
+                .parameterized_nominal => |pn| pn.sym == c.ref(sym),
                 else => false,
             };
         }
@@ -197,9 +190,9 @@ pub fn classifySelfType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
     // the value through the handle, and so does a box of one, for a
     // method of the value (not the box's own).
     if (ctx.types.get(sema.unwrapViews(ctx, ty_id)) == .shared) return .shared;
-    if (nominal_sym != ctx.box_sym_id and sema.accessThroughShared(ctx, ty_id)) return .shared;
+    if (ctx.ref(nominal_sym) != ctx.builtins.box and sema.accessThroughShared(ctx, ty_id)) return .shared;
     // A box of a read view (`^?T`) reaches its value through the view.
-    if (nominal_sym != ctx.box_sym_id and sema.boxedReadView(ctx, ty_id) != null) return if (matches(ctx, sema.unwrapViews(ctx, ty_id), nominal_sym)) .read_view else .other;
+    if (ctx.ref(nominal_sym) != ctx.builtins.box and sema.boxedReadView(ctx, ty_id) != null) return if (matches(ctx, sema.unwrapViews(ctx, ty_id), nominal_sym)) .read_view else .other;
     return switch (ctx.types.get(ty_id)) {
         .read_view => |i| if (matches(ctx, i, nominal_sym)) .read_view else .other,
         .write_view => |i| if (matches(ctx, i, nominal_sym)) .write_view else .other,
@@ -223,7 +216,7 @@ pub fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    if (pn.sym != ctx.cell_sym_id or pn.args.len != 1) return null;
+    if (pn.sym != ctx.builtins.cell or pn.args.len != 1) return null;
     return pn.args[0];
 }
 
@@ -271,7 +264,7 @@ pub fn listElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    if (pn.sym != ctx.list_sym_id or pn.args.len != 1) return null;
+    if (pn.sym != ctx.builtins.list or pn.args.len != 1) return null;
     return pn.args[0];
 }
 

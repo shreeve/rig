@@ -93,7 +93,7 @@ pub fn checkInstantiations(self: *Checker) Error!void {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const base = ctx.symbols.items[pn.sym];
+        const base = ctx.symbols.items[ctx.localSym(pn.sym)];
         if (base.decl_pos == sema.builtin_decl_pos) continue;
         const params = base.type_params orelse continue;
         const site = entry.value_ptr.*;
@@ -527,7 +527,7 @@ pub fn noteMethodCall(self: *Checker, node: Sexp, callee: Sexp) Error!void {
         .parameterized_nominal => |pn| pn,
         else => return,
     };
-    const params = ctx.symbols.items[pn.sym].type_params orelse return;
+    const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse return;
     try self.method_calls.append(self.gpa, .{ .pos = notes.startOf(self, node), .target = target, .recv = recv, .params = params, .args = pn.args, .scope = self.method_pos });
 }
 
@@ -632,7 +632,7 @@ pub fn viewsEntries(self: *const Checker, callee: Sexp) bool {
     };
     if (!sema.isHashTable(ctx, pn.sym)) return false;
     const name = types.text(self, ir.Member.name(callee));
-    for (ctx.symbols.items[pn.sym].fields orelse &.{}) |f| {
+    for (ctx.symbols.items[ctx.localSym(pn.sym)].fields orelse &.{}) |f| {
         if (f.is_method and std.mem.eql(u8, f.name, name)) return f.views_entries;
     }
     return false;

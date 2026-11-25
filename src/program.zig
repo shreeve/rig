@@ -78,6 +78,33 @@ pub const Table = struct {
     }
 };
 
+/// The program's types: one store every module interns in, and the facts
+/// of each type (`sema.TypeInfo`), worked out by the module that interns
+/// it first. A module's own types get their final facts once its
+/// declarations are resolved (`SemContext.types_start`); every type
+/// before them is an earlier module's and final. The graph owns it
+/// (`ModuleGraph.types`); a context outside a graph owns its own.
+pub const Types = struct {
+    store: sema.TypeStore,
+    info: std.ArrayList(sema.TypeInfo) = .empty,
+    /// The types every store starts with, before any module interns one.
+    primitives: TypeId,
+    /// The facts of every type in the store are final: a module has
+    /// resolved its declarations, and each module after it starts with
+    /// the store as it is (`SemContext.types_start`).
+    ready: bool = false,
+
+    pub fn init(a: std.mem.Allocator) !Types {
+        const store = try sema.TypeStore.init(a);
+        return .{ .store = store, .primitives = @intCast(store.items.items.len) };
+    }
+
+    pub fn deinit(t: *Types, a: std.mem.Allocator) void {
+        t.store.deinit(a);
+        t.info.deinit(a);
+    }
+};
+
 /// The table of a program not yet decided, which decides nothing.
 pub const none: Table = .{ .allocator = std.mem.Allocator.failing };
 
@@ -143,7 +170,7 @@ pub fn decideExactEnums(mods: []const modules.Module, t: *Table) !void {
 fn exactEnum(ctx: *SemContext, ty: TypeId, t: *Table) !void {
     switch (ctx.types.get(ty)) {
         .array => |arr| return exactEnum(ctx, arr.elem, t),
-        .nominal, .imported_nominal => {},
+        .nominal => {},
         else => return,
     }
     if (!sema.isPlainEnum(ctx, ty)) return;
