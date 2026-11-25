@@ -1363,9 +1363,7 @@ operand lives, a call the join over the inputs its recorded origins
 say its result carries, a value made of parts the join of its parts),
 and a value whose type sema does not know, or a call it checked against
 no signature, counts as made. `sema.livesIn` gives where the memory a
-loop's source reads in place lives, which the plan records
-(`storage.livesIn`, the decision `lives_in`, so `verifyDecisions` fails a
-pass that sees another), and `sema.madeIn` the made value a message
+loop's source reads in place lives (`storage.livesIn`), and `sema.madeIn` the made value a message
 names. Whether the value lives for the whole program is not classified
 yet (Core §9). The list is an
 exhaustive switch over the IR's kinds (`shapeOf`), so a new kind does
@@ -1779,10 +1777,8 @@ typed as the view, wherever the view goes.
 
 **How the facts are kept.** A fact about a list node is keyed by its
 node id, and one about a leaf by its source position (`exprKey`). The
-two densest, an expression's type and the decisions below, are kept by
-node id: a type in an array indexed by the id (`fastmap.DenseMap`), and
-the decisions in one list, those about one node chained from an array
-indexed by its id (`sema.Decided`); a leaf's go to a hash map. The other
+densest, an expression's type, is kept by node id, in an array indexed
+by the id (`fastmap.DenseMap`); a leaf's goes to a hash map. The other
 tables, and the memos, are hash maps keyed by integers, addresses, or
 objects of them (`fastmap.Map`), hashed by one 128-bit multiply rather
 than by Wyhash over the key's bytes. What a view of a type points into,
@@ -1834,11 +1830,10 @@ names, and asking again finds the same one. A rewrite of the tree, and the names
 nodes it makes, are written outside every mark (`pauseTrail`), since
 the tree keeps the rewrite.
 
-**Decisions.** A few questions about a node that emit, the storage plan,
-and the checkers all act on are recorded as answered the first time a
-pass asks them (`sema.Question`, `SemContext.decided`): every later
-ask, emit's included, reads the record, so no two passes act on
-different answers. They are `leaf_step`, how the walk that reaches a
+**Storage questions.** A few questions about a node that emit, the
+storage plan, and the checkers all act on are each a pure function of
+the typing facts (`src/storage.zig`), so every pass that asks one gets
+the same answer. They are `leaf_step`, how the walk that reaches a
 value by address reaches a node (`storage.leafStep`); `reaches_leaf`,
 whether a value is reached where its leaves are (`storage.reachesLeaf`),
 which the storage plan decides for every expression; and, for each
@@ -1900,14 +1895,11 @@ goes (`fills_in_place`: a box's `^[n of x]` in its allocation,
 unless its value is made first (`storesAfterValue`), in the local, by
 `@memset`). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
-view, the storage plan, and emit all read the same records; the plan
-decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from
-the facts as they then stand, and an answer that changed is an internal
-error (`storage.verifyDecisions`); then it seals the record, so a
-question asked later, by a classifier emit still calls, is answered but
-not recorded. Emit reads the decisions through `Facts`, and one it finds
-unrecorded is an internal error: every record comes from a pass that ran
-before the ownership checker.
+view, the storage plan, and lowering all ask the same functions. Emit
+reads each answer from its lowered module: lowering asks each question
+emit reads of every node of its kind in the module, once (`lower.Ask`,
+`Module.answer`), and an answer emit finds missing is an internal
+error.
 
 Leaves are keyed by source position and list nodes by their node id:
 the parser numbers every node it builds (`List.id`), and the Parser
@@ -4901,8 +4893,7 @@ makes no decision with a classifier the checkers also call: a unit test
 of `facts.zig` reads `emit.zig` with Zig's tokenizer and fails if emit
 imports any other file of the compiler, reaches the context behind
 `Facts`, or asks whether a type moves. A method of `Facts` that takes a
-node reads a record: a decision (`storage.decided`), the facts table, or
-the storage facts. A second unit test reads `facts.zig` the same way and
+node reads a record: the facts table, or the storage facts. A second unit test reads `facts.zig` the same way and
 fails on such a method that calls a function of `storage` or `sema`
 instead, but for a listed few that combine recorded facts by the node's
 shape without a classifier of their own (`stmtTemps` and `firstStmtTemp`
