@@ -350,7 +350,7 @@ const Names = struct {
                             ok.* = false;
                             return;
                         };
-                        if (sym.ty == ctx.types.unknown_id) ctx.symbols.items[id].ty = try ctx.intern(.{ .int = c.int });
+                        if (sym.ty == ctx.types.unknown_id) (try ctx.symbolMut(id)).ty = try ctx.intern(.{ .int = c.int });
                     },
                     .nominal_type => if (plainEnumDecl(ctx, id) == null) {
                         try ctx.errAt(node, "a compile-time function cannot use `{s}`: " ++ plain_rule, .{name});
