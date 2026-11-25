@@ -355,7 +355,11 @@ const Printer = struct {
     fn expr(p: *Printer, id: ExprId, depth: usize) std.Io.Writer.Error!void {
         switch (p.f.exprs.items[id]) {
             .@"var" => |x| try p.w.print("%{d}", .{x}),
-            .leaf => |l| try p.w.writeAll(if (l == .src) rig.leafText(p.ctx.source, l.src) else @tagName(l.kind() orelse .module)),
+            .leaf => |l| switch (l) {
+                .src => |src| try p.w.writeAll(rig.leafText(p.ctx.source, src)),
+                .tag => |t| try p.w.writeAll(@tagName(t)),
+                else => try p.w.writeAll("_"),
+            },
             .op => |o| {
                 try p.w.print("{s}(", .{@tagName(o.node.kind() orelse .module)});
                 for (o.args, 0..) |a, i| {

@@ -56,6 +56,7 @@ pub const diag = @import("diag.zig");
 const resolve = @import("resolve.zig");
 const typecheck = @import("typecheck.zig");
 const storage = @import("storage.zig");
+const lowering = @import("lower.zig");
 const timing = @import("timing.zig");
 pub const cteval = @import("cteval.zig");
 const fastmap = @import("fastmap.zig");
@@ -6720,6 +6721,9 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     t0 = timing.start(opts.timing);
     try storage.plan(&ctx, tree);
     timing.stop(opts.timing, .storage, t0);
+    // A self-checking build lowers each body and checks its LIR against
+    // the var table the plan made.
+    if (lowering.enabled) try lowering.shadow(&ctx, tree);
     try indexAllMembers(&ctx);
     if (!ctx.hasErrors()) try recordTypeWitnesses(&ctx);
     if (!ctx.hasErrors()) try recordPlainFacts(&ctx);

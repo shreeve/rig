@@ -1,0 +1,955 @@
+//! Lower: each body of a module to its LIR (`src/lir.zig`), from the
+//! typed tree and the recorded facts.
+//!
+//! A body is a function, a `sub`, a test, a `drop` body, or a closure:
+//! a frame owner (`sema.FrameOwner`). Lowering walks it once, in the
+//! order it runs, and makes a var for each binding and for each piece of
+//! hidden storage, asking the questions the storage plan asks
+//! (`src/storage.zig`). A node's vars are numbered after its operands'
+//! (the plan's order), and its steps are placed in the order they run.
+//!
+//! In a self-checking build every module is lowered as it is checked,
+//! and `shadow` asserts, per body, that the hidden vars and their order
+//! are the var table's (`storage.Vars`), each held the same way, that
+//! each statement's temporaries are `sema.stmtTemps`', and that each
+//! binding drops as its row says. Nothing reads LIR yet: a body using a
+//! construct lowering does not cover is skipped and counted.
+
+const std = @import("std");
+const parser = @import("parser.zig");
+const rig = @import("rig.zig");
+const sema = @import("sema.zig");
+const storage = @import("storage.zig");
+const lir = @import("lir.zig");
+const diag = @import("diag.zig");
+
+const Sexp = parser.Sexp;
+const ir = parser.ir;
+const Tag = rig.Tag;
+const SemContext = sema.SemContext;
+const SymbolId = sema.SymbolId;
+const TypeId = sema.TypeId;
+const StorageKind = storage.StorageKind;
+const StorageBy = storage.StorageBy;
+const StorageLife = storage.StorageLife;
+const VarId = lir.VarId;
+const ExprId = lir.ExprId;
+const RegionId = lir.RegionId;
+
+/// Whether every module is lowered and checked against its var table as
+/// it is checked (`-Dself-check`).
+pub const enabled = @import("build_options").self_check;
+
+/// A module's bodies, lowered.
+pub const Module = struct {
+    arena: std.heap.ArenaAllocator,
+    /// Every body of the module, in the order the tree holds them.
+    owners: std.ArrayList(Owner) = .empty,
+
+    pub const Owner = struct {
+        root: Sexp,
+        /// The body around it, for a closure.
+        parent: ?u32,
+        func: ?*lir.Func = null,
+        /// Why it was not lowered: the first construct lowering does not
+        /// cover, and its family.
+        skip: ?Skip = null,
+    };
+
+    pub const Skip = struct { node: Sexp, family: []const u8 };
+
+    pub fn deinit(m: *Module) void {
+        m.arena.deinit();
+    }
+};
+
+/// What `shadow` checked of a module.
+pub const Coverage = struct {
+    bodies: u32 = 0,
+    lowered: u32 = 0,
+    vars: u32 = 0,
+    checked: u32 = 0,
+};
+
+/// Lower every body of module `tree` (a module sema checked without
+/// errors).
+pub fn lowerModule(gpa: std.mem.Allocator, ctx: *const SemContext, tree: Sexp) !Module {
+    var m: Module = .{ .arena = .init(gpa) };
+    errdefer m.deinit();
+    const a = m.arena.allocator();
+    try findOwners(a, &m.owners, tree, null);
+    var l: Lowerer = .{ .a = a, .ctx = ctx, .module = &m };
+    l.flags = try .initEmpty(a, ctx.symbols.items.len);
+    for (m.owners.items, 0..) |o, i| {
+        if (o.parent != null) continue;
+        l.lowerBody(@intCast(i)) catch |err| switch (err) {
+            error.Uncovered => m.owners.items[i].skip = l.skip,
+            else => |e| return e,
+        };
+    }
+    // A closure is lowered with the body around it, or skipped with it.
+    for (m.owners.items) |*o| if (o.func == null and o.skip == null) {
+        o.skip = if (o.parent) |p| m.owners.items[p].skip else null;
+    };
+    // A binding's flag is set by any use in the module that may move it.
+    for (m.owners.items) |o| if (o.func) |f| for (f.vars.items) |*v| switch (v.name) {
+        .binding => |s| v.flag = l.flags.isSet(s),
+        .hidden => {},
+    };
+    return m;
+}
+
+/// Lower module `tree` and check its LIR against the var table the plan
+/// made (`storage.plan`): an internal error where they differ.
+pub fn shadow(ctx: *const SemContext, tree: Sexp) !void {
+    if (ctx.hasErrors()) return;
+    var cov: Coverage = .{};
+    var m = try lowerModule(ctx.allocator, ctx, tree);
+    defer m.deinit();
+    if (try check(ctx, &m, tree, &cov)) |p| {
+        const at = diag.lineCol(ctx.source, ctx.startOf(p.node));
+        std.debug.panic("{d}:{d}: internal error: lir: {s}", .{ at.line, at.col, p.what });
+    }
+}
+
+/// Write module `tree`'s LIR (`rig check --facts=lir`): each lowered
+/// body, then each body not lowered and the construct that stopped it,
+/// then what the check against the var table covered.
+pub fn writeModule(gpa: std.mem.Allocator, ctx: *const SemContext, tree: Sexp, w: *std.Io.Writer) !void {
+    var m = try lowerModule(gpa, ctx, tree);
+    defer m.deinit();
+    for (m.owners.items) |o| if (o.func) |f| try lir.write(f, ctx, w);
+    for (m.owners.items) |o| if (o.skip) |s| {
+        const at = diag.lineCol(ctx.source, ctx.startOf(o.root));
+        const why = diag.lineCol(ctx.source, ctx.startOf(s.node));
+        try w.print("not lowered: {s} {d}:{d}: {s} at {d}:{d}\n", .{ @tagName(o.root.kind().?), at.line, at.col, s.family, why.line, why.col });
+    };
+    var cov: Coverage = .{};
+    if (try check(ctx, &m, tree, &cov)) |p| {
+        const at = diag.lineCol(ctx.source, ctx.startOf(p.node));
+        try w.print("lir: {d}:{d}: {s}\n", .{ at.line, at.col, p.what });
+    }
+    try w.print("lowered {d} of {d} bodies; {d} of {d} vars checked\n", .{ cov.lowered, cov.bodies, cov.checked, cov.vars });
+}
+
+// =============================================================================
+// The check against the var table
+// =============================================================================
+
+/// Check each lowered body of `m`: its LIR is well formed (`lir.verify`),
+/// its hidden vars are the var table's rows for nodes in it, in their
+/// order, each held as its row says, and each binding drops as its row
+/// says. Counts what it checked in `cov`; returns the first problem.
+pub fn check(ctx: *const SemContext, m: *Module, root: Sexp, cov: *Coverage) !?lir.Problem {
+    const gpa = ctx.allocator;
+    const a = m.arena.allocator();
+    const rows = ctx.vars.rows.items;
+    // The node and kind of each row, and the body it is in.
+    const row_node = try a.alloc(Sexp, rows.len);
+    const row_kind = try a.alloc(StorageKind, rows.len);
+    const row_owner = try a.alloc(?u32, rows.len);
+    @memset(row_owner, null);
+    var by_key: std.AutoHashMapUnmanaged(u64, std.ArrayList(u32)) = .empty;
+    var it = ctx.vars.index.iterator();
+    while (it.next()) |e| {
+        row_kind[e.value_ptr.*] = e.key_ptr.kind;
+        const gop = try by_key.getOrPut(a, e.key_ptr.node);
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        try gop.value_ptr.append(a, e.value_ptr.*);
+    }
+    try ownRows(&by_key, row_node, row_owner, m.owners.items, root, null);
+
+    cov.bodies += @intCast(m.owners.items.len);
+    cov.vars += @intCast(rows.len);
+    for (m.owners.items, 0..) |o, oi| {
+        const f = o.func orelse continue;
+        cov.lowered += 1;
+        if (try lir.verify(gpa, f)) |p| return p;
+        var row: usize = 0;
+        for (f.vars.items) |v| switch (v.name) {
+            .binding => |s| {
+                const b = ctx.vars.binding(s);
+                if (b.drop != v.drop) return .{ .node = v.node, .what = "a binding drops other than its row says" };
+                if (b.flag != v.flag) return .{ .node = v.node, .what = "a binding's flag differs from its row" };
+            },
+            .hidden => |k| {
+                if (k == .temp or k == .header_copy) continue;
+                while (row < rows.len and row_owner[row] != @as(u32, @intCast(oi))) row += 1;
+                if (row == rows.len) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var the plan did not", .{@tagName(k)}) };
+                const r = rows[row];
+                const same_node = sema.decisionKeyOf(row_node[row]) == sema.decisionKeyOf(v.node);
+                if (!same_node or row_kind[row] != k) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var where the plan's next is a `{s}` at {d}:{d}", .{ @tagName(k), @tagName(row_kind[row]), diag.lineCol(ctx.source, ctx.startOf(row_node[row])).line, diag.lineCol(ctx.source, ctx.startOf(row_node[row])).col }) };
+                if (r.by != v.by or r.life != v.life or r.drop != v.drop or !std.mem.eql(?sema.ResourceKind, r.parts, v.parts))
+                    return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "a `{s}` var held other than its row: {s} {s} {s}, the row {s} {s} {s}", .{ @tagName(k), @tagName(v.by), @tagName(v.life), if (v.drop) |d| @tagName(d) else "none", @tagName(r.by), @tagName(r.life), if (r.drop) |d| @tagName(d) else "none" }) };
+                row += 1;
+                cov.checked += 1;
+            },
+        };
+        while (row < rows.len and row_owner[row] != @as(u32, @intCast(oi))) row += 1;
+        if (row < rows.len) return .{ .node = row_node[row], .what = try std.fmt.allocPrint(a, "the plan made a `{s}` var lowering did not", .{@tagName(row_kind[row])}) };
+    }
+    return null;
+}
+
+/// Record the node of each row keyed in `e`, and the body it is in: a
+/// closure's parameters and body are its own, and its captures the body
+/// around it.
+fn ownRows(by_key: *const std.AutoHashMapUnmanaged(u64, std.ArrayList(u32)), row_node: []Sexp, row_owner: []?u32, owners: []const Module.Owner, e: Sexp, cur: ?u32) !void {
+    if (e != .list and e != .src) return;
+    if (sema.decisionKeyOf(e)) |k| if (by_key.get(k)) |rs| for (rs.items) |r| {
+        row_node[r] = e;
+        row_owner[r] = cur;
+    };
+    if (e != .list) return;
+    const inner: ?u32 = if (isBody(e)) ownerOf(owners, e) orelse cur else cur;
+    for (e.items(), 0..) |c, i| {
+        // A closure's captures are made by the body around it.
+        const in = if (e.isKind(.lambda) and i == 1) cur else inner;
+        try ownRows(by_key, row_node, row_owner, owners, c, in);
+    }
+}
+
+fn ownerOf(owners: []const Module.Owner, root: Sexp) ?u32 {
+    for (owners, 0..) |o, i| if (o.root.list.id == root.list.id and o.root.list.ptr == root.list.ptr) return @intCast(i);
+    return null;
+}
+
+fn isBody(e: Sexp) bool {
+    return switch (e.kind() orelse return false) {
+        .fun, .sub, .@"test", .drop_decl => ir.get(e, .body) != .nil,
+        .lambda => true,
+        else => false,
+    };
+}
+
+/// The bodies of `e`, in the order the tree holds them.
+fn findOwners(a: std.mem.Allocator, out: *std.ArrayList(Module.Owner), e: Sexp, cur: ?u32) !void {
+    if (e != .list) return;
+    var inner = cur;
+    if (isBody(e)) {
+        try out.append(a, .{ .root = e, .parent = if (e.isKind(.lambda)) cur else null });
+        inner = @intCast(out.items.len - 1);
+    }
+    for (e.items()) |c| try findOwners(a, out, c, inner);
+}
+
+// =============================================================================
+// Lowering
+// =============================================================================
+
+const Error = error{ OutOfMemory, Uncovered };
+
+const Lowerer = struct {
+    a: std.mem.Allocator,
+    ctx: *const SemContext,
+    module: *Module,
+    f: *lir.Func = undefined,
+    /// The region that declares the current statement's temporaries and
+    /// the vars that live for an expression.
+    stmt_region: RegionId = 0,
+    /// The region that declares the bindings of the current block.
+    block: RegionId = 0,
+    /// The current statement's temporaries, in the order `sema.stmtTemps`
+    /// lists them.
+    temps: std.ArrayList(VarId) = .empty,
+    /// The several results the body gives.
+    results: ?[]const TypeId = null,
+    /// The expression each node lowered to, the hidden var of each node
+    /// and kind, the var of each binding, and the region holding the
+    /// parts each call evaluates first.
+    exprs: std.AutoHashMapUnmanaged(u64, ExprId) = .empty,
+    hidden: std.AutoHashMapUnmanaged(storage.Vars.Key, VarId) = .empty,
+    bindings: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
+    call_blocks: std.AutoHashMapUnmanaged(u64, RegionId) = .empty,
+    /// The bindings a use may move out (`storage.Binding.flag`).
+    flags: std.DynamicBitSetUnmanaged = .{},
+    skip: ?Module.Skip = null,
+
+    fn uncovered(l: *Lowerer, node: Sexp, family: []const u8) Error {
+        l.skip = .{ .node = node, .family = family };
+        return error.Uncovered;
+    }
+
+    fn addExpr(l: *Lowerer, e: lir.Expr) Error!ExprId {
+        return l.f.addExpr(l.a, e);
+    }
+
+    fn region(l: *Lowerer, r: RegionId) *lir.Region {
+        return l.f.region(r);
+    }
+
+    fn step(l: *Lowerer, r: RegionId, s: lir.Step) Error!void {
+        try l.region(r).steps.append(l.a, s);
+    }
+
+    fn declare(l: *Lowerer, r: RegionId, v: VarId) Error!void {
+        try l.region(r).decls.append(l.a, v);
+    }
+
+    // -------------------------------------------------------------------------
+    // Vars
+    // -------------------------------------------------------------------------
+
+    /// The hidden var of `kind` for `node`, declared in region `in`, or
+    /// null when one is already made: one node has one var of a kind.
+    fn hiddenVar(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId) Error!?VarId {
+        const key = sema.decisionKeyOf(node) orelse return null;
+        const gop = try l.hidden.getOrPut(l.a, .{ .node = key, .kind = kind });
+        if (gop.found_existing) return null;
+        const v = try l.f.addVar(l.a, .{ .node = node, .name = .{ .hidden = kind }, .by = by, .life = life, .drop = drop });
+        gop.value_ptr.* = v;
+        try l.declare(in, v);
+        return v;
+    }
+
+    /// A hidden var for `node` that holds its value where it stands.
+    fn holdVar(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId) Error!void {
+        const v = (try l.hiddenVar(node, kind, by, life, drop, in)) orelse return;
+        if (l.exprOf(node)) |e| try l.f.holdIn(l.a, e, v);
+    }
+
+    /// A hidden var for `node` that its region `in` evaluates first, in
+    /// its turn: the node's place in the tree reads the var.
+    fn hoistVar(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId) Error!void {
+        const v = (try l.hiddenVar(node, kind, by, life, drop, in)) orelse return;
+        const e = l.exprOf(node) orelse return;
+        const moved = try l.addExpr(l.f.exprs.items[e]);
+        l.f.exprs.items[e] = .{ .@"var" = v };
+        try l.step(in, .{ .bind = .{ .v = v, .value = moved } });
+    }
+
+    fn exprOf(l: *Lowerer, node: Sexp) ?ExprId {
+        return l.exprs.get(sema.decisionKeyOf(node) orelse return null);
+    }
+
+    /// The var of binding `name`, declared in the current block.
+    fn bindingVar(l: *Lowerer, name: Sexp, in: RegionId) Error!?VarId {
+        const sym = l.ctx.symbolOf(name) orelse return null;
+        const s = l.ctx.symbols.items[sym];
+        const drop: ?sema.ResourceKind = switch (s.kind) {
+            .param, .local, .capture => if (storage.known(l.ctx, s.ty)) |t| sema.resourceKind(l.ctx, t) else null,
+            else => null,
+        };
+        const v = try l.f.addVar(l.a, .{ .node = name, .name = .{ .binding = sym }, .drop = drop });
+        try l.bindings.put(l.a, sym, v);
+        try l.declare(in, v);
+        return v;
+    }
+
+    // -------------------------------------------------------------------------
+    // Bodies
+    // -------------------------------------------------------------------------
+
+    fn lowerBody(l: *Lowerer, oi: u32) Error!void {
+        const decl = l.module.owners.items[oi].root;
+        const f = try l.a.create(lir.Func);
+        f.* = .{ .root = decl };
+        l.f = f;
+        l.exprs.clearRetainingCapacity();
+        l.hidden.clearRetainingCapacity();
+        l.bindings.clearRetainingCapacity();
+        l.call_blocks.clearRetainingCapacity();
+        l.temps.clearRetainingCapacity();
+        f.body = try f.addRegion(l.a, decl, .body);
+        l.block = f.body;
+        l.stmt_region = f.body;
+        l.results = null;
+        if (decl.isKind(.fun) or decl.isKind(.sub)) {
+            if (storage.fnType(l.ctx, storage.typeOf(l.ctx, ir.get(decl, .name)))) |ft| l.results = sema.resultsOf(l.ctx, ft.returns);
+        }
+        try l.consumed(decl);
+        const params = ir.get(decl, .params);
+        if (params == .list) for (params.items()) |par| {
+            const name = sema.paramNameNode(par) orelse continue;
+            _ = try l.bindingVar(name, f.body);
+            if (par.isKind(.default)) {
+                // A default is evaluated where each call is: storage in
+                // one is not lowered.
+                const before = f.vars.items.len;
+                _ = try l.expr(ir.get(par, .value));
+                if (f.vars.items.len != before) return l.uncovered(par, "default values");
+            }
+        };
+        const body = ir.get(decl, .body);
+        const value = try l.stmts(body, f.body, decl.isKind(.fun) and ir.Fun.returns(decl) != .nil);
+        f.region(f.body).value = value;
+        try l.heldHeaders(decl, body);
+        l.module.owners.items[oi].func = f;
+    }
+
+    /// The statements of `body` into region `into`; the value of the
+    /// last, when `yields` and it is a value.
+    fn stmts(l: *Lowerer, body: Sexp, into: RegionId, yields: bool) Error!?ExprId {
+        const list: []const Sexp = if (body.isKind(.block)) ir.Block.stmts(body) else &.{body};
+        for (list, 0..) |s, i| {
+            if (yields and i == list.len - 1 and sema.yieldsValue(l.ctx.source, s) and !isStmtKind(s)) return try l.valueStmt(s);
+            try l.stmt(s, into);
+        }
+        return null;
+    }
+
+    /// The parameters whose header the body holds in a local
+    /// (`held_header`, `storage.planHeldHeaders`).
+    fn heldHeaders(l: *Lowerer, decl: Sexp, body: Sexp) Error!void {
+        const ctx = l.ctx;
+        if (!decl.isKind(.fun) and !decl.isKind(.sub)) return;
+        const params = ir.get(decl, .params);
+        if (params != .list) return;
+        const f = storage.fnType(ctx, storage.typeOf(ctx, ir.get(decl, .name))) orelse return;
+        if (sema.mayHoldMarkedView(ctx, f.returns)) return;
+        if (storage.containsKind(body, .raw_block)) return;
+        for (params.items()) |par| {
+            const name = sema.paramNameNode(par) orelse continue;
+            if (std.mem.eql(u8, rig.leafText(ctx.source, name.src), "@")) continue;
+            const sym = ctx.symbolOf(name) orelse continue;
+            const ty = storage.known(ctx, ctx.symbols.items[sym].ty) orelse continue;
+            if (!storage.holdsHeaderType(ctx, ty)) continue;
+            if (!storage.usedIn(ctx, body, sym, .loop)) continue;
+            if (storage.usedIn(ctx, body, sym, .escape)) continue;
+            _ = try l.hiddenVar(name, .held_header, .copy, .block, null, l.f.body);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Statements
+    // -------------------------------------------------------------------------
+
+    /// Statement `s`, in a region of its own that holds its temporaries.
+    fn stmt(l: *Lowerer, s: Sexp, into: RegionId) Error!void {
+        const r = try l.openStmt(s);
+        try l.stmtBody(s, r.region);
+        try l.closeStmt(s, r, into);
+    }
+
+    /// The last statement of a body, whose value the body yields.
+    fn valueStmt(l: *Lowerer, s: Sexp) Error!ExprId {
+        const o = try l.openStmt(s);
+        l.region(o.region).value = try l.expr(s);
+        try l.checkTemps(s, o.temps);
+        l.stmt_region = o.stmt;
+        l.temps.shrinkRetainingCapacity(o.temps);
+        return l.addExpr(.{ .block = o.region });
+    }
+
+    const Open = struct { region: RegionId, stmt: RegionId, temps: usize };
+
+    fn openStmt(l: *Lowerer, s: Sexp) Error!Open {
+        const r = try l.f.addRegion(l.a, s, .stmt);
+        const o: Open = .{ .region = r, .stmt = l.stmt_region, .temps = l.temps.items.len };
+        l.stmt_region = r;
+        return o;
+    }
+
+    fn closeStmt(l: *Lowerer, s: Sexp, o: Open, into: RegionId) Error!void {
+        try l.checkTemps(s, o.temps);
+        l.stmt_region = o.stmt;
+        l.temps.shrinkRetainingCapacity(o.temps);
+        const r = l.region(o.region);
+        if (r.decls.items.len > 0) return l.step(into, .{ .region = o.region });
+        // A statement that holds nothing runs in its block's region.
+        for (r.steps.items) |st| try l.step(into, st);
+    }
+
+    /// The temporaries statement `s` made, from `first` in `temps`, are
+    /// those `sema.stmtTemps` lists, in its order.
+    fn checkTemps(l: *Lowerer, s: Sexp, first: usize) Error!void {
+        var want: std.ArrayList(Sexp) = .empty;
+        try sema.stmtTemps(l.ctx, l.a, s, &want);
+        const have = l.temps.items[first..];
+        var ok = want.items.len == have.len;
+        if (ok) for (want.items, have) |w, v| {
+            if (sema.decisionKeyOf(w) != sema.decisionKeyOf(l.f.vars.items[v].node)) ok = false;
+        };
+        if (!ok) {
+            const at = diag.lineCol(l.ctx.source, l.ctx.startOf(s));
+            std.debug.panic("{d}:{d}: internal error: lir: a statement's temporaries are not those sema lists ({d} made, {d} listed)", .{ at.line, at.col, have.len, want.items.len });
+        }
+    }
+
+    fn stmtBody(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
+        try l.consumed(s);
+        const head = s.kind() orelse return l.step(r, .{ .eval = try l.expr(s) });
+        if (l.ctx.testCheckOf(s) != null) return l.step(r, .{ .eval = try l.expr(s) });
+        switch (head) {
+            .set => try l.assign(s, r),
+            .destructure => try l.destructure(s, r),
+            .drop => try l.dropStmt(s, r),
+            .@"return", .@"break", .@"continue" => try l.jump(s, r),
+            .pass, .rarely => {},
+            .block => {
+                const b = try l.blockRegion(s, .block);
+                try l.step(r, .{ .region = b });
+            },
+            .raw_block => {
+                const b = try l.blockRegion(ir.RawBlock.body(s), .block);
+                try l.step(r, .{ .region = b });
+            },
+            .@"defer", .@"errdefer" => {
+                const body = ir.get(s, .body);
+                const b = try l.f.addRegion(l.a, s, .block);
+                const saved = l.block;
+                defer l.block = saved;
+                l.block = b;
+                if (body.isKind(.block)) {
+                    _ = try l.stmts(body, b, false);
+                } else try l.stmt(body, b);
+                try l.step(r, .{ .region = b });
+            },
+            .@"if", .@"while", .@"for", .match, .labeled => return l.uncovered(s, "control flow"),
+            else => try l.step(r, .{ .eval = try l.expr(s) }),
+        }
+    }
+
+    /// A block's statements, in a region of `kind` that declares its
+    /// bindings.
+    fn blockRegion(l: *Lowerer, body: Sexp, kind: lir.Region.Kind) Error!RegionId {
+        const b = try l.f.addRegion(l.a, body, kind);
+        const saved = l.block;
+        defer l.block = saved;
+        l.block = b;
+        try l.blockTasks(body);
+        _ = try l.stmts(body, b, false);
+        return b;
+    }
+
+    fn blockTasks(l: *Lowerer, block: Sexp) Error!void {
+        if (!block.isKind(.block)) return;
+        for (ir.Block.stmts(block)) |s| if (storage.frameTaskSite(l.ctx, s) != null and storage.taskStaysInFrame(l.ctx, s)) return l.uncovered(s, "tasks");
+    }
+
+    fn jump(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
+        const value: Sexp = if (s.isKind(.@"continue")) .nil else ir.get(s, .value);
+        const v: ?ExprId = if (value != .nil) try l.expr(value) else null;
+        if (s.isKind(.@"return")) try l.returnParts(s);
+        try l.step(r, .{ .jump = .{ .node = s, .value = v } });
+    }
+
+    /// The parts of `return a, b` its `argument` var holds: how each of
+    /// the function's results drops.
+    fn returnParts(l: *Lowerer, s: Sexp) Error!void {
+        const value = ir.Return.value(s);
+        if (!value.isKind(.results) or !storage.hoistsResults(l.ctx, value)) return;
+        const tys = l.results orelse return;
+        const key = sema.decisionKeyOf(value) orelse return;
+        const v = l.hidden.get(.{ .node = key, .kind = .argument }) orelse return;
+        const kinds = try l.a.alloc(?sema.ResourceKind, tys.len);
+        for (tys, kinds) |t, *k| k.* = sema.resourceKind(l.ctx, t);
+        l.f.vars.items[v].parts = kinds;
+    }
+
+    fn dropStmt(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
+        const target = ir.Drop.target(s);
+        const e = try l.expr(target);
+        if (target == .src) {
+            if (l.ctx.symbolOf(target)) |sym| if (l.bindings.get(sym)) |v| return l.step(r, .{ .drop = v });
+            return l.step(r, .{ .eval = e });
+        }
+        // `<e` of anything but a name drops what it takes.
+        try l.holdVar(target, .discard, .owned, .statement, storage.dropOf(l.ctx, target), l.stmt_region);
+        try l.step(r, .{ .eval = e });
+    }
+
+    /// An assignment, or a binding's declaration, into region `r`.
+    fn assign(l: *Lowerer, set: Sexp, r: RegionId) Error!void {
+        const ctx = l.ctx;
+        const kind = rig.bindingKindOf(ir.Set.op(set));
+        const target = ir.Set.target(set);
+        const value = ir.Set.value(set);
+        const sym: ?SymbolId = if (target == .src) ctx.symbolOf(target) else null;
+        const declares = if (sym) |s| ctx.symbols.items[s].decl_pos == target.src.pos else false;
+        // The value's temporaries are made before the target's (Core §6).
+        const t0 = l.temps.items.len;
+        var declared: ?VarId = null;
+        const target_e = if (declares) blk: {
+            declared = try l.bindingVar(target, l.block);
+            const e = try l.addExpr(.{ .@"var" = declared.? });
+            try l.note(target, e);
+            break :blk e;
+        } else try l.expr(target);
+        const t1 = l.temps.items.len;
+        var value_e = try l.expr(value);
+        std.mem.rotate(VarId, l.temps.items[t0..], t1 - t0);
+        const order = storage.setOrder(ctx, set);
+        if (kind.operator() != null) {
+            try l.openAssign(set, order, r);
+            if (storage.compoundCall(ctx, set) != null and target != .src) try l.hoistVar(target, .slot, .pointer, .assignment, null, r);
+            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
+        }
+        if (target != .src) {
+            if (kind == .default) try l.placeAssign(set, order, r);
+            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
+        }
+        if (std.mem.eql(u8, rig.leafText(ctx.source, target.src), "_")) {
+            try l.holdVar(value, .discard, .owned, .statement, storage.dropOf(ctx, value), l.stmt_region);
+            return l.step(r, .{ .eval = value_e });
+        }
+        if (declared) |v| return l.step(r, .{ .bind = .{ .v = v, .value = value_e } });
+        // A reassigned resource's new value is made before the old one is
+        // dropped, as any store whose value can act is.
+        if (sym != null and (order.drops_old or storage.storesAfterValue(ctx, set))) {
+            try l.hoistVar(value, .new_value, .owned, .assignment, storage.dropOf(ctx, value), r);
+            value_e = l.exprOf(value) orelse value_e;
+        }
+        try l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
+    }
+
+    /// An assignment to a field or element (`storage.Planner.placeAssign`).
+    fn placeAssign(l: *Lowerer, set: Sexp, order: storage.SetOrder, r: RegionId) Error!void {
+        const ctx = l.ctx;
+        const target = ir.Set.target(set);
+        const through = storage.assignedThrough(target);
+        const place_ty = if (through) (if (storage.typeOf(ctx, target)) |t| sema.writtenThrough(ctx, t) else null) else storage.typeOf(ctx, target);
+        if (target.isKind(.index)) if (storage.typeOf(ctx, ir.Index.object(target))) |t| if (storage.isCellListTy(ctx, t)) return l.openAssign(set, order, r);
+        const holds_view = if (through) (if (place_ty) |t| storage.isPtrViewTy(ctx, t) else false) else (target != .src and storage.isPtrViewExpr(ctx, target));
+        if (holds_view or !order.drops_old) return l.openAssign(set, order, r);
+        try l.hoistVar(ir.Set.value(set), .new_value, .owned, .assignment, storage.dropOf(ctx, ir.Set.value(set)), r);
+        if (order.held) try l.targetSteps(set, order, r);
+        try l.hoistVar(target, .slot, .pointer, .assignment, null, r);
+    }
+
+    fn openAssign(l: *Lowerer, set: Sexp, order: storage.SetOrder, r: RegionId) Error!void {
+        if (!order.held) return;
+        const value = ir.Set.value(set);
+        if (!storage.isPureArg(l.ctx, value)) try l.hoistVar(value, .new_value, .owned, .assignment, storage.dropOf(l.ctx, value), r);
+        try l.targetSteps(set, order, r);
+    }
+
+    fn targetSteps(l: *Lowerer, set: Sexp, order: storage.SetOrder, r: RegionId) Error!void {
+        const Steps = struct {
+            l: *Lowerer,
+            order: storage.SetOrder,
+            r: RegionId,
+
+            pub fn step(st: @This(), s: storage.SetStep) Error!void {
+                switch (s.role) {
+                    .value => {},
+                    .base => if (st.order.base) try st.l.hoistVar(s.node, .base, .pointer, .assignment, null, st.r),
+                    .index => if (!storage.isPureArg(st.l.ctx, s.node)) try st.l.hoistVar(s.node, .index, .owned, .assignment, null, st.r),
+                }
+            }
+        };
+        try storage.eachTargetStep(ir.Set.target(set), Steps{ .l = l, .order = order, .r = r });
+    }
+
+    /// `q, r = f()`: the call's results, held for the statement while
+    /// each target takes its own.
+    fn destructure(l: *Lowerer, d: Sexp, r: RegionId) Error!void {
+        const targets = try l.f.addRegion(l.a, d, .value);
+        const group = ir.Destructure.targets(d);
+        if (group == .list) for (group.items()) |t| {
+            if (t.isKind(.set)) try l.assign(t, targets) else _ = try l.expr(t);
+        };
+        const value = ir.Destructure.value(d);
+        const value_e = try l.expr(value);
+        const tys: []const TypeId = if (storage.typeOf(l.ctx, value)) |t| switch (l.ctx.types.get(t)) {
+            .results => |rs| rs,
+            else => &.{},
+        } else &.{};
+        const v = (try l.hiddenVar(d, .results, .owned, .statement, null, r)) orelse return;
+        const kinds = try l.a.alloc(?sema.ResourceKind, tys.len);
+        for (tys, kinds) |t, *k| k.* = sema.resourceKind(l.ctx, t);
+        l.f.vars.items[v].parts = kinds;
+        try l.step(r, .{ .bind = .{ .v = v, .value = value_e } });
+        for (l.region(targets).steps.items) |st| try l.step(r, st);
+    }
+
+    // -------------------------------------------------------------------------
+    // Expressions
+    // -------------------------------------------------------------------------
+
+    /// Record that node `n` lowered to `e`.
+    fn note(l: *Lowerer, n: Sexp, e: ExprId) Error!void {
+        if (sema.decisionKeyOf(n)) |k| try l.exprs.put(l.a, k, e);
+    }
+
+    /// Expression `e`: its operands first, in the tree's order, then the
+    /// vars it makes.
+    fn expr(l: *Lowerer, e: Sexp) Error!ExprId {
+        switch (e) {
+            .src => {
+                const id = if (l.ctx.symbolOf(e)) |sym| (if (l.bindings.get(sym)) |v| try l.addExpr(.{ .@"var" = v }) else try l.addExpr(.{ .leaf = e })) else try l.addExpr(.{ .leaf = e });
+                try l.note(e, id);
+                try l.viewRules(e, id);
+                return id;
+            },
+            .list => {},
+            else => return l.addExpr(.{ .leaf = e }),
+        }
+        try l.consumed(e);
+        const head = e.kind() orelse return l.op(e);
+        switch (head) {
+            .@"if", .@"while", .@"for", .match, .labeled, .as, .as_results, .as_match, .matches => return l.uncovered(e, "control flow"),
+            .lambda => return l.uncovered(e, "closures"),
+            .call => {
+                if (ir.get(e, .task) != .nil) return l.uncovered(e, "tasks");
+                if (l.ctx.isSelect(e)) return l.uncovered(e, "select");
+                return l.op(e);
+            },
+            .block => {
+                const b = try l.f.addRegion(l.a, e, .block);
+                const saved = l.block;
+                l.block = b;
+                defer l.block = saved;
+                try l.blockTasks(e);
+                l.region(b).value = try l.stmts(e, b, true);
+                const id = try l.addExpr(.{ .block = b });
+                try l.note(e, id);
+                try l.viewRules(e, id);
+                return id;
+            },
+            .raw_block => {
+                const b = try l.f.addRegion(l.a, e, .block);
+                const saved = l.block;
+                l.block = b;
+                defer l.block = saved;
+                l.region(b).value = try l.expr(ir.RawBlock.body(e));
+                const id = try l.addExpr(.{ .block = b });
+                try l.note(e, id);
+                return id;
+            },
+            .@"return", .@"break", .@"continue", .set, .destructure, .drop, .@"defer", .@"errdefer" => {
+                // A statement where a value goes: its temporaries are the
+                // statement's around it.
+                const r = try l.f.addRegion(l.a, e, .value);
+                try l.stmtBody(e, r);
+                const id = try l.addExpr(.{ .block = r });
+                try l.note(e, id);
+                return id;
+            },
+            .@"catch" => return l.catchExpr(e),
+            else => return l.op(e),
+        }
+    }
+
+    /// The operation of `e` over its children, then the vars it makes.
+    fn op(l: *Lowerer, e: Sexp) Error!ExprId {
+        const kids = if (e.kind() == null) e.items() else rig.children(e);
+        const args = try l.a.alloc(ExprId, kids.len);
+        for (kids, args) |c, *x| x.* = try l.expr(c);
+        const id = try l.addExpr(.{ .op = .{ .node = e, .args = args } });
+        try l.note(e, id);
+        try l.temp(e);
+        try l.viewRules(e, id);
+        try l.kindRules(e, id);
+        return id;
+    }
+
+    /// An owning temporary its statement drops (`dropsTemp`): a var of
+    /// the statement, which holds the value where it is made.
+    fn temp(l: *Lowerer, e: Sexp) Error!void {
+        if (!l.ctx.dropsTemp(e)) return;
+        const v = try l.f.addVar(l.a, .{ .node = e, .name = .{ .hidden = .temp }, .by = if (e.isKind(.template)) .buffer else .owned, .life = .statement });
+        try l.declare(l.stmt_region, v);
+        try l.temps.append(l.a, v);
+        try l.f.holdIn(l.a, l.exprOf(e).?, v);
+    }
+
+    /// The vars a view makes, for any node sema recorded a view of.
+    fn viewRules(l: *Lowerer, e: Sexp, id: ExprId) Error!void {
+        _ = id;
+        const view = l.ctx.viewOf(e) orelse return;
+        if (storage.viewsInsideOptional(view)) try l.holdVar(e, .viewed, .pointer, .expression, null, l.stmt_region);
+        // An API object of a value that may be held as a copy views a
+        // copy, a local of the erasing block (`sema.Erasure.copy`).
+        if (view.has(.erase)) if (l.ctx.erasureOf(e)) |er| if (er.copy) try l.holdVar(e, .erased_copy, .copy, .block, null, l.block);
+        try l.leaves(if (e.isKind(.read) or e.isKind(.write)) ir.get(e, .operand) else e);
+    }
+
+    /// The vars a node of its kind makes, once its operands are lowered.
+    fn kindRules(l: *Lowerer, e: Sexp, id: ExprId) Error!void {
+        const ctx = l.ctx;
+        switch (e.kind() orelse return) {
+            .member => try l.leaves(storage.viewedPlace(ir.Member.object(e))),
+            .index => try l.leaves(ir.Index.object(e)),
+            .call => {
+                try l.call(e, id);
+                try l.objectCall(e, id);
+            },
+            .array => {
+                if (storage.hoistsArgs(ctx, e)) for (ir.Array.elems(e)) |v| try l.argument(v, null, .call, try l.callBlock(e, id));
+            },
+            // The parts of `return a, b`, made first when a later one can
+            // leave, each held as the function's result in its place.
+            .results => if (storage.hoistsResults(ctx, e)) try l.holdVar(e, .argument, .owned, .call, null, l.stmt_region),
+            .share => if (ir.Share.operand(e).isKind(.lambda)) return l.uncovered(e, "closures"),
+            else => {},
+        }
+    }
+
+    /// `v catch |e| handler`: the handler in a region of its own, which
+    /// declares its binding and the error it names.
+    fn catchExpr(l: *Lowerer, e: Sexp) Error!ExprId {
+        const value = try l.expr(ir.Catch.value(e));
+        const name = ir.Catch.name(e);
+        _ = try l.expr(name);
+        const h = try l.f.addRegion(l.a, e, .block);
+        {
+            const saved = l.block;
+            defer l.block = saved;
+            l.block = h;
+            if (name != .nil) _ = try l.bindingVar(name, h);
+            const handler = ir.Catch.handler(e);
+            l.region(h).value = if (handler.isKind(.block)) try l.stmts(handler, h, true) else try l.expr(handler);
+        }
+        const args = try l.a.dupe(ExprId, &.{ value, try l.addExpr(.{ .block = h }) });
+        const id = try l.addExpr(.{ .op = .{ .node = e, .args = args } });
+        try l.note(e, id);
+        try l.temp(e);
+        try l.viewRules(e, id);
+        if (name == .src) if (l.ctx.symbolOf(name)) |sym| if (l.ctx.isUsed(sym)) {
+            _ = try l.hiddenVar(e, .error_value, .owned, .handler, null, h);
+        };
+        return id;
+    }
+
+    // -------------------------------------------------------------------------
+    // Calls
+    // -------------------------------------------------------------------------
+
+    /// The region that evaluates the parts call `c` (lowered to `id`)
+    /// holds first: `c` becomes a value block that yields the call.
+    fn callBlock(l: *Lowerer, c: Sexp, id: ExprId) Error!RegionId {
+        const key = sema.decisionKeyOf(c).?;
+        if (l.call_blocks.get(key)) |r| return r;
+        const r = try l.f.addRegion(l.a, c, .value);
+        const moved = try l.addExpr(l.f.exprs.items[id]);
+        l.f.exprs.items[id] = .{ .block = r };
+        l.region(r).value = moved;
+        try l.call_blocks.put(l.a, key, r);
+        return r;
+    }
+
+    /// How call `c` holds what it is passed (`storage.Planner.call`).
+    fn call(l: *Lowerer, c: Sexp, id: ExprId) Error!void {
+        const ctx = l.ctx;
+        const callee = ctx.calleeOf(c);
+        const hoists = ctx.elemCallOf(callee) == null and storage.hoistsArgs(ctx, c);
+        // A temporary array viewed as a slice by a call that evaluates its
+        // arguments where they stand is viewed where Zig holds it.
+        if (!hoists) for (ir.Call.args(c)) |a| if (ctx.viewsTempArray(storage.argValue(a))) try l.holdVar(storage.argValue(a), .zig_temp, .owned, .statement, null, l.stmt_region);
+        if (ctx.elemCallOf(callee) != null) return;
+        if (callee.isKind(.lambda)) return l.uncovered(c, "closures");
+        if (!hoists) return;
+        const r = try l.callBlock(c, id);
+        if (storage.selfHold(ctx, c)) |hold| {
+            const first: storage.HeldFirst = if (hold == .consumed) .{ .node = storage.consumedTemporary(ctx, c).?, .kind = .self } else storage.heldFirst(ctx, c).?;
+            const by = hold.by(storage.hasStorage(ctx, first.node));
+            const drop = if (hold == .consumed)
+                (if (ctx.viewsTempArray(first.node)) null else storage.dropOf(ctx, first.node))
+            else if (by == .pointer or storage.isPtrViewExpr(ctx, first.node)) null else storage.dropOf(ctx, first.node);
+            try l.hoistVar(first.node, first.kind, by, .call, drop, r);
+        }
+        for (ir.Call.args(c), 0..) |a, ai| try l.argument(storage.argValue(a), storage.argumentParam(ctx, c, ai), .call, r);
+    }
+
+    /// `v`, a part of a call or an array literal evaluated first, held in
+    /// region `r` (`storage.Planner.argument`).
+    fn argument(l: *Lowerer, v: Sexp, param: ?TypeId, life: StorageLife, r: RegionId) Error!void {
+        const ctx = l.ctx;
+        if (storage.isPureArg(ctx, v)) return;
+        const by: StorageBy = switch (storage.argumentHold(ctx, v)) {
+            .closure => return l.uncovered(v, "closures"),
+            .callable => .owned,
+            .viewed => .pointer,
+            .value => if (param) |t| (if (storage.isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
+        };
+        try l.hoistVar(v, .argument, by, life, if (by == .pointer or ctx.viewsTempArray(v)) null else storage.dropOf(ctx, v), r);
+    }
+
+    /// A call through an API object's table: the object, read once
+    /// unless a name holds it, and the place a large result is written
+    /// to (`storage.Planner.objectCall`).
+    fn objectCall(l: *Lowerer, c: Sexp, id: ExprId) Error!void {
+        const ctx = l.ctx;
+        const d = switch (ctx.dispatchOf(c) orelse return) {
+            .dynamic => |d| d,
+            else => return,
+        };
+        const recv = storage.viewedPlace(if (d.self_arg) ir.Call.args(c)[0] else storage.selfOf(ctx, c) orelse return);
+        if (recv != .src) try l.hoistVar(recv, .api_object, .copy, .call, null, try l.callBlock(c, id));
+        const entry = sema.tableEntry(ctx, d) orelse return;
+        if (entry.result_out) _ = try l.hiddenVar(c, .result_place, .owned, .call, null, try l.callBlock(c, id));
+    }
+
+    // -------------------------------------------------------------------------
+    // Leaves
+    // -------------------------------------------------------------------------
+
+    /// The branches of `e`, a value read where its leaves are
+    /// (`storage.reachesLeaf`), that capture a payload by address.
+    fn leaves(l: *Lowerer, e: Sexp) Error!void {
+        if (storage.reachesLeaf(l.ctx, e)) try l.leaf(e);
+    }
+
+    fn leaf(l: *Lowerer, e: Sexp) Error!void {
+        switch (storage.leafStep(l.ctx, e)) {
+            .place, .part, .view, .jump => {},
+            .made => if (!l.ctx.dropsTemp(e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),
+            .literal => if (!storage.isNoneLeaf(l.ctx, e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),
+            .@"if" => {
+                try l.leaf(storage.lastValue(ir.If.then(e)));
+                try l.leaf(storage.lastValue(ir.If.@"else"(e)));
+            },
+            .fallback => {
+                try l.holdVar(e, .leaf, .pointer, .expression, null, l.stmt_region);
+                if (e.isKind(.@"??")) {
+                    try l.leaf(ir.@"??".left(e));
+                    try l.leaf(ir.@"??".right(e));
+                } else {
+                    try l.leaf(ir.Catch.value(e));
+                    try l.leaf(storage.lastValue(ir.Catch.handler(e)));
+                }
+            },
+            .unwrap => {
+                try l.holdVar(e, .leaf, .pointer, .expression, null, l.stmt_region);
+                try l.leaf(if (e.isKind(.propagate)) ir.Propagate.value(e) else ir.PropagateNone.value(e));
+            },
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Bindings a use may move out
+    // -------------------------------------------------------------------------
+
+    /// The bindings node `e` may move out (`storage.planConsumed`).
+    fn consumed(l: *Lowerer, e: Sexp) Error!void {
+        const ctx = l.ctx;
+        switch (e.kind() orelse return) {
+            .move => l.consumeName(ir.Move.operand(e)),
+            .drop => l.consumeName(ir.Drop.target(e)),
+            .@"return" => if (ir.Return.value(e).isKind(.results)) {
+                for (ir.Results.values(ir.Return.value(e))) |part| try l.consumeTail(part);
+            } else try l.consumeTail(ir.Return.value(e)),
+            .@"break" => try l.consumeTail(ir.Break.value(e)),
+            .@"for" => {
+                if (ir.For.mode(e).tag == .move) l.consumeName(ir.For.source(e));
+                try l.consumeTail(e);
+            },
+            .@"if" => if (ir.If.@"else"(e) != .nil) try l.consumeTail(e),
+            .@"??", .@"catch", .match, .@"while", .raw_block => try l.consumeTail(e),
+            .cap_move => if (ctx.symbolOf(ir.get(e, .name))) |cap| l.flags.set(ctx.symbols.items[cap].origin),
+            .fun => if (ir.Fun.returns(e) != .nil) try l.consumeTail(ir.Fun.body(e)),
+            .lambda => if (storage.lambdaYields(ctx, e)) try l.consumeTail(ir.Lambda.body(e)),
+            else => {},
+        }
+    }
+
+    fn consumeName(l: *Lowerer, node: Sexp) void {
+        if (node != .src) return;
+        const sym = l.ctx.symbolOf(node) orelse return;
+        l.flags.set(sym);
+    }
+
+    fn consumeTail(l: *Lowerer, value: Sexp) Error!void {
+        if (value == .src) return l.consumeName(value);
+        try sema.eachTailPart(value, l, consumeTail);
+    }
+};
+
+/// Statement kinds that give no value, though they are last in a body.
+fn isStmtKind(s: Sexp) bool {
+    return switch (s.kind() orelse return false) {
+        .set, .destructure, .drop, .@"return", .@"break", .@"continue", .pass, .rarely, .@"defer", .@"errdefer", .labeled, .panic => true,
+        else => false,
+    };
+}

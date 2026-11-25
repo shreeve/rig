@@ -25,6 +25,7 @@ const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
 const storage = @import("storage.zig");
+const lower = @import("lower.zig");
 const proofs = @import("proofs.zig");
 const lsp = @import("lsp.zig");
 const frames = @import("frames.zig");
@@ -80,6 +81,9 @@ const usage =
     \\                         root module instead (check)
     \\  --facts=proofs         Print the tests of the root module that are
     \\                         known to pass, which emit omits (check)
+    \\  --facts=lir            Print the root module's lowered IR: each
+    \\                         body's vars and steps, and the bodies not
+    \\                         yet lowered (check)
     \\  --facts=frames         Print each frame owner of the root module
     \\                         (a function, closure, test, or drop body)
     \\                         with its account: the bytes of values it
@@ -264,7 +268,7 @@ const Mode = enum {
 /// What `check --facts` prints: the IR's syntax facts, sema's, the
 /// hidden storage emit makes, the tests known to pass, or each frame's
 /// counted bytes.
-const Facts = enum { none, syntax, sema, storage, proofs, frames };
+const Facts = enum { none, syntax, sema, storage, proofs, frames, lir };
 
 const Options = struct {
     command: Command,
@@ -434,6 +438,13 @@ pub fn main(init: std.process.Init) !void {
                     }
                     try writer.interface.flush();
                 },
+                .lir => {
+                    const m = graph.root();
+                    var buffer: [4096]u8 = undefined;
+                    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
+                    try lower.writeModule(allocator, m.sema, m.ir, &writer.interface);
+                    try writer.interface.flush();
+                },
                 .sema, .storage, .proofs => {
                     const m = graph.root();
                     var buffer: [4096]u8 = undefined;
@@ -518,6 +529,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .proofs;
         } else if (eql(arg, "--facts=frames")) {
             facts = .frames;
+        } else if (eql(arg, "--facts=lir")) {
+            facts = .lir;
         } else if (eql(arg, "--time")) {
             time = true;
         } else if (eql(arg, "--bolt")) {

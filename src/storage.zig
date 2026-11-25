@@ -1935,7 +1935,7 @@ fn planHeldHeaders(ctx: *SemContext, decl: Sexp, body: Sexp) !void {
 
 /// Whether a parameter of type `ty` may hold its header: a write view of
 /// a `String`, or of a `List[T]` with no inline room, viewed by pointer.
-fn holdsHeaderType(ctx: *const SemContext, ty: TypeId) bool {
+pub fn holdsHeaderType(ctx: *const SemContext, ty: TypeId) bool {
     const inner = switch (ctx.types.get(ty)) {
         .write_view => |inner| inner,
         else => return false,
@@ -1949,7 +1949,7 @@ fn holdsHeaderType(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
-const Within = enum {
+pub const Within = enum {
     /// Inside a `while` or `for`.
     loop,
     /// Inside a task's call, a closure, or a `raw` block.
@@ -1957,7 +1957,7 @@ const Within = enum {
 };
 
 /// Whether `e` names `sym` within a node of the kind `within` asks for.
-fn usedIn(ctx: *const SemContext, e: Sexp, sym: SymbolId, within: Within) bool {
+pub fn usedIn(ctx: *const SemContext, e: Sexp, sym: SymbolId, within: Within) bool {
     if (e == .src) return false;
     if (e != .list) return false;
     const inside = switch (within) {
@@ -1982,7 +1982,7 @@ fn namesSym(ctx: *const SemContext, e: Sexp, sym: SymbolId) bool {
     return false;
 }
 
-fn containsKind(e: Sexp, kind: Tag) bool {
+pub fn containsKind(e: Sexp, kind: Tag) bool {
     if (e != .list) return false;
     if (e.isKind(kind)) return true;
     for (e.items()) |c| if (containsKind(c, kind)) return true;
