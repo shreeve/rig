@@ -3332,7 +3332,14 @@ call names the file it calls into (`rules.checkLive(self, ...)`):
 | `notes.zig` | messages, and the notes that name both ends of a view |
 | `lowered.zig` | the walk's view of each body's [LIR](#lir), and the shadow that compares the two walks |
 
-**The walk on LIR.** In a self-checking build each module is checked
+**The walk on LIR.** Every walk of a lowered body takes the operands
+of an expression from the LIR operation made for its node
+(`lowered.Expr`, `lowered.operand`): those of plain operators, `and`
+and `or`, members, indexes, and every operation walked by its
+children. A part a region holds first in a var is walked as the value
+the var holds, where it stands. The walk enters a tree node through
+the body's index of the outermost expression made for each node
+(`lowered.exprAt`). In a self-checking build each module is checked
 twice, the second time with `Checker.on_lir` set, and a module whose
 two walks report other diagnostics is an internal error
 (`ownership.shadow`). The second walk reads from each body's LIR the
