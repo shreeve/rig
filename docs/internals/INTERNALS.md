@@ -4770,7 +4770,7 @@ Its readers, each taking the steps from `eachSetStep`:
 A new reader takes the steps from `eachSetStep` and the held storage
 from `setOrder`, and decides neither again.
 
-**The fact: `old_nones`** (`SemContext.recordOldNone`, read by emit as
+**The fact: `old_nones`** (`SemContext.recordOwnership`, read by emit as
 `Facts.oldIsNone`). An assignment to a field whose old value moves
 drops it through the slot, unless the ownership checker knows the
 field holds `none` there. Each var's flow keeps the optional fields

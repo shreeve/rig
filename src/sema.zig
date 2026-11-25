@@ -2050,7 +2050,7 @@ pub const Facts = struct {
     /// Assignments to a field that holds `none` wherever they run: the
     /// ownership checker found it taken with `<p.f`, and neither written
     /// nor given a write view since, on every path
-    /// (`SemContext.recordOldNone`). The store drops no old value.
+    /// (`SemContext.recordOwnership`). The store drops no old value.
     old_nones: FastMap(NodeKey, void) = .empty,
     /// `*w` nodes that upgrade a weak handle -> whether each reads or
     /// takes it (`SemContext.recordUpgrade`).
@@ -5640,14 +5640,17 @@ pub const SemContext = struct {
         return self.facts.takes.contains(nodeKey(node) orelse return false);
     }
 
-    /// Assignment `set` stores into a field the ownership checker knows
-    /// holds `none` (`Facts.old_nones`). Only the module check calls
-    /// this, after the checker accepts the module.
-    pub fn recordOldNone(self: *SemContext, set: Sexp) !void {
-        try self.putIn(.ownership, .old_nones, recordKey(set), {});
+    /// What the ownership checker hands back once it accepts the module:
+    /// what its generic bodies require of the types they copy, for the
+    /// modules that import it (`plain_reqs`), and the assignments that
+    /// store into a field it knows holds `none` (`Facts.old_nones`).
+    pub fn recordOwnership(self: *SemContext, reqs: []const PlainRequirement, old_nones: []const Sexp) !void {
+        try self.plain_reqs.appendSlice(self.allocator, reqs);
+        for (old_nones) |set| try self.putIn(.ownership, .old_nones, recordKey(set), {});
+        self.seal(.ownership);
     }
 
-    /// Whether assignment `set`'s old value is `none` (`recordOldNone`).
+    /// Whether assignment `set`'s old value is `none` (`recordOwnership`).
     pub fn oldIsNone(self: *const SemContext, set: Sexp) bool {
         return self.facts.old_nones.contains(nodeKey(set) orelse return false);
     }

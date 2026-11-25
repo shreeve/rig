@@ -945,12 +945,9 @@ pub const ModuleGraph = struct {
         }
         m.own_ran = true;
         m.own_diags = .{ first, @intCast(m.sema.diagnostics.items.len) };
-        // What the generic bodies copy, for the modules that import them.
-        try m.sema.plain_reqs.appendSlice(self.allocator, own.ownPlainReqs());
-        // The assignments whose old value is `none`, which drop nothing.
         const old_nones = try own.oldNones(self.allocator);
         defer self.allocator.free(old_nones);
-        for (old_nones) |set| try m.sema.recordOldNone(set);
+        try m.sema.recordOwnership(own.ownPlainReqs(), old_nones);
 
         m.state = if (m.sema.hasErrors()) .failed else .checked;
         // Which tests are known to pass rests on the ownership checker's
