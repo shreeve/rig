@@ -174,7 +174,9 @@ Rewrites grow unless something pushes back. In this one, lines are a
 gate.
 
 - **Budgets.** `architecture.md` gives each pass a line budget, set
-  from the three designs, not from today's size. The ledger keeps a
+  from the three designs, not from today's size. A step's budget counts
+  only the lines that step itself can delete: a step that adds a table
+  says which later step its readers' savings land in. The ledger keeps a
   scoreboard: lines per pass at `revamp-base`, now, and the budget.
 - **Every PR reports** net lines changed, split into compiler, runtime,
   and std source on one side and tests and docs on the other. Source

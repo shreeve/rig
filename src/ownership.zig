@@ -28,7 +28,7 @@
 //!   is checked against its signature (`checkOrigins`). A loan that is
 //!   not stored anywhere is a temporary and ends with its statement.
 //! * Hidden storage emit makes is read from the storage facts
-//!   (`sema.Storage`): a self or copied argument a call holds while
+//!   (`storage.Var`): a self or copied argument a call holds while
 //!   it runs is a hidden var the call views, which ends when the call
 //!   returns (`holdForCall`).
 //! * Cells, Signals and owned closures hold no views: every handle to
@@ -381,7 +381,7 @@ const Var = struct {
     /// is an owner's name (`arm_of`); empty when no take would compile.
     arm_take: []const u8 = "",
     /// A value a call holds in storage of its own, which lives only
-    /// while the call runs (`sema.Storage` of life `call`): self
+    /// while the call runs (`storage.Var` of life `call`): self
     /// or argument it is given (`holdForCall`).
     call_held: bool = false,
     /// An owning temporary its statement holds (`holdTemp`): in use while
@@ -2103,13 +2103,13 @@ pub const Checker = struct {
             v.sym = ctx.symbolAt(v.decl);
         }
         // Emit holds a binding as the storage plan recorded it
-        // (`Symbol.hold`): the checker treats as owning exactly the
-        // bindings that record says hold a value that moves.
+        // (`storage.Binding.drop`): the checker treats as owning exactly
+        // the bindings that record says hold a value that moves.
         if (self_check) if (v.sym) |sym| if (v.ty) |t| {
-            const s = ctx.symbols.items[sym];
-            switch (s.kind) {
-                .param, .local, .capture => if ((s.hold != null) != (self.owningKind(t) != null))
-                    try self.err(v.decl, "internal error: the checker holds `{s}` as {s}, but the storage plan records {s}", .{ v.name, if (self.owningKind(t) != null) "owning" else "owning nothing", if (s.hold) |h| @tagName(h) else "nothing to drop" }),
+            const drop = ctx.vars.binding(sym).drop;
+            switch (ctx.symbols.items[sym].kind) {
+                .param, .local, .capture => if ((drop != null) != (self.owningKind(t) != null))
+                    try self.err(v.decl, "internal error: the checker holds `{s}` as {s}, but the storage plan records {s}", .{ v.name, if (self.owningKind(t) != null) "owning" else "owning nothing", if (drop) |h| @tagName(h) else "nothing to drop" }),
                 else => {},
             }
         };
@@ -4672,11 +4672,11 @@ pub const Checker = struct {
         if (v.payload_view) return self.movePayload(id, pos, vt);
 
         if (try self.conflicts(id, whole_path, .{ .consume = vt }, pos)) return .{};
-        // Emit arms a drop flag only for a binding the consumed fact
-        // records (`SemContext.consumes`), so no other may move.
+        // Emit arms a drop flag only for a binding the var table flags
+        // (`storage.Binding.flag`), so no other may move.
         const ctx = self.sema;
-        if (ctx.symbolAt(v.decl)) |sym| if (!ctx.consumes(sym)) {
-            try self.err(pos, "internal error: `{s}` moves here, but the consumed fact does not record it", .{v.name});
+        if (ctx.symbolAt(v.decl)) |sym| if (!ctx.vars.binding(sym).flag) {
+            try self.err(pos, "internal error: `{s}` moves here, but the var table does not flag it", .{v.name});
             return .{};
         };
         // `<x` ends `x`, whatever its type: a Copy value or a view is
@@ -5902,7 +5902,7 @@ pub const Checker = struct {
     }
 
     /// Hold `v`, the value of `node`, which the emitted call keeps in
-    /// storage of its own (`sema.Storage` of life `call`: a self, or
+    /// storage of its own (`storage.Var` of life `call`: a self, or
     /// a copied argument), in a hidden var the call views (`kind`), so
     /// a view of it is a view of that storage.
     fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind) Error!Value {
@@ -5916,10 +5916,10 @@ pub const Checker = struct {
     /// it runs, and that it views (a copy, or a value the storage owns),
     /// when the storage facts record one of `kind` for it: a self
     /// without its view sigils, an argument as written.
-    fn heldForCall(self: *const Checker, e: Sexp, kind: sema.StorageKind) ?Sexp {
+    fn heldForCall(self: *const Checker, e: Sexp, kind: storage.StorageKind) ?Sexp {
         const ctx = self.sema;
         const node = if (kind == .self) storage.viewedPlace(e) else e;
-        const s = ctx.storageOf(node, kind) orelse return null;
+        const s = ctx.varOf(node, kind) orelse return null;
         if (s.life != .call or s.by == .pointer) return null;
         // An owned argument is the callee's own value, not a view of it.
         if (kind == .argument and s.by != .copy) return null;

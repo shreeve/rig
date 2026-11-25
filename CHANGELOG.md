@@ -670,6 +670,14 @@ serve no HTTP.
   the facts table, the diagnostics, and the decisions what they held at
   the mark (docs/internals/INTERNALS.md, "The trail"). Nothing uses it
   yet but its test; the emitted Zig is the same.
+- **The storage plan keeps one var table** (docs/internals/INTERNALS.md,
+  "Storage facts"): each hidden var emit makes, in the order the plan
+  makes it, with how it holds its value, how long, and how it drops it,
+  and a row for each binding with how it drops its value and whether a
+  use may move it out. Emit and the ownership checker read the table
+  where they read a binding's hold, a lazily decided drop kind, the
+  parts of several results, and the consumed set before. No program is
+  accepted or rejected differently, and the emitted Zig is the same.
 - **A conflict points at both ends of the view that blocks it:** beside
   "a read view of `v` is made here", a second note, "still used here", at
   the use that keeps the view in use, the next one after the conflict:

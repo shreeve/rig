@@ -18,7 +18,8 @@ as it lands. Newest entries first.
 | Pilot front F1: the recorder's trail | I | front | pilot-front | claimed | | |
 | Pilot front F2: byte literals at the site | I | front | pilot-front | claimed | | |
 | Pilot front F3: iterator loops at the `for` | I | front | pilot-front | claimed | | |
-| Pilot back: the var table | I | back | pilot-back | claimed | | |
+| Pilot back: the var table | I | back | pilot-back | merged | #1256 | +20 |
+| Back: `field_moves` into `Binding` | I | back | | next | | |
 | LLVM bitcode measurement | experiment | side | llvm-probe | claimed | | |
 
 ## Line scoreboard
@@ -43,6 +44,27 @@ budgets"). Updated as steps land.
 | print and type layout | 14,192 | | 8,000 |
 
 ## Entries
+
+### 2026-11-25
+
+- The back pilot landed (#1256): `storage.plan` keeps one var table
+  that emit and the ownership checker read, in place of the storage
+  map, `part_drops`, `Symbol.hold`, the lazily decided `drop_kind`, and
+  the consumed set. Emit-diff identical on all 38 programs, Trig
+  included; core suite 12,743 jobs, none died; the oracle unchanged;
+  the check guard 0.1% fewer instructions; Trig's and loco's light
+  gates GREEN.
+- **The pilot's finding:** it was budgeted −500 source lines and landed
+  +20. The table adds lines, and each of emit's 56 hidden-storage sites
+  still writes its own Zig; the saving comes when emit prints vars
+  from the table, the back track's printer step. A step's budget counts
+  only the lines that step itself can delete.
+- `emit-diff` compares Trig from a plain export (#1260), and a Trig it
+  cannot compare fails the proof.
+- The before state is race 761 (Trig's research 34): 16 projects, Trig
+  over tsrs 0.889 / 0.923 / 0.933 / 0.917 at 1, 2, 4, and 8 checkers;
+  race 760 was void (other projects' jobs ran during it), and board
+  slots run inside `cpuq run --exclusive`.
 
 ### 2026-11-24
 
