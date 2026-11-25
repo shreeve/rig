@@ -11,8 +11,8 @@ pub const Pass = enum {
     resolve,
     /// Every expression, frames, generic instances.
     typecheck,
-    /// The hidden storage emit makes (`storage.plan`).
-    storage,
+    /// Each body lowered to its LIR (`lower.lowerChecked`).
+    lower,
     ownership,
     proofs,
     inlining,

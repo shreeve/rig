@@ -1115,11 +1115,11 @@ pub fn moveVar(self: *Checker, id: VarId, pos: u32, verb: MoveVerb) Error!Value 
     if (v.payload_view) return movePayload(self, id, pos, vt);
 
     if (try rules.conflicts(self, id, whole_path, .{ .consume = vt }, pos)) return .{};
-    // Emit arms a drop flag only for a binding the var table flags
-    // (`storage.Binding.flag`), so no other may move.
+    // Emit arms a drop flag only for a binding a use may move
+    // (`SemContext.moved`), so no other may move.
     const ctx = self.sema;
-    if (ctx.symbolAt(v.decl)) |sym| if (!ctx.vars.binding(sym).flag) {
-        try notes.err(self, pos, "internal error: `{s}` moves here, but the var table does not flag it", .{v.name});
+    if (ctx.symbolAt(v.decl)) |sym| if (!ctx.mayMove(sym)) {
+        try notes.err(self, pos, "internal error: `{s}` moves here, but no use is marked as one that may move it", .{v.name});
         return .{};
     };
     // `<x` ends `x`, whatever its type: a Copy value or a view is
@@ -2201,7 +2201,7 @@ pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind) Error!V
 pub fn heldForCall(self: *const Checker, e: Sexp, kind: storage.StorageKind) ?Sexp {
     const ctx = self.sema;
     const node = if (kind == .self) storage.viewedPlace(e) else e;
-    const s = ctx.varOf(node, kind) orelse return null;
+    const s = (ctx.lowered orelse return null).varOf(node, kind) orelse return null;
     if (s.life != .call or s.by == .pointer) return null;
     // An owned argument is the callee's own value, not a view of it.
     if (kind == .argument and s.by != .copy) return null;

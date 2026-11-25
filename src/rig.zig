@@ -200,7 +200,7 @@ pub fn isConditionJoin(cond: Sexp) bool {
 /// condition, in the order they run: each part a binding condition joins
 /// (`isConditionJoin`), which is a header of its own, or else the whole
 /// condition, which is one. The one list of a condition's parts: emit
-/// writes one `if` per part, and the storage plan, the type checker, the
+/// writes one `if` per part, and lowering, the type checker, the
 /// symbol resolver, and the ownership checker walk the same parts. A
 /// visitor with a `join` method is also given each `and` that joins
 /// parts, after the parts it joins.
@@ -361,8 +361,8 @@ pub fn skeletonOf(stmt: Sexp) Skeleton {
 /// closure's body hold units of their own, listed between the enter and
 /// the exit of the unit around them. The selection's root is the `match`
 /// node; its nodes are the subject, the patterns, and the guards
-/// (`selectionParts`). The one list of a body's units: the storage plan
-/// records each node's unit from it (`SemContext.unitOf`), and the proof
+/// (`selectionParts`). The one list of a body's units: a self-checking
+/// build records each node's unit from it (`SemContext.unitOf`), and the proof
 /// pass and emit enter the same units.
 pub fn eachUnit(body: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
     try unitsOfBranch(body, visitor);

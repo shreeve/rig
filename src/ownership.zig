@@ -28,7 +28,7 @@
 //!   is checked against its signature (`checkOrigins`). A loan that is
 //!   not stored anywhere is a temporary and ends with its statement.
 //! * Hidden storage emit makes is read from the storage facts
-//!   (`storage.Var`): a self or copied argument a call holds while
+//!   (the module's LIR, `lir.Var`): a self or copied argument a call holds while
 //!   it runs is a hidden var the call views, which ends when the call
 //!   returns (`holdForCall`).
 //! * Cells, Signals and owned closures hold no views: every handle to
