@@ -3191,7 +3191,7 @@ pub fn reduceFunction(self: *Checker, f: Sexp, acc: TypeId, each: TypeId) Error!
         if (plain_errors == 0) return plain;
         const failing_errors = try lambdaErrorsQuietly(self, f, failing);
         if (failing_errors == 0) return failing;
-        try self.closures_in_error.put(self.ctx.allocator, CompatCheck.nodeId(f), {});
+        try self.ctx.putIn(.check, .closures_in_error, CompatCheck.nodeId(f), {});
         return if (failing_errors < plain_errors) failing else plain;
     }
     const ty = try CallCheck.argType(self, f);
@@ -4595,7 +4595,7 @@ pub fn parFunction(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const 
         const takes = ir.Lambda.params(f).items().len;
         if (!sub and takes > params.len) {
             try self.errAt(f, "this closure takes {d} parameters, but `{s}` passes {d}; a closure may take fewer, never more", .{ takes, shown, params.len });
-            try self.closures_reported.put(self.ctx.allocator, CompatCheck.nodeId(f), {});
+            try self.ctx.putIn(.check, .closures_reported, CompatCheck.nodeId(f), {});
             return null;
         }
         return try closureType(self, f, params, sub);
@@ -4671,7 +4671,7 @@ pub fn closureType(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) E
     const plain, const plain_errors = try closureQuietly(self, f, params, sub, false);
     if (plain_errors == 0) return plain;
     const failing, const failing_errors = try closureQuietly(self, f, params, sub, true);
-    if (failing_errors > 0) try self.closures_in_error.put(self.ctx.allocator, CompatCheck.nodeId(f), {});
+    if (failing_errors > 0) try self.ctx.putIn(.check, .closures_in_error, CompatCheck.nodeId(f), {});
     if (failing_errors >= plain_errors) return plain;
     // A body whose value is poison gives no failure to its type:
     // the closure still fails, as the call's own check of it must.
@@ -4685,7 +4685,7 @@ pub fn closureType(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) E
 /// is a closure literal in error (`closures_in_error`), whose errors
 /// the call reported.
 pub fn closureResult(self: *Checker, f: Sexp, result: TypeId) TypeId {
-    if (f.isKind(.lambda) and self.closures_in_error.contains(CompatCheck.nodeId(f))) return self.t().invalid_id;
+    if (f.isKind(.lambda) and self.ctx.closures_in_error.contains(CompatCheck.nodeId(f))) return self.t().invalid_id;
     return result;
 }
 
@@ -4699,7 +4699,7 @@ pub fn closureErrors(self: *Checker, f: Sexp, params: []const TypeId, sub: bool)
     _, const plain = try closureQuietly(self, f, params, sub, false);
     _, const failing = try closureQuietly(self, f, params, sub, true);
     _ = try closureAs(self, f, params, sub, failing < plain);
-    try self.closures_reported.put(self.ctx.allocator, CompatCheck.nodeId(f), {});
+    try self.ctx.putIn(.check, .closures_reported, CompatCheck.nodeId(f), {});
 }
 
 /// Closure literal `f` checked quietly as `closureType` checks it, as

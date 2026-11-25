@@ -1801,7 +1801,8 @@ is a column of one recorder (`sema.Column`): each map of `Facts`, and
 the maps of `SemContext` that `ctx_columns` names (the per-node records
 `write_sites`, `untakeable`, and `discards`, a call's target and its
 inline call, a closure's captures its one call takes, the constant
-values of bindings, a body's units, and the proofs' records). Each
+values of bindings, a body's units, the proofs' records, and the type
+checker's records of what it reported). Each
 column declares its one writer pass (`sema.Pass`: the module check,
 storage, the module graph, the ownership checker, or the proof pass)
 and its key (`sema.specs`). It is written only through `putIn` and
@@ -1817,7 +1818,10 @@ list without an id stops the compiler.
 
 **The trail.** A check can be taken back. `SemContext.mark` opens a
 mark, and while one is open every write to a column goes on the trail
-with the value it replaced. `rollback` gives
+with the value it replaced, the type checker's records of what it
+reported once and does not report again among them (`kept_reported`,
+`closures_reported`, `closures_in_error`, `uncaptured_reported`): a
+check taken back reports its errors again. `rollback` gives
 every column what it held at the mark, drops the diagnostics reported
 and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and

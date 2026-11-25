@@ -1536,7 +1536,7 @@ pub fn synthArgs(self: *Checker, args: []const Sexp) Error!void {
         const e = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
         if (e.isKind(.array) and ir.Array.elems(e).len == 0) continue;
         const literal = if (e.isKind(.share)) ir.Share.operand(e) else e;
-        if (literal.isKind(.lambda) and self.closures_reported.contains(CompatCheck.nodeId(literal))) continue;
+        if (literal.isKind(.lambda) and self.ctx.closures_reported.contains(CompatCheck.nodeId(literal))) continue;
         self.expect.view_arg = e;
         _ = try PatternCheck.synthExpr(self, e);
     }
@@ -3078,7 +3078,7 @@ pub fn lambdaLeftUnbound(self: *Checker, inf: *const Checker.Inference, param: S
         if (reported.* & bit != 0) continue;
         reported.* |= bit;
         _ = try ClosureCheck.checkLambdaGiven(self, l.lambda, null, l.given, l.fails);
-        try self.closures_reported.put(self.ctx.allocator, CompatCheck.nodeId(l.lambda), {});
+        try self.ctx.putIn(.check, .closures_reported, CompatCheck.nodeId(l.lambda), {});
     }
     return found;
 }

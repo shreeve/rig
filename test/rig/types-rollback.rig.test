@@ -1,0 +1,99 @@
+# types: a check taken back when its statement or declaration is rewritten
+# (a byte literal, a chain, an option group or a spread) reports its
+# errors again when the rewritten form is checked.
+
+fail "an uncaptured local beside a byte literal", "`m` is a local of the enclosing function; capture it", errors: 1
+  m: U8 = 2
+  f = || print(m + "a")
+  f()
+
+fail "an uncaptured local passed beside a byte literal", "`m` is a local of the enclosing function; capture it", errors: 1
+  fun take(x: U8, y: U8) -> U8
+    x + y
+
+  m: U8 = 2
+  f = || print(take(m, "a"))
+  f()
+
+fail "a kept view beside a byte literal", "`head(v, \"a\")` keeps a view of `v` while `r` lives", errors: 1
+  fun head(xs: []Int, b: U8) -> []Int
+    xs[0..1]
+
+  v = List[Int]()
+  !v.push(1)
+  r = head(v, "a")
+  print(r[0])
+
+fail "an uncaptured local beside a chain", "`m` is a local of the enclosing function; capture it", errors: 1
+  fun call(n: Int, f: ?fun() -> Int) -> Int
+    n + f()
+
+  m = 2
+  names: List[Int] = List()
+  !names.push(3)
+  print(call(names.filter(|s| s > 1).count(), || m))
+
+fail "a kept view beside a chain", "keeps a view of `v` while `r` lives", errors: 1
+  fun head(xs: []Int, n: Int) -> []Int
+    xs[0..1]
+
+  v = List[Int]()
+  !v.push(1)
+  r = head(v, v.filter(|s| s > 0).count())
+  print(r[0])
+
+fail "an uncaptured local in a function that reads a group's field", "`m` is a local of the enclosing function; capture it", errors: 1
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  sub fetch(url: ?String, ..net: Net)
+    m = 2
+    f = || m
+    print(net.retries)
+    print(url, f())
+
+  fetch("a")
+
+fail "an uncaptured local in a function that uses a group whole", "`m` is a local of the enclosing function; capture it", errors: 1
+  obj Net
+    timeout: Int = 30
+
+  sub show(n: ?Net)
+    print(n.timeout)
+
+  sub fetch(url: ?String, ..net: Net)
+    m = 2
+    f = || m
+    show(?net)
+    print(url, f())
+
+  fetch("a")
+
+fail "a kept view in a function that uses a group whole", "keeps a view of `v` while `r` lives", errors: 1
+  obj Net
+    timeout: Int = 30
+
+  fun head(xs: []Int, n: ?Net) -> []Int
+    xs[0..1]
+
+  sub fetch(..net: Net)
+    v = List[Int]()
+    !v.push(1)
+    r = head(v, ?net)
+    print(r[0])
+
+  fetch()
+
+fail "an uncaptured local beside a spread", "`m` is a local of the enclosing function; capture it", errors: 1
+  obj Http
+    retries: Int = 3
+
+  sub get(path: ?String, ..h: Http)
+    print(path, h.retries)
+
+  m = 2
+  f = || m
+  h = Http()
+  get("/a", ..h)
+  print(f())
