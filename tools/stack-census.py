@@ -323,6 +323,131 @@ def x86_track(i, st, depth):
             pass
 
 
+def read_raw(raw, addr, n):
+    """`n` bytes at `addr` from the data sections' runs, or None."""
+    for lo, data in raw or ():
+        if lo <= addr and addr + n <= lo + len(data):
+            return data[addr - lo:addr + n - lo]
+    return None
+
+
+def arm_reg(r):
+    """A register's number, for x8 and w8 alike, or None."""
+    m = re.match(r"^[xw](\d+)$", r.strip())
+    return int(m.group(1)) if m else None
+
+
+def arm_table(ins, k, raw):
+    """The targets of the `br` at `ins[k]` when it ends one of LLVM's arm64
+    jump tables, or None: the table's address set by `adrp` and `add`, just
+    before or once in the whole function; its entries read by index,
+    `ldrb` (1 byte), `ldrh` (2) or `ldrsw` (4), and added to a base,
+    `adr`'s label (1 and 2 scaled by 4) or, for 4, the table itself; its
+    length from the `cmp` of the index and the `b.hi` (or `b.hs`) that skip
+    the jump past its last entry. Anything else stays an indirect jump,
+    which leaves its task unknown."""
+    def parts(i):
+        a = i.args.split(";")[0].split("<")[0].strip()
+        return [p.strip() for p in re.split(r",(?![^\[]*\])", a)] if a else []
+
+    br = parts(ins[k])
+    if len(br) != 1 or arm_reg(br[0]) is None:
+        return None
+    dest = arm_reg(br[0])
+    lo = max(0, k - 12)
+    # add xD, xB, xE[, lsl #2]
+    j = k - 1
+    if j < lo or ins[j].op != "add":
+        return None
+    a = parts(ins[j])
+    if len(a) not in (3, 4) or arm_reg(a[0]) != dest:
+        return None
+    base_reg, ent_reg = arm_reg(a[1]), arm_reg(a[2])
+    shift = 0
+    if len(a) == 4:
+        if a[3].replace(" ", "") != "lsl#2":
+            return None
+        shift = 2
+    # the load of the entry
+    load = None
+    for j2 in range(j - 1, lo - 1, -1):
+        b = parts(ins[j2])
+        if ins[j2].op in ("ldrb", "ldrh", "ldrsw") and b and arm_reg(b[0]) == ent_reg:
+            load = j2
+            break
+        if b and arm_reg(b[0]) == ent_reg:
+            return None
+    if load is None:
+        return None
+    size = {"ldrb": 1, "ldrh": 2, "ldrsw": 4}[ins[load].op]
+    m = re.match(r"^\[([xw]\d+), ([xw]\d+)(?:, lsl #(\d))?\]$", parts(ins[load])[1] if len(parts(ins[load])) == 2 else "")
+    if not m or int(m.group(3) or 0) != {1: 0, 2: 1, 4: 2}[size]:
+        return None
+    table_reg, idx_reg = arm_reg(m.group(1)), arm_reg(m.group(2))
+    if (size == 4) != (shift == 0):
+        return None
+    # the table's address: adrp xT, page; add xT, xT, #off, just before, or
+    # anywhere in the function when no other instruction writes xT
+    def table_at(j2):
+        b = parts(ins[j2])
+        if ins[j2].op == "add" and len(b) == 3 and arm_reg(b[1]) == table_reg and b[2].startswith("#") and j2 > 0 and ins[j2 - 1].op == "adrp" and arm_reg(parts(ins[j2 - 1])[0]) == table_reg:
+            page = target(ins[j2 - 1].args)
+            return page + num(b[2]) if page is not None else None
+        return None
+
+    def writes(j2):
+        b = parts(ins[j2])
+        return bool(b) and arm_reg(b[0]) == table_reg and not ins[j2].op.startswith(("st", "cmp", "cmn", "tst", "b", "cb", "tb", "prfm"))
+
+    table = None
+    for j2 in range(load - 1, max(0, k - 24) - 1, -1):
+        if writes(j2):
+            table = table_at(j2)
+            break
+    else:
+        defs = [j2 for j2 in range(len(ins)) if writes(j2)]
+        if len(defs) == 2 and ins[defs[0]].op == "adrp" and defs[1] == defs[0] + 1:
+            table = table_at(defs[1])
+    if table is None:
+        return None
+    # the base: adr xB, label, or for 4-byte entries the table itself
+    if size == 4 and base_reg == table_reg:
+        base = table
+    else:
+        base = None
+        for j2 in range(j - 1, lo - 1, -1):
+            b = parts(ins[j2])
+            if b and arm_reg(b[0]) == base_reg:
+                if ins[j2].op == "adr":
+                    base = target(ins[j2].args)
+                break
+        if base is None:
+            return None
+    # the length: cmp wI, #n then b.hi past the jump (n + 1 entries)
+    count = None
+    for j2 in range(load - 1, max(0, k - 24) - 1, -1):
+        b = parts(ins[j2])
+        if ins[j2].op == "cmp" and len(b) == 2 and arm_reg(b[0]) == idx_reg and b[1].startswith("#"):
+            if j2 + 1 < len(ins) and ins[j2 + 1].op in ("b.hi", "b.hs"):
+                count = num(b[1]) + (1 if ins[j2 + 1].op == "b.hi" else 0)
+            break
+        # `mov w8, w8` clears the top half and keeps the index.
+        if ins[j2].op == "mov" and len(b) == 2 and b[0] == b[1]:
+            continue
+        if b and arm_reg(b[0]) == idx_reg:
+            break
+    if not count or count > 4096:
+        return None
+    data = read_raw(raw, table, count * size)
+    if data is None:
+        return None
+    out = []
+    for e in range(count):
+        v = int.from_bytes(data[e * size:(e + 1) * size], "little", signed=(size == 4))
+        out.append(base + (v << shift))
+    return out
+
+
 def x86_flow(i, fn_range):
     op = i.op
     if op.startswith("call"):
@@ -581,7 +706,7 @@ def clone_child(ins, k):
     return False
 
 
-def analyse(fn, end, arch, code, starts, tlv_range=None, words=None):
+def analyse(fn, end, arch, code, starts, tlv_range=None, words=None, raw=None):
     if PROBES.search(fn.name):
         fn.own = 16
         return
@@ -688,6 +813,14 @@ def analyse(fn, end, arch, code, starts, tlv_range=None, words=None):
                 if kind == "ijump" and kt is not None:
                     fn.tails.append((depth, kt))
                     break
+                if kind == "ijump" and arch == "aarch64":
+                    ts = arm_table(fn.ins, k, raw)
+                    if ts is not None and all(t in index for t in ts):
+                        # A jump table (arm64): each entry in the function is
+                        # a branch at this depth.
+                        for t in ts:
+                            work.append((index[t], depth, dict(regs), {"addr": dict(kst["addr"]), "getter": set(kst["getter"]), "slots": dict(kst["slots"]), "loads": dict(kst.get("loads", {})), "escaped": kst.get("escaped", False)}))
+                        break
                 if kind == "ijump" and depth == 0 and fn.own > 0:
                     # After the epilogue: a tail call through a pointer.
                     fn.itails.append((depth, ins.addr))
@@ -792,7 +925,8 @@ def data_words(exe, fmt, starts):
     """The words of the data sections, by address, decoded: in a Mach-O
     executable a pointer is a chained fixup, whose low 36 bits are its
     target's offset from the image's base. Returns (words, pointers to
-    functions by address)."""
+    functions by address, the sections' bytes as runs of (address,
+    bytes), for an arm64 jump table's entries)."""
     objdump = tool("llvm-objdump", "llvm-objdump-22", "objdump")
     heads = subprocess.run([objdump, "-h", exe], capture_output=True, text=True, check=True).stdout
     names = []
@@ -808,7 +942,7 @@ def data_words(exe, fmt, starts):
     # A word already inside the image is an address as it stands (a
     # pointer the linker wrote out whole); any other is a chained fixup.
     top = max((int(m.group(3), 16) + int(m.group(2), 16) for m in (re.match(r"^\s*\d+\s+(\S+)\s+([0-9a-f]+)\s+([0-9a-f]+)", l) for l in heads.splitlines()) if m), default=0)
-    words, fptr = {}, {}
+    words, fptr, raw = {}, {}, []
     # A name may stand for several sections (Mach-O's `__TEXT,__const` and
     # `__DATA_CONST,__const`), each dumped at its own addresses: the bytes
     # are kept in runs of neighbouring lines, never joined across a gap.
@@ -824,6 +958,7 @@ def data_words(exe, fmt, starts):
                 runs[-1][1].extend(b)
             else:
                 runs.append((a, bytearray(b)))
+        raw.extend((lo, bytes(data)) for lo, data in runs)
         for lo, data in runs:
             # Every word at a 4-byte boundary: a pointer packed at one is
             # still a function's address taken.
@@ -835,7 +970,7 @@ def data_words(exe, fmt, starts):
                 words[lo + k] = v
                 if v in starts:
                     fptr[lo + k] = v
-    return words, fptr
+    return words, fptr, raw
 
 
 def vdso_bound(arch):
@@ -1200,10 +1335,10 @@ def main():
     stub_names = stubs_of(a.exe) if fmt == "macho" else {}
     fns = [fn for fn in fns if any(lo <= fn.start < hi for lo, hi in code)]
     starts = {fn.start for fn in fns}
-    words, fptr = data_words(a.exe, fmt, starts)
+    words, fptr, raw = data_words(a.exe, fmt, starts)
     for k, fn in enumerate(fns):
         end = fns[k + 1].start if k + 1 < len(fns) else fn.start + 4 * len(fn.ins) + 16
-        analyse(fn, end, arch, code, starts, tlv, words)
+        analyse(fn, end, arch, code, starts, tlv, words, raw)
         fn.foreign = [stub_names.get(t, "%#x" % t) for t in fn.foreign]
     taken = taken_in_code(fns, arch, starts) | set(fptr.values())
     runs = vtable_runs(fptr)

@@ -286,15 +286,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `ulimit -s 65536` it passes. A test that needs more than the default
   stack fails wherever the binary runs without a raised limit. Source:
   Rig, running #1092's tests on x86-64 Linux.
-- **The stack census of a safe build.** `tools/stack-census.py` leaves
-  every task of a `--release` build unknown: Zig's safe mode keeps the
-  stack trace a system call's wrapper writes for an unexpected errno
-  (`posix.mmap`, inlined from `posix.unexpectedErrno`), a write through
-  a pointer the census cannot follow. Counted as cold (`--cold
-  '^posix\.mmap$'`), the task of test/cli/stack_census.sh's `spin` is
-  688 bytes. The census should count that path as cold where it is
-  inlined, as it counts the panic path; test/cli/stack_census.sh holds
-  the gap as a known one, and fails the day it closes.
 - **A result that views a `for` element cannot outlive the turn.**
   `for b in balls` (or `for b in ?balls`) over a `List[Ball]` whose
   `Ball` copies, then `best = ?b.hit()` with `fun hit(?@) -> Hit from @`,
