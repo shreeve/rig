@@ -22,6 +22,7 @@ const exits = @import("exits.zig");
 const generic = @import("generic.zig");
 const types = @import("types.zig");
 const notes = @import("notes.zig");
+const lowered = @import("lowered.zig");
 const Checker = state.Checker;
 const Loan = state.Loan;
 const LoanKind = state.LoanKind;
@@ -93,9 +94,9 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
             defer self.method_pos = saved;
             const name = ir.get(sexp, .name);
             if (self.fn_depth == 0) self.method_pos = if (generic.genericOwner(self) and name == .src) name.src.pos else null;
-            try walkFun(self, name, sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body));
+            try walkFun(self, sexp, name, sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body));
         },
-        .drop_decl => try walkFun(self, .nil, .nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
+        .drop_decl => try walkFun(self, sexp, .nil, .nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
         .@"struct", .@"enum", .errors, .generic_struct => {
             const saved = self.decl_owner;
             defer self.decl_owner = saved;
@@ -103,7 +104,7 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
             for (ir.rest(sexp, .members)) |c| try walkDecl(self, c);
         },
         .@"pub" => try walkDecl(self, ir.Pub.decl(sexp)),
-        .@"test" => try walkFun(self, .nil, .nil, .nil, .nil, ir.Test.body(sexp)),
+        .@"test" => try walkFun(self, sexp, .nil, .nil, .nil, .nil, ir.Test.body(sexp)),
         .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
         // An API's defaults, and an addition's methods (whose origins
         // its conformance holds, `declOrigins`).
@@ -119,16 +120,17 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
     }
 }
 
-/// Walk a function, method, drop body or test body. `tparams`: its
-/// compile-time parameters, whose values (`n: Int`) are Copy.
-pub fn walkFun(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+/// Walk a function, method, drop body or test body, declared by `root`.
+/// `tparams`: its compile-time parameters, whose values (`n: Int`) are
+/// Copy.
+pub fn walkFun(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
     const top = self.fn_depth == 0 and self.item == null;
     if (top) self.items_seen.clearRetainingCapacity();
-    try walkFunOnce(self, name, tparams, params, returns, body);
-    if (top and self.items_seen.items.len > 0) try generic.walkItemInstances(self, name, tparams, params, returns, body);
+    try walkFunOnce(self, root, name, tparams, params, returns, body);
+    if (top and self.items_seen.items.len > 0) try generic.walkItemInstances(self, root, name, tparams, params, returns, body);
 }
 
-pub fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
     const saved_func = self.func;
     const saved_body = self.fn_body;
     const saved_loop = self.loop;
@@ -149,12 +151,16 @@ pub fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, retu
     const outer = try self.here();
     self.reachable = true;
     const top = self.fn_depth == 0;
+    const saved_lir = self.lir_body;
+    defer self.lir_body = saved_lir;
+    self.lir_body = try lowered.enter(self, root, body);
     if (top) {
         self.last_use.clearRetainingCapacity();
         self.defer_used.clearRetainingCapacity();
         self.uses.clearRetainingCapacity();
         try live.indexUses(self, params, false, null);
         try live.indexUses(self, body, false, null);
+        if (self.lir_body) |b| try lowered.reindexUses(self, b.f, if (name != .nil) name else body);
         self.nll = true;
     }
     defer if (top) {
@@ -179,7 +185,8 @@ pub fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, retu
 /// returns a value, its last expression is the return value, whose
 /// loans it gives.
 pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
-    const stmts: []const Sexp = if (body.isKind(.block)) ir.Block.stmts(body) else (&body)[0..1];
+    const lowered_stmts = try lowered.stmtsOf(self, body);
+    const stmts: []const Sexp = if (lowered_stmts) |l| l.list else if (body.isKind(.block)) ir.Block.stmts(body) else (&body)[0..1];
     var result: Value = .{};
     for (stmts, 0..) |stmt, i| {
         try exits.checkAfterJump(self, stmts, i);
@@ -187,7 +194,8 @@ pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
             try exits.checkRestAfterJump(self, stmts, i);
             break;
         }
-        if (returns_value and i == stmts.len - 1 and isValue(self, stmt)) {
+        const yields = if (lowered_stmts) |l| l.yields and returns_value else returns_value and isValue(self, stmt);
+        if (yields and i == stmts.len - 1) {
             const saved_stmt = self.cur_stmt;
             self.cur_stmt = stmt;
             defer self.cur_stmt = saved_stmt;
@@ -235,7 +243,7 @@ pub fn bindParam(self: *Checker, p: Sexp) Error!void {
     }
     if (name_node != .src) return;
     const pos = name_node.src.pos;
-    const ty = types.symType(self, pos);
+    const ty = types.symType(self, name_node);
     var ref = sugar;
     if (ref == .none) ref = types.refOfType(self, ty);
     if (ref == .none) ref = refOfTypeSexp(type_node);
@@ -244,6 +252,7 @@ pub fn bindParam(self: *Checker, p: Sexp) Error!void {
     const id = try self.addVar(.{
         .name = types.text(self, name_node),
         .decl = pos,
+        .sym = self.bindingOf(name_node),
         .ty = ty,
         .kind = .param,
         .ref = ref,
@@ -290,7 +299,7 @@ pub fn walkStmtValue(self: *Checker, stmt: Sexp, sink: ?Sink) Error!Value {
 /// Walk a `(block ...)` in its own scope; its value is the value of
 /// its last statement, which may not view the block's own locals.
 pub fn walkBlock(self: *Checker, block: Sexp) Error!Value {
-    const stmts = ir.Block.stmts(block);
+    const stmts = if (try lowered.stmtsOf(self, block)) |l| l.list else ir.Block.stmts(block);
     const t = takeTail(self, block);
     try self.pushScopeFor(.block, block);
     var v: Value = .{};
@@ -372,7 +381,7 @@ pub fn walkUnerased(self: *Checker, sexp: Sexp) Error!Value {
     };
     // A temporary is taken into its statement's slot: a block or
     // `match` value's tail leaves its scope as it would for a binding.
-    if (ctx.dropsTemp(sexp)) {
+    if (lowered.holdsTemp(self, sexp) orelse ctx.dropsTemp(sexp)) {
         try rules.checkNoImplicitCopy(self, sexp, .binding, false);
         setTail(self, sexp, .binding);
         return holdTemp(self, sexp, try walkList(self, sexp, kind));
@@ -1118,7 +1127,7 @@ pub fn moveVar(self: *Checker, id: VarId, pos: u32, verb: MoveVerb) Error!Value 
     // Emit arms a drop flag only for a binding a use may move
     // (`SemContext.moved`), so no other may move.
     const ctx = self.sema;
-    if (ctx.symbolAt(v.decl)) |sym| if (!ctx.mayMove(sym)) {
+    if (v.sym) |sym| if (!ctx.mayMove(sym)) {
         try notes.err(self, pos, "internal error: `{s}` moves here, but no use is marked as one that may move it", .{v.name});
         return .{};
     };
@@ -1272,7 +1281,7 @@ pub fn moveField(self: *Checker, inner: Sexp, place: Place) Error!Value {
     // Emit arms a drop flag only for a field the field-moves fact
     // records, so no other may move.
     const ctx = self.sema;
-    if (ctx.symbolAt(v.decl)) |sym| {
+    if (v.sym) |sym| {
         const fields = try fieldPath(self, inner);
         const recorded = for (ctx.fieldMoves(sym)) |f| {
             if (std.mem.eql(u8, f, fields)) break true;
@@ -1900,7 +1909,7 @@ pub fn leavesEarly(e: Sexp) bool {
 pub fn envDropReads(self: *const Checker, lambda: Sexp) bool {
     const ctx = self.sema;
     for (sema.captureList(ir.Lambda.captures(lambda))) |cap| {
-        const ty = types.symType(self, sema.captureNameNode(cap).?.src.pos) orelse return true;
+        const ty = types.symType(self, sema.captureNameNode(cap).?) orelse return true;
         if (sema.dropRunsBody(ctx, ty) != .no) return true;
     }
     return false;
@@ -1909,16 +1918,17 @@ pub fn envDropReads(self: *const Checker, lambda: Sexp) bool {
 /// A new binding named by `node`, holding `value`.
 pub fn bindNew(self: *Checker, node: Sexp, fixed: bool, closure: bool, value: Value) Error!void {
     const pos = node.src.pos;
-    const ty = types.symType(self, pos);
+    const ty = types.symType(self, node);
     // A read binding whose type is no view, a type parameter's value
     // reached through a read view (`sema.decideBindingAccess`), is
     // its bytes where they stand: it keeps what it was bound from
     // viewed, and is taken only as a copy, as a `for` element is.
-    const sym: ?SymbolId = self.sema.symbolAt(pos);
+    const sym = self.bindingOf(node);
     const in_place = !closure and !types.isView(self, ty) and viewTarget(self, .{ .name = "", .decl = pos, .sym = sym }) == .read_view;
     _ = try self.addVar(.{
         .name = types.text(self, node),
         .decl = pos,
+        .sym = sym,
         .ty = ty,
         .ref = types.refOfType(self, ty),
         .fixed = fixed or closure,
@@ -2794,7 +2804,7 @@ pub fn selfLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
     // A value its statement keeps in a slot (`dropsTemp`), a copy of a
     // branching value's leaf included, is viewed there.
     const ctx = self.sema;
-    if (ctx.dropsTemp(base)) {
+    if (lowered.holdsTemp(self, base) orelse ctx.dropsTemp(base)) {
         const pos = notes.startOf(self, base);
         if (stmtTempAt(self, pos)) |id| return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
     }
@@ -2983,11 +2993,11 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
     for (caps) |cap| {
         const cv = try applyCapture(self, cap);
         try cap_values.append(self.arena(), cv);
-        if (owned) try generic.requireNoView(self, sema.captureNameNode(cap).?.src.pos, types.symType(self, sema.captureNameNode(cap).?.src.pos), .closure);
+        if (owned) try generic.requireNoView(self, sema.captureNameNode(cap).?.src.pos, types.symType(self, sema.captureNameNode(cap).?), .closure);
         // An API object may hold a loan its type does not show: an
         // owned closure keeps one only where its braces name `Owned`.
         const ctx = self.sema;
-        if (owned) if (types.symType(self, sema.captureNameNode(cap).?.src.pos)) |ct| if (try sema.objectLoanReason(ctx, self.arena(), ct)) |why| {
+        if (owned) if (types.symType(self, sema.captureNameNode(cap).?)) |ct| if (try sema.objectLoanReason(ctx, self.arena(), ct)) |why| {
             try notes.err(self, sema.captureNameNode(cap).?.src.pos, "an owned closure holds no view, and {s}", .{why});
             value = try self.valueUnion(value, cv);
             continue;
@@ -3023,7 +3033,7 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
     self.capturing = true;
     if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
         const pos = sema.captureNameNode(cap).?.src.pos;
-        if (sema.captureModeOf(cap).? != .cap_write and !types.mayWrite(self, types.symType(self, pos))) continue;
+        if (sema.captureModeOf(cap).? != .cap_write and !types.mayWrite(self, types.symType(self, sema.captureNameNode(cap).?))) continue;
         try origins.absorbThroughWrites(self, cv, value, pos, null, null);
     };
     self.capturing = false;
@@ -3048,10 +3058,13 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
     };
     self.loop = null;
     self.reachable = true;
+    const saved_lir = self.lir_body;
+    defer self.lir_body = saved_lir;
+    self.lir_body = try lowered.enter(self, node, body);
     try self.pushScopeFor(.closure, body);
     for (caps, cap_values.items) |cap, cv| {
         const name = sema.captureNameNode(cap).?;
-        const ty = types.symType(self, name.src.pos);
+        const ty = types.symType(self, name);
         // A capture the type checker rejected holds nothing.
         const resource = !types.isPoisonType(self, ty) and switch (sema.captureModeOf(cap).?) {
             .cap_clone => !types.copies(self, ty),
@@ -3064,6 +3077,7 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
         _ = try self.addVar(.{
             .name = types.text(self, name),
             .decl = name.src.pos,
+            .sym = self.bindingOf(name),
             .ty = ty,
             .kind = if (once) .local else .capture,
             .ref = types.refOfType(self, ty),
@@ -3097,7 +3111,7 @@ pub fn applyCapture(self: *Checker, cap: Sexp) Error!Value {
     if (v.closure) {
         if (mode == .cap_read) return viewClosure(self, id, pos);
         // Reported by the type checker.
-        if (types.isPoisonType(self, types.symType(self, pos))) return .{};
+        if (types.isPoisonType(self, types.symType(self, node))) return .{};
         try notes.err(self, pos, "cannot capture closure `{s}`; closures cannot be copied. Capture a read view of it with `|?{s}|`", .{ name, name });
         return .{};
     }
@@ -3114,7 +3128,7 @@ pub fn applyCapture(self: *Checker, cap: Sexp) Error!Value {
     // `|+x|` through a view captures a copy or a clone of what the
     // view sees, which keeps what that holds, not the view's loan
     // on it (Core §7, sentence 7).
-    const ty = types.symType(self, pos);
+    const ty = types.symType(self, node);
     const through = types.refOfType(self, v.ty) != .none and types.refOfType(self, ty) == .none;
     const held = if (through) try origins.carry(self, ty, live.varValue(self, id)) else live.varValue(self, id);
     return newHandle(self, pos, name, ty, id, held, mode == .cap_weak);
@@ -3182,7 +3196,7 @@ pub fn walkCatch(self: *Checker, node: Sexp) Error!Value {
     try self.pushScopeFor(.block, handler);
     const name = ir.Catch.name(node);
     if (name != .nil) {
-        _ = try self.addVar(.{ .name = types.text(self, name), .decl = name.src.pos, .ty = types.symType(self, name.src.pos) }, .{});
+        _ = try self.addVar(.{ .name = types.text(self, name), .decl = name.src.pos, .sym = self.bindingOf(name), .ty = types.symType(self, name) }, .{});
     }
     var v2 = try walkTailPart(self, handler, t);
     v2 = try self.leaveScope(v2);
@@ -3770,11 +3784,11 @@ pub fn bindPattern(self: *Checker, pattern: Sexp, info: Scrutinee, scrut_value: 
 
 pub fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Value) Error!VarId {
     const pos = node.src.pos;
-    const ty = types.symType(self, pos);
+    const ty = types.symType(self, node);
     // The bytes of a String field are a view of it, as any read view of
     // a field is, though a `?String` copies.
     const text_view = if (self.sema.payloadFieldOf(node)) |field| sema.viewsStringBytes(self.sema, field, ty orelse sema.type_invalid) else false;
-    var v: Var = .{ .name = types.text(self, node), .decl = pos, .ty = ty, .kind = .pattern, .ref = if (text_view) .read else types.refOfType(self, ty), .read_subject = info.read_place };
+    var v: Var = .{ .name = types.text(self, node), .decl = pos, .sym = self.bindingOf(node), .ty = ty, .kind = .pattern, .ref = if (text_view) .read else types.refOfType(self, ty), .read_subject = info.read_place };
     var loans: []const Loan = &.{};
     // A payload that copies (`sema.copies`) is copied out of the
     // matched value, which stays whole. A view the match makes of a
@@ -3815,12 +3829,13 @@ pub fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Val
     // within its arm only, so a view of it never outlives the copy
     // (docs/internals/INTERNALS.md, "Header subjects").
     const ctx = self.sema;
-    if (ctx.symbolAt(pos)) |sym| if (ctx.symbols.items[sym].flags.arm_view) {
+    if (v.sym) |sym| if (ctx.symbols.items[sym].flags.arm_view) {
         const arm = self.arm_var orelse blk: {
             const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm_subject, .arm_take = self.arm_take }, .{});
             self.arm_var = id;
             break :blk id;
         };
+        try self.arm_binds.put(self.gpa, pos, sym);
         loans = try self.unionLoans(loans, try self.oneLoan(.{ .root = arm, .kind = .read, .pos = pos }));
     };
     return self.addVar(v, .{ .loans = loans });
@@ -4131,10 +4146,11 @@ pub fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
     if (spec.held.len > 0) _ = try self.addVar(.{ .name = "", .decl = spec.source_pos, .kind = .hidden }, .{ .loans = spec.held });
     if (spec.elem1 == .src) {
         const pos = spec.elem1.src.pos;
-        const ty = types.symType(self, pos);
+        const ty = types.symType(self, spec.elem1);
         _ = try self.addVar(.{
             .name = types.text(self, spec.elem1),
             .decl = pos,
+            .sym = self.bindingOf(spec.elem1),
             .ty = ty,
             .kind = .loop_elem,
             .ref = types.refOfType(self, ty),
@@ -4145,7 +4161,7 @@ pub fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
     }
     if (spec.elem2 == .src) {
         const pos = spec.elem2.src.pos;
-        _ = try self.addVar(.{ .name = types.text(self, spec.elem2), .decl = pos, .ty = types.symType(self, pos), .kind = .loop_elem }, .{});
+        _ = try self.addVar(.{ .name = types.text(self, spec.elem2), .decl = pos, .sym = self.bindingOf(spec.elem2), .ty = types.symType(self, spec.elem2), .kind = .loop_elem }, .{});
     }
 }
 

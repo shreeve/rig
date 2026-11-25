@@ -2193,7 +2193,10 @@ call whose parts are held first, a header that ends its temporaries, a
 value `if` or `match`. `lir.verify` checks that a body is well formed:
 each region and expression is reached once, from the body; each var is
 declared by one region; and each var is used only inside the region
-that declares it. `rig check --facts=lir` prints the root module's LIR,
+that declares it. A var's read, and a binding's drop (`<x`), keep the
+node they are at: the name as written, or the node whose value the var
+holds in its place.
+`rig check --facts=lir` prints the root module's LIR,
 and lists each body not lowered with the construct that stopped it.
 
 Emit reads the storage it writes from LIR. `Emitter.emit` lowers its
@@ -3327,6 +3330,21 @@ call names the file it calls into (`rules.checkLive(self, ...)`):
 | `generic.zig` | generic bodies: what they require of each instance |
 | `types.zig` | what the checker reads of sema's facts: per type and per expression (CORE §9) |
 | `notes.zig` | messages, and the notes that name both ends of a view |
+| `lowered.zig` | the walk's view of each body's [LIR](#lir), and the shadow that compares the two walks |
+
+**The walk on LIR.** In a self-checking build each module is checked
+twice, the second time with `Checker.on_lir` set, and a module whose
+two walks report other diagnostics is an internal error
+(`ownership.shadow`). The second walk reads from each body's LIR the
+statements of each body and block (its regions'), the symbol of each
+binding it declares (its `lir.Var`'s), the binding each name it reads
+names (the var its use reads, `lir.Expr.var`), which values are
+statement temporaries (the vars its regions declare for them), and the
+uses liveness reads: each name a var is read or dropped at, each
+binding's declaring name, and a pattern's names, which LIR does not
+lower. A body whose uses of a binding that may hold a loan differ from
+its tree's is an internal error. A body or node the LIR does not cover
+is read from the tree.
 
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
 parameter, capture, pattern, loop element) paired with a `Flow`: its
