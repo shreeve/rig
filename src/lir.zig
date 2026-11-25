@@ -138,8 +138,8 @@ pub const Step = union(enum) {
     store: struct { node: Sexp, target: ExprId, value: ExprId },
     /// Evaluate `value` for what it does.
     eval: ExprId,
-    /// Drop what `v` holds.
-    drop: VarId,
+    /// Drop what `v` holds: `<x`, the name read at `node`.
+    drop: Expr.Use,
     /// Leave: the `return`, `break`, or `continue` `node`.
     jump: struct { node: Sexp, value: ?ExprId },
     /// A region run in place.
@@ -299,7 +299,7 @@ const Verifier = struct {
                 try v.expr(st.value);
             },
             .eval => |e| try v.expr(e),
-            .drop => |x| try v.use(x, r.node),
+            .drop => |x| try v.use(x.v, r.node),
             .jump => |j| if (j.value) |e| try v.expr(e),
             .region => |sub| try v.region(sub),
             .@"if" => |i| {
@@ -420,7 +420,7 @@ const Printer = struct {
                     try p.expr(st.value, depth + 1);
                 },
                 .eval => |e| try p.expr(e, depth + 1),
-                .drop => |x| try p.w.print("drop %{d}", .{x}),
+                .drop => |x| try p.w.print("drop %{d}", .{x.v}),
                 .jump => |j| {
                     try p.w.writeAll(@tagName(j.node.kind() orelse .module));
                     if (j.value) |e| {

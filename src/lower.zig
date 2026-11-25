@@ -745,7 +745,7 @@ const Lowerer = struct {
         const target = ir.Drop.target(s);
         const e = try l.expr(target);
         if (target == .src) {
-            if (l.ctx.symbolOf(target)) |sym| if (l.bindings.get(sym)) |v| return l.step(r, .{ .drop = v });
+            if (l.ctx.symbolOf(target)) |sym| if (l.bindings.get(sym)) |v| return l.step(r, .{ .drop = .{ .v = v, .node = target } });
             return l.step(r, .{ .eval = e });
         }
         // `<e` of anything but a name drops what it takes.

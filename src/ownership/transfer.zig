@@ -150,12 +150,16 @@ pub fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, retu
     const outer = try self.here();
     self.reachable = true;
     const top = self.fn_depth == 0;
+    const saved_lir = self.lir_body;
+    defer self.lir_body = saved_lir;
+    self.lir_body = try lowered.enter(self, body);
     if (top) {
         self.last_use.clearRetainingCapacity();
         self.defer_used.clearRetainingCapacity();
         self.uses.clearRetainingCapacity();
         try live.indexUses(self, params, false, null);
         try live.indexUses(self, body, false, null);
+        if (self.lir_body) |b| try lowered.reindexUses(self, b.f, if (name != .nil) name else body);
         self.nll = true;
     }
     defer if (top) {
@@ -164,9 +168,6 @@ pub fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, retu
     self.fn_depth += 1;
     defer self.fn_depth -= 1;
 
-    const saved_lir = self.lir_body;
-    defer self.lir_body = saved_lir;
-    self.lir_body = try lowered.enter(self, body);
     try self.pushScopeFor(.function, .nil);
     for (tparams.items()) |p| if (p != .src) try bindParam(self, p);
     try bindParams(self, params);

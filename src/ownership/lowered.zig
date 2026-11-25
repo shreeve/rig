@@ -1,8 +1,10 @@
 //! The checker's view of each body's LIR (`src/lir.zig`): the statements
 //! of a body or block are its regions' (`stmtsOf`), a binding's symbol is
 //! the one its `lir.Var` declares (`bindingAt`), a name's use finds its
-//! binding through the var it reads (`symbolOf`), and a statement's
-//! temporaries are the vars its region declares for them (`holdsTemp`).
+//! binding through the var it reads (`symbolOf`), a statement's
+//! temporaries are the vars its region declares for them (`holdsTemp`),
+//! and the uses that liveness reads are the names its vars are read at
+//! (`indexUses`).
 //!
 //! A self-checking build walks each module twice, the second time with
 //! `Checker.on_lir` set, and compares the two walks' diagnostics
@@ -18,6 +20,9 @@ const ir = parser.ir;
 const SymbolId = sema.SymbolId;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
+const live = @import("live.zig");
+const notes = @import("notes.zig");
+const types = @import("types.zig");
 const Checker = state.Checker;
 
 /// A body lowered, and what the walk looks up in it by tree node.
@@ -202,6 +207,173 @@ pub fn symbolOf(self: *const Checker, node: Sexp) ?SymbolId {
 pub fn holdsTemp(self: *const Checker, node: Sexp) ?bool {
     const b = self.lir_body orelse return null;
     return b.temps.contains(sema.decisionKeyOf(node) orelse return false);
+}
+
+/// Note each use of a binding that `live.indexUses` notes from the
+/// tree, from lowered body `f` and the closures it makes: each name a
+/// var's read or a leaf reads, and each binding's declaring name, a use
+/// in a `defer` body noted as deferred, and one in a `while` step at
+/// the step's place (`notes.stepAt`).
+pub fn indexUses(self: *Checker, f: *const lir.Func) Error!void {
+    var u: Uses = .{ .c = self, .f = f };
+    try u.region(f.body);
+    // In source order, as the tree lists them: LIR evaluates an
+    // assignment's value before its target.
+    var it = self.uses.valueIterator();
+    while (it.next()) |list| std.mem.sort(u32, list.items, {}, std.sort.asc(u32));
+}
+
+const Uses = struct {
+    c: *Checker,
+    f: *const lir.Func,
+    in_defer: bool = false,
+    at: ?u32 = null,
+
+    fn note(u: *Uses, sym: SymbolId, node: Sexp) Error!void {
+        if (node != .src) return;
+        try live.noteUse(u.c, sym, u.at orelse node.src.pos, u.in_defer);
+    }
+
+    fn region(u: *Uses, r: lir.RegionId) Error!void {
+        const reg = &u.f.regions.items[r];
+        const saved = u.in_defer;
+        defer u.in_defer = saved;
+        if (reg.node.isKind(.@"defer") or reg.node.isKind(.@"errdefer")) u.in_defer = true;
+        // A pattern is not lowered: its names are read from the tree,
+        // an alternative's among them, which declares no var.
+        if (reg.kind == .arm) try live.indexUses(u.c, ir.Arm.pattern(reg.node), u.in_defer, u.at);
+        for (reg.decls.items) |x| {
+            const v = u.f.vars.items[x];
+            switch (v.name) {
+                .binding => |sym| try u.declared(sym, v.node),
+                .hidden => {},
+            }
+        }
+        for (reg.steps.items) |s| switch (s) {
+            .bind => |x| try u.expr(x.value),
+            .store => |x| {
+                try u.expr(x.target);
+                try u.expr(x.value);
+            },
+            .eval => |e| try u.expr(e),
+            .drop => |x| switch (u.f.vars.items[x.v].name) {
+                .binding => |sym| try u.note(sym, x.node),
+                .hidden => {},
+            },
+            .jump => |j| if (j.value) |e| try u.expr(e),
+            .region => |sub| try u.region(sub),
+            .@"if" => |i| {
+                try u.expr(i.cond);
+                try u.region(i.then);
+                if (i.@"else") |e| try u.region(e);
+            },
+            .loop => |lp| {
+                try u.expr(lp.cond);
+                try u.region(lp.body);
+                if (lp.step) |st| {
+                    const saved_at = u.at;
+                    defer u.at = saved_at;
+                    if (u.at == null) u.at = notes.stepAt(u.c, lp.node);
+                    try u.region(st);
+                }
+            },
+            .each => |ea| {
+                try u.expr(ea.source);
+                try u.region(ea.body);
+            },
+            .match => |c| {
+                try u.expr(c.subject);
+                for (c.arms) |arm| try u.region(arm);
+            },
+        };
+        if (reg.value) |e| try u.expr(e);
+    }
+
+    /// A binding's declaring name, and, for a capture, the binding it
+    /// captures, whose use it is where the closure is made.
+    fn declared(u: *Uses, sym: SymbolId, node: Sexp) Error!void {
+        try u.note(sym, node);
+        const d = u.c.sema.symbols.items[sym];
+        if (d.kind == .capture and node == .src and d.decl_pos == node.src.pos and d.origin != sema.symbol_invalid) try u.note(d.origin, node);
+    }
+
+    fn expr(u: *Uses, id: lir.ExprId) Error!void {
+        switch (u.f.exprs.items[id]) {
+            .@"var" => |x| switch (u.f.vars.items[x.v].name) {
+                .binding => |sym| try u.note(sym, x.node),
+                .hidden => {},
+            },
+            .leaf => |l| if (u.c.sema.symbolOf(l)) |sym| try u.note(sym, l),
+            .op => |o| for (o.args) |a| try u.expr(a),
+            .hold => |h| try u.expr(h.value),
+            .block => |r| try u.region(r),
+            .branch => |x| {
+                try u.expr(x.cond);
+                try u.region(x.then);
+                if (x.@"else") |r| try u.region(r);
+            },
+            .choice => |x| {
+                try u.expr(x.subject);
+                for (x.arms) |r| try u.region(r);
+            },
+            .closure => |x| {
+                for (x.captures) |c| try u.expr(c);
+                const m = &(u.c.sema.lowered orelse return);
+                const g = m.owners[x.owner].func orelse return;
+                var inner: Uses = .{ .c = u.c, .f = g, .in_defer = u.in_defer, .at = u.at };
+                try inner.region(g.body);
+            },
+            .coerce => |x| try u.expr(x.value),
+        }
+    }
+};
+
+/// Index the uses of lowered body `f` (`indexUses`) in place of those
+/// the tree gave (`live.indexUses`), and report, at `at`, an internal
+/// error where the two differ for a binding.
+pub fn reindexUses(self: *Checker, f: *const lir.Func, at: Sexp) Error!void {
+    var tree_uses = self.uses;
+    var tree_deferred = self.defer_used;
+    self.uses = .empty;
+    self.defer_used = .empty;
+    self.last_use.clearRetainingCapacity();
+    defer {
+        tree_uses.deinit(self.gpa);
+        tree_deferred.deinit(self.gpa);
+    }
+    try indexUses(self, f);
+    if (usesDiffer(self, &tree_uses, &tree_deferred)) |sym|
+        try notes.errAt(self, at, "internal error: the uses of `{s}` in this body's LIR are not those of its tree", .{self.sema.symbols.items[sym].name});
+}
+
+/// The binding symbols whose uses `live.indexUses` and `indexUses` note
+/// differently, for the shadow's report: the first, or null. Only a
+/// binding that may hold a loan is compared: liveness matters only for
+/// a var holding one, and a compile-time value named in a type, which
+/// LIR does not lower, holds none.
+pub fn usesDiffer(c: *const Checker, tree_uses: *const std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32)), tree_deferred: *const std.AutoHashMapUnmanaged(SymbolId, void)) ?SymbolId {
+    const binding = struct {
+        fn is(ch: *const Checker, sym: SymbolId) bool {
+            const d = ch.sema.symbols.items[sym];
+            return switch (d.kind) {
+                .param, .local, .capture => types.mayCarryLoan(ch, types.known(ch, d.ty)),
+                else => false,
+            };
+        }
+    };
+    inline for (.{ .{ tree_uses, &c.uses }, .{ &c.uses, tree_uses } }) |pair| {
+        var it = pair[0].iterator();
+        while (it.next()) |kv| {
+            if (!binding.is(c, kv.key_ptr.*)) continue;
+            const other = pair[1].get(kv.key_ptr.*) orelse return kv.key_ptr.*;
+            for (kv.value_ptr.items) |p| if (std.mem.findScalar(u32, other.items, p) == null) return kv.key_ptr.*;
+        }
+    }
+    var it = tree_deferred.keyIterator();
+    while (it.next()) |k| if (binding.is(c, k.*) and !c.defer_used.contains(k.*)) return k.*;
+    var it2 = c.defer_used.keyIterator();
+    while (it2.next()) |k| if (binding.is(c, k.*) and !tree_deferred.contains(k.*)) return k.*;
+    return null;
 }
 
 /// Panic, in a self-checking build, where the walk of each body's LIR
