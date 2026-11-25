@@ -1191,9 +1191,8 @@ test "emit names hidden storage only through hiddenStorage" {
 
 test "a Facts method about a node reads what a checker recorded" {
     const source = @embedFile("facts.zig");
-    // A method of `Facts` that takes a node answers from a record: a
-    // decision (`storage.decided`), the facts table, or the storage facts,
-    // read through the context. These still find their answer with a
+    // A method of `Facts` that takes a node answers from a record, the
+    // facts table or the storage facts, read through the context. These still find their answer with a
     // helper of storage or sema, each by the node's shape over recorded
     // symbols, types, and constants; the list only shrinks.
     const readers = [_][]const u8{
@@ -1240,7 +1239,7 @@ test "a Facts method about a node reads what a checker recorded" {
             if (t.tag == .l_paren and count >= 3 and last[1].tag == .period and last[2].tag == .identifier and last[0].tag == .identifier) {
                 const base = source[last[0].loc.start..last[0].loc.end];
                 const called = source[last[2].loc.start..last[2].loc.end];
-                if ((std.mem.eql(u8, base, "storage") or std.mem.eql(u8, base, "sema")) and !std.mem.eql(u8, called, "decided")) classifier = called;
+                if ((std.mem.eql(u8, base, "storage") or std.mem.eql(u8, base, "sema"))) classifier = called;
             }
             last = .{ last[1], last[2], t };
             count += 1;
