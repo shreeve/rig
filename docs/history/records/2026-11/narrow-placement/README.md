@@ -107,7 +107,8 @@ bind), built PGO+BOLT on d77e182d0. sha16 a93a258c52086912.
 
 Rig's reading (median over rounds of the per-round ratio) gives the same picture within 0.4 points: W 0.991 / 1.007 /
 0.998, S 0.992 / 1.003 / 1.011, P 1.017 / 1.010 / 1.003, F 1.008 / 1.008 / 1.003 and Q 1.014 / 1.010 / 1.003 at c2 /
-c4 / c8. Each project at c4, with nuxt's and webpack's check times round by round, is in `race-755/c4-projects.md`.
+c4 / c8. Trig's scoring of the same rows (score-np.py, the sum of each project's medians) matches the table above
+to the third digit. Each project at c4, with nuxt's and webpack's check times round by round, is in `race-755/c4-projects.md`.
 The raw rows are `race-755/runs`, copied from pup:/zfs/trig-pup/trial/np/races/board16.
 
 ## 5. Reading
@@ -122,13 +123,24 @@ The raw rows are `race-755/runs`, copied from pup:/zfs/trig-pup/trial/np/races/b
   4 of W's 160 runs had a check more than 12% over M's median, against 2 of M's and none in S, P, F or Q. So spreading
   removes the rare stacked run, but it is too rare in the race to move a median. Why Trig's runs stacked 39-54% of the
   time was not found.
+- **The check pays for a wide load even with spread and pin.** Trig's medians, in ms, as wall (parse+bind + check):
+
+  | cell | M | W | S | P | F | Q |
+  |---|---|---|---|---|---|---|
+  | nuxt c4 | 355 (77+246) | 354 (69+254) | 355 (69+255) | 352 (69+251) | 353 (69+252) | 358 (78+251) |
+  | nuxt c8 | 340 (73+235) | 333 (68+232) | 335 (70+232) | 336 (69+232) | 337 (70+234) | 334 (74+228) |
+  | webpack c4 | 363 (57+278) | 368 (55+282) | 370 (54+285) | 370 (54+285) | 365 (55+276) | 364 (56+278) |
+
+  Every wide arm cuts nuxt c4's front end by about 8 ms and gives back 5-9 ms in the check, S and P included. So the
+  check's loss after a wide load is not only placement. Over all 16 projects the same holds: the wide arms' parse+bind
+  is 76-82 ms lower than M's at c2 and c4, and their check 86-133 ms higher at c4.
 - **Giving the heaps away helps a little and costs memory.** F is 0.4-0.7 points faster than P at every count, and its
   webpack check median is 276 ms against P's 285. Its peak RSS is 0.3-0.6 points above P's, and it never beats M.
 - **Peak memory** is 2-6% higher in every wide arm, as in race 754. Q is level with M (0.1-0.3%).
 
 ## Decision
 
-The race is filed as a measured negative. Pinning costs about 1%, and the stacking Trig found does not show in race
-medians. Main stays unpinned, and `task.widen()` stays parked (race 754). The scratch is tagged
+The race is filed as a measured negative. Pinning costs about 1%, the stacking Trig found does not show in race
+medians, and the check gives back what a wide load gains whether or not the workers are spread. Main stays unpinned, and `task.widen()` stays parked (race 754). The scratch is tagged
 `archive/narrow-place`: d77e182d0 holds the three switches and phase_wide.sh's arms and pin check. If wide phases are
 revisited, start from its `RIG_GIVE` and `chooseKept`, beside task-chosen arenas.
