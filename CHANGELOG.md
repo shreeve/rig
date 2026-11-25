@@ -664,6 +664,31 @@ serve no HTTP.
 
 ### Compiler
 
+- **`sema` checks each module once:** the module loop that checked a
+  module again after rewriting its byte literals, chains, groups, and
+  spreads is gone; each is rewritten where typecheck finds it. `rig
+  check` of Trig, whose last such module was std's `datetime`, checks
+  each of its 54 modules once; the emitted Zig is the same.
+- **A group is made its fields' parameters before any body is
+  checked,** and its uses and a call's spreads are rewritten with the
+  declaration that holds them, which is rolled back and checked again
+  (docs/internals/INTERNALS.md, "Groups and spreads").
+- **A chain is checked once, with its statement,** which is rolled back
+  and checked again with the chain written as the loop it means
+  (docs/internals/INTERNALS.md, "Chains").
+- **A string literal where a byte goes is checked once, with its
+  statement:** a statement that holds a string literal is checked under
+  a mark, and when typecheck finds the literal is a `U8` or a `[N]U8`, it
+  rolls the statement back, writes the literal as the byte or the bytes
+  it is, and checks the statement again in that form. A module whose
+  only such rewrites are byte literals (std's `json` and `time`) is no
+  longer checked a second time; the emitted Zig is the same
+  (docs/internals/INTERNALS.md, "Strings as bytes").
+- **A `for` over a chain may not bind a name that hides a local,** as any
+  `for` may not: `x = 1` then `for x in xs.filter(f)` is rejected with
+  "`for` binding `x` shadows the local `x`; use a different name". A
+  program 0.3.0 accepted with such a loop is rejected; rename the loop's
+  binding.
 - **Each body is lowered to LIR, in shadow** (docs/internals/INTERNALS.md,
   "LIR"): a self-checking build lowers every function, `sub`, test, and
   `drop` body to a structured lowered IR, with its bindings, its hidden

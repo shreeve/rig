@@ -559,6 +559,22 @@ pub fn slotValue(s: Sexp) Sexp {
     return if (s.isKind(.show)) ir.Show.value(s) else s;
 }
 
+/// Whether source leaf `leaf` is a string literal's, as `isStringText`
+/// tells from its text, read from its first byte.
+fn isStringLeaf(source: []const u8, leaf: parser.Src) bool {
+    if (leaf.pos >= source.len or leaf.id >= byte_id_base) return false;
+    return switch (source[leaf.pos]) {
+        '"', '\'' => true,
+        '`', '}' => leaf.len >= 2,
+        else => false,
+    };
+}
+
+/// Whether `text` is a string literal's: quoted, or a template's piece.
+pub fn isStringText(text: []const u8) bool {
+    return text.len > 0 and (text[0] == '"' or text[0] == '\'' or isTemplateText(text));
+}
+
 /// Whether `text` is a template's text piece: a token from a backtick or
 /// a slot's `}` to a slot's `{` or the closing backtick.
 pub fn isTemplateText(text: []const u8) bool {
@@ -2741,7 +2757,7 @@ const HiddenName = enum(u16) {
     /// of the `match` it is (`Parser.boolMatch`).
     true_value = 6,
     false_value = 7,
-    /// The hidden bindings of a chain's loop (`Parser.desugarChains`), each
+    /// The hidden bindings of a chain's loop (`Parser.elaborateChains`), each
     /// with a space, so no program writes one.
     chain_source = 8,
     chain_item = 9,
@@ -3156,13 +3172,14 @@ pub const IterSource = enum {
 /// place; a List, array, or slice, read by element; or a range.
 pub const ChainSource = enum { iterator, elements, range };
 
-/// A chain typecheck found (`Parser.desugarChains`): the call of its
+/// A chain typecheck found (`Parser.elaborateChains`): the call of its
 /// consumer, or the `for` whose source it is, and what it walks.
 /// `copies`: an element of a List, array, or slice source is plain data,
 /// which a loop's item copies; else the loop views it, and a consumer
 /// that keeps one keeps its index (`Parser.lowerPeel`).
 /// `zip` and `zip_copies` say the same of a `zip`'s second source.
-pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: bool = true, zip: ChainSource = .elements, zip_copies: bool = true };
+/// `scope`: the scope it stands in, where its loop's names are declared.
+pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: bool = true, zip: ChainSource = .elements, zip_copies: bool = true, scope: u32 = 0 };
 
 /// A group typecheck found (`Parser.flattenGroups`), `..net: Net` in a
 /// function's parameters, whose fields become the function's name-only
@@ -3224,6 +3241,22 @@ pub fn isChainConsumer(name: []const u8) bool {
     return false;
 }
 
+/// Whether `node` is a call of a method named as a chain's stage or
+/// consumer, which typecheck may find is a chain (`Checker.chainCall`).
+fn mayBeChain(source: []const u8, node: Sexp) bool {
+    if (!node.isKind(.call) or !ir.Call.callee(node).isKind(.member)) return false;
+    const name = ir.Member.name(ir.Call.callee(node));
+    if (name != .src) return false;
+    return chain_names.has(leafText(source, name.src));
+}
+
+/// The names a chain's stages and consumers have (`mayBeChain`).
+const chain_names = std.StaticStringMap(void).initComptime(blk: {
+    var kvs: [chain_stages.len + chain_consumers.len]struct { []const u8 } = undefined;
+    for (chain_stages ++ chain_consumers, 0..) |n, i| kvs[i] = .{n};
+    break :blk kvs;
+});
+
 /// A string literal typecheck found where a `U8` or a `[N]U8` goes
 /// (`Parser.byteLiterals`): the position of its leaf and its bytes.
 pub const ByteLiteral = struct { pos: u32, bytes: []const u8, array: bool };
@@ -3256,8 +3289,24 @@ pub const Parser = struct {
     /// parameters (`net.timeout` as `timeout`, and the fields a spread of
     /// the group gives), by position, with the name leaf of the parameter
     /// each names: each is that parameter, whatever the body declares of
-    /// its name (`Parser.desugarOptions`).
+    /// its name (`Parser.elaborateOptions`).
     group_targets: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
+    /// The statements of a block, and the declarations of the module,
+    /// that hold, outside any block of their own, a string literal, which
+    /// typecheck may find is a byte or bytes, or a call of a method named
+    /// as a chain's stage or consumer, which may be a chain: the statement
+    /// is then checked again in the form it is rewritten into
+    /// (`Checker.checkRewritten`).
+    rewrite_stmts: std.DynamicBitSetUnmanaged = .{},
+    /// How many string literals and calls that may be chains the walk has
+    /// met (`rewrite`).
+    rewritable: u32 = 0,
+    /// How many groups and spreads the walk has met, which flag the
+    /// module's declaration that holds each, inside its blocks too.
+    options: u32 = 0,
+    /// The block the last loop a chain's rewrite made runs its body in
+    /// (`ChainLowering.loop`).
+    chain_body: Sexp = .nil,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -4258,8 +4307,22 @@ pub const Parser = struct {
     // `captures` node and self sigil get their own (`newNode`).
     // -------------------------------------------------------------------------
 
+    /// Flag statement `id` as one typecheck may rewrite (`rewrite_stmts`).
+    fn flagRewrite(self: *Parser, id: parser.NodeId) std.mem.Allocator.Error!void {
+        if (id >= self.rewrite_stmts.bit_length) try self.rewrite_stmts.resize(self.allocator(), @max(id + 1, 2 * self.rewrite_stmts.bit_length), false);
+        self.rewrite_stmts.set(id);
+    }
+
+    /// Whether statement `id` is one typecheck may rewrite.
+    pub fn mayRewrite(self: *const Parser, id: parser.NodeId) bool {
+        return id < self.rewrite_stmts.bit_length and self.rewrite_stmts.isSet(id);
+    }
+
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
-        if (sexp != .list) return sexp;
+        if (sexp != .list) {
+            if (sexp == .src and isStringLeaf(self.base.source, sexp.src)) self.rewritable += 1;
+            return sexp;
+        }
         var items = sexp.items();
         if (sexp.kind() == .@"for") {
             const copy = try self.allocator().dupe(Sexp, items);
@@ -4272,7 +4335,19 @@ pub const Parser = struct {
             else => false,
         };
         if (in_type) self.type_depth += 1;
-        for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
+        const holds_stmts = sexp.kind() == .block or sexp.kind() == .module;
+        const rewritable = self.rewritable;
+        const is_module = sexp.kind() == .module;
+        for (items, 0..) |child, i| {
+            const before = self.rewritable;
+            const options = self.options;
+            walked[i] = try self.rewrite(child);
+            const flags = self.rewritable > before or (is_module and self.options > options);
+            if (holds_stmts and flags and walked[i] == .list) try self.flagRewrite(walked[i].list.id);
+        }
+        if (holds_stmts) self.rewritable = rewritable;
+        if (mayBeChain(self.base.source, sexp)) self.rewritable += 1;
+        if (sexp.isKind(.spread) or sexp.isKind(.group_param)) self.options += 1;
         if (in_type) self.type_depth -= 1;
         // A `for` source sigil the self rewrite left in place is the
         // loop's mode; one before a method call went to its self.
@@ -5677,30 +5752,29 @@ pub const Parser = struct {
     }
 
     /// A closure whose type returns nothing has no value: the last line
-    /// `valueTail` kept as a move, and that of each branch ending it, is a
-    /// statement `<e` again, which drops (`dropStatement`). The type
-    /// checker calls it on the body of such a closure before any pass reads
-    /// it, and it changes nothing a second time.
-    pub fn dropTail(self: *const Parser, slot: *Sexp) std.mem.Allocator.Error!void {
-        const mutable: *Parser = @constCast(self);
-        try mutable.dropTailOf(slot);
+    /// of `lambda`'s body `valueTail` kept as a move, and that of each
+    /// branch ending it, is a statement `<e` again, which drops
+    /// (`dropStatement`). Typecheck elaborates such a closure so where it
+    /// learns its type, before any pass reads the body, and it changes
+    /// nothing a second time.
+    pub fn dropTail(self: *Parser, lambda: Sexp) std.mem.Allocator.Error!void {
+        try self.dropTailOf(&@constCast(lambda.items())[ir.slot(.lambda, .body)]);
     }
 
     /// A closure that declares fewer parameters than the function type it
     /// is checked against is the same closure with `_` for each trailing
-    /// parameter it leaves out. The type checker calls it on a closure
-    /// literal before any pass reads the parameters; it changes nothing
-    /// when the closure already has `count` parameters.
-    pub fn padLambda(self: *const Parser, lambda: Sexp, count: usize) std.mem.Allocator.Error!void {
-        const mutable: *Parser = @constCast(self);
+    /// parameter it leaves out. Typecheck elaborates a closure literal so
+    /// where it learns its type, before any pass reads the parameters; it
+    /// changes nothing when the closure already has `count` parameters.
+    pub fn padLambda(self: *Parser, lambda: Sexp, count: usize) std.mem.Allocator.Error!void {
         const slot = &@constCast(lambda.items())[ir.slot(.lambda, .params)];
         const have = slot.items();
         if (have.len >= count) return;
-        const out = try mutable.allocator().alloc(Sexp, count);
+        const out = try self.allocator().alloc(Sexp, count);
         @memcpy(out[0..have.len], have);
-        const at = mutable.span(lambda).start;
-        for (out[have.len..]) |*p| p.* = hiddenLeaf(try mutable.hiddenPos(at), .discard);
-        slot.* = try mutable.base.newList(out, .{ .start = at, .end = at });
+        const at = self.span(lambda).start;
+        for (out[have.len..]) |*p| p.* = hiddenLeaf(try self.hiddenPos(at), .discard);
+        slot.* = try self.base.newList(out, .{ .start = at, .end = at });
     }
 
     fn dropTailOf(self: *Parser, slot: *Sexp) std.mem.Allocator.Error!void {
@@ -5735,35 +5809,34 @@ pub const Parser = struct {
     // as in the loop written by hand.
     // -------------------------------------------------------------------------
 
-    /// Each string literal of `lits` in `tree` as the literal it is
+    /// Each string literal of `lits` in what `slot` holds as the literal it is
     /// where it stands: where a `U8` goes, the integer leaf of its byte,
     /// spanning the string; where a `[N]U8` goes, the array literal of
     /// its bytes, each a leaf inside the string, so that no two share a
     /// position. Every other node keeps its position and id.
-    pub fn byteLiterals(self: *Parser, tree: Sexp, lits: []const ByteLiteral) std.mem.Allocator.Error!void {
+    pub fn byteLiterals(self: *Parser, slot: *const Sexp, lits: []const ByteLiteral) std.mem.Allocator.Error!void {
         if (lits.len == 0) return;
         var at: std.AutoHashMapUnmanaged(u32, usize) = .empty;
         defer at.deinit(self.allocator());
         for (lits, 0..) |l, i| try at.put(self.allocator(), l.pos, i);
-        try self.bytesIn(tree, lits, &at);
+        try self.bytesAt(@constCast(slot), lits, &at);
     }
 
-    fn bytesIn(self: *Parser, node: Sexp, lits: []const ByteLiteral, at: *const std.AutoHashMapUnmanaged(u32, usize)) std.mem.Allocator.Error!void {
-        if (node != .list) return;
-        for (@constCast(node.items())) |*slot| switch (slot.*) {
+    fn bytesAt(self: *Parser, slot: *Sexp, lits: []const ByteLiteral, at: *const std.AutoHashMapUnmanaged(u32, usize)) std.mem.Allocator.Error!void {
+        switch (slot.*) {
             .src => |leaf| if (at.get(leaf.pos)) |i| {
                 const lit = lits[i];
                 if (!lit.array) {
                     slot.* = byteLeaf(leaf.pos, leaf.len, lit.bytes[0]);
-                    continue;
+                    return;
                 }
                 const elems = try self.allocator().alloc(Sexp, lit.bytes.len);
                 for (lit.bytes, elems, 0..) |b, *e, k| e.* = byteLeaf(leaf.pos + 1 + @as(u32, @intCast(k)), 1, b);
                 slot.* = try self.base.newNode(.array, elems, .{ .start = leaf.pos, .end = leafEnd(self.base.source, leaf) });
             },
-            .list => try self.bytesIn(slot.*, lits, at),
+            .list => for (@constCast(slot.items())) |*child| try self.bytesAt(child, lits, at),
             else => {},
-        };
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -5771,8 +5844,9 @@ pub const Parser = struct {
     //
     // Typecheck finds each group, `..net: Net` in a function's parameters,
     // and each spread, `..v` in a call or constructor, since the fields
-    // they stand for are known only from types, and the module is checked
-    // again on this rewrite (docs/design/options.md, section 11). A group
+    // they stand for are known only from types (docs/design/options.md,
+    // section 11): a group is rewritten before any body is checked, its
+    // uses and the spreads with the declaration that holds them. A group
     // becomes one name-only parameter per field, typed `(field_of ...)`;
     // a read of a field in the body, `net.timeout`, becomes a leaf that
     // names the field's parameter (`group_targets`), and a body that uses
@@ -5784,7 +5858,6 @@ pub const Parser = struct {
     // -------------------------------------------------------------------------
 
     const OptionsRewrite = struct {
-        groups: []const GroupSite,
         uses: []const GroupUse,
         spreads: []const SpreadSite,
         /// Each flattened group, by the position of its name.
@@ -5798,12 +5871,6 @@ pub const Parser = struct {
             return null;
         }
 
-        fn group(self: *const OptionsRewrite, node: Sexp) ?GroupSite {
-            if (node != .list or !node.isKind(.group_param)) return null;
-            for (self.groups) |g| if (g.node == node.list.id) return g;
-            return null;
-        }
-
         fn usedWhole(self: *const OptionsRewrite, pos: u32) bool {
             for (self.uses) |u| if (u.group == pos and u.member == 0) return true;
             return false;
@@ -5813,88 +5880,109 @@ pub const Parser = struct {
     /// A group made parameters: its fields, the name leaf of each field's
     /// parameter, in the same order, and its type as written. `bound`
     /// when the body binds it whole and a field moves into the binding:
-    /// its field reads and spreads then read the binding, as an object's.
+    /// a field read then reads the binding.
     const FlatGroup = struct { fields: []const []const u8, params: []const Sexp, ty: Sexp, bound: bool = false };
 
-    /// Each group of `groups` in `tree` as the parameters it means, each
-    /// field read in a body as its parameter, and each spread of `spreads`
-    /// as the keyword arguments it gives (`OptionsRewrite`).
-    pub fn desugarOptions(self: *Parser, tree: Sexp, groups: []const GroupSite, uses: []const GroupUse, spreads: []const SpreadSite) std.mem.Allocator.Error!void {
-        const a = self.allocator();
-        var st: OptionsRewrite = .{ .groups = groups, .uses = uses, .spreads = spreads };
-        for (uses) |u| if (u.member != 0) try st.reads.put(a, u.member, u.group);
-        try self.flattenIn(tree, &st);
-        try self.optionsIn(tree, &st);
-    }
+    /// A group of a function's declaration made parameters
+    /// (`flattenGroups`): the function, the group's site, and the name
+    /// leaf of each field's parameter.
+    pub const Flattened = struct { def: Sexp, site: GroupSite, params: []const Sexp, ty: Sexp, name: Sexp, at: parser.Span };
 
-    /// Every function in `node` with a group of `st`, its groups made
-    /// parameters.
-    fn flattenIn(self: *Parser, node: Sexp, st: *OptionsRewrite) std.mem.Allocator.Error!void {
-        if (node != .list) return;
-        if (node.isKind(.fun) or node.isKind(.sub)) try self.flattenGroups(node, st);
-        for (node.items()) |c| try self.flattenIn(c, st);
-    }
-
-    /// Function `def`'s groups as parameters, one per field in the order
-    /// declared, each typed `(field_of type field group ftype)`, and a
-    /// binding of each group the body uses whole at the body's start.
-    fn flattenGroups(self: *Parser, def: Sexp, st: *OptionsRewrite) std.mem.Allocator.Error!void {
+    /// The groups `sites` of function `def` as the parameters they mean,
+    /// one per field in the order declared, each typed `(field_of type
+    /// field group ftype)`, the parameter list keeping its id; each
+    /// flattened group appended to `out`. The body is rewritten where
+    /// typecheck finds the groups' uses (`elaborateOptions`).
+    pub fn flattenGroups(self: *Parser, def: Sexp, sites: []const GroupSite, gpa: std.mem.Allocator, out: *std.ArrayList(Flattened)) std.mem.Allocator.Error!void {
         const a = self.allocator();
         const items = @constCast(def.items());
-        const is_fun = def.isKind(.fun);
-        const pslot = if (is_fun) ir.slot(.fun, .params) else ir.slot(.sub, .params);
+        const pslot = if (def.isKind(.fun)) ir.slot(.fun, .params) else ir.slot(.sub, .params);
         const params = items[pslot];
-        if (params != .list) return;
-        var any = false;
-        for (params.items()) |p| if (st.group(p) != null) {
-            any = true;
-        };
-        if (!any) return;
-        var out: std.ArrayList(Sexp) = .empty;
-        var binds: std.ArrayList(Sexp) = .empty;
+        var list: std.ArrayList(Sexp) = .empty;
         for (params.items()) |p| {
-            const site = st.group(p) orelse {
-                try out.append(a, p);
+            const site = for (sites) |g| {
+                if (p.isKind(.group_param) and g.node == p.list.id) break g;
+            } else {
+                try list.append(a, p);
                 continue;
             };
             const at = self.span(p);
-            const name = ir.GroupParam.name(p);
-            const gname = leafText(self.base.source, name.src);
+            const gname = leafText(self.base.source, ir.GroupParam.name(p).src);
             const ty = ir.GroupParam.type(p);
             const field_params = try a.alloc(Sexp, site.fields.len);
             for (site.fields, field_params, 0..) |f, *leaf, k| {
                 leaf.* = try self.namedLeaf(at.start, f);
                 const ftype = if (k < site.field_types.len) try self.copyTree(site.field_types[k]) else Sexp.nil;
                 const of = try self.base.newNode(.field_of, &.{ try self.copyTree(ty), try self.namedLeaf(at.start, f), try self.namedLeaf(at.start, gname), ftype }, at);
-                try out.append(a, try self.base.newNode(.@":", &.{ leaf.*, of }, at));
+                try list.append(a, try self.base.newNode(.@":", &.{ leaf.*, of }, at));
             }
-            const whole = st.usedWhole(name.src.pos);
-            const moves = whole and std.mem.indexOfScalar(bool, site.moves, true) != null;
-            try st.flat.put(a, name.src.pos, .{ .fields = site.fields, .params = field_params, .ty = ty, .bound = moves });
-            if (!whole) continue;
-            // `net =! Net(timeout: timeout, name: <name, ...)`, under the
-            // group's own name leaf, which no parameter holds now: each
-            // field that moves moves into it.
-            const args = try a.alloc(Sexp, site.fields.len + 2);
-            args[0] = .nil;
-            args[1] = try self.copyTree(ty);
-            for (site.fields, field_params, args[2..], 0..) |f, leaf, *arg, k| {
-                const param = try self.fieldParam(at.start, f, leaf);
-                const value = if (k < site.moves.len and site.moves[k]) try self.base.newNode(.move, &.{param}, at) else param;
-                arg.* = try self.base.newNode(.kwarg, &.{ try self.namedLeaf(at.start, f), value }, at);
-            }
-            const made = try self.base.newNode(.call, args, at);
-            try binds.append(a, try self.base.newNode(.set, &.{ .{ .tag = .fixed }, name, .nil, made }, at));
+            try out.append(gpa, .{ .def = def, .site = site, .params = field_params, .ty = ty, .name = ir.GroupParam.name(p), .at = at });
         }
-        items[pslot] = .{ .list = parser.List.withId(try out.toOwnedSlice(a), params.list.id) };
-        if (binds.items.len == 0) return;
-        const bslot = if (is_fun) ir.slot(.fun, .body) else ir.slot(.sub, .body);
+        items[pslot] = .{ .list = parser.List.withId(try list.toOwnedSlice(a), params.list.id) };
+    }
+
+    /// In what `slot` holds, each use of a flattened group of `flat` (by
+    /// the position of its name) and each spread of `spreads`, as the
+    /// group's rewrite means: a function whose group `uses` use whole
+    /// binds it first, `net =! Net(timeout: timeout, name: <name, ...)`,
+    /// under the group's own name leaf, each field that moves moving into
+    /// it, and each such binding is appended to `binds`; each field read
+    /// becomes a leaf that names its parameter (`group_targets`), unless
+    /// the binding took a field; each spread becomes, where it stands, the
+    /// keyword arguments of the fields it gives.
+    pub fn elaborateOptions(self: *Parser, slot: *const Sexp, flat: *const std.AutoHashMapUnmanaged(u32, Flattened), uses: []const GroupUse, spreads: []const SpreadSite, gpa: std.mem.Allocator, binds: *std.ArrayList(Flattened)) std.mem.Allocator.Error!void {
+        const a = self.allocator();
+        var st: OptionsRewrite = .{ .uses = uses, .spreads = spreads };
+        for (uses) |u| if (u.member != 0) try st.reads.put(a, u.member, u.group);
+        var groups: std.AutoHashMapUnmanaged(u32, void) = .empty;
+        for (uses) |u| try groups.put(a, u.group, {});
+        for (spreads) |sp| if (sp.group) |g| try groups.put(a, g, {});
+        const first = binds.items.len;
+        var it = groups.keyIterator();
+        while (it.next()) |pos| {
+            const f = flat.get(pos.*) orelse continue;
+            const whole = st.usedWhole(pos.*);
+            const moves = whole and std.mem.indexOfScalar(bool, f.site.moves, true) != null;
+            try st.flat.put(a, pos.*, .{ .fields = f.site.fields, .params = f.params, .ty = f.ty, .bound = moves });
+            if (whole) try binds.append(gpa, f);
+        }
+        // A function's bindings stand in the order of its groups.
+        const bound = binds.items[first..];
+        std.mem.sort(Flattened, bound, {}, struct {
+            fn less(_: void, x: Flattened, y: Flattened) bool {
+                return x.site.name > y.site.name;
+            }
+        }.less);
+        for (bound) |f| try self.bindGroup(f);
+        std.mem.reverse(Flattened, bound);
+        try self.optionsIn(@constCast(slot).*, &st);
+    }
+
+    /// `net =! Net(timeout: timeout, ...)` at the start of the body of
+    /// group `f`'s function, under the group's own name leaf, which no
+    /// parameter holds now: each field that moves moves into it.
+    fn bindGroup(self: *Parser, f: Flattened) std.mem.Allocator.Error!void {
+        const a = self.allocator();
+        const site = f.site;
+        const at = f.at;
+        const args = try a.alloc(Sexp, site.fields.len + 2);
+        args[0] = .nil;
+        args[1] = try self.copyTree(f.ty);
+        for (site.fields, f.params, args[2..], 0..) |field, leaf, *arg, k| {
+            const param = try self.fieldParam(at.start, field, leaf);
+            const value = if (k < site.moves.len and site.moves[k]) try self.base.newNode(.move, &.{param}, at) else param;
+            arg.* = try self.base.newNode(.kwarg, &.{ try self.namedLeaf(at.start, field), value }, at);
+        }
+        const made = try self.base.newNode(.call, args, at);
+        const bind = try self.base.newNode(.set, &.{ .{ .tag = .fixed }, f.name, .nil, made }, at);
+        const items = @constCast(f.def.items());
+        const bslot = if (f.def.isKind(.fun)) ir.slot(.fun, .body) else ir.slot(.sub, .body);
         const body = items[bslot];
         if (!body.isKind(.block)) return;
-        const stmts = try a.alloc(Sexp, body.items().len + binds.items.len);
+        const stmts = try a.alloc(Sexp, body.items().len + 1);
         stmts[0] = body.items()[0];
-        @memcpy(stmts[1 .. 1 + binds.items.len], binds.items);
-        @memcpy(stmts[1 + binds.items.len ..], body.items()[1..]);
+        stmts[1] = bind;
+        @memcpy(stmts[2..], body.items()[1..]);
         items[bslot] = .{ .list = parser.List.withId(stmts, body.list.id) };
     }
 
@@ -5996,34 +6084,38 @@ pub const Parser = struct {
         return self.copyTree(place);
     }
 
-    /// Rewrite each `for` of `loops` in `tree` into the `while` it means.
-    /// Every other node keeps its position and id.
-    /// Each chain of `chains` in `tree` as the loop it means
-    /// (docs/design/iterators.md): a value that is a `loop` run
-    /// once, which holds the source and binds each stage's function, then
-    /// walks the source and gives the consumer's result with `break`; a
-    /// `for` over a chain is a block of the same holds around its loop.
-    /// Every name it binds is hidden, at a position past the source's end
-    /// whose home is the chain (`span`), and a type it needs is written
-    /// `(item_type h)`: what the hidden binding `h` gives
+    /// What a chain was rewritten into (`elaborateChains`): the node that
+    /// stands where it stood, the chain's index, and for a `for` over a
+    /// chain, the `for` and the block its body's statements now stand in.
+    pub const ChainLoop = struct { node: Sexp, chain: usize, loop: Sexp = .nil, body: Sexp = .nil };
+
+    /// Each chain of `chains` in what `slot` holds, rewritten where it
+    /// stands into the loop it means (docs/design/iterators.md), each
+    /// rewrite appended to `out`: a value that is a `loop` run once, which
+    /// holds the source and binds each stage's function, then walks the
+    /// source and gives the consumer's result with `break`; a `for` over a
+    /// chain is a block of the same holds around its loop. Every name it
+    /// binds is hidden, at a position past the source's end whose home is
+    /// the chain (`span`), and a type it needs is written `(item_type h)`:
+    /// what the hidden binding `h` gives
     /// (`resolve.TypeResolver.chainItemType`). An inner chain, in a stage's
     /// function, is rewritten first.
-    pub fn desugarChains(self: *Parser, tree: Sexp, chains: []const Chain) std.mem.Allocator.Error!void {
-        if (tree != .list) return;
-        for (@constCast(tree.items())) |*slot| {
-            try self.desugarChains(slot.*, chains);
-            if (slot.* != .list) continue;
-            const id = slot.list.id;
-            for (chains) |c| if (c.node == id) {
-                slot.* = try self.lowerIterChain(slot.*, c);
-                break;
-            };
-        }
+    pub fn elaborateChains(self: *Parser, slot: *const Sexp, chains: []const Chain, gpa: std.mem.Allocator, out: *std.ArrayList(ChainLoop)) std.mem.Allocator.Error!void {
+        const at: *Sexp = @constCast(slot);
+        if (at.* != .list) return;
+        for (at.items()) |*child| try self.elaborateChains(child, chains, gpa, out);
+        const id = at.list.id;
+        for (chains, 0..) |c, i| if (c.node == id) {
+            const old = at.*;
+            at.* = try self.lowerIterChain(old, c);
+            try out.append(gpa, .{ .node = at.*, .chain = i, .loop = if (old.isKind(.@"for")) old else .nil, .body = if (old.isKind(.@"for")) self.chain_body else .nil });
+            return;
+        };
     }
 
     const ChainStep = struct { name: []const u8, args: []const Sexp, at: u32 };
 
-    /// The rewrite of one chain (`desugarChains`).
+    /// The rewrite of one chain (`elaborateChains`).
     const ChainLowering = struct {
         p: *Parser,
         home: u32,
@@ -6262,13 +6354,17 @@ pub const Parser = struct {
             return out;
         }
 
+        /// The loop of `h` around `body`; the block that is its body is
+        /// `Parser.chain_body`.
         fn loop(l: *const ChainLowering, h: Head, body: Sexp) std.mem.Allocator.Error!Sexp {
+            l.p.chain_body = body;
             if (l.source == .elements) return l.node(.@"for", &.{ .{ .tag = .iter }, h.item, h.index, h.src, body, .nil, .nil });
             if (h.pre[1] == .nil) return l.node(.@"while", &.{ h.cond, .nil, body, .nil });
             var stmts: std.ArrayList(Sexp) = .empty;
             for (h.pre) |s| if (s != .nil) try stmts.append(l.p.allocator(), s);
             try stmts.appendSlice(l.p.allocator(), ir.rest(body, .stmts));
-            return l.node(.@"while", &.{ h.cond, .nil, try l.block(stmts.items), .nil });
+            l.p.chain_body = try l.block(stmts.items);
+            return l.node(.@"while", &.{ h.cond, .nil, l.p.chain_body, .nil });
         }
     };
 
@@ -6343,7 +6439,7 @@ pub const Parser = struct {
         return @intCast(pos);
     }
 
-    /// One chain as its loop (`desugarChains`).
+    /// One chain as its loop (`elaborateChains`).
     fn lowerIterChain(self: *Parser, node: Sexp, c: Chain) std.mem.Allocator.Error!Sexp {
         const source = c.source;
         const a = self.allocator();
