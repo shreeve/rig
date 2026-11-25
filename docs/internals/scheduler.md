@@ -893,7 +893,7 @@ never fails, and yields only when other work waits.
   of its own there, calling what its values leave it: a call in an
   `if` branch its values rule out is no call (the condition folded
   as any constant is, in the evaluator's partial mode, where a side
-  of `and` or `or` decides it alone: `cteval.InstanceNames`), so `at[true]` calling
+  of `and` or `or` decides it alone: `cteval.CheckedNames`), so `at[true]` calling
   `at[false]`, whose own call of `at` is under `if t`, is no cycle and
   `at` does not check. A function with an instance picked checks in
   all of them, since Zig writes one function for them all; one whose

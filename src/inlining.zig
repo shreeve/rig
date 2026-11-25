@@ -1200,10 +1200,10 @@ const Pass = struct {
     }
 
     /// The value of the compile-time expression `e` of `c`, at the
-    /// instance `vals` of function `in` around it (`cteval.InstanceNames`);
-    /// null when it is not known.
+    /// instance `vals` of function `in` around it (`cteval.CheckedNames`'
+    /// partial mode); null when it is not known.
     fn valueOf(self: *const Pass, c: *const SemContext, e: Sexp, in: ?u32, vals: ?[]const CtVal) ?CtVal {
-        var names: cteval.InstanceNames = .{ .checked = .{ .ctx = c } };
+        var names: cteval.CheckedNames = .{ .ctx = c, .partial = true };
         if (in) |fun| if (vals) |at| {
             names.tparams = sema.tparamsOf(self.fns.items[fun].node).items();
             names.values = at;

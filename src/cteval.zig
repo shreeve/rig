@@ -5,7 +5,7 @@
 //!   `names` that answers for its context: checked code
 //!   (`CheckedNames`), a declaration (`resolve.ConstNames`), or one
 //!   instance of a generic function, the partial mode inlining's guards
-//!   use (`InstanceNames`). `foldFloat` folds a float constant in its
+//!   use (`CheckedNames.partial`). `foldFloat` folds a float constant in its
 //!   type. Integers have one arithmetic, `ctArith`.
 //!
 //! Compile-time functions: `fun cap[n: Int] -> Int`, a `fun` with
@@ -1022,10 +1022,10 @@ fn reasonOf(c: Const) Const {
 ///   alone is computed in (for a wrapping operation or a shift);
 /// - optionally `ctCall(e) CtFold`, the value of a compile-time call
 ///   (`cap[8]`), and `boolean(leaf) ?bool`, a name's `Bool` value;
-/// - optionally `partial`, for a fold over values some of which are not
-///   known (`InstanceNames`): a side of `and` or `or` that decides it
-///   decides it whatever the other is. Without it, only the left side
-///   decides alone, as the program reads it.
+/// - optionally `partial`, true for a fold over values some of which are
+///   not known (`CheckedNames`' partial mode): a side of `and` or `or`
+///   that decides it decides it whatever the other is. Otherwise only
+///   the left side decides alone, as the program reads it.
 fn fold(ctx: *const SemContext, e: Sexp, names: anytype) Const {
     const N = @TypeOf(names);
     switch (e) {
@@ -1087,7 +1087,7 @@ fn fold(ctx: *const SemContext, e: Sexp, names: anytype) Const {
             const decides = h == .@"or";
             const a = fold(ctx, ir.get(e, .left), names);
             if (a == .boolean and a.boolean == decides) return a;
-            if (a != .boolean and !@hasDecl(N, "partial")) return no_value;
+            if (a != .boolean and !(@hasField(N, "partial") and names.partial)) return no_value;
             const b = fold(ctx, ir.get(e, .right), names);
             if (b != .boolean or (a != .boolean and b.boolean != decides)) return no_value;
             return b;
@@ -1179,8 +1179,16 @@ pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?Wide {
 /// its declaration is checked) and an imported constant's (`lib.N`), and
 /// the type literal arithmetic was given. The values are untyped here:
 /// the checker gives constant arithmetic its type.
+///
+/// Its partial mode (`partial`) is one instance of a generic function,
+/// for inlining's guards: the values the instance binds its compile-time
+/// parameters to (`tparams`, in order, and `values`) are known too, and
+/// any other value is not.
 pub const CheckedNames = struct {
     ctx: *const SemContext,
+    partial: bool = false,
+    tparams: []const Sexp = &.{},
+    values: []const CtVal = &.{},
 
     pub fn symbol(self: CheckedNames, e: Sexp) ?SymbolId {
         return self.ctx.symbolOf(e) orelse self.ctx.lookupInScopeOnly(sema.module_scope, identAt(self.ctx.source, e) orelse return null);
@@ -1188,7 +1196,14 @@ pub const CheckedNames = struct {
 
     pub fn name(self: CheckedNames, e: Sexp) ?TypedInt {
         const id = self.ctx.symbolOf(e) orelse return null;
-        return if (self.ctx.const_ints.get(id)) |c| .{ .v = c.value } else null;
+        if (self.ctx.const_ints.get(id)) |c| return .{ .v = c.value };
+        const v = self.param(id) orelse return null;
+        return if (v == .int) .{ .v = v.int } else null;
+    }
+
+    pub fn boolean(self: CheckedNames, e: Sexp) ?bool {
+        const v = self.param(self.ctx.symbolOf(e) orelse return null) orelse return null;
+        return if (v == .boolean) v.boolean else null;
     }
 
     /// `lib.N`: another module's integer constant.
@@ -1215,50 +1230,10 @@ pub const CheckedNames = struct {
     pub fn ctCall(self: CheckedNames, e: Sexp) CtFold {
         return recordedInt(self.ctx, e);
     }
-};
 
-/// The partial mode of `fold`: what it knows in one instance of a
-/// generic function, checked code's constants and the values the
-/// instance binds its compile-time parameters to (`tparams`, in order,
-/// and `values`), where any other value is not known.
-pub const InstanceNames = struct {
-    checked: CheckedNames,
-    tparams: []const Sexp = &.{},
-    values: []const CtVal = &.{},
-
-    pub const partial = {};
-
-    pub fn symbol(self: InstanceNames, e: Sexp) ?SymbolId {
-        return self.checked.symbol(e);
-    }
-
-    pub fn name(self: InstanceNames, e: Sexp) ?TypedInt {
-        if (self.checked.name(e)) |t| return t;
-        const v = self.param(e) orelse return null;
-        return if (v == .int) .{ .v = v.int } else null;
-    }
-
-    pub fn boolean(self: InstanceNames, e: Sexp) ?bool {
-        const v = self.param(e) orelse return null;
-        return if (v == .boolean) v.boolean else null;
-    }
-
-    pub fn member(self: InstanceNames, e: Sexp) ?TypedInt {
-        return self.checked.member(e);
-    }
-
-    pub fn literalInt(self: InstanceNames, e: Sexp) ?IntInfo {
-        return self.checked.literalInt(e);
-    }
-
-    pub fn ctCall(self: InstanceNames, e: Sexp) CtFold {
-        return self.checked.ctCall(e);
-    }
-
-    /// The value the instance binds the parameter `e` names to.
-    fn param(self: InstanceNames, e: Sexp) ?CtVal {
-        const c = self.checked.ctx;
-        const pos = c.symbols.items[c.symbolOf(e) orelse return null].decl_pos;
+    /// The value the instance binds the compile-time parameter `id` to.
+    fn param(self: CheckedNames, id: SymbolId) ?CtVal {
+        const pos = self.ctx.symbols.items[id].decl_pos;
         for (self.tparams, self.values) |p, v| {
             const leaf = sema.paramNameNode(p) orelse continue;
             if (leaf == .src and leaf.src.pos == pos) return v;

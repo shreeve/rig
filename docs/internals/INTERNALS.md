@@ -2525,7 +2525,8 @@ dependency order, before any type is resolved, their literals taking
 the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
 other module's, if it is public), `cteval.constInt` reads the facts
 of checked code (`CheckedNames`), and inlining's guards read one
-instance of a generic function (`InstanceNames`, below). Float
+instance of a generic function, in its partial mode, where a side of
+`and` or `or` decides it alone (`CheckedNames.partial`). Float
 constants fold in their own type, each literal and each operation
 rounded to it (`cteval.foldFloat`), for the float overflow and range
 checks and a constant `Float`'s value (`const_floats`). A compile-time parameter,
