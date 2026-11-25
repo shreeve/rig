@@ -23,6 +23,8 @@ const exits = @import("exits.zig");
 const generic = @import("generic.zig");
 const types = @import("types.zig");
 const notes = @import("notes.zig");
+const lowered = @import("lowered.zig");
+const lir = @import("../lir.zig");
 const Place = transfer.Place;
 
 pub const VarId = u32;
@@ -649,6 +651,13 @@ pub const Checker = struct {
     reachable: bool = true,
     /// Non-zero while computing a loop fixpoint: diagnostics suppressed.
     quiet: u32 = 0,
+    /// The walk reads each body's LIR (`lowered.zig`): the shadow walk of
+    /// a self-checking build.
+    on_lir: bool = false,
+    /// The lowered body being walked, when `on_lir`.
+    lir_body: ?*lowered.Body = null,
+    /// Each lowered body, by its block's key.
+    lir_bodies: sema.FastMap(u64, *const lir.Func) = .empty,
 
     func: FnCtx = .{},
     /// The body of the function being walked, at whose end its own scope
@@ -789,6 +798,7 @@ pub const Checker = struct {
         self.after_value.deinit(self.gpa);
         self.temps.deinit(self.gpa);
         self.reaches.deinit(self.gpa);
+        self.lir_bodies.deinit(self.gpa);
         self.paths.deinit(self.gpa);
         self.gpa.destroy(self.paths);
         self.fn_arena_state.deinit();
@@ -902,7 +912,7 @@ pub const Checker = struct {
         var v = var_;
         const ctx = self.sema;
         if (v.kind != .hidden) {
-            v.sym = ctx.symbolAt(v.decl);
+            v.sym = if (self.lir_body != null) lowered.bindingAt(self, v.decl) else ctx.symbolAt(v.decl);
         }
         // Emit holds a binding as lowering made its var
         // (`storage.bindingDrop`): the checker treats as owning exactly
@@ -950,6 +960,7 @@ pub const Checker = struct {
     /// The innermost visible var of the binding leaf `node` names, as
     /// sema resolved it.
     pub fn find(self: *const Checker, node: Sexp) ?VarId {
+        if (self.lir_body != null) if (lowered.symbolOf(self, node)) |sym| return self.varOf(sym);
         return self.varOf(self.sema.symbolOf(node) orelse return null);
     }
 

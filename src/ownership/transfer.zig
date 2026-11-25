@@ -22,6 +22,7 @@ const exits = @import("exits.zig");
 const generic = @import("generic.zig");
 const types = @import("types.zig");
 const notes = @import("notes.zig");
+const lowered = @import("lowered.zig");
 const Checker = state.Checker;
 const Loan = state.Loan;
 const LoanKind = state.LoanKind;
@@ -163,6 +164,9 @@ pub fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, retu
     self.fn_depth += 1;
     defer self.fn_depth -= 1;
 
+    const saved_lir = self.lir_body;
+    defer self.lir_body = saved_lir;
+    self.lir_body = try lowered.enter(self, body);
     try self.pushScopeFor(.function, .nil);
     for (tparams.items()) |p| if (p != .src) try bindParam(self, p);
     try bindParams(self, params);
@@ -179,7 +183,8 @@ pub fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, retu
 /// returns a value, its last expression is the return value, whose
 /// loans it gives.
 pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
-    const stmts: []const Sexp = if (body.isKind(.block)) ir.Block.stmts(body) else (&body)[0..1];
+    const lowered_stmts = try lowered.stmtsOf(self, body);
+    const stmts: []const Sexp = if (lowered_stmts) |l| l.list else if (body.isKind(.block)) ir.Block.stmts(body) else (&body)[0..1];
     var result: Value = .{};
     for (stmts, 0..) |stmt, i| {
         try exits.checkAfterJump(self, stmts, i);
@@ -187,7 +192,8 @@ pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
             try exits.checkRestAfterJump(self, stmts, i);
             break;
         }
-        if (returns_value and i == stmts.len - 1 and isValue(self, stmt)) {
+        const yields = if (lowered_stmts) |l| l.yields and returns_value else returns_value and isValue(self, stmt);
+        if (yields and i == stmts.len - 1) {
             const saved_stmt = self.cur_stmt;
             self.cur_stmt = stmt;
             defer self.cur_stmt = saved_stmt;
@@ -290,7 +296,7 @@ pub fn walkStmtValue(self: *Checker, stmt: Sexp, sink: ?Sink) Error!Value {
 /// Walk a `(block ...)` in its own scope; its value is the value of
 /// its last statement, which may not view the block's own locals.
 pub fn walkBlock(self: *Checker, block: Sexp) Error!Value {
-    const stmts = ir.Block.stmts(block);
+    const stmts = if (try lowered.stmtsOf(self, block)) |l| l.list else ir.Block.stmts(block);
     const t = takeTail(self, block);
     try self.pushScopeFor(.block, block);
     var v: Value = .{};
@@ -372,7 +378,7 @@ pub fn walkUnerased(self: *Checker, sexp: Sexp) Error!Value {
     };
     // A temporary is taken into its statement's slot: a block or
     // `match` value's tail leaves its scope as it would for a binding.
-    if (ctx.dropsTemp(sexp)) {
+    if (lowered.holdsTemp(self, sexp) orelse ctx.dropsTemp(sexp)) {
         try rules.checkNoImplicitCopy(self, sexp, .binding, false);
         setTail(self, sexp, .binding);
         return holdTemp(self, sexp, try walkList(self, sexp, kind));
@@ -2794,7 +2800,7 @@ pub fn selfLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
     // A value its statement keeps in a slot (`dropsTemp`), a copy of a
     // branching value's leaf included, is viewed there.
     const ctx = self.sema;
-    if (ctx.dropsTemp(base)) {
+    if (lowered.holdsTemp(self, base) orelse ctx.dropsTemp(base)) {
         const pos = notes.startOf(self, base);
         if (stmtTempAt(self, pos)) |id| return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
     }
@@ -3048,6 +3054,9 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
     };
     self.loop = null;
     self.reachable = true;
+    const saved_lir = self.lir_body;
+    defer self.lir_body = saved_lir;
+    self.lir_body = try lowered.enter(self, body);
     try self.pushScopeFor(.closure, body);
     for (caps, cap_values.items) |cap, cv| {
         const name = sema.captureNameNode(cap).?;
