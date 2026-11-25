@@ -1202,7 +1202,7 @@ test "a Facts method about a node reads what a checker recorded" {
     const source = @embedFile("facts.zig");
     // A method of `Facts` that takes a node answers from a record, the
     // facts table or the storage facts, read through the context. These still find their answer with a
-    // helper of storage or sema, each by the node's shape over recorded
+    // helper of storage, sema, or cteval, each by the node's shape over recorded
     // symbols, types, and constants; the list only shrinks.
     const readers = [_][]const u8{
         "callsRigFunction", "patternConst",    "stmtErasedCopies",
@@ -1248,7 +1248,10 @@ test "a Facts method about a node reads what a checker recorded" {
             if (t.tag == .l_paren and count >= 3 and last[1].tag == .period and last[2].tag == .identifier and last[0].tag == .identifier) {
                 const base = source[last[0].loc.start..last[0].loc.end];
                 const called = source[last[2].loc.start..last[2].loc.end];
-                if ((std.mem.eql(u8, base, "storage") or std.mem.eql(u8, base, "sema"))) classifier = called;
+                // `cteval.recorded` reads the checker's record of a
+                // compile-time call; cteval's other helpers fold.
+                const folds = std.mem.eql(u8, base, "cteval") and !std.mem.eql(u8, called, "recorded");
+                if (std.mem.eql(u8, base, "storage") or std.mem.eql(u8, base, "sema") or folds) classifier = called;
             }
             last = .{ last[1], last[2], t };
             count += 1;
@@ -1265,7 +1268,7 @@ test "a Facts method about a node reads what a checker recorded" {
         }
     }
     for (readers, seen) |r, s| if (!s) {
-        std.debug.print("Facts.{s} no longer calls a helper of storage or sema: take it off the list\n", .{r});
+        std.debug.print("Facts.{s} no longer calls a helper of storage, sema, or cteval: take it off the list\n", .{r});
         return error.TestUnexpectedResult;
     };
     try std.testing.expect(methods > 50);
