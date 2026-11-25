@@ -66,18 +66,12 @@ pub const BuiltinCall = sema.BuiltinCall;
 pub const Proven = sema.Proven;
 pub const ProvenIf = sema.ProvenIf;
 pub const FlagTest = sema.FlagTest;
-pub const UnitKind = rig.UnitKind;
 pub const NodeKey = sema.NodeKey;
 
 /// Whether this build of the compiler runs its own consistency checks
 /// (`zig build -Dself-check`; on in every debug build).
 pub const self_check = @import("build_options").self_check;
 
-/// Emit asserts that it writes each node inside the unit that holds it
-/// (`Emitter.inUnit`) in every self-checking build.
-pub const check_units = self_check;
-
-pub const UnitEvent = sema.UnitEvent;
 pub const CtVal = sema.cteval.CtVal;
 pub const CtResult = sema.cteval.Result;
 pub const CtHidden = sema.cteval.Hidden;
@@ -100,7 +94,7 @@ pub const Clone = sema.Clone;
 pub const SelfMode = sema.SelfMode;
 pub const Upgrade = sema.Upgrade;
 pub const Lift = sema.Lift;
-pub const TypedInt = sema.TypedInt;
+pub const TypedInt = sema.cteval.TypedInt;
 pub const ArgSlot = sema.ArgSlot;
 pub const DurationParts = sema.DurationParts;
 pub const DurationHow = sema.DurationHow;
@@ -385,15 +379,6 @@ pub const Facts = struct {
     pub fn durationOf(f: Facts, node: Sexp) ?sema.Duration {
         return f.c().durationOf(node);
     }
-    /// The root of the innermost unit holding `node` (`rig.eachUnit`),
-    /// which emit asserts it writes the node inside.
-    pub fn unitOf(f: Facts, node: Sexp) ?sema.NodeKey {
-        return f.c().unitOf(node);
-    }
-    /// The kind of the unit `node` is the root of, or null.
-    pub fn unitRootKind(f: Facts, node: Sexp) ?UnitKind {
-        return f.c().unitRootKind(node);
-    }
     /// Which of the node's tests are known to pass (`src/proofs.zig`):
     /// emit omits those, and a debug build makes them as assertions.
     pub fn provenOf(f: Facts, node: Sexp) Proven {
@@ -636,6 +621,9 @@ pub const Facts = struct {
     pub fn isErrorMember(f: Facts, node: Sexp) bool {
         return f.c().isErrorMember(node);
     }
+    pub fn namesErrorMember(f: Facts, node: Sexp) bool {
+        return f.c().namesErrorMember(node);
+    }
     /// Whether a table's slot `t[s]` is written, so reached to write
     /// (`slot`), not read-only (`constSlot`).
     pub fn isTableWrite(f: Facts, node: Sexp) bool {
@@ -716,11 +704,11 @@ pub const Facts = struct {
     }
     /// The value of an integer constant expression.
     pub fn constIntOf(f: Facts, e: Sexp) ?Wide {
-        return sema.constIntOf(f.c(), e);
+        return sema.cteval.constIntOf(f.c(), e);
     }
     /// `Int.max` and the like.
     pub fn intLimit(f: Facts, e: Sexp) ?TypedInt {
-        return sema.intLimit(f.c(), e);
+        return sema.cteval.intLimit(f.c(), e);
     }
     /// The built-in String operation `call` is.
     pub fn stringCall(f: Facts, call: Sexp) ?StringCall {
@@ -1177,7 +1165,7 @@ test "a Facts method about a node reads what a checker recorded" {
     const source = @embedFile("facts.zig");
     // A method of `Facts` that takes a node answers from a record, the
     // facts table or the storage facts, read through the context. These still find their answer with a
-    // helper of storage or sema, each by the node's shape over recorded
+    // helper of storage, sema, or cteval, each by the node's shape over recorded
     // symbols, types, and constants; the list only shrinks.
     const readers = [_][]const u8{
         "callsRigFunction", "patternConst",    "stmtErasedCopies",
@@ -1223,7 +1211,10 @@ test "a Facts method about a node reads what a checker recorded" {
             if (t.tag == .l_paren and count >= 3 and last[1].tag == .period and last[2].tag == .identifier and last[0].tag == .identifier) {
                 const base = source[last[0].loc.start..last[0].loc.end];
                 const called = source[last[2].loc.start..last[2].loc.end];
-                if ((std.mem.eql(u8, base, "storage") or std.mem.eql(u8, base, "sema"))) classifier = called;
+                // `cteval.recorded` reads the checker's record of a
+                // compile-time call; cteval's other helpers fold.
+                const folds = std.mem.eql(u8, base, "cteval") and !std.mem.eql(u8, called, "recorded");
+                if (std.mem.eql(u8, base, "storage") or std.mem.eql(u8, base, "sema") or folds) classifier = called;
             }
             last = .{ last[1], last[2], t };
             count += 1;
@@ -1240,7 +1231,7 @@ test "a Facts method about a node reads what a checker recorded" {
         }
     }
     for (readers, seen) |r, s| if (!s) {
-        std.debug.print("Facts.{s} no longer calls a helper of storage or sema: take it off the list\n", .{r});
+        std.debug.print("Facts.{s} no longer calls a helper of storage, sema, or cteval: take it off the list\n", .{r});
         return error.TestUnexpectedResult;
     };
     try std.testing.expect(methods > 50);

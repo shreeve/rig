@@ -597,7 +597,7 @@ wrapper also makes the only rewrites that need to inspect the tree:
   the last two are told by the tree: the chain stops at a `paren`, where
   a `?` or `<` keeps its sigil outside and a `!` takes the parenthesized
   part as the head of its place. The wrapper records the new
-  node's id (`Parser.isSelfSigil`), since the checker rejects some
+  node with a mark (`Parser.Mark.self_sigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!@` (the habit of `!` as negation),
   a `<` before one that does not take `<@`, a `?` before one that
@@ -788,7 +788,7 @@ A few kinds serve more than one surface form:
   handles move outside the whole chain. A handle to an optional,
   `*(T?)` or `~(T?)`, has no expression spelling; before it drops the
   parentheses, the parser wrapper records each `share` or `weak` whose
-  chain reaches a suffix inside a `paren` (`hasParenSuffix`), and
+  chain reaches a suffix inside a `paren` (`Parser.Mark.paren_suffix`), and
   `typeArg` rejects it with a hint.
 - `array_type`'s `size`, and a `generic_inst`'s arguments, may be an
   integer, a name, a `member` (`lib.N`), a `neg` integer (arguments
@@ -833,7 +833,7 @@ records it on a module constant whose initializer names a flagged
 constant, in the order constants are folded (`foldModuleConsts`), and
 the checker on a `=!` local; `sema.perTargetLeaf` finds the flagged
 name in an expression. No fold gives such a constant a value
-(`ctFoldBy` folds a ternary only on an integer condition), so every
+(`cteval.fold` folds a ternary only on a condition it folds), so every
 place that needs one (an array length, a lane count, a compile-time
 integer argument, `lag`, a range pattern's bounds, an enum's value)
 rejects it, naming the flagged name, and a module constant's integer
@@ -1702,7 +1702,6 @@ instead of re-deriving it by name:
 | `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple of pieces `rig.String.of` and `add` take; `?t` of a String viewed as a `?String` is a `viewOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, or none for a field the pattern leaves out. A pattern binds by name, any of the fields (`:w` is one leaf in both slots of its `kwarg`, so it reads as `w: w`), and a variant with one field by position too, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, lowering, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
-| `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded in self-checking builds (`storage.planUnits`); emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a self passed as an argument comes first (`P.scale[2](p)`) |
 
 **The view table.** Which views a value gives (Core §4) is decided in
@@ -1836,12 +1835,24 @@ and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and
 a write costs nothing more. A symbol written through
 `SemContext.symbolMut` goes on the trail whole, so a rollback gives back
-its type and flags. Scopes, interned types, and the lists of what a
+its type and flags; one made since the mark stays as it was written.
+Scopes, interned types, the symbol each name names (`names`, a kept
+column: the one in scope where it stands), and the lists of what a
 check makes for what it names (generic instances and uses, API calls,
 embedded files) are not taken back: each is made once for what it
 names, and asking again finds the same one. A rewrite of the tree, and the names and scopes of the
 nodes it makes, are written outside every mark (`pauseTrail`), since
 the tree keeps the rewrite.
+
+**Quiet checks.** A check run only to learn something, a type
+(`synthQuiet`), how many errors a closure has, or whether a place may
+be written, runs between `beginQuiet` and `endQuiet` (`check/flow.zig`):
+under a mark, with `quiet` set, so what it records and reports is taken
+back and the check that keeps them decides every fact. What a caller
+needs from it is a value it returns, never a fact it left: a chain's
+source keeps the type its quiet check learned (`chain_views`), and
+`Actor.supervised` reads its captures' types after the call checked
+the closure aloud.
 
 **Storage questions.** A few questions about a node that emit,
 lowering, and the checkers all act on are each a pure function of
@@ -2187,7 +2198,10 @@ call whose parts are held first, a header that ends its temporaries, a
 value `if` or `match`. `lir.verify` checks that a body is well formed:
 each region and expression is reached once, from the body; each var is
 declared by one region; and each var is used only inside the region
-that declares it. `rig check --facts=lir` prints the root module's LIR,
+that declares it. A var's read, and a binding's drop (`<x`), keep the
+node they are at: the name as written, or the node whose value the var
+holds in its place.
+`rig check --facts=lir` prints the root module's LIR,
 and lists each body not lowered with the construct that stopped it.
 
 Emit reads the storage it writes from LIR. `Emitter.emit` lowers its
@@ -2262,22 +2276,27 @@ when `RIG_VERIFY_PROOFS=1` is set as it is built (the root module then
 declares `__rig_verify_proofs`), and `RIG_NO_PROOFS=1` makes emit write
 every test, as if nothing were proven.
 
-**Units.** A body is cut into units (`rig.eachUnit`), the one list every
-pass reads: a statement that orders no others (an assignment, a binding,
-an expression, `return`, `break`, `continue`, `<x`); each guard part of
-an `if` or `while` condition (an `as` part, or an operand of the top
-`and` chain of any other part, which Zig's `and` runs only after the
-operands before it held); a `while` step; a `for` source; a statement
+**Units.** A body is cut into units by its LIR (`src/lower.zig`), the
+order emit writes it in: a statement that orders no others (an
+assignment, a binding, an expression, `return`, `break`, `continue`,
+`<x`), the region lowering makes for it; each guard part of an `if` or
+`while` condition (an `as` part, or an operand of the top `and` chain
+of any other part, which Zig's `and` runs only after the operands
+before it held); a `while` step's region; a `for` source; a statement
 `match`'s selection (its subject, every pattern, every guard); and a
 `raw` block. The structured statements (a block, `if`, `while`, `for`,
-`match`, a labeled one, `defer`) are no unit: they order the units they
-hold. `rig.stmtClass` places every IR tag (structured, a unit, `raw`, or
+`match`, a labeled one, `defer`) are no unit: each lowers to a guard or
+block region, and orders the units it holds. The walk reads which a
+statement is from its regions (`Shape` in `src/proofs.zig`), and
+`rig.stmtClass` places every IR tag (structured, a unit, `raw`, or
 never a statement, which is opaque as `raw` is), so a new tag fails to
-compile until it is placed, and `rig.skeletonOf` gives the one skeleton
-that `eachUnit` lists units by and the proof walk follows. A block inside a unit's expression (an arm of a value `match`, a
-branch of a value `if`, a `catch` handler, a value loop's body) and a
-closure's body hold units of their own, nested in it. A self-checking
-build records each node's unit (`storage.planUnits`, `SemContext.unitOf`). The proof is the
+compile until it is placed. A block inside a unit's expression (an arm
+of a value `match`, a branch of a value `if`, a `catch` handler, a
+value loop's body) and a closure's body hold units of their own, nested
+in it, each in a region of its own. The storage lowering makes for a
+unit's values is declared and bound in the unit's own region, which is
+where emit writes it, so no hoist carries a check or a write into
+another unit. The proof is the
 desugaring
 
 ```text
@@ -2447,26 +2466,11 @@ is not written. `rig check --facts=proofs` prints a node's tests under a
 flag on a line of its own, `L:C ok KIND TESTS`, after the line of its
 tests of every path.
 
-**Keeping emit and the walk together.** Three checks make a divergence
-fail a run rather than a proof:
+**Keeping emit and the walk together.** The walk and emit read one
+lowering of each body, so the order of its units is the order emit
+writes them in. One check makes a divergence fail a run rather than a
+proof:
 
-- Emit enters each unit as it writes the unit's code (`enterUnit`), and
-  asserts, in every self-checking build of the compiler (a debug build,
-  or `-Dself-check=true`, as test/rig.rip builds), that each check, write,
-  expression, and hidden storage location it writes lies in the unit
-  that holds it (`Emitter.inUnit`): no hoist carries a check or a write
-  into another unit's code unseen.
-- The unit-order test (`proofs.checkUnitOrder`): a self-checking build
-  of the compiler traces the units emit writes, in the order their code runs,
-  and each Zig jump it writes, and checks that they are the units the
-  walk visits, nested alike, the units of each block in the same order,
-  each unit's code started once (only a pause and a resume of it, as a
-  `match`'s selection around each arm, write more of it, and only units
-  inside its construct start while it is paused), and each jump
-  written once, going where the walk sends its facts. A unit test runs
-  it over the programs of the `emit` and `proofs` behavior tests, and checks
-  that a swapped pair of units, a unit written twice, a paused unit
-  taken up again after a later unit, or a misdirected jump fails it.
 - The differential run (`swarm test/rig.rip proofs`): each program with
   a proven test runs in debug (every omitted test asserted), with
   `--release`, and with `--release` and `RIG_NO_PROOFS=1`; all three
@@ -2526,17 +2530,23 @@ interning makes `[LIMIT]Int` and `[4]Int` one type, and inference
 binds a `ct_param` exactly to the value the argument's type holds.
 `TypeResolver.resolveCtInt` reads an array size or a value argument:
 it folds integers, constants, and arithmetic on them with
-`sema.ctFoldBy` (in `sema.Wide`, an `i256`, which holds every `U128` and
+`cteval.foldInt` (in `sema.Wide`, an `i256`, which holds every `U128` and
 `I128` value and the checked results of operations on them, and wraps
-`+%`, `-%`, `*%` exactly). That one evaluator folds module and local
-constants, array lengths, compile-time arguments, and enum values; it
+`+%`, `-%`, `*%` exactly). That one evaluator, `cteval.fold`, folds
+module and local constants, array lengths, compile-time arguments, enum
+values, and constant conditions, integers and `Bool`s alike; it
 reads the program only through a names provider: `resolve.ConstNames`
 looks names up from a scope, and reads each constant's value and type
 from `const_ints` (module constants are folded into it once, in
 dependency order, before any type is resolved, their literals taking
 the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
-other module's, if it is public), and `sema.constInt` reads the facts
-of checked code. A compile-time parameter,
+other module's, if it is public), `cteval.constInt` reads the facts
+of checked code (`CheckedNames`), and inlining's guards read one
+instance of a generic function, in its partial mode, where a side of
+`and` or `or` decides it alone (`CheckedNames.partial`). Float
+constants fold in their own type, each literal and each operation
+rounded to it (`cteval.foldFloat`), for the float overflow and range
+checks and a constant `Float`'s value (`const_floats`). A compile-time parameter,
 or a `k =! n` binding of one (`ct_locals`), becomes its `ct_param`. A
 `ct_param` used as a length records the `array_len` requirement, so
 each instance's value is checked to be from 0 to 2^32 - 1. A generic
@@ -2551,9 +2561,9 @@ a pending one) and its subscriber list, a `List` its buffer's slice and
 length, a `^T` its pointer, and a read view the value it copies when it
 is viewed by copy (`viewByValue`: `?I128` is 16 bytes), else a pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
-from an argument, at that argument (`checkArraysIn`); a synthesis whose
-diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
-check that keeps them. An object or enum is checked after contents
+from an argument, at that argument (`checkArraysIn`); a quiet check
+(`synthQuiet`, under `quiet`) leaves it to the check that keeps its
+diagnostics. An object or enum is checked after contents
 are known (`checkTypeSizes`), and an array that mentions a generic
 parameter is kept in `generic_arrays` and checked, with the instance
 itself, at each instance (`checkInstanceSizes`). A type reported too
@@ -2858,7 +2868,7 @@ signature and one for its body (`cteval.CtFun`), so a signature that
 needs its own value is rejected rather than followed forever.
 
 A call is computed where it is first needed (`cteval.callAt`): where a
-type, a constant, or an enum value is resolved, `ctFoldBy` asks
+type, a constant, or an enum value is resolved, `cteval.foldInt` asks
 `ConstNames.ctCall`, which computes it; in a body, typecheck computes it
 (`Checker.synthCtCall`) and records it (`Facts.ct_calls`), which
 `CheckedNames.ctCall`, emit, and the oracle read. Either way its
@@ -2873,7 +2883,7 @@ each call's outcome, failures too (`State.memo`), for the same call
 again. `Eval` runs on a thread with a 512 MiB stack, and counts what it
 nests (`max_nest`) so that stack always holds it; it walks the checked
 IR of the body, reading each node's type from the checker, with the one
-arithmetic core of constant folding (`sema.ctArith`). Arrays are
+arithmetic of constant folding (`cteval.ctArith`). Arrays are
 values, stored as their types store them: one buffer of packed scalars
 per array, nested arrays row-major, an element of one a view of its row
 (`cteval.Arr`). Each buffer is owned by one binding, element, or result
@@ -3325,6 +3335,21 @@ call names the file it calls into (`rules.checkLive(self, ...)`):
 | `generic.zig` | generic bodies: what they require of each instance |
 | `types.zig` | what the checker reads of sema's facts: per type and per expression (CORE §9) |
 | `notes.zig` | messages, and the notes that name both ends of a view |
+| `lowered.zig` | the walk's view of each body's [LIR](#lir), and the shadow that compares the two walks |
+
+**The walk on LIR.** In a self-checking build each module is checked
+twice, the second time with `Checker.on_lir` set, and a module whose
+two walks report other diagnostics is an internal error
+(`ownership.shadow`). The second walk reads from each body's LIR the
+statements of each body and block (its regions'), the symbol of each
+binding it declares (its `lir.Var`'s), the binding each name it reads
+names (the var its use reads, `lir.Expr.var`), which values are
+statement temporaries (the vars its regions declare for them), and the
+uses liveness reads: each name a var is read or dropped at, each
+binding's declaring name, and a pattern's names, which LIR does not
+lower. A body whose uses of a binding that may hold a loan differ from
+its tree's is an internal error. A body or node the LIR does not cover
+is read from the tree.
 
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
 parameter, capture, pattern, loop element) paired with a `Flow`: its
@@ -3897,7 +3922,7 @@ type parameter's value read in place; none a value), reporting an
 internal error where one is not. `sema.checkTypedClean` checks too that
 a module typecheck accepted types no expression `invalid`: a rejection
 reports why, so an `invalid` with no error is a verdict whose diagnostic
-a quiet check dropped. `SemContext.bindingAccess` reads the fact, and gives a
+was dropped. `SemContext.bindingAccess` reads the fact, and gives a
 parameter's or local's from its type. Every pass reads it, and none
 decides a binding's mode another way (a unit test checks the sources):
 
@@ -4654,7 +4679,7 @@ knows a call is one: its self's type declares no method of the name
 (`Checker.chainCall`). The statement that holds it is checked under a
 mark, as for [Strings as bytes](#strings-as-bytes): the Parser wrapper
 flags each statement and declaration that holds a call of a method
-named as a stage or a consumer (`Parser.rewrite_stmts`), and
+named as a stage or a consumer (`Parser.Mark.rewrite`), and
 `Checker.checkRewritten` rolls the statement back when it holds a chain,
 writes each chain where it stands as its loop
 (`Parser.elaborateChains`), an inner chain first, and checks the

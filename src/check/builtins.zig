@@ -34,7 +34,7 @@ pub fn checkLiteralFits(self: *Checker, e: Sexp, target: TypeId) Error!void {
     if (tt == .slot and sema.slotCount(self.ctx, tt.slot) == null) {
         return self.errAt(e, "a literal is a `{s}` only where `n` is known; make one with `{s}.of(i)`", .{ try self.tyName(target), try self.tyName(target) });
     }
-    switch (sema.constInt(self.ctx, e)) {
+    switch (sema.cteval.constInt(self.ctx, e)) {
         .value => |v| if (!CompatCheck.holdsInt(self.ctx, target, v)) switch (tt) {
             .slot => |n| try self.errAt(e, "integer value `{d}` does not fit in `{s}` (0..{d}): a slot names one of {d} slots", .{ v, try self.tyName(target), sema.slotCount(self.ctx, n).? - 1, sema.slotCount(self.ctx, n).? }),
             .int => |info| try self.errAt(e, "integer value `{d}` does not fit in `{s}` ({d}..{d})", .{ v, try self.tyName(target), CompatCheck.intBounds(info).min, CompatCheck.intBounds(info).max }),

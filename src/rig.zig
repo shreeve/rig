@@ -247,7 +247,7 @@ pub fn isJump(e: Sexp) bool {
 
 /// Call `f(ctx, owner, body)` for the body of each function, `sub`,
 /// `test`, and `drop` declared in module `root`, members of types
-/// included: the bodies `eachUnit` lists the units of.
+/// included.
 pub fn eachBody(root: Sexp, ctx: anytype, comptime f: anytype) !void {
     if (root.kind() != .module) return;
     for (ir.Module.decls(root)) |d| try bodiesOfDecl(d, ctx, f);
@@ -262,26 +262,8 @@ fn bodiesOfDecl(decl: Sexp, ctx: anytype, comptime f: anytype) !void {
     }
 }
 
-/// What a unit is (`eachUnit`).
-pub const UnitKind = enum {
-    /// A statement of a block that orders no others (`stmtClass`).
-    stmt,
-    /// The step of a `while`.
-    step,
-    /// A guard part of an `if` or `while` condition: an `as` part, or an
-    /// operand of the top `and` chain of any other part.
-    guard,
-    /// The source of a `for`.
-    source,
-    /// A statement `match`'s selection: its subject, every pattern, and
-    /// every guard, which run before an arm's body and never after it.
-    selection,
-    /// A `raw` block, opaque: no unit is listed inside it.
-    raw,
-};
-
-/// What a statement of a block is to the units of a body
-/// (`skeletonOf`). Every IR tag is listed, so a new one fails to compile
+/// What a statement of a block is to the units of a body (the proof
+/// pass's `Shape`). Every IR tag is listed, so a new one fails to compile
 /// until it is placed.
 pub const StmtClass = enum {
     /// It orders the units it holds, and is no unit itself.
@@ -303,129 +285,12 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box, .template => .unit,
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .group_param, .field_of, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .item_type, .item_value, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .spread, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .exact, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive, .show => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
-        // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
-        // whose `paren` is dropped; `loop`, rewritten to a `while`: each
-        // before any pass reads a statement.
-        .wait, .once, .@"..=", .paren, .loop => .none,
+        // parameter; and `(e)`, whose `paren` is dropped; `loop`,
+        // rewritten to a `while`: each before any pass reads a statement.
+        .wait, .once, .paren, .loop => .none,
         // A function's marker, never a statement.
         .outside => .none,
     };
-}
-
-/// How a statement orders the units it holds: the one skeleton `eachUnit`
-/// lists the units by and the proof pass walks (docs/internals/INTERNALS.md,
-/// "Proven checks").
-pub const Skeleton = union(enum) {
-    /// One unit, of kind `stmt` or `raw`.
-    unit: UnitKind,
-    /// A block: its statements in order.
-    block: Sexp,
-    @"if": struct { cond: Sexp, then: Sexp, @"else": Sexp },
-    @"while": struct { cond: Sexp, body: Sexp, step: Sexp },
-    @"for": struct { source: Sexp, body: Sexp },
-    /// A statement `match`: its selection unit, then each arm's body.
-    match: Sexp,
-    /// A labeled statement: the statement.
-    labeled: Sexp,
-    /// A `defer` or `errdefer`: its body, run at its block's exits.
-    @"defer": Sexp,
-};
-
-/// The skeleton of statement `stmt` (`StmtClass`). A leaf is a unit that
-/// holds nothing to check or write.
-pub fn skeletonOf(stmt: Sexp) Skeleton {
-    const tag = stmt.kind() orelse return .{ .unit = .stmt };
-    return switch (stmtClass(tag)) {
-        .unit => .{ .unit = .stmt },
-        .raw, .none => .{ .unit = .raw },
-        .structured => switch (tag) {
-            .block => .{ .block = stmt },
-            .@"if" => .{ .@"if" = .{ .cond = ir.If.cond(stmt), .then = ir.If.then(stmt), .@"else" = ir.If.@"else"(stmt) } },
-            .@"while" => .{ .@"while" = .{ .cond = ir.While.cond(stmt), .body = ir.While.body(stmt), .step = ir.While.step(stmt) } },
-            .@"for" => .{ .@"for" = .{ .source = ir.For.source(stmt), .body = ir.For.body(stmt) } },
-            .match => .{ .match = stmt },
-            .labeled => .{ .labeled = ir.Labeled.stmt(stmt) },
-            .@"defer", .@"errdefer" => .{ .@"defer" = ir.get(stmt, .body) },
-            else => unreachable,
-        },
-    };
-}
-
-/// Call `visitor.enter(root, kind)` and `visitor.exit(root)` around each
-/// unit of a function or closure body, in the order the body runs them
-/// (docs/internals/INTERNALS.md, "Proven checks"). A unit is a part of a body
-/// inside which nothing is ordered: a statement, a guard part, a `while`
-/// step, a `for` source, a statement `match`'s selection, or a `raw`
-/// block. A block inside a unit's expression (an arm of a value `match`,
-/// a branch of a value `if`, a `catch` handler, a loop's body) and a
-/// closure's body hold units of their own, listed between the enter and
-/// the exit of the unit around them. The selection's root is the `match`
-/// node; its nodes are the subject, the patterns, and the guards
-/// (`selectionParts`). The one list of a body's units: a self-checking
-/// build records each node's unit from it (`SemContext.unitOf`), and the proof
-/// pass and emit enter the same units.
-pub fn eachUnit(body: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    try unitsOfBranch(body, visitor);
-}
-
-/// The errors a unit visitor's `enter` may return, which every step of
-/// `eachUnit` passes on.
-fn VisitError(comptime V: type) type {
-    const T = if (@typeInfo(V) == .pointer) @typeInfo(V).pointer.child else V;
-    return @typeInfo(@typeInfo(@TypeOf(T.enter)).@"fn".return_type.?).error_union.error_set;
-}
-
-/// A branch: a block, or one statement.
-fn unitsOfBranch(b: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    if (b.isKind(.block)) {
-        for (ir.Block.stmts(b)) |s| try unitsOfStmt(s, visitor);
-        return;
-    }
-    if (b != .nil) try unitsOfStmt(b, visitor);
-}
-
-fn unitsOfStmt(stmt: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    switch (skeletonOf(stmt)) {
-        .unit => |kind| try unitOf(stmt, kind, visitor),
-        .block => |b| try unitsOfBranch(b, visitor),
-        .@"if" => |x| {
-            try unitsOfCond(x.cond, visitor);
-            try unitsOfBranch(x.then, visitor);
-            try unitsOfBranch(x.@"else", visitor);
-        },
-        .@"while" => |x| {
-            try unitsOfCond(x.cond, visitor);
-            try unitsOfBranch(x.body, visitor);
-            if (x.step != .nil) try unitOf(x.step, .step, visitor);
-        },
-        .@"for" => |x| {
-            try unitOf(x.source, .source, visitor);
-            try unitsOfBranch(x.body, visitor);
-        },
-        .match => |m| {
-            try unitOf(m, .selection, visitor);
-            for (ir.Match.arms(m)) |arm| try unitsOfBranch(ir.Arm.body(arm), visitor);
-        },
-        .labeled => |inner| try unitsOfStmt(inner, visitor),
-        .@"defer" => |body| try unitsOfBranch(body, visitor),
-    }
-}
-
-/// The guard parts of a condition (`eachGuardPart`), each `and` operand
-/// of a part that binds nothing its own unit. A part `s matches .circle(r)`
-/// is the selection of the `match` it is (`asMatchOf`).
-fn unitsOfCond(cond: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    const Parts = struct {
-        v: @TypeOf(visitor),
-        pub fn part(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
-            if (p.isKind(.as_match)) return unitOf(asMatchOf(p), .selection, self.v);
-            try eachGuardOperand(p, self, @This().unit);
-        }
-        fn unit(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
-            try unitOf(p, .guard, self.v);
-        }
-    };
-    try eachGuardPart(cond, Parts{ .v = visitor });
 }
 
 /// Call `f(ctx, e)` for each operand of guard part `part`'s top `and`
@@ -438,53 +303,6 @@ pub fn eachGuardOperand(part: Sexp, ctx: anytype, comptime f: anytype) !void {
         return eachGuardOperand(ir.get(part, .right), ctx, f);
     }
     try f(ctx, part);
-}
-
-/// The nodes of a statement `match`'s selection unit: its subject, then
-/// each arm's pattern and guard.
-pub fn selectionParts(a: std.mem.Allocator, match: Sexp) ![]const Sexp {
-    var out: std.ArrayList(Sexp) = .empty;
-    try out.append(a, ir.Match.subject(match));
-    for (ir.Match.arms(match)) |arm| {
-        try out.append(a, ir.Arm.pattern(arm));
-        if (ir.Arm.guard(arm) != .nil) try out.append(a, ir.Arm.guard(arm));
-    }
-    return out.items;
-}
-
-fn unitOf(root: Sexp, kind: UnitKind, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    // A leaf (a name, a literal) holds nothing to check or write.
-    if (root != .list) return;
-    try visitor.enter(root, kind);
-    switch (kind) {
-        // Nothing inside `raw` is a unit of its own.
-        .raw => {},
-        .selection => {
-            try nestedUnits(ir.Match.subject(root), visitor);
-            for (ir.Match.arms(root)) |arm| {
-                try nestedUnits(ir.Arm.pattern(arm), visitor);
-                try nestedUnits(ir.Arm.guard(arm), visitor);
-            }
-        },
-        else => try nestedUnits(root, visitor),
-    }
-    try visitor.exit(root);
-}
-
-/// The units of the blocks and closure bodies inside a unit's expression.
-/// A visitor with a `nest` method is given each such block before and
-/// after its units.
-fn nestedUnits(e: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    if (e != .list) return;
-    if (e.isKind(.block)) {
-        const V = @TypeOf(visitor);
-        const T = if (@typeInfo(V) == .pointer) @typeInfo(V).pointer.child else V;
-        if (@hasDecl(T, "nest")) try visitor.nest(e, true);
-        try unitsOfBranch(e, visitor);
-        if (@hasDecl(T, "nest")) try visitor.nest(e, false);
-        return;
-    }
-    for (e.items()) |c| try nestedUnits(c, visitor);
 }
 
 /// `x[...]`: an index, or compile-time arguments (sema tells which).
@@ -3277,27 +3095,15 @@ pub const Parser = struct {
     /// padded closure, or the name a chain's names stand for), so a
     /// diagnostic about it points into the source.
     pad_homes: std.ArrayList(u32) = .empty,
-    /// The node ids of the `(read place)`, `(write place)`, and
-    /// `(move place)` selves written in front of the call
-    /// (`!v.push(x)`), not in parentheses.
-    self_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// The positions of the names a `for` over a chain binds, which its
-    /// loop binds in its body (`lowerForChain`): loop bindings, as
-    /// immutable as any `for`'s (`isLoopName`).
-    loop_names: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// What the wrapper learns of a node that the tree does not hold: a
+    /// bit per node id for each `Mark` (`mark`, `marked`).
+    marks: std.EnumArray(Mark, std.DynamicBitSetUnmanaged) = .initFill(.{}),
     /// The leaves a group's rewrite wrote that read one of its fields'
     /// parameters (`net.timeout` as `timeout`, and the fields a spread of
     /// the group gives), by position, with the name leaf of the parameter
     /// each names: each is that parameter, whatever the body declares of
     /// its name (`Parser.elaborateOptions`).
     group_targets: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
-    /// The statements of a block, and the declarations of the module,
-    /// that hold, outside any block of their own, a string literal, which
-    /// typecheck may find is a byte or bytes, or a call of a method named
-    /// as a chain's stage or consumer, which may be a chain: the statement
-    /// is then checked again in the form it is rewritten into
-    /// (`Checker.checkRewritten`).
-    rewrite_stmts: std.DynamicBitSetUnmanaged = .{},
     /// How many string literals and calls that may be chains the walk has
     /// met (`rewrite`).
     rewritable: u32 = 0,
@@ -3307,10 +3113,6 @@ pub const Parser = struct {
     /// The block the last loop a chain's rewrite made runs its body in
     /// (`ChainLowering.loop`).
     chain_body: Sexp = .nil,
-    /// The node ids of the `(share x)` and `(weak x)` whose operand has a
-    /// `?` suffix inside parentheses that open right after the sigil
-    /// (`*(T?)`), which the tree does not keep.
-    paren_suffixes: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// The methods declared outside a body that name no type of this
     /// module as it declares it (`fun Nope.m()`, `fun geo.Point.m()`),
     /// each as written, `pub` included; the checker says why.
@@ -3330,6 +3132,41 @@ pub const Parser = struct {
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
     pub const max_tree_depth = 1000;
+
+    /// A fact of a node the wrapper learns and the tree does not hold.
+    pub const Mark = enum {
+        /// A statement of a block, or a declaration of the module, that
+        /// holds, outside any block of its own, a string literal, which
+        /// typecheck may find is a byte or bytes, or a call of a method
+        /// named as a chain's stage or consumer, which may be a chain: the
+        /// statement is then checked again in the form it is rewritten
+        /// into (`Checker.checkRewritten`).
+        rewrite,
+        /// A `(read place)`, `(write place)`, or `(move place)` self
+        /// written in front of the call (`!v.push(x)`), not in
+        /// parentheses.
+        self_sigil,
+        /// A `(share x)` or `(weak x)` whose operand has a `?` suffix
+        /// inside parentheses that open right after the sigil (`*(T?)`).
+        paren_suffix,
+        /// A binding by which the loop of a `for` over a chain binds one
+        /// of the `for`'s names in its body (`lowerForChain`): a loop
+        /// binding, as immutable as any `for`'s.
+        loop_name,
+    };
+
+    fn mark(self: *Parser, m: Mark, node: Sexp) std.mem.Allocator.Error!void {
+        const bits = self.marks.getPtr(m);
+        const id = node.list.id;
+        if (id >= bits.bit_length) try bits.resize(self.allocator(), @max(id + 1, 2 * bits.bit_length), false);
+        bits.set(id);
+    }
+
+    /// Whether `node` has mark `m`.
+    pub fn marked(self: *const Parser, m: Mark, node: Sexp) bool {
+        const bits = self.marks.getPtrConst(m);
+        return node == .list and node.list.id < bits.bit_length and bits.isSet(node.list.id);
+    }
 
     pub fn init(alloc: std.mem.Allocator, source: []const u8) Parser {
         return .{ .base = BaseParser.init(alloc, source) };
@@ -4307,17 +4144,6 @@ pub const Parser = struct {
     // `captures` node and self sigil get their own (`newNode`).
     // -------------------------------------------------------------------------
 
-    /// Flag statement `id` as one typecheck may rewrite (`rewrite_stmts`).
-    fn flagRewrite(self: *Parser, id: parser.NodeId) std.mem.Allocator.Error!void {
-        if (id >= self.rewrite_stmts.bit_length) try self.rewrite_stmts.resize(self.allocator(), @max(id + 1, 2 * self.rewrite_stmts.bit_length), false);
-        self.rewrite_stmts.set(id);
-    }
-
-    /// Whether statement `id` is one typecheck may rewrite.
-    pub fn mayRewrite(self: *const Parser, id: parser.NodeId) bool {
-        return id < self.rewrite_stmts.bit_length and self.rewrite_stmts.isSet(id);
-    }
-
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
         if (sexp != .list) {
             if (sexp == .src and isStringLeaf(self.base.source, sexp.src)) self.rewritable += 1;
@@ -4343,7 +4169,7 @@ pub const Parser = struct {
             const options = self.options;
             walked[i] = try self.rewrite(child);
             const flags = self.rewritable > before or (is_module and self.options > options);
-            if (holds_stmts and flags and walked[i] == .list) try self.flagRewrite(walked[i].list.id);
+            if (holds_stmts and flags and walked[i] == .list) try self.mark(.rewrite, walked[i]);
         }
         if (holds_stmts) self.rewritable = rewritable;
         if (mayBeChain(self.base.source, sexp)) self.rewritable += 1;
@@ -4409,7 +4235,6 @@ pub const Parser = struct {
             },
             // A function records which (`onceParams`).
             .once => return self.base.newNode(.@":", &.{ ir.get(out, .name), ir.get(out, .type) }, self.span(out)),
-            .@"..=" => return self.base.newNode(.@"..", &.{ ir.get(out, .left), ir.get(out, .right), .{ .tag = .inclusive } }, self.span(out)),
             .member, .index, .inst => self.waitTakesName(out, ir.get(out, .object)),
             .call => self.waitTakesName(out, ir.Call.callee(out)),
             .share, .box => try self.noteParenSuffix(out),
@@ -5105,9 +4930,9 @@ pub const Parser = struct {
             self.reject(name, self.format("a compile-time function is declared at module level; a method writes its parameter list: `fun {s}(?@)`", .{header}));
             return true;
         }
-        const mark = ir.get(def, .mark);
-        if (mark != .nil) {
-            self.reject(mark, self.format("`{s}` is a compile-time function, which the checker runs, so no call of it is left to mark `{s}`: drop the `{s}`", .{ header, @tagName(mark.kind().?), @tagName(mark.kind().?) }));
+        const marker = ir.get(def, .mark);
+        if (marker != .nil) {
+            self.reject(marker, self.format("`{s}` is a compile-time function, which the checker runs, so no call of it is left to mark `{s}`: drop the `{s}`", .{ header, @tagName(marker.kind().?), @tagName(marker.kind().?) }));
             return true;
         }
         if (ir.Fun.returns(def) == .nil) {
@@ -5382,7 +5207,7 @@ pub const Parser = struct {
                 // `*(~T?)`: a parenthesized handle with a suffix of its own.
                 var inner = ir.Paren.value(op);
                 while (inner.isKind(.share) or inner.isKind(.weak) or inner.isKind(.box)) inner = ir.get(inner, .operand);
-                if (inner.isKind(.propagate_none)) try self.paren_suffixes.put(self.allocator(), node.list.id, {});
+                if (inner.isKind(.propagate_none)) try self.mark(.paren_suffix, node);
                 return;
             },
             else => return,
@@ -5402,12 +5227,6 @@ pub const Parser = struct {
         self.failure = .{ .severity = .@"error", .pos = at, .end = at + 1, .message = self.detachedPrefix(.{ .cat = .err, .pre = 0, .pos = at, .len = 1 }) };
     }
 
-    /// Whether `node`, a `share` or `weak`, has a parenthesized suffix in
-    /// its operand: `*(T?)`, not `*T?` or `*(T)?`.
-    pub fn hasParenSuffix(self: *const Parser, node: Sexp) bool {
-        return node == .list and self.paren_suffixes.contains(node.list.id);
-    }
-
     /// `>t`: the call `<t.wait()` makes, `(call _ (member (move t) wait))`,
     /// with a hidden `wait` (`isWaitCall`). Every node spans the `>t`, so
     /// a message quotes it as written, and the move is a self sigil,
@@ -5415,7 +5234,7 @@ pub const Parser = struct {
     fn waitCall(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const at = self.span(node);
         const moved = try self.base.newNode(.move, &.{ir.get(node, .operand)}, at);
-        try self.self_sigils.put(self.allocator(), moved.list.id, {});
+        try self.mark(.self_sigil, moved);
         const member = try self.base.newNode(.member, &.{ moved, hiddenLeaf(at.start, .wait) }, at);
         return self.base.newNode(.call, &.{ .nil, member }, at);
     }
@@ -5456,17 +5275,6 @@ pub const Parser = struct {
             .end = whole.end,
             .message = std.fmt.allocPrint(self.allocator(), "`{s}` waits for a task, and `{s}` applies to what it gives: write `({s}){s}{s}`; to wait for a task that `{s}{s}` holds, take it out to a name first, then wait for that, `>t`", .{ written, rest, written, dot, rest, written[1..], rest }) catch "a wait takes a name alone: write `(>t).x`",
         };
-    }
-
-    /// Whether `leaf` is a name a `for` over a chain binds (`loop_names`).
-    pub fn isLoopName(self: *const Parser, leaf: Sexp) bool {
-        return leaf == .src and self.loop_names.contains(leaf.src.pos);
-    }
-
-    /// Whether `node` is a self sigil the wrapper moved onto the
-    /// self: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
-    pub fn isSelfSigil(self: *const Parser, node: Sexp) bool {
-        return node == .list and self.self_sigils.contains(node.list.id);
     }
 
     /// `?`, `!`, and `<` before a place (a name and the fields and elements
@@ -5528,7 +5336,7 @@ pub const Parser = struct {
         if (top == 0) return node;
         const place = spine[top];
         var out = try self.base.newNode(tag, &.{place}, .{ .start = self.span(node).start, .end = self.span(place).end });
-        try self.self_sigils.put(self.allocator(), out.list.id, {});
+        try self.mark(.self_sigil, out);
         var i = top;
         while (i > 0) {
             i -= 1;
@@ -6604,11 +6412,13 @@ pub const Parser = struct {
         const item = try l.leaf(.chain_item);
         const views = l.source == .elements and !l.copies and !made;
         const value = if (made) try l.node(.move, &.{item}) else if (views) try l.node(.read, &.{item}) else item;
-        try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.@"var"(node), .nil, value }));
-        try self.loop_names.put(a, ir.For.@"var"(node).src.pos, {});
+        const bound = try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.@"var"(node), .nil, value });
+        try body.append(a, bound);
+        try self.mark(.loop_name, bound);
         if (ir.For.index(node) != .nil) if (l.second_of[last]) |s| {
-            try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.index(node), .nil, try l.leaf(s) }));
-            try self.loop_names.put(a, ir.For.index(node).src.pos, {});
+            const index = try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.index(node), .nil, try l.leaf(s) });
+            try body.append(a, index);
+            try self.mark(.loop_name, index);
         };
         for (ir.rest(ir.For.body(node), .stmts)) |s| try body.append(a, s);
         try pre.append(a, try l.loop(h, try l.block(body.items)));
@@ -7413,82 +7223,6 @@ test "a condition's guard parts: each part a binding condition joins, or the who
     }
 }
 
-test "a body's units: statements, guard parts, steps, sources, selections, and raw blocks, nested in the unit holding their block" {
-    const source =
-        \\fun f(s: ?String, o: Int?, k: Int) -> Int
-        \\  i = 0
-        \\  while o as x and i < s.len and s[i] > 0: i += 1
-        \\    if i > 2 and x > 1
-        \\      break
-        \\  for c in s[i..]
-        \\    print(c)
-        \\  match k
-        \\    1 if i > 0 => print(1)
-        \\    _ => pass
-        \\  y = match k
-        \\    1
-        \\      print(2)
-        \\      3
-        \\    _ => 4
-        \\  raw
-        \\    print(5)
-        \\  defer print(6)
-        \\  g = |n: Int| n + 1
-        \\  i + y + g(1)
-        \\
-    ;
-    var p = Parser.init(testing.allocator, source);
-    defer p.deinit();
-    const tree = try p.parseProgram();
-    const Units = struct {
-        lines: std.ArrayList(u8) = .empty,
-        depth: usize = 0,
-        parser: *const Parser,
-        pub fn enter(self: *@This(), root: Sexp, kind: UnitKind) std.mem.Allocator.Error!void {
-            const sp = self.parser.span(root);
-            const text = std.mem.trim(u8, self.parser.base.source[sp.start..sp.end], " \n");
-            const line_end = std.mem.indexOfScalar(u8, text, '\n') orelse text.len;
-            for (0..self.depth) |_| try self.lines.appendSlice(testing.allocator, "  ");
-            try self.lines.print(testing.allocator, "{s} {s}\n", .{ @tagName(kind), text[0..line_end] });
-            self.depth += 1;
-        }
-        pub fn exit(self: *@This(), _: Sexp) std.mem.Allocator.Error!void {
-            self.depth -= 1;
-        }
-    };
-    var units: Units = .{ .parser = &p };
-    defer units.lines.deinit(testing.allocator);
-    const Body = struct {
-        fn each(u: *Units, _: Sexp, body: Sexp) std.mem.Allocator.Error!void {
-            try eachUnit(body, u);
-        }
-    };
-    try eachBody(tree, &units, Body.each);
-    try testing.expectEqualStrings(
-        \\stmt i = 0
-        \\guard o as x
-        \\guard i < s.len
-        \\guard s[i] > 0
-        \\guard i > 2
-        \\guard x > 1
-        \\stmt break
-        \\step i += 1
-        \\source s[i..]
-        \\stmt print(c)
-        \\selection match k
-        \\stmt print(1)
-        \\stmt pass
-        \\stmt y = match k
-        \\  stmt print(2)
-        \\raw raw
-        \\stmt print(6)
-        \\stmt g = |n: Int| n + 1
-        \\  stmt n + 1
-        \\stmt i + y + g(1)
-        \\
-    , units.lines.items);
-}
-
 test "a body's exits are `return`, `!`, and `?`; the jumps are `break` and `continue`" {
     const source =
         \\fun f(o: Int?, r: Int!) -> Int?
@@ -7536,32 +7270,32 @@ test "parser: a self sigil moves onto the place before the method" {
     const stmts = ir.Module.decls(tree);
     // (call (member (write (index (member x v) 0)) push) 1)
     const recv = ir.Member.object(ir.Call.callee(stmts[0]));
-    try testing.expect(recv.isKind(.write) and p.isSelfSigil(recv));
+    try testing.expect(recv.isKind(.write) and p.marked(.self_sigil, recv));
     const s = p.span(recv);
     try testing.expectEqualStrings("!x.v[0]", source[s.start..s.end]);
     try testing.expect(ir.Write.operand(recv).isKind(.index));
     // Parentheses keep their meaning, and are not a self sigil.
     const long = ir.Member.object(ir.Call.callee(stmts[1]));
-    try testing.expect(long.isKind(.write) and !p.isSelfSigil(long));
+    try testing.expect(long.isKind(.write) and !p.marked(.self_sigil, long));
     try testing.expect(stmts[2].isKind(.write));
     // `!` makes a write view of any value: a called head is self.
     const made = ir.Member.object(ir.Call.callee(stmts[3]));
-    try testing.expect(made.isKind(.write) and p.isSelfSigil(made));
+    try testing.expect(made.isKind(.write) and p.marked(.self_sigil, made));
     try testing.expect(ir.Write.operand(made).isKind(.call));
     // `?` reaches self too, and views a parenthesized call.
     const read = ir.Member.object(ir.Call.callee(stmts[4]));
-    try testing.expect(read.isKind(.read) and p.isSelfSigil(read));
+    try testing.expect(read.isKind(.read) and p.marked(.self_sigil, read));
     try testing.expect(stmts[5].isKind(.read));
     // A `?` before a called head views the result.
     try testing.expect(stmts[6].isKind(.read));
     // A parenthesized self is given a write view by `!`.
     const paren = ir.Member.object(ir.Call.callee(stmts[7]));
-    try testing.expect(paren.isKind(.write) and p.isSelfSigil(paren));
+    try testing.expect(paren.isKind(.write) and p.marked(.self_sigil, paren));
     try testing.expect(ir.Write.operand(paren).isKind(.clone));
     // A call of a call's value: the first method call's self, `a`.
     var head = stmts[8];
     while (!head.isKind(.write)) head = if (head.isKind(.call)) ir.Call.callee(head) else ir.get(head, .object);
-    try testing.expect(p.isSelfSigil(head) and ir.Write.operand(head) == .src);
+    try testing.expect(p.marked(.self_sigil, head) and ir.Write.operand(head) == .src);
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {
@@ -7736,7 +7470,7 @@ fn parseOutcome(p: *Parser, out: *std.Io.Writer.Allocating) !void {
         else => |e| return e,
     }
     try w.print("\nsigils {d} suffixes {d} detached {d} padded {d} homes {d} depth {d}\n", .{
-        p.self_sigils.count(), p.paren_suffixes.count(), p.detached.items.len, p.padded, p.pad_homes.items.len, p.type_depth,
+        p.marks.get(.self_sigil).count(), p.marks.get(.paren_suffix).count(), p.detached.items.len, p.padded, p.pad_homes.items.len, p.type_depth,
     });
 }
 

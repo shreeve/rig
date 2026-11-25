@@ -2228,20 +2228,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.runtime_import = runtime_import;
         em.file = try packageFile(allocator, graph, m);
         if (kind.units > 1) em.split_stem = m.out_basename[0 .. m.out_basename.len - ".zig".len];
-        // A debug build of the compiler checks that emit writes the units
-        // the proof pass walks, in the same order (`proofs.checkUnitOrder`).
-        var trace: std.ArrayList(emit.UnitEvent) = .empty;
-        defer trace.deinit(allocator);
-        if (emit_facts.check_units) em.unit_trace = &trace;
         try em.emit(m.ir);
-        if (emit_facts.check_units) {
-            var arena = std.heap.ArenaAllocator.init(allocator);
-            defer arena.deinit();
-            if (try proofs.checkUnitOrder(m.sema, arena.allocator(), m.ir, trace.items)) |what| {
-                std.debug.print("{s}: internal error: emit writes units other than the proof pass walks: {s}\n", .{ m.display, what });
-                return error.Unsupported;
-            }
-        }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
         if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or kind.pgo or tasks or reads.any())) {

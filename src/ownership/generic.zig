@@ -428,7 +428,7 @@ pub fn genericOwner(self: *const Checker) bool {
 /// recorded as a requirement on the base (`PlainRequirement.item`):
 /// each instance meets it unless its associated type may view memory
 /// its base owns (`checkItems`). The walk reports nothing itself.
-pub fn walkItemInstances(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+pub fn walkItemInstances(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
     const ctx = self.sema;
     const seen = try self.gpa.dupe(SymbolId, self.items_seen.items);
     defer self.gpa.free(seen);
@@ -438,7 +438,7 @@ pub fn walkItemInstances(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp
         const diags = self.diagnostics.items.len;
         const found = self.errors_found;
         self.item = assoc;
-        const walked = transfer.walkFunOnce(self, name, tparams, params, returns, body);
+        const walked = transfer.walkFunOnce(self, root, name, tparams, params, returns, body);
         self.item = null;
         try walked;
         const at: ?u32 = for (self.diagnostics.items[diags..]) |d| {
