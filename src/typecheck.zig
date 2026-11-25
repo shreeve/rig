@@ -635,7 +635,7 @@ pub const Checker = struct {
     }
 
     pub fn t(self: *Checker) *sema.TypeStore {
-        return &self.ctx.types;
+        return self.ctx.types;
     }
 
     pub fn isPoison(self: *Checker, ty: TypeId) bool {

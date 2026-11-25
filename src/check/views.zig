@@ -1934,7 +1934,7 @@ pub fn viewByRows(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Err
 /// `eraseShared`, `handleThroughView`) reads through a `!`; an
 /// optional is each one's own row.
 pub fn erasureTarget(self: *Checker, actual: TypeId, expected: TypeId) TypeId {
-    const types = &self.ctx.types;
+    const types = self.ctx.types;
     const ok = switch (types.get(expected)) {
         .fallible => |f| f.ok,
         else => return expected,
@@ -1944,7 +1944,7 @@ pub fn erasureTarget(self: *Checker, actual: TypeId, expected: TypeId) TypeId {
 }
 
 pub fn heldInto(self: *Checker, actual: TypeId, expected: TypeId, form: sema.ObjectForm) ?Checker.HeldInto {
-    const types = &self.ctx.types;
+    const types = self.ctx.types;
     if (self.isPoison(actual)) return null;
     const want = switch (types.get(expected)) {
         .optional => |inner| inner,
@@ -1966,7 +1966,7 @@ pub fn heldInto(self: *Checker, actual: TypeId, expected: TypeId, form: sema.Obj
 /// plain data or of a type parameter's value, which may have no
 /// address of its own. False after reporting.
 pub fn erase(self: *Checker, e: Sexp, actual: TypeId, from: TypeId, made: sema.View) Error!bool {
-    const types = &self.ctx.types;
+    const types = self.ctx.types;
     var reached = from;
     var view = made.ty;
     var only_erase = true;
@@ -2031,7 +2031,7 @@ pub fn eraseBox(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error
 /// actor's, a channel's, and a Cell's handles are none: their methods
 /// are messages, or change what they hold. True when handled.
 pub fn eraseShared(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
-    const types = &self.ctx.types;
+    const types = self.ctx.types;
     const into = heldInto(self, actual, expected, .shared) orelse return false;
     const want = into.want;
     const handle = into.value;
@@ -2093,7 +2093,7 @@ pub fn eraseShared(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Er
 /// `*Square`, and a `?*Square` read as a `?*{Shape}` read 8 bytes as
 /// 16. True when reported.
 pub fn handleThroughView(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
-    const types = &self.ctx.types;
+    const types = self.ctx.types;
     if (self.isPoison(actual)) return false;
     const want = switch (types.get(expected)) {
         .optional => |inner| inner,
@@ -2970,7 +2970,7 @@ pub fn recordCodeWidening(self: *Checker, e: Sexp, actual: TypeId, expected: Typ
 /// Emit writes either explicitly where an optional is not Zig's `?T`
 /// (`sema.optionalRouted`). Any other value is no lift.
 pub fn recordLift(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
-    const ts = &self.ctx.types;
+    const ts = self.ctx.types;
     var into = expected;
     while (ts.get(into) == .fallible) into = ts.get(into).fallible.ok;
     if (ts.get(into) != .optional) return self.ctx.recordLift(e, null);

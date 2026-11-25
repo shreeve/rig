@@ -124,7 +124,7 @@ pub fn optionalDepth(ctx: *const SemContext, ty: TypeId) u32 {
 /// required?
 pub fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     if (actual == expected) return true;
-    const ts = &ctx.types;
+    const ts = ctx.types;
     if (actual == ts.invalid_id or actual == ts.unknown_id or expected == ts.invalid_id or expected == ts.unknown_id) return true;
     if (actual == ts.noreturn_id) return true;
     const a = ts.get(actual);

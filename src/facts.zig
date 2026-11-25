@@ -3,7 +3,7 @@
 //! Emit lowers a module the checkers have accepted, so every decision that
 //! affects ownership or memory (copy or address, slot or temporary, the
 //! order things run in, where a drop goes, `*T` or `*const T`, view or
-//! value) was made before it runs, by sema, typecheck, or the storage plan,
+//! value) was made before it runs, by sema, typecheck, or lowering,
 //! and the ownership checker walked what they decided. Emit reads those
 //! decisions here and decides none of them again (AGENTS.md, "One
 //! classifier per fact" and "The checker checks exactly what is emitted").
@@ -15,8 +15,8 @@
 //! is of two kinds:
 //!
 //! - **Node facts**: what the checkers recorded about a node, read from the
-//!   facts table (docs/internals/INTERNALS.md, "The facts table") and the var
-//!   table (`varOf`, "Storage facts"). Each answers for the node it is
+//!   facts table (docs/internals/INTERNALS.md, "The facts table") and the
+//!   module's LIR (`lower`, "Storage facts"). Each answers for the node it is
 //!   asked about and is decided once, where it is recorded.
 //! - **Types**: the type table, the symbols, and the questions about a type
 //!   whose answer is how values of that type are spelled in Zig (whether a
@@ -25,8 +25,8 @@
 //!
 //! Emit makes no decision of its own with a classifier the checkers also
 //! call: whether a binding or a hidden storage holds a value that moves,
-//! and how it drops it, is recorded by the storage plan in the var table
-//! (`binding`, `varOf`) and `SetOrder.drops_old`.
+//! and how it drops it, is its var in the module's LIR (`lower`) and
+//! `SetOrder.drops_old`.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -166,7 +166,7 @@ pub const Facts = struct {
     pub fn of(ctx: *const SemContext) Facts {
         return .{
             .sema_context = ctx,
-            .types = &ctx.types,
+            .types = ctx.types,
             .symbols = &ctx.symbols,
             .source = ctx.source,
             .name = ctx.name,
@@ -271,7 +271,7 @@ pub const Facts = struct {
         return f.c().symbolOf(node);
     }
     /// Whether `sym` is read after its declaration, or captured
-    /// (`SemContext.used`, which `storage.plan` records).
+    /// (`SemContext.used`, which lowering records).
     pub fn isUsed(f: Facts, sym: SymbolId) bool {
         return f.c().isUsed(sym);
     }
@@ -710,9 +710,16 @@ pub const Facts = struct {
     pub fn fieldMoves(f: Facts, sym: SymbolId) []const []const u8 {
         return f.c().fieldMoves(sym);
     }
-    /// The module's bodies, lowered: tree `module` is the module's.
+    /// The module's bodies lowered, with emit's questions answered: tree
+    /// `module` is the module's. Sema lowered them for its checks and
+    /// freed them once they finished; emit lowers each module again as
+    /// it writes it.
     pub fn lower(f: Facts, gpa: std.mem.Allocator, module: Sexp, strict_optionals: bool) !Lowered {
-        return lowering.lowerModule(gpa, @constCast(f.c()), module, .{ .strict_optionals = strict_optionals });
+        const ctx = @constCast(f.c());
+        var m = try lowering.lowerModule(gpa, ctx, module, .{ .strict_optionals = strict_optionals });
+        errdefer m.deinit();
+        try lowering.answerAll(&m, ctx, module);
+        return m;
     }
     /// The value a constant pattern compares with (`sema.patternConst`).
     pub fn patternConst(f: Facts, pattern: Sexp) ?sema.ConstScalar {
@@ -1307,15 +1314,13 @@ test "Facts answers as the context it was made from" {
         try std.testing.expectEqual(ctx.symbolOf(n), f.symbolOf(n));
         try std.testing.expectEqual(ctx.typeOf(n), f.typeOf(n));
         try std.testing.expectEqual(ctx.useOf(n), f.useOf(n));
-        // Its LIR holds a var where the plan made one.
-        for (std.enums.values(StorageKind)) |k| try std.testing.expectEqual(ctx.varOf(n, k) != null, lowered.varOf(n, k) != null);
         if (lowered.varOf(n, .temp) != null) temps += 1;
     }
     // `mk(2)` is a temporary its statement drops.
     try std.testing.expectEqual(1, temps);
 }
 
-test "Facts reads the leaf walk the storage plan decided" {
+test "Facts reads the leaf walk lowering decided" {
     const source =
         \\obj R unique
         \\  n: Int
