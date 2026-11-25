@@ -105,10 +105,96 @@ pub fn resolveIterWhile(ctx: *SemContext, loop: Sexp, w: rig.Parser.IterWhile) E
     try ctx.recordWrite(view, h, .write_viewed);
 }
 
+/// Function `def`, a method of `nominal_sym` or a function of the
+/// module, once its groups `flats` are its parameters
+/// (`rig.Parser.flattenGroups`): each field's parameter declared where
+/// the function's parameters are (`bindParams`), and its signature
+/// resolved again, as the walk of the declaration would resolve it.
+pub fn resolveFlattened(ctx: *SemContext, def: Sexp, nominal_sym: SymbolId, flats: []const rig.Parser.Flattened) Error!void {
+    const scope = ctx.scopeOf(def) orelse return;
+    var r: SymbolResolver = .{ .ctx = ctx, .scope = scope, .module_scope = sema.module_scope };
+    defer r.pending_shadows.deinit(ctx.allocator);
+    for (flats) |f| for (f.params) |leaf| {
+        _ = try r.declare(leaf, .param, .{ .group_field = true });
+    };
+    var tr: TypeResolver = .{ .ctx = ctx, .scope = sema.module_scope };
+    if (nominal_sym == sema.symbol_invalid) {
+        _ = try tr.resolveFunction(def, sema.symbol_invalid);
+        return;
+    }
+    tr.nominal = try sema.makeNominalContext(ctx, nominal_sym);
+    const mpos = ir.get(def, .name).src.pos;
+    const owner_bounds = ctx.owner_bounds.get(mpos) orelse &.{};
+    const widened = try sema.widenOwnerBounds(ctx, ctx.symbols.items[nominal_sym].type_params orelse &.{}, owner_bounds);
+    const fn_ty = try tr.resolveFunction(def, nominal_sym);
+    sema.restoreOwnerBounds(ctx, widened);
+    const params = ir.get(def, .params);
+    for (@constCast(ctx.symbols.items[nominal_sym].fields orelse &.{})) |*f| {
+        if (!f.is_method or f.decl_pos != mpos) continue;
+        f.ty = fn_ty;
+        f.param_names = try tr.paramNames(params);
+        f.param_defaults = try tr.paramDefaults(fn_ty, params);
+        f.param_durations = try tr.paramDurations(fn_ty, params);
+        f.has_groups = try tr.paramGroups(fn_ty, params, mpos);
+    }
+}
+
+/// Group `f`, used whole, bound at its function's start
+/// (`rig.Parser.elaborateOptions`): its symbol is the binding's, a
+/// constant local of the body, declared before the body's others, as the
+/// walk of `net =! Net(...)` would declare it.
+pub fn bindGroup(ctx: *SemContext, f: rig.Parser.Flattened) Error!void {
+    const id = ctx.symbolOf(f.name) orelse return;
+    const body = ir.get(f.def, .body);
+    const into = ctx.scopeOf(body) orelse return;
+    const sym = &ctx.symbols.items[id];
+    const from = &ctx.scopes.items[sym.scope];
+    if (std.mem.indexOfScalar(SymbolId, from.symbols.items, id)) |i| _ = from.symbols.orderedRemove(i);
+    if (from.by_name.get(sym.name) == id) {
+        if (sym.prev_in_scope == sema.symbol_invalid) _ = from.by_name.remove(sym.name) else try from.by_name.put(ctx.allocator, sym.name, sym.prev_in_scope);
+    }
+    sym.* = .{ .name = sym.name, .kind = .local, .ty = ctx.types.unknown_id, .decl_pos = sym.decl_pos, .scope = into, .flags = .{ .fixed = true } };
+    const to = &ctx.scopes.items[into];
+    try to.symbols.insert(ctx.allocator, 0, id);
+    if (!to.by_name.contains(sym.name)) try to.by_name.put(ctx.allocator, sym.name, id);
+}
+
+/// The names and scopes of the loops chains were rewritten into
+/// (`rig.Parser.elaborateChains`), each `loops[i]` standing for
+/// `chains[loops[i].chain]`, as the walk of the loop would give them.
+/// Only the nodes the rewrite made are walked, those from `fresh` on:
+/// what the chain held (its source, its stages' functions, a `for`'s
+/// body) keeps the names the module's walk gave it, made where the walk
+/// met them in order, and each scope of it that stood in the chain's
+/// scope stands in the loop's (`adopt`). The names a `for` over a chain
+/// binds stay its own, in the `for`'s scope, which stands around its
+/// body's block, as the loop's `new x = item` binds them.
+pub fn resolveChains(ctx: *SemContext, chains: []const rig.Chain, loops: []const rig.Parser.ChainLoop, fresh: parser.NodeId) Error!void {
+    var r: SymbolResolver = .{ .ctx = ctx, .scope = sema.module_scope, .module_scope = sema.module_scope, .fresh = fresh, .loops = loops, .chains = chains };
+    defer r.pending_shadows.deinit(ctx.allocator);
+    r.walked = try ctx.allocator.alloc(bool, loops.len);
+    defer ctx.allocator.free(r.walked);
+    @memset(r.walked, false);
+    // An outer chain's loop holds the loops of the chains in its source.
+    var i = loops.len;
+    while (i > 0) {
+        i -= 1;
+        if (!r.walked[i]) try r.walkLoop(i, chains[loops[i].chain].scope);
+    }
+}
+
 const SymbolResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,
     module_scope: ScopeId,
+    /// Walking a chain's rewrite (`resolveChains`): the first node id it
+    /// made, the loops, which of them are walked, and the scope the
+    /// chain being walked stood in.
+    fresh: parser.NodeId = 0,
+    loops: []const rig.Parser.ChainLoop = &.{},
+    chains: []const rig.Chain = &.{},
+    walked: []bool = &.{},
+    outer: ScopeId = sema.scope_invalid,
     /// The generic parameters of the generic type whose members are
     /// being walked.
     type_params: []const SymbolId = &.{},
@@ -123,6 +209,16 @@ const SymbolResolver = struct {
     const PendingShadow = struct { name_node: Sexp, what: []const u8, at: usize };
 
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
+        if (self.fresh != 0 and sexp == .list) {
+            for (self.loops, 0..) |l, i| if (l.node == .list and l.node.list.id == sexp.list.id) {
+                return if (self.walked[i]) self.adopt(sexp) else self.walkLoop(i, self.scope);
+            };
+            if (sexp.list.id < self.fresh) return self.adopt(sexp);
+        }
+        return self.walkNode(sexp);
+    }
+
+    fn walkNode(self: *SymbolResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
             .module => {
                 // A file's `use`s name its modules everywhere in it.
@@ -200,6 +296,24 @@ const SymbolResolver = struct {
                 for (ir.Destructure.targets(sexp).items()) |t| try self.walk(t);
             },
             .block => {
+                // The body of a `for` over a chain is its body block's
+                // scope, inside the `for`'s, which binds its names.
+                if (self.chainFor(sexp)) |loop| {
+                    const names = self.ctx.scopeOf(loop).?;
+                    const body = self.ctx.scopeOf(ir.For.body(loop)).?;
+                    self.ctx.scopes.items[names].parent = self.scope;
+                    try self.ctx.recordScope(sexp, body);
+                    const saved_scope = self.scope;
+                    const saved_outer = self.outer;
+                    defer {
+                        self.scope = saved_scope;
+                        self.outer = saved_outer;
+                    }
+                    self.scope = body;
+                    self.outer = body;
+                    for (ir.Block.stmts(sexp)) |c| try self.walk(c);
+                    return;
+                }
                 const prev = try self.enter(sexp, .block);
                 defer self.scope = prev;
                 for (ir.Block.stmts(sexp)) |c| try self.walk(c);
@@ -222,6 +336,53 @@ const SymbolResolver = struct {
             .@"catch" => try self.walkCatch(sexp),
             else => for (rig.children(sexp)) |c| try self.walk(c),
         }
+    }
+
+    /// Walk `loops[i]`, a chain's loop, in `scope`: the scope the chain
+    /// stood in, or, inside an outer chain's loop, where that loop holds
+    /// it.
+    fn walkLoop(self: *SymbolResolver, i: usize, scope: ScopeId) Error!void {
+        self.walked[i] = true;
+        const saved_scope = self.scope;
+        const saved_outer = self.outer;
+        defer {
+            self.scope = saved_scope;
+            self.outer = saved_outer;
+        }
+        self.scope = scope;
+        self.outer = self.chains[self.loops[i].chain].scope;
+        try self.walkNode(self.loops[i].node);
+    }
+
+    /// The `for` over a chain whose body's statements stand in `block`
+    /// (`rig.Parser.ChainLoop.body`), if any.
+    fn chainFor(self: *const SymbolResolver, block: Sexp) ?Sexp {
+        if (self.fresh == 0) return null;
+        for (self.loops) |l| if (l.body == .list and l.body.list.id == block.list.id) return l.loop;
+        return null;
+    }
+
+    /// `node`, which the chain held and the module's walk gave its names
+    /// and scopes: each of its outermost scopes that stood in the chain's
+    /// scope stands in the current one.
+    fn adopt(self: *SymbolResolver, node: Sexp) Error!void {
+        if (node != .list) return;
+        if (self.ctx.scopeOf(node)) |s| {
+            if (self.ctx.scopes.items[s].parent == self.outer) self.ctx.scopes.items[s].parent = self.scope;
+            // A closure padded to the values its stage passes
+            // (`rig.Parser.padLambda`) declares its `_` parameters, as the
+            // walk of it would.
+            if (node.isKind(.lambda)) {
+                const saved = self.scope;
+                defer self.scope = saved;
+                self.scope = s;
+                for (ir.Lambda.params(node).items()) |p| if (sema.paramNameNode(p)) |n| {
+                    if (self.ctx.symbolOf(n) == null) _ = try self.declare(n, .param, .{});
+                };
+            }
+            return;
+        }
+        for (node.items()) |c| try self.adopt(c);
     }
 
     /// A marker the declaration cannot take: the program's `main`, which
@@ -557,8 +718,10 @@ const SymbolResolver = struct {
             };
             if (collides) continue;
             // A group's field is no name of the body, so it shadows
-            // nothing; emit names its parameter apart.
-            if (sema.groupFieldOf(p) != null) {} else if (self.ctx.scopes.items[self.scope].kind == .lambda) {
+            // nothing; emit names its parameter apart. Nor is a group's
+            // name a parameter once the group is its fields'
+            // (`typecheck.flattenGroups`).
+            if (sema.groupFieldOf(p) != null or p.isKind(.group_param)) {} else if (self.ctx.scopes.items[self.scope].kind == .lambda) {
                 try self.checkShadowingThroughLambda(name_node);
             } else {
                 try self.checkShadowsDeclaration(name_node, "parameter");
@@ -1073,9 +1236,14 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .shadow => {
+                // A name a `for` over a chain binds keeps its symbol
+                // (`resolveChains`).
+                if (self.fresh != 0 and self.ctx.symbolOf(target) != null) return;
                 try self.checkCapturedRoot(target);
-                // A name a `for` over a chain binds is a loop binding.
+                // A name a `for` over a chain binds is a loop binding,
+                // which may not hide a local, as any `for`'s may not.
                 const loop_name = if (self.ctx.parser) |p| p.isLoopName(target) else false;
+                if (loop_name) try self.checkShadowing(target, "`for` binding");
                 _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda), .pattern_bound = loop_name });
             },
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
@@ -1497,7 +1665,7 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
 /// resolved: the field's own, in the source of the module that declares
 /// its type, filled at a call that leaves the field out, as a parameter's
 /// default is. A field without one is a required name-only argument.
-fn fillGroupDefaults(ctx: *SemContext) Error!void {
+pub fn fillGroupDefaults(ctx: *SemContext) Error!void {
     if (ctx.group_params.count() == 0) return;
     for (ctx.symbols.items) |*sym| {
         if (sym.kind == .function and sym.flags.has_groups) try fillGroupFields(ctx, ctx.group_params.get(sym.decl_pos), sym.param_names, &sym.param_defaults);
@@ -2000,26 +2168,45 @@ fn foldModuleConsts(ctx: *SemContext, order: []const Sexp) Error!void {
             try resolveVariantsEarly(ctx, set);
             continue;
         }
-        const target = ir.Set.target(set);
-        if (target != .src or rig.bindingKindOf(ir.Set.op(set)) != .fixed) continue;
-        const id = ctx.symbolOf(target) orelse continue;
-        // A constant whose value names one the target sets is set by the
-        // target too, and has no value Rig knows.
-        if (sema.perTargetLeaf(ctx, ir.Set.value(set)) != null) {
-            ctx.symbols.items[id].flags.per_target = true;
-            continue;
-        }
-        const ty = ir.Set.type(set);
-        const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse continue;
-        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .literal = declared orelse .{}, .eval = ctx };
-        const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
-            .value => |t| t,
-            else => continue,
-        };
-        const int = declared orelse t.int orelse sema.IntInfo{};
-        if (t.int) |i| if (!std.meta.eql(i, int)) continue;
-        if (!sema.intInfoFits(int, t.v)) continue;
-        try ctx.const_ints.put(ctx.allocator, id, .{ .value = t.v, .int = int });
+        try foldModuleConst(ctx, set);
+    }
+}
+
+/// Fold integer module constant `set` into `const_ints`
+/// (`foldModuleConsts`).
+fn foldModuleConst(ctx: *SemContext, set: Sexp) Error!void {
+    const target = ir.Set.target(set);
+    if (target != .src or rig.bindingKindOf(ir.Set.op(set)) != .fixed) return;
+    const id = ctx.symbolOf(target) orelse return;
+    // A constant whose value names one the target sets is set by the
+    // target too, and has no value Rig knows.
+    if (sema.perTargetLeaf(ctx, ir.Set.value(set)) != null) {
+        ctx.symbols.items[id].flags.per_target = true;
+        return;
+    }
+    const ty = ir.Set.type(set);
+    const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse return;
+    const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .literal = declared orelse .{}, .eval = ctx };
+    const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
+        .value => |t| t,
+        else => return,
+    };
+    const int = declared orelse t.int orelse sema.IntInfo{};
+    if (t.int) |i| if (!std.meta.eql(i, int)) return;
+    if (!sema.intInfoFits(int, t.v)) return;
+    try ctx.const_ints.put(ctx.allocator, id, .{ .value = t.v, .int = int });
+}
+
+/// Fold again each module constant not folded yet, once typecheck has
+/// rewritten one's value (`Checker.checkRewritten`): a byte literal
+/// folds as the byte it is, and so does a constant that names it.
+pub fn refoldModuleConsts(ctx: *SemContext) Error!void {
+    for (ctx.const_order.items) |decl| {
+        const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        if (!set.isKind(.set)) continue;
+        const id = ctx.symbolOf(ir.Set.target(set)) orelse continue;
+        if (ctx.const_ints.contains(id)) continue;
+        try foldModuleConst(ctx, set);
     }
 }
 
@@ -2770,7 +2957,7 @@ pub const TypeResolver = struct {
     }
 
     /// The parameters that belong to a group (`sema.GroupParam`), or null
-    /// when none does: a group as written, the first check's, or a field
+    /// when none does: a group as written, one the checks refused, or a field
     /// of one, which the Parser wrapper made a parameter. Each is marked on
     /// its symbol, so the body names none by itself.
     fn paramGroups(self: *TypeResolver, fn_ty: TypeId, params: Sexp, pos: u32) Error!bool {
@@ -4185,7 +4372,7 @@ pub const TypeResolver = struct {
     // ---- type expressions ---------------------------------------------------
 
     /// `(item_type h)`, which only a chain's rewrite writes
-    /// (`Parser.desugarChains`): what the hidden binding `h` gives each
+    /// (`Parser.elaborateChains`): what the hidden binding `h` gives each
     /// step. A held source gives its items, as `for x in h` binds them
     /// (an iterator's `next`, a List's, array's, or slice's elements read
     /// as a `for` reads them); a bound closure, its result; any other

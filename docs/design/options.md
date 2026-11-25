@@ -963,10 +963,10 @@ one-line note for Trig and loco.
      parameter per field, typed `(field_of ...)`, and a real body binding
      where the body uses the group whole, so the declaration side of
      ownership, storage and emit indexes the parameters it emits.
-   - The first check accepts a spread quietly and checks the call no
-     further; a call's spreads are rewritten together or not at all, so
-     the second check sees what the first saw, and its messages carry the
-     spread's span.
+   - The check accepts a spread quietly and checks the call no further;
+     a call's spreads are rewritten together or not at all, so the check
+     again of the rewritten declaration sees what the first saw, and its
+     messages carry the spread's span.
    - A closure written last never fills a group's field, which the
      rule's three copies skip.
    - A field's default is filled by the field's rule, from its type's
@@ -992,7 +992,7 @@ one-line note for Trig and loco.
      bits.
    - A spread's sigil is recorded with it, and the rewrite writes `<v.f` or
      `+v.f` for each field that moves (Core §1) and `v.f` for each that
-     copies. The first check refuses a bare spread that would give a field
+     copies. The check refuses a bare spread that would give a field
      that moves, `..<v` that moves nothing, `..?v` and `..!v`, and any
      update of a `drop` type or a `unique` type.
    - A body that uses a group whole binds it, `net =! Net(name: <name,

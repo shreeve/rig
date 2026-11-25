@@ -197,6 +197,13 @@ code "a chain is the loop it means: one key call per item, no allocation", '''
 
   print(oldest(?Map[String, Entry]()))
 
+fail "a for over a chain may not shadow a local", "3:5: `for` binding `x` shadows the local `x`; use a different name", "3:8: `for` binding `i` shadows the local `i`; use a different name", errors: 2
+  x = 1
+  i = 0
+  for x, i in [1, 2].filter(|v| v > 0).enumerate()
+    print(x, i)
+  print(x, i)
+
 fail "a chain is not a value", "2:9: a chain is not a value: end it with a consumer (`.count()`, `.collect()`), or make it a `for` loop's source"
   xs = List[Int]([1, 2, 3])
   evens = xs.filter(|x| x % 2 == 0)
