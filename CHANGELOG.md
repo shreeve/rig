@@ -664,6 +664,7 @@ serve no HTTP.
 
 ### Compiler
 
+- **Every fact is recorded through one recorder.** Each column of the facts table declares the one pass that writes it (the module check, storage, the module graph, the ownership checker, or the proofs). A write by another pass fails to compile, and a self-checking build stops at a write after the pass ended. The writes that bypassed the trail (a call's target, a binding's constant, a compile-time call's symbol type, the proofs' and ownership's records) go through it, and no fact is keyed by an address. The emitted Zig is the same.
 - **`sema` checks each module once:** the module loop that checked a
   module again after rewriting its byte literals, chains, groups, and
   spreads is gone; each is rewritten where typecheck finds it. `rig
