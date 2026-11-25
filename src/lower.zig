@@ -269,12 +269,13 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
     const a = m.arena.allocator();
     // Each frame owner, then each compile-time function, whose body the
     // ownership checker walks though it never runs.
+    const decls: []const Sexp = if (tree.isKind(.module)) ir.Module.decls(tree) else &.{};
     var cts: usize = 0;
-    for (ir.Module.decls(tree)) |d| cts += @intFromBool(rig.isCtFun(d));
+    for (decls) |d| cts += @intFromBool(rig.isCtFun(d));
     m.owners = try a.alloc(Module.Owner, ctx.frame_owners.items.len + cts);
     for (ctx.frame_owners.items, m.owners[0..ctx.frame_owners.items.len]) |fo, *o| o.* = .{ .root = fo.root, .parent = fo.parent };
     var next = ctx.frame_owners.items.len;
-    for (ir.Module.decls(tree)) |d| if (rig.isCtFun(d)) {
+    for (decls) |d| if (rig.isCtFun(d)) {
         m.owners[next] = .{ .root = rig.unpub(d), .parent = null, .ct = true };
         next += 1;
     };
@@ -551,7 +552,16 @@ const Lowerer = struct {
     }
 
     /// The parameters whose header the body holds in a local
-    /// (`held_header`, `storage.planHeldHeaders`).
+    /// (`held_header`): a write view of a `String`, or of a `List` with
+    /// no inline room (`storage.holdsHeaderType`), which the body uses in
+    /// a loop. Emit copies the header in at the top of the body, binds
+    /// the parameter's name to the copy, and writes it back by `defer`,
+    /// so the loop keeps the length and capacity in registers. The call's
+    /// write view is the caller's place's only one while the body runs
+    /// (Core §2, sentence 5), so the copy cannot be told apart from the
+    /// place. None is held where the body could hand the copy's address
+    /// beyond the call: a task or closure that names the parameter, a
+    /// `raw` block, or a result that holds a view.
     fn heldHeaders(l: *Lowerer, decl: Sexp, body: Sexp) Error!void {
         const ctx = l.ctx;
         if (!decl.isKind(.fun) and !decl.isKind(.sub)) return;

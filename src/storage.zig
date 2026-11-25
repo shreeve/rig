@@ -1,21 +1,20 @@
-//! Storage facts: the hidden storage emit makes, decided once.
+//! Storage deciders: which hidden storage emit makes, and how.
 //!
-//! After a module's expressions are checked, `plan` walks it and fills its
-//! var table (`Vars`): for each expression or construct emit holds in
-//! hidden storage, a `Var`, what the storage holds (`kind`), how (`by`),
-//! for how long (`life`), and how it drops what it holds (`drop`); and for
-//! each binding, how it drops its value and whether a use may move it out
-//! (`Binding`) (docs/internals/INTERNALS.md, "Storage facts"). The
-//! predicates that decide where emit makes storage are here, and emit
-//! asks the same ones; it names each storage location through its var
-//! (`Emitter.hiddenStorage`), which must exist and agree. So the ownership
-//! checker can walk the storage the emitted program has, from the same
-//! table. Emit never makes storage that no var names.
+//! Each is a pure function of the typing facts. Lowering asks them as
+//! it makes each body's vars (`src/lower.zig`): for each expression or
+//! construct emit holds in hidden storage, a var of the kinds listed
+//! here, what it holds (`StorageKind`), how (`StorageBy`), for how long
+//! (`StorageLife`), and how it drops what it holds; and for each
+//! binding, how it drops its value (`bindingDrop`)
+//! (docs/internals/INTERNALS.md, "Storage facts"). Emit asks the same
+//! ones; it names each storage location through its var
+//! (`Emitter.hiddenStorage`), which must exist and agree. So the
+//! ownership checker walks the storage the emitted program has, from
+//! the same LIR. Emit never makes storage that no var names.
 
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
-const diag = @import("diag.zig");
 const sema = @import("sema.zig");
 
 const Sexp = parser.Sexp;

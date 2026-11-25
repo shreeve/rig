@@ -6209,8 +6209,9 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     t0 = timing.start(opts.timing);
     try lowering.lowerChecked(&ctx, tree);
     // Only a self-checking build asks that emit writes each node inside
-    // the unit that holds it (`Emitter.inUnit`).
-    if (lowering.enabled) try storage.planUnits(&ctx, tree);
+    // the unit that holds it (`Emitter.inUnit`), and the proofs' tests
+    // that it writes them in the walk's order.
+    if (lowering.enabled or @import("builtin").is_test) try storage.planUnits(&ctx, tree);
     ctx.seal(.storage);
     timing.stop(opts.timing, .lower, t0);
     try indexAllMembers(&ctx);
