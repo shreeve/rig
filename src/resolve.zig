@@ -861,7 +861,7 @@ const SymbolResolver = struct {
             try self.noteAssocBounds(bounds, pnode, pid);
             try ids.append(self.ctx.allocator, pid);
         }
-        self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, ids.items);
+        try self.ctx.setTypeParams(id, try self.ctx.arena.allocator().dupe(SymbolId, ids.items));
         if (stated) try self.markStated(node, params, ids.items);
         const header = try self.headerApis(node);
         self.ctx.symbols.items[id].apis = header.apis;
@@ -1034,7 +1034,7 @@ const SymbolResolver = struct {
             try params.append(self.ctx.arena.allocator(), pid);
         }
         self.ctx.symbols.items[self_param].assoc = try self.ctx.arena.allocator().dupe(SymbolId, params.items[1..]);
-        self.ctx.symbols.items[id].type_params = params.items;
+        try self.ctx.setTypeParams(id, params.items);
     }
 
     fn walkApi(self: *SymbolResolver, node: Sexp) Error!void {
@@ -1643,7 +1643,7 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const tparams = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
+        const tparams = sema.symbolAt(ctx, pn.sym).type_params orelse continue;
         for (pn.args, 0..) |arg, i| switch (ctx.types.get(arg)) {
             .ct_param => |p| if (i < tparams.len) {
                 ctx.symbols.items[ctx.localSym(p)].ty = ctx.symbols.items[tparams[i]].ty;
@@ -2256,7 +2256,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             const pn = ctx.types.get(c.ty).parameterized_nominal;
             const widened = try sema.rewiden(ctx, c.widened);
             defer sema.restoreOwnerBounds(ctx, widened);
-            if (ctx.symbols.items[ctx.localSym(pn.sym)].type_params) |tps| _ = try sema.checkBounds(ctx, tps, pn.args, c.pos, .{ .type = c.ty });
+            if (sema.symbolAt(ctx, pn.sym).type_params != null) _ = try sema.checkBounds(ctx, sema.paramRefs(ctx, pn.sym), pn.args, c.pos, .{ .type = c.ty });
         },
         .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
             const shown = try sema.formatType(ctx, c.ty);
@@ -4654,11 +4654,11 @@ pub const TypeResolver = struct {
                 },
             },
             .ct_param => |sym| {
-                const ty = self.ctx.symbols.items[self.ctx.localSym(sym)].ty;
+                const ty = sema.symbolAt(self.ctx, sym).ty;
                 if (use == .arg and !self.isPoison(param_ty) and !self.isPoison(ty) and ty != param_ty) {
                     const got = try sema.formatType(self.ctx, ty);
                     const want = try sema.formatType(self.ctx, param_ty);
-                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, self.ctx.symbols.items[self.ctx.localSym(sym)].name, an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
+                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, sema.symbolAt(self.ctx, sym).name, an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
                     return t.invalid_id;
                 }
                 if (use == .array_len) try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = self.ctx.localSym(sym), .req = .array_len, .pos = self.ctx.startOf(node), .op = "an array length" });
@@ -5167,7 +5167,7 @@ pub const TypeResolver = struct {
                 try self.implyBounds(sym_id, tps, inst.args);
                 if (!self.ctx.contents_ready) {
                     try self.ctx.deferred_checks.append(self.ctx.allocator, .{ .bounds = .{ .pos = pos, .ty = ty, .widened = try sema.snapshotWidened(self.ctx) } });
-                } else _ = try sema.checkBounds(self.ctx, tps, inst.args, pos, .{ .type = ty });
+                } else _ = try sema.checkBounds(self.ctx, sema.paramRefs(self.ctx, self.ctx.ref(sym_id)), inst.args, pos, .{ .type = ty });
             }
             try self.ctx.addUse(ty, self.body, pos);
         }
@@ -5888,7 +5888,7 @@ fn addGeneric(ctx: *SemContext, named_in: ?ScopeId, module_scope: ScopeId, name:
         });
         param_tys[i] = try ctx.intern(.{ .type_var = ctx.ref(param_syms[i]) });
     }
-    ctx.symbols.items[sym].type_params = param_syms;
+    try ctx.setTypeParams(sym, param_syms);
     const self_ty = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(sym), .args = param_tys } });
     return .{ .sym = sym, .params = param_tys, .self_ty = self_ty };
 }

@@ -383,7 +383,7 @@ const Pass = struct {
             .parameterized_nominal => |pn| for (c.symbols.items[c.localSym(pn.sym)].type_params orelse &.{}) |p| try self.bound.put(self.a, originOf(c, p), {}),
             else => {},
         };
-        for (c.fn_instances.items) |f| for (f.inst.params) |p| try self.bound.put(self.a, originOf(c, p), {});
+        for (c.fn_instances.items) |f| for (f.inst.params) |p| try self.bound.put(self.a, originOf(c, c.localSym(p)), {});
     }
 
     fn add(self: *Pass, module: usize, owner: u32, o: sema.FrameOwner) !u32 {

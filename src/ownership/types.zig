@@ -177,7 +177,7 @@ pub fn kindLabel(self: *const Checker, t: TypeId) Owning {
     var inner = t;
     while (ctx.types.get(inner) == .optional) inner = ctx.types.get(inner).optional;
     const name = switch (ctx.types.get(inner)) {
-        .parameterized_nominal => |pn| ctx.symbols.items[ctx.localSym(pn.sym)].name,
+        .parameterized_nominal => |pn| sema.symbolAt(ctx, pn.sym).name,
         else => if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value",
     };
     if (!sema.typeHasDropGlue(ctx, t) and sema.isUnique(ctx, t)) {
@@ -189,7 +189,7 @@ pub fn kindLabel(self: *const Checker, t: TypeId) Owning {
             else => unreachable,
         };
         return .{ .unique = switch (ctx.types.get(elem)) {
-            .parameterized_nominal => |pn| ctx.symbols.items[ctx.localSym(pn.sym)].name,
+            .parameterized_nominal => |pn| sema.symbolAt(ctx, pn.sym).name,
             else => if (sema.nominalDecl(ctx, elem)) |d| d.symbol().name else "value",
         } };
     }
