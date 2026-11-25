@@ -2437,10 +2437,10 @@ pub const Emitter = struct {
         if ((try self.needVar(node, .zig_temp)).by != .owned) return self.unsupported(node, "a Zig temporary held other than its var says");
     }
 
-    /// A decision a pass made before emit (`facts.Question`), which emit
-    /// only reads: one no pass made is an internal error.
-    fn need(self: *Emitter, answer: anytype, node: Sexp) Error!@typeInfo(@TypeOf(answer)).optional.child {
-        return answer orelse self.unsupported(node, "a decision no checker made: " ++ @typeName(@TypeOf(answer)));
+    /// A decision made before emit (`answer`), which emit only reads: one
+    /// not made is an internal error.
+    fn need(self: *Emitter, found: anytype, node: Sexp) Error!@typeInfo(@TypeOf(found)).optional.child {
+        return found orelse self.unsupported(node, "a decision no checker made: " ++ @typeName(@TypeOf(found)));
     }
 
     fn nextId(self: *Emitter) u32 {
@@ -2816,7 +2816,7 @@ pub const Emitter = struct {
     /// writable when the construct `writes` it.
     fn emitSubjectPtr(self: *Emitter, e: Sexp, writes: bool) Error!void {
         const h = try self.openHeaderBy(e, .pointer);
-        switch (try self.need(self.facts.handsOver(e), e)) {
+        switch (try self.need(self.answer(.hands, e), e)) {
             .place => {
                 const saved = self.read_place;
                 defer self.read_place = saved;
@@ -2953,7 +2953,7 @@ pub const Emitter = struct {
         // reassigns one.
         const sym = self.facts.symbolOf(target) orelse return self.unsupported(target, "an unresolved binding");
         // A fill is built in the local, never on the stack first.
-        const in_place = try self.need(self.facts.fillsInPlace(sexp), sexp);
+        const in_place = try self.need(self.answer(.fills_in_place, sexp), sexp);
         if (self.facts.symbols.items[sym].decl_pos == target.src.pos) {
             if (in_place) return self.emitFillBind(target, sym, expr);
             // A fork's record is made in the slot of this frame its
@@ -3089,7 +3089,7 @@ pub const Emitter = struct {
         const ty = self.symType(sym);
         // The address of a viewed place, a view held as a pointer, or the
         // value (`storage.bindHold`).
-        const hold = try self.need(self.facts.bindHold(set), set);
+        const hold = try self.need(self.answer(.bind_hold, set), set);
         const is_view = hold == .view;
         const holds_ptr = hold != .value;
         var local: Local = .{ .sym = sym, .ty = ty, .is_ptr = holds_ptr };
@@ -3192,7 +3192,7 @@ pub const Emitter = struct {
                 try self.emitWriteViewPtr(value);
                 return self.w.writeAll(";");
             }
-            if ((try self.need(self.facts.setOrder(set), set)).drops_old) {
+            if ((try self.need(self.answer(.set_order, set), set)).drops_old) {
                 const new = try self.openNewValue(pointee, value);
                 return self.w.print("; " ++ rt(.drop) ++ "({s}); {s}.* = {s}; }}", .{ local.zig_name, local.zig_name, new.name });
             }
@@ -3258,7 +3258,7 @@ pub const Emitter = struct {
     /// var __rig_live_N_new = true; defer if (__rig_live_N_new) rig.drop(&__rig_new_N);`.
     fn openSetValue(self: *Emitter, set: Sexp, ty: ?TypeId, how: AssignValue) Error!NewValue {
         const value = ir.Set.value(set);
-        const order = try self.need(self.facts.setOrder(set), set);
+        const order = try self.need(self.answer(.set_order, set), set);
         const id = self.nextId();
         const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
         const kind: ?ResourceKind = if (order.guard) try self.dropOf(value, .new_value) else null;
@@ -3318,7 +3318,7 @@ pub const Emitter = struct {
             try self.w.writeAll(";");
             return self.closeAssign(order);
         }
-        const may_own = (try self.need(self.facts.setOrder(set), set)).drops_old;
+        const may_own = (try self.need(self.answer(.set_order, set), set)).drops_old;
         if (!may_own) {
             const order = try self.openAssign(set, place_ty, .value);
             try self.emitTarget(target);
@@ -3333,7 +3333,7 @@ pub const Emitter = struct {
         }
         const new = try self.openSetValue(set, place_ty, .value);
         const first = self.hoisted.items.len;
-        if ((try self.need(self.facts.setOrder(set), set)).held) try self.hoistTarget(set, new.id);
+        if ((try self.need(self.answer(.set_order, set), set)).held) try self.hoistTarget(set, new.id);
         const slot = try self.hiddenStorage(target, .slot, .pointer, .{ .id = new.id });
         try self.w.print("const {s} = &", .{slot});
         try self.emitTarget(target);
@@ -3374,7 +3374,7 @@ pub const Emitter = struct {
     /// written next names them. Returns what `closeAssign` needs, or null
     /// when nothing can act and the order is unobservable.
     fn openAssign(self: *Emitter, set: Sexp, ty: ?TypeId, how: AssignValue) Error!?usize {
-        if (!(try self.need(self.facts.setOrder(set), set)).held) return null;
+        if (!(try self.need(self.answer(.set_order, set), set)).held) return null;
         const first = self.hoisted.items.len;
         const value = ir.Set.value(set);
         var id: u32 = undefined;
@@ -3414,7 +3414,7 @@ pub const Emitter = struct {
                 }
             }
         };
-        const order = try self.need(self.facts.setOrder(set), set);
+        const order = try self.need(self.answer(.set_order, set), set);
         try facts.syntax.eachTargetStep(ir.Set.target(set), Steps{ .e = self, .id = id, .base = order.base });
     }
 
@@ -3499,7 +3499,7 @@ pub const Emitter = struct {
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
         const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
-        const call = try self.need(self.facts.compoundCall(set), set);
+        const call = try self.need(self.answer(.compound_call, set), set);
         // A vector's lanes shift (`vecShift`) and saturate through the
         // runtime, which takes the amount as it is.
         const lanes = call == .lane_shift;
@@ -3716,7 +3716,7 @@ pub const Emitter = struct {
         const ret = self.fun.return_ty orelse return self.unsupported(value, "several results from a function that gives one");
         const tys = self.facts.resultsOf(ret) orelse return self.unsupported(value, "several results from a function that gives one");
         const parts = ir.Results.values(value);
-        if (try self.need(self.facts.hoistsResults(value), value)) return self.emitHoistedResults(value, parts, tys);
+        if (try self.need(self.answer(.hoists_results, value), value)) return self.emitHoistedResults(value, parts, tys);
         try self.w.writeAll("return .{ ");
         for (parts, tys, 0..) |p, ty, i| {
             if (i > 0) try self.w.writeAll(", ");
@@ -4229,7 +4229,7 @@ pub const Emitter = struct {
     fn emitWhile(self: *Emitter, sexp: Sexp, lp: *Loop) Error!void {
         const cond = ir.While.cond(sexp);
         const step = ir.While.step(sexp);
-        lp.target.step_point = if (step == .nil) null else try self.need(self.facts.stepPoint(sexp), sexp);
+        lp.target.step_point = if (step == .nil) null else try self.need(self.answer(.step_point, sexp), sexp);
         const step_inside = lp.target.step_point == .after_body;
         try self.startLoopLine(lp);
         try self.enterLoop(lp);
@@ -4398,7 +4398,7 @@ pub const Emitter = struct {
         // its source makes, hands its elements over one at a time, each
         // taken from its `iterator` var.
         if (self.varOf(sexp, .iterator) != null) return self.emitConsumingFor(sexp, lp, !is_list);
-        if (try self.need(self.facts.fold(sexp), sexp)) |how| return self.emitFold(sexp, lp, how, is_list);
+        if (try self.need(self.answer(.fold, sexp), sexp)) |how| return self.emitFold(sexp, lp, how, is_list);
         const elem_sym = self.facts.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.facts.headerOf(sexp);
@@ -4410,7 +4410,7 @@ pub const Emitter = struct {
         const elem_is_view = if (src_ty) |t| if (self.loopElem(t)) |e| e == elem_ty else false else false;
         // A binding that is the bytes of a String element walks the elements
         // by address and takes each one's bytes.
-        const string_bytes = try self.need(self.facts.bindsStringBytes(sexp), sexp);
+        const string_bytes = try self.need(self.answer(.binds_string_bytes, sexp), sexp);
         const by_ptr = mode == .write or owned or string_bytes or
             (elem_ty != null and self.facts.types.get(elem_ty.?) == .read_view and !elem_is_view);
 
@@ -4645,23 +4645,23 @@ pub const Emitter = struct {
         const scrut_ty = self.facts.matchedType(sexp);
         var info: MatchInfo = .{
             .match = sexp,
-            .mode = try self.need(self.facts.matchMode(sexp), sexp),
+            .mode = try self.need(self.answer(.match_mode, sexp), sexp),
             .ty = scrut_ty,
             .error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false,
             // `match ?t` / `match !t` switch on the value viewed.
             .subject = viewedPlace(scrutinee),
             .boxed = scrut_ty != null and scrut_ty.? != self.typeOf(scrutinee).?,
-            .in_place = try self.need(self.facts.matchesInPlace(sexp), sexp),
+            .in_place = try self.need(self.answer(.matches_in_place, sexp), sexp),
         };
-        const guarded = try self.need(self.facts.matchSelects(sexp), sexp);
+        const guarded = try self.need(self.answer(.match_selects, sexp), sexp);
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
         // subject is read again.
-        const rereads = try self.need(self.facts.matchRereads(sexp), sexp);
+        const rereads = try self.need(self.answer(.match_rereads, sexp), sexp);
         // Evaluating the subject first, or holding the value it is a part
         // of (`Header.held`), takes a block around the match.
         const held = self.facts.headerOf(sexp) == .held;
-        const block = if (try self.need(self.facts.matchBlock(sexp), sexp)) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        const block = if (try self.need(self.answer(.match_block, sexp), sexp)) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
         var held_mark: ?usize = null;
         defer if (held_mark) |m| self.hoisted.shrinkRetainingCapacity(m);
         if (block.len > 0) {
@@ -4710,7 +4710,7 @@ pub const Emitter = struct {
             try self.emitSubjectPtr(subject, info.mode == .write);
             try self.w.writeAll(".*");
             if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
-        } else if (info.mode == .write and try self.need(self.facts.handsOver(subject), subject) == .place and throughElement(subject)) {
+        } else if (info.mode == .write and try self.need(self.answer(.hands, subject), subject) == .place and throughElement(subject)) {
             // A place through an element that a write match writes is
             // switched on where it is (a List's element reads as a
             // value): `(&v.slot(i).*).*`.
@@ -5084,7 +5084,7 @@ pub const Emitter = struct {
 
     /// Whether the pattern of `arm` takes every value (`storage.catchesAll`).
     fn catchesAll(self: *Emitter, arm: Sexp) Error!bool {
-        return self.need(self.facts.catchesAll(arm), arm);
+        return self.need(self.answer(.catch_all, arm), arm);
     }
 
     /// `x => ...` binding the whole value as `expr`, when the arm uses it
@@ -5108,7 +5108,7 @@ pub const Emitter = struct {
             const stored = try self.declare(payloadPointee(local, false), self.srcText(pattern));
             return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = try self.fmt(rt(.stringBytes) ++ "({s})", .{subj}), .field = "" }});
         }
-        const by_addr = try self.need(self.facts.catchAllCaptured(pattern), pattern);
+        const by_addr = try self.need(self.answer(.catch_all_by_address, pattern), pattern);
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(pattern));
         const expr = if (by_addr) try self.fmt("&{s}", .{subj}) else subj;
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
@@ -5515,7 +5515,7 @@ pub const Emitter = struct {
             const local = self.payloadLocal(b) orelse continue;
             // A write binds a pointer to each field, and a read one to a
             // field it views (`?F`) or reads in place.
-            const addr = try self.need(self.facts.bindsByAddress(b), b);
+            const addr = try self.need(self.answer(.payload_by_address, b), b);
             const bytes = self.bindsStringBytes(b, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(b));
             try self.line("const {s} = {s};", .{ stored.zig_name, try self.fieldRead(payload, f.name, addr, bytes, self.unwraps(pattern, i)) });
@@ -5683,7 +5683,7 @@ pub const Emitter = struct {
     fn emitCapture(self: *Emitter, name_node: Sexp) Error!void {
         const local = self.payloadLocal(name_node) orelse return;
         const t = local.ty orelse return self.unsupported(name_node, "a catch-all binding of unknown type");
-        const by_addr = try self.need(self.facts.catchAllCaptured(name_node), name_node);
+        const by_addr = try self.need(self.answer(.catch_all_by_address, name_node), name_node);
         // A value captured by address is held as a pointer to it; a view
         // held as a pointer is that pointer.
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(name_node));
@@ -5712,11 +5712,11 @@ pub const Emitter = struct {
         var by_addr = writes;
         for (captures) |c| {
             if (self.usedPayloadLocal(c, used_in) == null) continue;
-            if (try self.need(self.facts.bindsByAddress(c), c)) by_addr = true;
+            if (try self.need(self.answer(.payload_by_address, c), c)) by_addr = true;
         }
         for (captures, fields, 0..) |c, f, i| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
-            const addr = try self.need(self.facts.bindsByAddress(c), c);
+            const addr = try self.need(self.answer(.payload_by_address, c), c);
             const bytes = self.bindsStringBytes(c, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
@@ -5816,7 +5816,7 @@ pub const Emitter = struct {
         const sym = self.facts.symbolOf(name);
         // The header binds a copy of a value with temporaries that reaches
         // no place (`copiesHeader`); a place it reaches, the place's own.
-        const owns = value.isKind(.move) or (try self.need(self.facts.handsOver(value), value) == .made and !self.facts.isReadOrWriteView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
+        const owns = value.isKind(.move) or (try self.need(self.answer(.hands, value), value) == .made and !self.facts.isReadOrWriteView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
         const copies = !owns and self.facts.copiesHeader(cond);
         const points = self.headerPoints(value);
         // An optional that goes through the helpers is tested as the Zig
@@ -5939,7 +5939,7 @@ pub const Emitter = struct {
         }
         if (sym == null or !self.facts.isUsed(sym.?)) {
             try self.w.writeAll("|_| ");
-        } else if (try self.need(self.facts.bindsStringBytes(cond), cond)) {
+        } else if (try self.need(self.answer(.binds_string_bytes, cond), cond)) {
             const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
             try self.w.print("|{s}| ", .{tmp});
             return .{ .viewed = .{ .cond = cond, .name = name, .tmp = tmp, .value = true } };
@@ -5947,7 +5947,7 @@ pub const Emitter = struct {
             // A read binding of a write view to a value read by copy holds
             // the write view, a pointer to that value
             // (`storage.throughWrite`).
-            const through = try self.need(self.facts.throughWrite(cond), cond);
+            const through = try self.need(self.answer(.through_write, cond), cond);
             const local = try self.declare(.{ .sym = sym.?, .ty = ty, .is_ptr = through == .value }, self.srcText(name));
             try self.w.print("|{s}| ", .{local.zig_name});
         }
@@ -5956,7 +5956,7 @@ pub const Emitter = struct {
 
     /// `storage.viewsOptionalValue`.
     fn viewsOptionalValue(self: *Emitter, value: Sexp) Error!bool {
-        return self.need(self.facts.viewsOptionalValue(value), value);
+        return self.need(self.answer(.views_optional_value, value), value);
     }
 
     /// A view bound by `as`: `tmp` points at the value inside the
@@ -5968,7 +5968,7 @@ pub const Emitter = struct {
         // A read binding of a write view inside the optional is the read
         // view of what it views: the write view itself, or the value it
         // points at, copied out (`storage.throughWrite`).
-        const through = try self.need(self.facts.throughWrite(o.cond), o.cond);
+        const through = try self.need(self.answer(.through_write, o.cond), o.cond);
         // A binding of the String inside, or of the String a write view inside
         // points at, is its bytes.
         const inner = self.optionalInner(ir.As.value(o.cond));
@@ -7429,7 +7429,7 @@ pub const Emitter = struct {
     /// overflow bits, which aarch64 gets wrong for wide byte vectors (see
     /// `rig.vecAdd`).
     fn laneHelper(self: *Emitter, e: Sexp, op: Tag) ?[]const u8 {
-        if (!(self.facts.laneChecked(e) orelse false)) return null;
+        if (!(self.answer(.lane_checked, e) orelse false)) return null;
         return switch (op) {
             .@"+" => rt(.vecAdd),
             .@"-" => rt(.vecSub),
@@ -8144,7 +8144,7 @@ pub const Emitter = struct {
     /// Whether `e` is reached where its leaves are: the recorded decision
     /// (`storage.reachesLeaf`).
     fn reachesLeaf(self: *Emitter, e: Sexp) Error!bool {
-        return self.facts.reachesLeaf(e) orelse self.unsupported(e, "a value no checker decided how to reach");
+        return self.answer(.reaches_leaf, e) orelse self.unsupported(e, "a value no checker decided how to reach");
     }
 
     /// The address of the value `e`, of type `ty`, takes: for a value
@@ -8157,7 +8157,7 @@ pub const Emitter = struct {
     /// temporary of the expression, which may be constant: nothing
     /// changes it (a Cell lives only behind a shared handle).
     fn emitLeafPtr(self: *Emitter, e: Sexp, ty: TypeId) Error!void {
-        switch (self.facts.leafStep(e) orelse return self.unsupported(e, "a value reached by address that no checker walked")) {
+        switch (self.answer(.leaf_step, e) orelse return self.unsupported(e, "a value reached by address that no checker walked")) {
             .@"if" => {
                 try self.w.writeAll("(");
                 try self.emitIfYieldAs(e, .leaf_ptr, ty);
@@ -8354,7 +8354,7 @@ pub const Emitter = struct {
     /// statement's slot keeps there.
     fn emitPayloadHolder(self: *Emitter, e: Sexp) Error!void {
         const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped optional");
-        switch (self.facts.leafStep(e) orelse return self.unsupported(e, "a value reached by address that no checker walked")) {
+        switch (self.answer(.leaf_step, e) orelse return self.unsupported(e, "a value reached by address that no checker walked")) {
             .@"if", .fallback, .unwrap, .place, .part, .literal => {
                 try self.w.writeAll("(");
                 try self.emitLeafPtr(e, ty);
@@ -10398,7 +10398,7 @@ pub const Emitter = struct {
 
     /// `storage.consumedTemporary`.
     fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
-        return if (try self.need(self.facts.consumesSelf(call), call)) self.facts.selfOf(call) else null;
+        return if (try self.need(self.answer(.consumes_self, call), call)) self.facts.selfOf(call) else null;
     }
 
     /// `storage.selfOf`.
@@ -10410,12 +10410,20 @@ pub const Emitter = struct {
     /// a value made there that no slot holds, which the test drops. Any
     /// other operand is read where it is.
     fn dropsWhenTested(self: *Emitter, e: Sexp) Error!bool {
-        return self.need(self.facts.dropsWhenTested(e), e);
+        return self.need(self.answer(.drops_when_tested, e), e);
     }
 
-    /// `storage.hasStorage`.
+    /// Whether `e` is read from storage, not made for its context: a
+    /// place, a part of a value made here, or a view (`Hands.hasStorage`).
     fn hasStorage(self: *Emitter, e: Sexp) Error!bool {
-        return self.need(self.facts.hasStorage(e), e);
+        const kind = try self.need(self.answer(.hands, e), e);
+        return (facts.Hands{ .kind = kind }).hasStorage();
+    }
+
+    /// The answer to `ask` about `node`, which lowering asks of every node
+    /// of its kind (`lower.Module.answer`).
+    fn answer(self: *Emitter, comptime ask: facts.Ask, node: Sexp) ?facts.Answer(ask) {
+        return self.lowered.?.answer(node, ask);
     }
 
     /// `storage.selfWrites`.
@@ -10430,7 +10438,7 @@ pub const Emitter = struct {
     /// after the call. Zig follows a pointer to a struct for a method,
     /// but neither one to a handle nor one to a callee.
     fn hoistSelf(self: *Emitter, call: Sexp, id: u32) Error!void {
-        const hold = (try self.need(self.facts.selfHold(call), call)) orelse return;
+        const hold = (try self.need(self.answer(.self_hold, call), call)) orelse return;
         // View sigils on a self are implicit in Zig's method calls.
         const first = self.facts.heldFirst(call).?;
         const recv = first.node;
@@ -10556,7 +10564,7 @@ pub const Emitter = struct {
         var h = h_in;
         // A consumed self (no suffix: its storage is named) is a value
         // of its own; an argument is held as the plan decided.
-        const hold: facts.ArgumentHold = if (suffix == null) .value else try self.need(self.facts.argumentHold(h.node), h.node);
+        const hold: facts.ArgumentHold = if (suffix == null) .value else try self.need(self.answer(.argument_hold, h.node), h.node);
         if (hold == .closure or hold == .callable) {
             const fn_ty = self.facts.callableOf(h.node).?;
             if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, .owned, sx);
@@ -10758,7 +10766,7 @@ pub const Emitter = struct {
     /// allocation itself (`storage.fillsInPlace`).
     fn emitBox(self: *Emitter, sexp: Sexp) Error!void {
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped box"));
-        if (try self.need(self.facts.fillsInPlace(sexp), sexp)) {
+        if (try self.need(self.answer(.fills_in_place, sexp), sexp)) {
             try self.w.writeAll(".fill(");
             try self.emitBare(ir.ArrayFill.value(ir.Box.operand(sexp)));
             return self.w.writeAll(")");
@@ -10988,7 +10996,7 @@ pub const Emitter = struct {
     /// place that owns storage, or is viewed from one: a local, or a
     /// field or element of one (not a slice, which is a new value).
     fn printsByAddress(self: *Emitter, a: Sexp) Error!bool {
-        return self.need(self.facts.printsByAddress(a), a);
+        return self.need(self.answer(.prints_by_address, a), a);
     }
 
     // =========================================================================

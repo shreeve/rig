@@ -395,10 +395,6 @@ pub fn hasStorage(ctx: *const SemContext, e: Sexp) bool {
 /// by a runtime helper that checks each lane (`rig.vecAdd`). Float lanes
 /// are not.
 pub fn laneChecked(ctx: *const SemContext, e: Sexp) bool {
-    return decide(ctx, e, .lane_checked);
-}
-
-fn decideLaneChecked(ctx: *const SemContext, e: Sexp) bool {
     const kind = e.kind() orelse return false;
     const op: Tag, const ty = switch (kind) {
         .set => .{ rig.bindingKindOf(ir.Set.op(e)).operator() orelse return false, typeOf(ctx, ir.Set.target(e)) orelse return false },
@@ -419,10 +415,6 @@ fn decideLaneChecked(ctx: *const SemContext, e: Sexp) bool {
 /// later argument could change: a literal, a constant, a function,
 /// or a view or move of a name.
 pub fn isPureArg(ctx: *const SemContext, e: Sexp) bool {
-    return decide(ctx, e, .pure_arg);
-}
-
-fn decideIsPureArg(ctx: *const SemContext, e: Sexp) bool {
     switch (e) {
         .src => {
             if (isLiteralText(srcText(ctx, e)) or isNoneLeaf(ctx, e)) return true;
@@ -519,11 +511,7 @@ pub fn selfWrites(ctx: *const SemContext, call: Sexp) bool {
 /// The self of `value.method(...)` when it is an owned temporary
 /// the method consumes (`mk().consume(...)`).
 pub fn consumedTemporary(ctx: *const SemContext, call: Sexp) ?Sexp {
-    return if (decide(ctx, call, .consumes_self)) selfOf(ctx, call) else null;
-}
-
-fn decideConsumesSelf(ctx: *const SemContext, call: Sexp) bool {
-    return decideConsumedTemporary(ctx, call) != null;
+    return if (decideConsumedTemporary(ctx, call) != null) selfOf(ctx, call) else null;
 }
 
 fn decideConsumedTemporary(ctx: *const SemContext, call: Sexp) ?Sexp {
@@ -549,10 +537,6 @@ pub fn viewedLiteral(ctx: *const SemContext, e: Sexp) bool {
 /// reorders two that have side effects, or when a part may leave after
 /// an owned value was produced (`leavesAfterOwned`), which would be lost.
 pub fn hoistsArgs(ctx: *const SemContext, call: Sexp) bool {
-    return decide(ctx, call, .hoists_args);
-}
-
-fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
     if (call.isKind(.array)) return leavesAfterOwned(ctx, false, ir.Array.elems(call));
     if (!call.isKind(.call)) return false;
     // `task.select` evaluates its arms' parts first, in their order, in
@@ -654,10 +638,6 @@ pub const SelfHold = enum {
 /// that copies is copied in its turn, as plain data is read (Core
 /// §6), which keeps no view.
 pub fn selfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
-    return decide(ctx, call, .self_hold);
-}
-
-fn decideSelfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     if (consumedTemporary(ctx, call) != null) return .consumed;
     // View sigils on a self are implicit in Zig's method calls.
     const first = heldFirst(ctx, call) orelse return null;
@@ -693,10 +673,6 @@ pub const ArgumentHold = enum {
 };
 
 pub fn argumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
-    return decide(ctx, v, .argument_hold);
-}
-
-fn decideArgumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
     if (ctx.callableOf(v) != null) return if (v.isKind(.lambda)) .closure else .callable;
     if (ctx.viewOf(v) != null and !ctx.viewsTempArray(v)) return .viewed;
     return .value;
@@ -740,10 +716,6 @@ pub fn keptInSlot(ctx: *const SemContext, e: Sexp) bool {
 /// array, or a String is instead reached through the address of its
 /// leaf, which Zig follows for a field, an element, or a method.
 pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {
-    return decide(ctx, e, .reaches_leaf);
-}
-
-fn decideReachesLeaf(ctx: *const SemContext, e: Sexp) bool {
     if (handsKind(ctx, e) != .branches) return false;
     if (ctx.useOf(e)) |use| if (use == .take) return false;
     const ty = typeOf(ctx, e) orelse return false;
@@ -789,10 +761,6 @@ pub const LeafStep = enum {
 };
 
 pub fn leafStep(ctx: *const SemContext, e: Sexp) LeafStep {
-    return decide(ctx, e, .leaf_step);
-}
-
-fn decideLeafStep(ctx: *const SemContext, e: Sexp) LeafStep {
     if (sema.isBranchingForm(e)) return switch (e.kind().?) {
         .@"if" => .@"if",
         // One that copies the value its payload views out gives a value
@@ -830,10 +798,6 @@ fn wholeStep(ctx: *const SemContext, e: Sexp) LeafStep {
 /// inside a view of one (`id(?mk()).e`) has no place that outlives the
 /// header, and the header yields its value.
 pub fn headerPoints(ctx: *const SemContext, e: Sexp) bool {
-    return decide(ctx, e, .header_points);
-}
-
-fn decideHeaderPoints(ctx: *const SemContext, e: Sexp) bool {
     if (e == .nil or sema.firstStmtTemp(ctx, e) == null) return false;
     return reachesPlace(ctx, e);
 }
@@ -894,10 +858,6 @@ fn startsOutsideHeader(ctx: *const SemContext, e: Sexp) bool {
 /// Whether `if o as x` over `value` views the value inside the
 /// optional rather than copying it (`checkOptionalBinding`).
 pub fn viewsOptionalValue(ctx: *const SemContext, value: Sexp) bool {
-    return decide(ctx, value, .views_optional_value);
-}
-
-fn decideViewsOptionalValue(ctx: *const SemContext, value: Sexp) bool {
     const ty = typeOf(ctx, value) orelse return false;
     return isPtrViewTy(ctx, ty) and !ctx.readsThrough(value);
 }
@@ -933,10 +893,6 @@ pub fn matchedType(ctx: *const SemContext, match: Sexp) ?TypeId {
 }
 
 pub fn matchMode(ctx: *const SemContext, match: Sexp) MatchMode {
-    return decide(ctx, match, .match_mode);
-}
-
-fn decideMatchMode(ctx: *const SemContext, match: Sexp) MatchMode {
     const scrutinee = ir.Match.subject(match);
     if (scrutinee.isKind(.write)) return .write;
     const ty = matchedType(ctx, match) orelse return .read;
@@ -955,10 +911,6 @@ pub fn isCatchAll(ctx: *const SemContext, pattern: Sexp) bool {
 /// `matches` test's hidden `_` arm has its pattern at the position of the
 /// pattern written, which may be a leaf as well.
 pub fn catchesAll(ctx: *const SemContext, arm: Sexp) bool {
-    return decide(ctx, arm, .catch_all);
-}
-
-fn decideCatchesAll(ctx: *const SemContext, arm: Sexp) bool {
     return isCatchAll(ctx, ir.Arm.pattern(arm));
 }
 
@@ -972,10 +924,6 @@ pub fn matchGuarded(match: Sexp) bool {
 /// or the match is on text, which a Zig `switch` cannot test. Decided
 /// once.
 pub fn matchSelects(ctx: *const SemContext, match: Sexp) bool {
-    return decide(ctx, match, .match_selects);
-}
-
-fn decideMatchSelects(ctx: *const SemContext, match: Sexp) bool {
     if (matchGuarded(match)) return true;
     const ty = matchedType(ctx, match) orelse return false;
     return sema.isText(ctx, sema.unwrapViews(ctx, ty));
@@ -992,10 +940,6 @@ pub fn prongsOf(ctx: *const SemContext, pattern: *const Sexp) []const Sexp {
 /// `match !x` binding of the whole value points at the place, and a
 /// `match <x` arm with alternatives drops the value from it.
 pub fn matchRereads(ctx: *const SemContext, match: Sexp) bool {
-    return decide(ctx, match, .match_rereads);
-}
-
-fn decideMatchRereads(ctx: *const SemContext, match: Sexp) bool {
     // An error that may carry fields is switched on by its code, and read
     // again for its fields.
     if (matchedType(ctx, match)) |ty| {
@@ -1014,10 +958,6 @@ fn decideMatchRereads(ctx: *const SemContext, match: Sexp) bool {
 /// Whether `match` evaluates its subject first, or holds the value it is
 /// a part of (`Header.held`), in a block around the match.
 pub fn matchBlock(ctx: *const SemContext, match: Sexp) bool {
-    return decide(ctx, match, .match_block);
-}
-
-fn decideMatchBlock(ctx: *const SemContext, match: Sexp) bool {
     return ctx.headerOf(match) == .held or matchSelects(ctx, match) or matchesGenericView(ctx, match) or
         (matchRereads(ctx, match) and !subjectRereadable(viewedPlace(ir.Match.subject(match))));
 }
@@ -1065,10 +1005,6 @@ fn matchesGenericView(ctx: *const SemContext, match: Sexp) bool {
 /// the pointer it is, or the value; null when it reads the subject again
 /// as it is written.
 pub fn subjectHold(ctx: *const SemContext, match: Sexp) ?StorageBy {
-    return decide(ctx, match, .subject_hold);
-}
-
-fn decideSubjectHold(ctx: *const SemContext, match: Sexp) ?StorageBy {
     const subject = viewedPlace(ir.Match.subject(match));
     if (subjectRereadable(subject)) return null;
     const value = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
@@ -1133,10 +1069,6 @@ fn catchAllByAddress(ctx: *const SemContext, ty: TypeId, in_place: bool) bool {
 /// Decided once: emit passes its address, and the ownership checker holds
 /// the place it reads while the later arguments run (`holdRead`).
 pub fn printsByAddress(ctx: *const SemContext, a: Sexp) bool {
-    return decide(ctx, a, .print_by_address);
-}
-
-fn decidePrintsByAddress(ctx: *const SemContext, a: Sexp) bool {
     const place = switch (a) {
         .src => if (ctx.symbolOf(a)) |id| switch (ctx.symbols.items[id].kind) {
             .param, .local, .capture => ctx.symbols.items[id].scope != sema.module_scope and ctx.callableOf(a) == null,
@@ -1157,16 +1089,12 @@ fn decidePrintsByAddress(ctx: *const SemContext, a: Sexp) bool {
 /// CORE §9), decided once and recorded: the type checker asks it of a
 /// loop's source, and `verifyDecisions` fails a pass that sees another.
 pub fn livesIn(ctx: *const SemContext, e: Sexp) sema.LoanRoots {
-    return decide(ctx, e, .lives_in);
+    return sema.livesIn(ctx, e);
 }
 
 /// What expression `e` hands over (`sema.handsOver`'s kind), decided by
 /// the plan for every expression, for emit to read.
 pub fn handsKind(ctx: *const SemContext, e: Sexp) sema.Hands.Kind {
-    return decide(ctx, e, .hands);
-}
-
-fn decideHands(ctx: *const SemContext, e: Sexp) sema.Hands.Kind {
     return sema.handsOver(ctx, e).kind;
 }
 
@@ -1175,10 +1103,6 @@ fn decideHands(ctx: *const SemContext, e: Sexp) sema.Hands.Kind {
 /// keeps, which the test drops where it reads it (`rig.isNone`,
 /// `rig.isVariantDiscard`). Decided once, for emit and the plan.
 pub fn dropsWhenTested(ctx: *const SemContext, e: Sexp) bool {
-    return decide(ctx, e, .drops_when_tested);
-}
-
-fn decideDropsWhenTested(ctx: *const SemContext, e: Sexp) bool {
     if (sema.handsOver(ctx, e).kind != .made or ctx.dropsTemp(e)) return false;
     const ty = typeOf(ctx, e) orelse return false;
     return owns(ctx, ty);
@@ -1191,10 +1115,6 @@ fn decideDropsWhenTested(ctx: *const SemContext, e: Sexp) bool {
 /// the plan makes its iterator and elements, and the ownership checker
 /// walks the source as taken.
 pub fn forConsumes(ctx: *const SemContext, loop: Sexp) bool {
-    return decide(ctx, loop, .for_consumes);
-}
-
-fn decideForConsumes(ctx: *const SemContext, loop: Sexp) bool {
     const mode = ir.For.mode(loop).tag;
     const source = ir.For.source(loop);
     if (source.isKind(.@"..")) return false;
@@ -1215,10 +1135,6 @@ pub const Fold = enum(u8) { add_wrap, add, bit_xor, bit_or, bit_and };
 /// The `Fold` of `for` loop `loop`, or null when it is not one, decided
 /// once.
 pub fn fold(ctx: *const SemContext, loop: Sexp) ?Fold {
-    return decide(ctx, loop, .fold);
-}
-
-fn decideFold(ctx: *const SemContext, loop: Sexp) ?Fold {
     const mode = ir.For.mode(loop).tag;
     if (mode != .iter and mode != .read) return null;
     const source = ir.For.source(loop);
@@ -1265,10 +1181,6 @@ fn decideFold(ctx: *const SemContext, loop: Sexp) ?Fold {
 /// of a String it reaches (`loopBindsStringBytes`,
 /// `optionalBindsStringBytes`), decided once.
 pub fn bindsStringBytes(ctx: *const SemContext, node: Sexp) bool {
-    return decide(ctx, node, .binds_string_bytes);
-}
-
-fn decideBindsStringBytes(ctx: *const SemContext, node: Sexp) bool {
     if (node.isKind(.@"for")) return loopBindsStringBytes(ctx, node);
     if (node.isKind(.as)) return optionalBindsStringBytes(ctx, node);
     return false;
@@ -1318,10 +1230,6 @@ pub const ThroughWrite = enum { pointer, value };
 /// scalar or a view is a copy (`sema.viewByValue`). Null for any other
 /// binding.
 pub fn throughWrite(ctx: *const SemContext, cond: Sexp) ?ThroughWrite {
-    return decide(ctx, cond, .through_write);
-}
-
-fn decideThroughWrite(ctx: *const SemContext, cond: Sexp) ?ThroughWrite {
     const sym = ctx.symbolOf(ir.As.name(cond)) orelse return null;
     if (ctx.bindingAccess(sym) != .read) return null;
     const t = typeOf(ctx, ir.As.value(cond)) orelse return null;
@@ -1338,7 +1246,7 @@ fn decideThroughWrite(ctx: *const SemContext, cond: Sexp) ?ThroughWrite {
 /// Whether payload binding `b` of `match` points at the field it binds
 /// (`payloadByAddress`), decided once.
 pub fn bindsByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
-    return decideAt(ctx, b, match, .payload_by_address);
+    return decidePayloadByAddress(ctx, b, match);
 }
 
 fn decidePayloadByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
@@ -1348,7 +1256,7 @@ fn decidePayloadByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
 /// Whether the catch-all binding `pattern` of a read `match` is captured by
 /// address where the match switches (`catchAllByAddress`), decided once.
 pub fn catchAllCaptured(ctx: *const SemContext, pattern: Sexp, match: Sexp) bool {
-    return decideAt(ctx, pattern, match, .catch_all_by_address);
+    return decideCatchAllByAddress(ctx, pattern, match);
 }
 
 fn decideCatchAllByAddress(ctx: *const SemContext, pattern: Sexp, match: Sexp) bool {
@@ -1361,10 +1269,6 @@ fn decideCatchAllByAddress(ctx: *const SemContext, pattern: Sexp, match: Sexp) b
 /// the match switches on it where it points, temporaries or not, and binds
 /// no copy of it.
 pub fn holdsView(ctx: *const SemContext, match: Sexp) bool {
-    return decide(ctx, match, .holds_view);
-}
-
-fn decideHoldsView(ctx: *const SemContext, match: Sexp) bool {
     const subject = ir.Match.subject(match);
     return !hasStorage(ctx, subject) and isPtrViewExpr(ctx, subject);
 }
@@ -1375,10 +1279,6 @@ fn decideHoldsView(ctx: *const SemContext, match: Sexp) bool {
 /// holds (`Header.held`), or is a view a call returns, switched on where
 /// it points. A payload captured by pointer is then the subject's own.
 pub fn matchesInPlace(ctx: *const SemContext, match: Sexp) bool {
-    return decide(ctx, match, .matches_in_place);
-}
-
-fn decideMatchesInPlace(ctx: *const SemContext, match: Sexp) bool {
     if (matchMode(ctx, match) != .read) return false;
     const subject = viewedPlace(ir.Match.subject(match));
     if (ctx.headerOf(match) == .held) return true;
@@ -1488,10 +1388,6 @@ pub const SetOrder = packed struct(u8) {
 
 /// How assignment `set` runs, decided once.
 pub fn setOrder(ctx: *const SemContext, set: Sexp) SetOrder {
-    return decide(ctx, set, .set_order);
-}
-
-fn decideSetOrder(ctx: *const SemContext, set: Sexp) SetOrder {
     const Scan = struct {
         ctx: *const SemContext,
         /// Whether the value or an index can act; whether the base can.
@@ -1572,10 +1468,6 @@ pub fn setActs(e: Sexp) bool {
 /// drops an owned part on that way, and the return takes each. Decided
 /// once.
 pub fn hoistsResults(ctx: *const SemContext, results: Sexp) bool {
-    return decide(ctx, results, .hoists_results);
-}
-
-fn decideHoistsResults(ctx: *const SemContext, results: Sexp) bool {
     return leavesAfterOwned(ctx, false, ir.Results.values(results));
 }
 
@@ -1622,10 +1514,6 @@ pub fn storesAfterValue(ctx: *const SemContext, set: Sexp) bool {
 /// local array (`a = [n of x]`), in the local, by `@memset`. A
 /// reassignment whose value is made first (`storesAfterValue`) is not.
 pub fn fillsInPlace(ctx: *const SemContext, e: Sexp) bool {
-    return decide(ctx, e, .fills_in_place);
-}
-
-fn decideFillsInPlace(ctx: *const SemContext, e: Sexp) bool {
     switch (e.kind() orelse return false) {
         .box => return ir.Box.operand(e).isKind(.array_fill),
         .set => {
@@ -1659,7 +1547,7 @@ pub const StepPoint = enum(u8) {
 
 /// Where the step of `while` loop `loop` runs, decided once.
 pub fn stepPoint(ctx: *const SemContext, loop: Sexp) StepPoint {
-    return decide(ctx, loop, .step_point);
+    return decideStepPoint(ctx, loop);
 }
 
 /// A step that reads a name an `as` part of the condition binds runs in
@@ -1728,139 +1616,6 @@ pub fn lastValue(e: Sexp) Sexp {
 }
 
 // =============================================================================
-// Decisions: answered once, recorded
-// =============================================================================
-
-/// The type of the answer to `q`.
-pub fn Answer(comptime q: sema.Question) type {
-    return switch (q) {
-        .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_self, .pure_arg, .lane_checked, .fills_in_place, .catch_all, .match_selects, .binds_string_bytes, .hoists_results => bool,
-        .self_hold => ?SelfHold,
-        .argument_hold => ArgumentHold,
-        .match_mode => MatchMode,
-        .hands => sema.Hands.Kind,
-        .lives_in => sema.LoanRoots,
-        .subject_hold => ?StorageBy,
-        .set_order => SetOrder,
-        .step_point => StepPoint,
-        .fold => ?Fold,
-        .through_write => ?ThroughWrite,
-        .compound_call => ?CompoundCall,
-        .bind_hold => BindHold,
-        .task_stays => bool,
-    };
-}
-
-/// How `q` is answered about a node, in the construct `at` it belongs to
-/// (`.nil` for a question about the node alone), from the facts as they
-/// stand.
-fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(q) {
-    const Node = struct {
-        fn of(comptime f: fn (*const SemContext, Sexp) Answer(q)) fn (*const SemContext, Sexp, Sexp) Answer(q) {
-            return struct {
-                fn decide(ctx: *const SemContext, e: Sexp, _: Sexp) Answer(q) {
-                    return f(ctx, e);
-                }
-            }.decide;
-        }
-    };
-    return switch (q) {
-        .leaf_step => Node.of(decideLeafStep),
-        .reaches_leaf => Node.of(decideReachesLeaf),
-        .matches_in_place => Node.of(decideMatchesInPlace),
-        .match_mode => Node.of(decideMatchMode),
-        .match_rereads => Node.of(decideMatchRereads),
-        .match_block => Node.of(decideMatchBlock),
-        .subject_hold => Node.of(decideSubjectHold),
-        .holds_view => Node.of(decideHoldsView),
-        .catch_all_by_address => decideCatchAllByAddress,
-        .payload_by_address => decidePayloadByAddress,
-        .for_consumes => Node.of(decideForConsumes),
-        .print_by_address => Node.of(decidePrintsByAddress),
-        .drops_when_tested => Node.of(decideDropsWhenTested),
-        .hands => Node.of(decideHands),
-        .lives_in => Node.of(sema.livesIn),
-        .header_points => Node.of(decideHeaderPoints),
-        .views_optional_value => Node.of(decideViewsOptionalValue),
-        .hoists_args => Node.of(decideHoistsArgs),
-        .self_hold => Node.of(decideSelfHold),
-        .consumes_self => Node.of(decideConsumesSelf),
-        .argument_hold => Node.of(decideArgumentHold),
-        .pure_arg => Node.of(decideIsPureArg),
-        .lane_checked => Node.of(decideLaneChecked),
-        .set_order => Node.of(decideSetOrder),
-        .step_point => Node.of(decideStepPoint),
-        .fills_in_place => Node.of(decideFillsInPlace),
-        .catch_all => Node.of(decideCatchesAll),
-        .match_selects => Node.of(decideMatchSelects),
-        .binds_string_bytes => Node.of(decideBindsStringBytes),
-        .fold => Node.of(decideFold),
-        .hoists_results => Node.of(decideHoistsResults),
-        .through_write => Node.of(decideThroughWrite),
-        .compound_call => Node.of(decideCompoundCall),
-        .bind_hold => Node.of(decideBindHold),
-        .task_stays => decideTaskStays,
-    };
-}
-
-const no_answer = 255;
-
-fn encode(comptime q: sema.Question, a: Answer(q)) u8 {
-    return switch (@typeInfo(Answer(q))) {
-        .bool => @intFromBool(a),
-        .@"enum" => @intFromEnum(a),
-        .optional => if (a) |v| @intFromEnum(v) else no_answer,
-        .@"struct" => @bitCast(a),
-        else => comptime unreachable,
-    };
-}
-
-/// The recorded answer to `q` about `e`, decoded; null when none is.
-pub fn decided(ctx: *const SemContext, e: Sexp, comptime q: sema.Question) ?Answer(q) {
-    const a = ctx.decision(e, q) orelse return null;
-    return switch (@typeInfo(Answer(q))) {
-        .bool => a != 0,
-        .@"enum" => @enumFromInt(a),
-        .optional => |o| if (a == no_answer) @as(Answer(q), null) else @as(o.child, @enumFromInt(a)),
-        .@"struct" => @bitCast(a),
-        else => comptime unreachable,
-    };
-}
-
-/// The answer to `q` about `e`: the one recorded, or, the first time it
-/// is asked, the one the facts give now, which is recorded.
-fn decide(ctx: *const SemContext, e: Sexp, comptime q: sema.Question) Answer(q) {
-    return decideAt(ctx, e, .nil, q);
-}
-
-/// `decide`, for a question about `e` within the construct `at`.
-fn decideAt(ctx: *const SemContext, e: Sexp, at: Sexp, comptime q: sema.Question) Answer(q) {
-    if (decided(ctx, e, q)) |a| return a;
-    const a = decider(q)(ctx, e, at);
-    ctx.recordDecision(e, at, q, encode(q, a));
-    return a;
-}
-
-/// Ask every recorded question again, from the facts as they stand once the
-/// module is checked: an answer that changed after it was recorded is one
-/// two passes acted on differently, an internal error.
-pub fn verifyDecisions(ctx: *const SemContext) void {
-    ctx.decided.sealed = true;
-    // A module with errors is not emitted; its diagnostics come first.
-    if (ctx.hasErrors()) return;
-    for (ctx.decided.entries.items) |d| switch (d.q) {
-        inline else => |q| {
-            const now = encode(q, decider(q)(ctx, d.node, d.at));
-            if (now != d.answer) {
-                const lc = @import("diag.zig").lineCol(ctx.source, ctx.startOf(d.node));
-                std.debug.panic("{d}:{d}: internal error: {s} was decided as {d}, but the facts now give {d}", .{ lc.line, lc.col, @tagName(q), d.answer, now });
-            }
-        },
-    };
-}
-
-// =============================================================================
 // The plan
 // =============================================================================
 
@@ -1880,7 +1635,6 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     try planConsumed(ctx, tree);
     try rig.eachBody(tree, ctx, planHeldHeaders);
     try rig.eachBody(tree, ctx, planUnits);
-    verifyDecisions(ctx);
 }
 
 /// Record a row for each symbol (`Binding`): how each parameter, local,
@@ -2170,10 +1924,6 @@ const Planner = struct {
             else => return,
         }
         const ctx = p.ctx;
-        // Whether a value is reached where its leaves are is decided for
-        // every expression, which emit reads wherever it takes an address.
-        _ = reachesLeaf(ctx, e);
-        _ = handsKind(ctx, e);
         if (ctx.viewOf(e)) |view| {
             if (viewsInsideOptional(view)) try p.record(e, .viewed, .pointer, .expression);
             // An API object of a value that may be held as a copy views a
@@ -2182,53 +1932,17 @@ const Planner = struct {
             try p.leaves(if (e.isKind(.read) or e.isKind(.write)) ir.get(e, .operand) else e);
         }
         if (e != .list) return;
-        // Whether each header's block yields an address is decided for
-        // its subject, which emit reads.
-        const subject = headerSubject(e);
-        if (subject != .nil) {
-            _ = headerPoints(ctx, subject);
-            if (subject.isKind(.move)) _ = headerPoints(ctx, ir.Move.operand(subject));
-            if (e.isKind(.as)) _ = viewsOptionalValue(ctx, subject);
-        }
         switch (e.kind() orelse return) {
             // A value read where its leaves are is reached through the
             // address of the leaf it takes, for a field, an element, or a
             // method.
             .member => try p.leaves(viewedPlace(ir.Member.object(e))),
             .index => try p.leaves(ir.Index.object(e)),
-            .@"==", .@"!=" => for ([2]Sexp{ ir.get(e, .left), ir.get(e, .right) }) |operand| {
-                _ = dropsWhenTested(ctx, operand);
-            },
             .call => {
-                // How a call holds what it is passed, for emit to read.
-                _ = hoistsArgs(ctx, e);
-                _ = selfHold(ctx, e);
-                _ = consumedTemporary(ctx, e);
-                for (ir.Call.args(e)) |a| {
-                    _ = isPureArg(ctx, argValue(a));
-                    _ = argumentHold(ctx, argValue(a));
-                }
-                // How `print` and the String operations read each argument.
-                if (isPrintCall(ctx, e) or stringCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
-                    _ = printsByAddress(ctx, a);
-                };
                 try p.call(e);
                 try p.objectCall(e);
             },
-            // `panic` reads its message as `print` reads its arguments.
-            .panic => for (ir.Panic.args(e)) |a| {
-                _ = printsByAddress(ctx, a);
-            },
-            // A template's slots are read as `print` reads its arguments,
-            // wherever it stands.
-            .template => for (0..rig.Template.slotCount(e)) |i| {
-                _ = printsByAddress(ctx, rig.Template.value(e, i));
-            },
-            .set => {
-                _ = laneChecked(ctx, e);
-                _ = fillsInPlace(ctx, e);
-                try p.assignment(e);
-            },
+            .set => try p.assignment(e),
             // How an array literal holds its elements, for emit to read.
             .array => try p.array(e),
             // The call's results, which each target takes in its turn.
@@ -2248,15 +1962,10 @@ const Planner = struct {
             },
             // `<e` of anything but a name drops what it takes.
             .drop => if (ir.Drop.target(e) != .src) try p.recordDrop(ir.Drop.target(e), .discard, .owned, .statement, dropOf(ctx, ir.Drop.target(e))),
-            .box => _ = fillsInPlace(ctx, e),
-            .@"+", .@"-", .@"*", .neg => _ = laneChecked(ctx, e),
             .@"for" => try p.forLoop(e),
             .match => try p.match(e),
             .@"if" => try p.condition(ir.If.cond(e)),
-            .@"while" => {
-                _ = stepPoint(ctx, e);
-                try p.condition(ir.While.cond(e));
-            },
+            .@"while" => try p.condition(ir.While.cond(e)),
             .block => try p.frameTasks(e),
             .@"catch" => if (p.isUsed(ir.Catch.name(e))) try p.record(e, .error_value, .owned, .handler),
             .share => if (ir.Share.operand(e).isKind(.lambda)) try p.record(ir.Share.operand(e), .closure_env, .owned, .expression),
@@ -2317,9 +2026,6 @@ const Planner = struct {
         const value = ir.As.value(cond);
         const name = ir.As.name(cond);
         const used = p.isUsed(name);
-        // How the binding is bound, decided for every `as`, which emit reads.
-        _ = bindsStringBytes(ctx, cond);
-        _ = throughWrite(ctx, cond);
         // A place, or a part of a value the `if` holds, is bound where it
         // stands.
         if (ctx.headerOf(cond)) |how| {
@@ -2360,7 +2066,6 @@ const Planner = struct {
     fn forLoop(p: *Planner, loop: Sexp) !void {
         const ctx = p.ctx;
         const source = ir.For.source(loop);
-        _ = fold(ctx, loop);
         if (bindsStringBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
         if (source.isKind(.@"..")) {
             try p.record(loop, .range_start, .owned, .construct);
@@ -2387,22 +2092,6 @@ const Planner = struct {
         const ctx = p.ctx;
         const mode = matchMode(ctx, m);
         const subject = viewedPlace(ir.Match.subject(m));
-        // How it binds is decided for every binding, which emit reads.
-        _ = holdsView(ctx, m);
-        _ = matchesInPlace(ctx, m);
-        _ = matchRereads(ctx, m);
-        _ = subjectHold(ctx, m);
-        _ = matchSelects(ctx, m);
-        for (ir.Match.arms(m)) |arm| {
-            const pattern = ir.Arm.pattern(arm);
-            if (catchesAll(ctx, arm)) {
-                if (ctx.symbolOf(pattern) != null) _ = catchAllCaptured(ctx, pattern, m);
-            } else for (prongsOf(ctx, &pattern)) |prong| if (prong.isKind(.variant_pattern)) {
-                for (ctx.payloadBindings(prong) orelse continue) |b| if (b != .nil) {
-                    _ = bindsByAddress(ctx, b, m);
-                };
-            };
-        }
         if (ctx.headerOf(m) == .held) try p.held(m);
         var reread = false;
         var temp = false;
@@ -2518,11 +2207,7 @@ const Planner = struct {
     fn array(p: *Planner, arr: Sexp) !void {
         const ctx = p.ctx;
         const hoists = hoistsArgs(ctx, arr);
-        for (ir.Array.elems(arr)) |v| {
-            _ = isPureArg(ctx, v);
-            _ = argumentHold(ctx, v);
-            if (hoists) try p.argument(v, null, .call);
-        }
+        if (hoists) for (ir.Array.elems(arr)) |v| try p.argument(v, null, .call);
     }
 
     /// The storage of `v`, a part of a call or an array literal that is
@@ -2564,10 +2249,7 @@ const Planner = struct {
         // `_ = e` drops what it takes.
         if (std.mem.eql(u8, srcText(ctx, target), "_")) return p.recordDrop(value, .discard, .owned, .statement, dropOf(ctx, value));
         const sym = ctx.symbolOf(target) orelse return;
-        if (ctx.symbols.items[sym].decl_pos == target.src.pos) {
-            _ = bindHold(ctx, set);
-            return;
-        }
+        if (ctx.symbols.items[sym].decl_pos == target.src.pos) return;
         // A reassigned resource's new value is made before the old one
         // is dropped. Any other store whose value can act makes its value
         // first, as every assignment does (`storesAfterValue`).
@@ -2672,10 +2354,6 @@ pub const BindHold = enum {
 /// the value. A write view of slice elements, a callable view, and a view
 /// of an API object are values however they are made.
 pub fn bindHold(ctx: *const SemContext, set: Sexp) BindHold {
-    return decide(ctx, set, .bind_hold);
-}
-
-fn decideBindHold(ctx: *const SemContext, set: Sexp) BindHold {
     const sym = ctx.symbolOf(ir.Set.target(set)) orelse return .value;
     const value = ir.Set.value(set);
     const ty = known(ctx, ctx.symbols.items[sym].ty) orelse
@@ -2709,7 +2387,7 @@ pub const task_header_bytes = 512;
 /// the frame count, where the record counts (`typecheck.checkFrames`).
 pub fn taskRecordIn(ctx: *SemContext, stmt: Sexp, block: Sexp) !?Sexp {
     const task = frameTaskSite(ctx, stmt) orelse return null;
-    if (!decideAt(ctx, stmt, block, .task_stays)) return null;
+    if (!taskStays(ctx, stmt, block)) return null;
     const bytes = (try taskRecordBytes(ctx, task)) orelse return null;
     return if (bytes <= max_frame_task_bytes) task else null;
 }
@@ -2759,11 +2437,7 @@ pub fn frameTaskSite(ctx: *const SemContext, stmt: Sexp) ?Sexp {
 /// runs before the block ends on every path. Any other naming, a move, a
 /// `return`, a `Tasks` add, a stored field, a moving capture, or an
 /// assignment, keeps the record on the heap.
-pub fn taskStaysInFrame(ctx: *const SemContext, stmt: Sexp) bool {
-    return decided(ctx, stmt, .task_stays) orelse false;
-}
-
-fn decideTaskStays(ctx: *const SemContext, stmt: Sexp, block: Sexp) bool {
+fn taskStays(ctx: *const SemContext, stmt: Sexp, block: Sexp) bool {
     _ = frameTaskSite(ctx, stmt) orelse return false;
     const sym = ctx.symbolOf(ir.Set.target(stmt)) orelse return false;
     var after = false;
@@ -2834,10 +2508,6 @@ pub const CompoundCall = enum {
 /// The call compound assignment `set` lowers to, which assigns its
 /// result, or null for Zig's own compound assignment; decided once.
 pub fn compoundCall(ctx: *const SemContext, set: Sexp) ?CompoundCall {
-    return decide(ctx, set, .compound_call);
-}
-
-fn decideCompoundCall(ctx: *const SemContext, set: Sexp) ?CompoundCall {
     const op = rig.bindingKindOf(ir.Set.op(set)).operator() orelse return null;
     const target = ir.Set.target(set);
     const lanes: ?sema.SimdType = if (typeOf(ctx, target)) |t| switch (ctx.types.get(sema.unwrapViews(ctx, t))) {

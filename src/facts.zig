@@ -88,6 +88,9 @@ pub const Header = sema.Header;
 /// storage emit prints.
 pub const Lowered = lowering.Module;
 pub const Coercion = @import("lir.zig").Coercion;
+pub const Ask = lowering.Ask;
+pub const Answer = lowering.Answer;
+pub const Hands = sema.Hands;
 pub const StorageKind = storage.StorageKind;
 pub const StorageBy = storage.StorageBy;
 pub const Clone = sema.Clone;
@@ -699,140 +702,14 @@ pub const Facts = struct {
     pub fn lower(f: Facts, gpa: std.mem.Allocator, module: Sexp, strict_optionals: bool) !Lowered {
         return lowering.lowerModule(gpa, @constCast(f.c()), module, .{ .strict_optionals = strict_optionals });
     }
-    /// How the walk that reaches a value by address reaches `e`
-    /// (`storage.leafStep`, a recorded decision); null when no checker
-    /// walked it.
-    pub fn leafStep(f: Facts, e: Sexp) ?LeafStep {
-        return storage.decided(f.c(), e, .leaf_step);
-    }
-    /// Whether `e` is reached where its leaves are (`storage.reachesLeaf`,
-    /// a recorded decision); null when it was never decided.
-    pub fn reachesLeaf(f: Facts, e: Sexp) ?bool {
-        return storage.decided(f.c(), e, .reaches_leaf);
-    }
-    /// The decisions about a `match` the checkers made (`storage`): null
-    /// when none did.
-    pub fn matchMode(f: Facts, match: Sexp) ?MatchMode {
-        return storage.decided(f.c(), match, .match_mode);
-    }
-    pub fn matchesInPlace(f: Facts, match: Sexp) ?bool {
-        return storage.decided(f.c(), match, .matches_in_place);
-    }
-    pub fn matchRereads(f: Facts, match: Sexp) ?bool {
-        return storage.decided(f.c(), match, .match_rereads);
-    }
-    pub fn matchBlock(f: Facts, match: Sexp) ?bool {
-        return storage.decided(f.c(), match, .match_block);
-    }
-    /// Whether the pattern of `match` arm `arm` takes every value
-    /// (`storage.catchesAll`).
-    pub fn catchesAll(f: Facts, arm: Sexp) ?bool {
-        return storage.decided(f.c(), arm, .catch_all);
-    }
-    /// Whether `match` picks its arm before it runs one
-    /// (`storage.matchSelects`).
-    pub fn matchSelects(f: Facts, match: Sexp) ?bool {
-        return storage.decided(f.c(), match, .match_selects);
-    }
     /// The value a constant pattern compares with (`sema.patternConst`).
     pub fn patternConst(f: Facts, pattern: Sexp) ?sema.ConstScalar {
         return sema.constScalar(sema.patternConst(f.c(), pattern) orelse return null);
-    }
-    /// Whether a read match's catch-all binding is captured by address.
-    pub fn catchAllCaptured(f: Facts, pattern: Sexp) ?bool {
-        return storage.decided(f.c(), pattern, .catch_all_by_address);
-    }
-    /// Whether a read `for` binds the bytes of each String element, or
-    /// `if … as` the bytes of the String a write view in the optional
-    /// points at (`storage.bindsStringBytes`).
-    pub fn bindsStringBytes(f: Facts, node: Sexp) ?bool {
-        return storage.decided(f.c(), node, .binds_string_bytes);
-    }
-    /// Whether a payload binding points at the field it binds.
-    pub fn bindsByAddress(f: Facts, b: Sexp) ?bool {
-        return storage.decided(f.c(), b, .payload_by_address);
-    }
-    /// How the binding of `if … as` reads through a write view in the
-    /// optional (`storage.throughWrite`): the outer null when no checker
-    /// decided it.
-    pub fn throughWrite(f: Facts, cond: Sexp) ??ThroughWrite {
-        return storage.decided(f.c(), cond, .through_write);
-    }
-    /// The call compound assignment `set` lowers to
-    /// (`storage.compoundCall`): the outer null when no checker decided it.
-    pub fn compoundCall(f: Facts, set: Sexp) ??CompoundCall {
-        return storage.decided(f.c(), set, .compound_call);
-    }
-    /// How the binding assignment `set` declares holds its value
-    /// (`storage.bindHold`).
-    pub fn bindHold(f: Facts, set: Sexp) ?BindHold {
-        return storage.decided(f.c(), set, .bind_hold);
-    }
-    /// Whether a `print`, `String(...)`, or `add` argument is read by address
-    /// (`storage.printsByAddress`).
-    pub fn printsByAddress(f: Facts, a: Sexp) ?bool {
-        return storage.decided(f.c(), a, .print_by_address);
-    }
-    /// Whether a test against `none` or a `.variant` drops its operand
-    /// (`storage.dropsWhenTested`).
-    pub fn dropsWhenTested(f: Facts, e: Sexp) ?bool {
-        return storage.decided(f.c(), e, .drops_when_tested);
-    }
-    /// What an expression hands over (`sema.handsOver`), as the plan
-    /// decided it for every expression.
-    pub fn handsOver(f: Facts, e: Sexp) ?HandsKind {
-        return storage.decided(f.c(), e, .hands);
-    }
-    /// Whether `e` is read from storage, not made for its context: a
-    /// place, a part of a value made here, or a view (`Hands.hasStorage`).
-    pub fn hasStorage(f: Facts, e: Sexp) ?bool {
-        const kind = f.handsOver(e) orelse return null;
-        return (sema.Hands{ .kind = kind }).hasStorage();
-    }
-    /// Whether an `as` binding views the value inside the optional
-    /// (`storage.viewsOptionalValue`).
-    pub fn viewsOptionalValue(f: Facts, value: Sexp) ?bool {
-        return storage.decided(f.c(), value, .views_optional_value);
-    }
-    /// Whether the fill a box or a binding takes is built where its value
-    /// goes (`storage.fillsInPlace`).
-    pub fn fillsInPlace(f: Facts, e: Sexp) ?bool {
-        return storage.decided(f.c(), e, .fills_in_place);
-    }
-    /// How an assignment runs: which of its steps it evaluates into
-    /// storage in their turn (`storage.setOrder`).
-    pub fn setOrder(f: Facts, set: Sexp) ?SetOrder {
-        return storage.decided(f.c(), set, .set_order);
-    }
-    /// Where the step of a `while` runs (`storage.stepPoint`).
-    pub fn stepPoint(f: Facts, loop: Sexp) ?StepPoint {
-        return storage.decided(f.c(), loop, .step_point);
     }
     /// Where a `break` or `continue` goes, as the type checker resolved it
     /// (`sema.JumpDest`).
     pub fn jumpDest(f: Facts, jump: Sexp) ?JumpDest {
         return f.c().jumpDestOf(jump);
-    }
-    /// How a call holds its self, whether it consumes a temporary self,
-    /// and how it holds each part it evaluates first (`storage`).
-    pub fn selfHold(f: Facts, call: Sexp) ??SelfHold {
-        return storage.decided(f.c(), call, .self_hold);
-    }
-    pub fn consumesSelf(f: Facts, call: Sexp) ?bool {
-        return storage.decided(f.c(), call, .consumes_self);
-    }
-    pub fn argumentHold(f: Facts, v: Sexp) ?ArgumentHold {
-        return storage.decided(f.c(), v, .argument_hold);
-    }
-    /// Whether arithmetic on vector lanes is made by a checking runtime
-    /// helper (`storage.laneChecked`).
-    pub fn laneChecked(f: Facts, e: Sexp) ?bool {
-        return storage.decided(f.c(), e, .lane_checked);
-    }
-    /// How a `for` folds integers into a local, or null when it is not a
-    /// fold (`storage.fold`).
-    pub fn fold(f: Facts, loop: Sexp) ??Fold {
-        return storage.decided(f.c(), loop, .fold);
     }
     /// Whether a binding is an integer constant the module folds.
     pub fn isConstInt(f: Facts, sym: SymbolId) bool {
@@ -970,11 +847,6 @@ pub const Facts = struct {
     }
     pub fn isSetParam(f: Facts, ty: TypeId) bool {
         return sema.isSetParam(f.c(), ty);
-    }
-    /// Whether `return a, b`'s parts are made into storage first
-    /// (`storage.hoistsResults`).
-    pub fn hoistsResults(f: Facts, results: Sexp) ?bool {
-        return storage.decided(f.c(), results, .hoists_results);
     }
     pub fn resultsOf(f: Facts, ty: TypeId) ?[]const TypeId {
         return sema.resultsOf(f.c(), ty);
@@ -1469,10 +1341,10 @@ test "Facts reads the leaf walk the storage plan decided" {
     for (nodes.items) |n| {
         // Decided for every expression.
         if (n == .src or (n == .list and n.list.id != 0)) {
-            const r = f.reachesLeaf(n) orelse return error.TestUnexpectedResult;
+            const r = lowered.answer(n, .reaches_leaf) orelse return error.TestUnexpectedResult;
             if (r) reached += 1;
         }
-        if (f.leafStep(n)) |step| if (step == .made) {
+        if (lowered.answer(n, .leaf_step)) |step| if (step == .made) {
             made += 1;
             // Reached where Zig holds it: its LIR has a var for it.
             try std.testing.expectEqual(StorageBy.owned, (lowered.varOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
@@ -1504,23 +1376,25 @@ test "Facts reads every match decision the plan made" {
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
     const f = Facts.of(&ctx);
+    var lowered = try f.lower(a, tree, false);
+    defer lowered.deinit();
     var nodes: std.ArrayList(Sexp) = .empty;
     defer nodes.deinit(a);
     try collect(a, tree, &nodes);
     var matches: usize = 0;
     for (nodes.items) |n| if (n.isKind(.match)) {
         matches += 1;
-        try std.testing.expectEqual(MatchMode.read, f.matchMode(n).?);
+        try std.testing.expectEqual(MatchMode.read, lowered.answer(n, .match_mode).?);
         // A name's value is matched where it is.
-        try std.testing.expect(f.matchesInPlace(n).?);
-        try std.testing.expect(f.matchBlock(n).?);
-        try std.testing.expect(f.matchRereads(n) != null);
+        try std.testing.expect(lowered.answer(n, .matches_in_place).?);
+        try std.testing.expect(lowered.answer(n, .match_block).?);
+        try std.testing.expect(lowered.answer(n, .match_rereads) != null);
         for (ir.Match.arms(n)) |arm| {
             const pattern = ir.Arm.pattern(arm);
-            if (pattern == .src) try std.testing.expect(f.catchAllCaptured(pattern) != null);
+            if (pattern == .src) try std.testing.expect(lowered.answer(pattern, .catch_all_by_address) != null);
             if (pattern.isKind(.variant_pattern)) for (f.payloadBindings(pattern).?) |b| {
                 // `t` is a view of the String where it is; `n` a copy.
-                const by_addr = f.bindsByAddress(b).?;
+                const by_addr = lowered.answer(b, .payload_by_address).?;
                 try std.testing.expectEqual(std.mem.eql(u8, source[b.src.pos..][0..b.src.len], "t"), by_addr);
             };
         }
@@ -1565,6 +1439,8 @@ test "Facts reads where each step runs and where each jump goes" {
     for (ctx.diagnostics.items) |d| std.debug.print("{s}\n", .{d.message});
     try std.testing.expect(!ctx.hasErrors());
     const f = Facts.of(&ctx);
+    var lowered = try f.lower(a, tree, false);
+    defer lowered.deinit();
     var nodes: std.ArrayList(Sexp) = .empty;
     defer nodes.deinit(a);
     try collect(a, tree, &nodes);
@@ -1585,7 +1461,7 @@ test "Facts reads where each step runs and where each jump goes" {
     var ns: usize = 0;
     for (nodes.items) |n| {
         if (n.isKind(.@"while")) {
-            try std.testing.expectEqual(steps[ns], f.stepPoint(n).?);
+            try std.testing.expectEqual(steps[ns], lowered.answer(n, .step_point).?);
             ns += 1;
         }
         if (n.isKind(.@"break") or n.isKind(.@"continue")) {
