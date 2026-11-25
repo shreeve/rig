@@ -380,6 +380,8 @@ const Lowerer = struct {
         try l.consumed(decl);
         const params: Sexp = if (decl.isKind(.@"test")) .nil else ir.get(decl, .params);
         if (params == .list) for (params.items()) |par| {
+            // A `<@` or `<x` parameter is a move the plan counts.
+            try l.consumed(par);
             const name = sema.paramNameNode(par) orelse continue;
             _ = try l.bindingVar(name, f.body);
             if (par.isKind(.default)) {
@@ -490,7 +492,6 @@ const Lowerer = struct {
     fn stmtBody(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
         try l.consumed(s);
         const head = s.kind() orelse return l.step(r, .{ .eval = try l.expr(s) });
-        if (l.ctx.testCheckOf(s) != null) return l.step(r, .{ .eval = try l.expr(s) });
         switch (head) {
             .set => try l.assign(s, r),
             .destructure => try l.destructure(s, r),
