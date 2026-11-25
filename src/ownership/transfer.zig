@@ -3469,8 +3469,7 @@ pub fn holdBase(self: *Checker, node: Sexp) Error!void {
 /// Whether place `e` is a path from the value a header holds.
 pub fn heldPath(self: *const Checker, e: Sexp) bool {
     const h = self.held orelse return false;
-    var base = e;
-    while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+    const base = sema.pathRoot(e);
     return base == .list and base.list.ptr == h.base.list.ptr;
 }
 
