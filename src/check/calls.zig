@@ -24,7 +24,6 @@ const identAt = sema.identAt;
 const srcPos = sema.srcPos;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
-const ApiCheck = @import("apis.zig");
 const CompatCheck = @import("compat.zig");
 const GenericCheck = @import("generics.zig");
 const BuiltinCheck = @import("builtins.zig");

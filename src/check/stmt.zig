@@ -17,7 +17,6 @@ const Requirement = sema.Requirement;
 const Error = std.mem.Allocator.Error;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
-const ApiCheck = @import("apis.zig");
 const CompatCheck = @import("compat.zig");
 const GenericCheck = @import("generics.zig");
 const CallCheck = @import("calls.zig");
