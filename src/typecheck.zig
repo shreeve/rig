@@ -17,7 +17,7 @@
 //! `T` where `T?` or `T!` is expected (the value is lifted), and an
 //! error value where `T!` is expected (the function fails); `!T` where
 //! `?T` is expected; a view of a Copy value where the value is
-//! expected (`readValue`), which reads through it (`recordRead`); and
+//! expected (`readValue`), which reads through it (`Facts.reads`); and
 //! anything where poison (`unknown` / `invalid`) is involved, so one
 //! error does not cascade.
 //!
@@ -3414,9 +3414,9 @@ const ownership_src = @embedFile("ownership.zig") ++ @embedFile("ownership/state
 test "check: every read of a view as a value is decided by writeViewRead" {
     // `readOf` is the one place type checking records that a view is read
     // as the value it reaches, and it asks `writeViewRead` first. Another
-    // call of `recordRead` would read a written `!x` as a value with its
+    // record of `reads` would read a written `!x` as a value with its
     // `!` ignored, past the decider.
-    const needle = "ctx." ++ "recordRead(";
+    const needle = "ctx." ++ "record(.reads,";
     const src = typecheck_source;
     try std.testing.expectEqual(1, std.mem.count(u8, src, needle));
     const at = std.mem.find(u8, src, needle).?;

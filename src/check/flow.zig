@@ -400,7 +400,7 @@ pub fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         .place => {
             viewed = true;
             try self.ctx.recordHeader(node, .viewed, .nil);
-            try self.ctx.recordImplicitView(expr);
+            try self.ctx.record(.uses, expr, .view);
         },
         .part_of_made => if (self.expect.held_base != .nil) {
             if (try PatternCheck.holdsHeld(self, expr)) {
@@ -959,7 +959,7 @@ pub fn resolveJump(self: *Checker, node: Sexp) Error!?*Checker.LoopFrame {
         return null;
     };
     if (brk) {
-        try self.ctx.recordJumpDest(node, .{ .target = f.node, .to = .exit });
+        try self.ctx.record(.jump_dests, node, .{ .target = f.node, .to = .exit });
         return f;
     }
     if (!f.is_loop) {
@@ -977,7 +977,7 @@ pub fn resolveJump(self: *Checker, node: Sexp) Error!?*Checker.LoopFrame {
         .body => if (f.has_step) .step else .head,
         .step => .head,
     };
-    try self.ctx.recordJumpDest(node, .{ .target = f.node, .to = to });
+    try self.ctx.record(.jump_dests, node, .{ .target = f.node, .to = to });
     return f;
 }
 
@@ -991,7 +991,7 @@ pub fn settleConditionJumps(self: *Checker, frame: *const Checker.LoopFrame) Err
         .continue_expr => .step,
         .after_body => .head,
     };
-    for (frame.cond_continues.items) |c| try self.ctx.recordJumpDest(c, .{ .target = frame.node, .to = to });
+    for (frame.cond_continues.items) |c| try self.ctx.record(.jump_dests, c, .{ .target = frame.node, .to = to });
 }
 
 /// The element of `for x in !xs`: a write view of each slot. The

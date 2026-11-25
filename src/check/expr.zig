@@ -51,7 +51,7 @@ pub fn noteTakeable(self: *Checker, e: Sexp, ty: TypeId) Error!void {
     self.expect.trial_take = true;
     const ok = place.cell_list_elem == null and try StmtCheck.requireAccess(self, place, .take, e);
     self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-    if (!ok) try self.ctx.recordUntakeable(e);
+    if (!ok) try self.ctx.record(.untakeable, e, {});
 }
 
 /// Literal pseudo-types as the concrete type they default to.
@@ -248,7 +248,7 @@ pub fn useName(self: *Checker, leaf: Sexp) Error!?SymbolId {
                 // use: the capture it names fixes every use.
                 const key = (@as(u64, crossed_lambda.?) << 32) | id;
                 if (self.ctx.uncaptured_reported.contains(key)) return id;
-                if (self.ctx.quiet == 0) try self.ctx.putIn(.{ .ctx = .uncaptured_reported }, key, {});
+                if (self.ctx.quiet == 0) try self.ctx.putIn(.check, .uncaptured_reported, key, {});
                 try self.errAt(leaf, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` makes a view of it, `|~{s}|` holds it weakly)", .{ name, name, name, name, name, name });
             }
             return id;
@@ -1145,7 +1145,7 @@ pub fn synthEquality(self: *Checker, e: Sexp) Error!TypeId {
             // dropped by the test, any other owner read in place.
             if (sema.moves(self.ctx, ty) != .no and ViewCheck.hands(self, other).kind != .made) try ViewCheck.readLeaf(self, other);
             try self.ctx.recordType(side, value);
-            try self.ctx.recordMemberTest(e);
+            try self.ctx.record(.member_tests, e, {});
             return self.t().bool_id;
         }
         const side_ty = try synthEqOperand(self, side);
@@ -1204,7 +1204,7 @@ pub fn errorMemberTest(self: *Checker, side: Sexp, other: Sexp, nt: Checker.Name
     // the test, any other owner read in place.
     if (sema.moves(self.ctx, ty) != .no and ViewCheck.hands(self, other).kind != .made) try ViewCheck.readLeaf(self, other);
     try self.ctx.recordType(side, set);
-    try self.ctx.recordErrorMember(side);
+    try self.ctx.record(.error_members, side, {});
     return self.t().bool_id;
 }
 
@@ -1310,7 +1310,7 @@ pub fn finishEquality(self: *Checker, e: Sexp, l: Sexp, r: Sexp, a_ty: TypeId, b
     // `x == K.name` tests which variant `x` holds, comparing no
     // payload, so it needs no `==` on the payloads.
     if (try namesVariantOf(self, l, a) or try namesVariantOf(self, r, a)) {
-        try self.ctx.recordMemberTest(e);
+        try self.ctx.record(.member_tests, e, {});
         return self.t().bool_id;
     }
     try checkEquatable(self, a, l, op);
@@ -1592,7 +1592,7 @@ pub fn joinFallback(self: *Checker, result: TypeId, fallback: Sexp) Error!TypeId
 /// The short forms a fallback gives (`sema.yieldedLeaves`) take their
 /// enum's type from the value the fallback stands for, which Zig's
 /// `orelse` and `catch` do not hand them: each is recorded to be
-/// written with its type (`SemContext.recordTypedLiteral`). A payload
+/// written with its type (`Facts.typed_literals`). A payload
 /// variant always is, being a struct of no type in Zig; a bare `.name`
 /// is where it is a branch's or a block's value, since Zig joins an
 /// enum literal with its enum only where it stands as the fallback
@@ -1606,7 +1606,7 @@ pub fn recordFallbackLiterals(self: *Checker, fallback: Sexp) Error!void {
         if (!payload and !(leaf.isKind(.enum_lit) and !CompatCheck.sameNode(leaf, fallback))) continue;
         const ty = self.ctx.typeOf(leaf) orelse continue;
         if (self.isPoison(ty) or ty == self.t().any_error_id or sema.isErrorSet(self.ctx, sema.unwrapViews(self.ctx, ty))) continue;
-        try self.ctx.recordTypedLiteral(leaf);
+        try self.ctx.record(.typed_literals, leaf, {});
     }
 }
 
@@ -1767,7 +1767,7 @@ pub fn checkFailsInto(self: *Checker, operand: Sexp, set: TypeId) Error!void {
 /// `return err` with `err` of `actual`, an error set or `error`, in
 /// a function returning `expected`, a `T!E`: `E` must hold it.
 pub fn checkReturnedError(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
-    try self.ctx.recordFailingLeaf(e);
+    try self.ctx.record(.failing_leaves, e, {});
     const declared = self.ctx.types.get(expected).fallible.set;
     if (self.isPoison(actual) or sema.errorSubset(self.ctx, actual, declared)) return;
     const fname = try StmtCheck.bodyName(self);

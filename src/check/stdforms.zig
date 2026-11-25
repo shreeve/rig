@@ -623,7 +623,7 @@ pub fn checkFormatArg(self: *Checker, a: Sexp, who: []const u8, verb: []const u8
     if (!self.isPoison(ty) and CallCheck.slicedArg(self, a)) if (CompatCheck.sliceArgView(self.ctx, ty, ty)) |view| {
         var implicit = view;
         implicit.implicit = true;
-        try self.ctx.recordImplicitView(a);
+        try self.ctx.record(.uses, a, .view);
         try self.ctx.recordView(a, implicit);
     };
     if (try ViewCheck.writeViewRead(self, a, ty, .{ .value = sema.unwrapViews(self.ctx, ty) })) return;
@@ -799,7 +799,7 @@ pub fn checkTemplateGrows(self: *Checker, rhs: Sexp, target: Sexp) Error!void {
 /// it, with no separators; `String()` is empty.
 pub fn checkStringNew(self: *Checker, call: Sexp, args: []const Sexp) Error!TypeId {
     try checkFormatArgs(self, args, "`String(...)`", "write");
-    try self.ctx.recordStringCall(call, .new);
+    try self.ctx.record(.string_calls, call, .new);
     return self.t().string_id;
 }
 
@@ -866,7 +866,7 @@ pub fn stringCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, metho
 }
 
 pub fn finishStringCall(self: *Checker, callee: Sexp, op: sema.StringCall) Error!TypeId {
-    try self.ctx.recordStringCall(callee, op);
+    try self.ctx.record(.string_calls, callee, op);
     return self.t().void_id;
 }
 
@@ -876,7 +876,7 @@ pub fn finishStringCall(self: *Checker, callee: Sexp, op: sema.StringCall) Error
 /// recorded; after a diagnostic, false.
 pub fn pushWide(self: *Checker, callee: Sexp, b: Sexp, pos: u32, args: []const Sexp) Error!bool {
     const example = "push[U32, .little](value)";
-    try self.ctx.recordInstance(b, .function);
+    try self.ctx.record(.instances, b, .function);
     const given = sema.bracketArgs(b);
     if (given.len < 1 or given.len > 2) {
         _ = try CallCheck.badCall(self, args, b, "`push` takes the integer type and, for more than one byte, the byte order in brackets: `{s}`", .{example});
@@ -923,7 +923,7 @@ pub fn pushWide(self: *Checker, callee: Sexp, b: Sexp, pos: u32, args: []const S
         .int => |info| CompatCheck.intBounds(info).bits / 8,
         else => null,
     });
-    try self.ctx.recordStringNum(callee, num);
+    try self.ctx.record(.string_nums, callee, num);
     return true;
 }
 
@@ -986,7 +986,7 @@ pub fn pushVector(self: *Checker, callee: Sexp, pos: u32, args: []const Sexp) Er
         if (self.isPoison(self.ctx.typeOf(args[0]) orelse ty)) return false;
     }
     try checkKeep(self, ir.Kwarg.value(keep), bytes.?);
-    try self.ctx.recordStringNum(callee, vec);
+    try self.ctx.record(.string_nums, callee, vec);
     return true;
 }
 
@@ -1026,7 +1026,7 @@ pub fn bitCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: 
         try CallCheck.synthArgs(self, args);
     }
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ty}), .returns = result, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = op, .elem = result, .num = ty });
+    try self.ctx.record(.elem_calls, callee, .{ .op = op, .elem = result, .num = ty });
     return result;
 }
 
@@ -1045,7 +1045,7 @@ pub fn toBitsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, value
         try CallCheck.synthArgs(self, args);
     }
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{value}), .returns = result, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = .to_bits, .elem = result, .num = value });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .to_bits, .elem = result, .num = value });
     return result;
 }
 
@@ -1079,7 +1079,7 @@ pub fn hashCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u3
     }
     if (!ViewCheck.hands(self, obj).hasStorage()) try ViewCheck.readLeaf(self, obj) else try ViewCheck.rejectResourceTemporary(self, obj, obj_ty);
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .read_view = value })}), .returns = u64_ty, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = .hash, .elem = u64_ty, .num = value });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .hash, .elem = u64_ty, .num = value });
     return noteMethod(self, callee, .read, u64_ty);
 }
 
@@ -1115,7 +1115,7 @@ pub fn orderCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u
     const view = try self.ctx.intern(.{ .read_view = value });
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ view, view }), .returns = order_ty, .is_sub = false });
     try CallCheck.checkArgs(self, args, .{ .params = try self.ctx.dupeIds(&.{view}), .returns = order_ty, .is_sub = false }, .{ .names = &.{"other"} }, "order", pos, .{ .has_self = true, .origins = .{ .result = 0, .stores = 0 }, .declared = &.{view} });
-    try self.ctx.recordElemCall(callee, .{ .op = .order, .elem = order_ty, .num = value });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .order, .elem = order_ty, .num = value });
     return try noteMethod(self, callee, .read, order_ty);
 }
 
@@ -1147,7 +1147,7 @@ pub fn hasherAdd(self: *Checker, callee: Sexp, obj: Sexp, pos: u32, args: []cons
     }
     const hasher = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .nominal = self.ctx.hasher_sym_id }) });
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ hasher, ty }), .returns = self.t().void_id, .is_sub = true });
-    try self.ctx.recordStringCall(callee, .hasher_add);
+    try self.ctx.record(.string_calls, callee, .hasher_add);
     return try noteMethod(self, callee, .write, self.t().void_id);
 }
 
@@ -1163,7 +1163,7 @@ pub fn printerValue(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos
     const arg_ty = self.ctx.typeOf(args[0]) orelse self.t().invalid_id;
     const printer = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .nominal = self.ctx.printer_sym_id }) });
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ printer, arg_ty }), .returns = self.t().void_id, .is_sub = true });
-    try self.ctx.recordStringCall(callee, .printer_value);
+    try self.ctx.record(.string_calls, callee, .printer_value);
     return try noteMethod(self, callee, .write, self.t().void_id);
 }
 
@@ -1189,7 +1189,7 @@ pub fn frexpCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, value:
         try CallCheck.synthArgs(self, args);
     }
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{value}), .returns = result, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = op, .elem = result, .num = value });
+    try self.ctx.record(.elem_calls, callee, .{ .op = op, .elem = result, .num = value });
     return result;
 }
 
@@ -1213,13 +1213,13 @@ pub fn floatCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method
         const view = try self.ctx.intern(.{ .read_view = value });
         try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ view, view }), .returns = order_ty, .is_sub = false });
         try CallCheck.checkArgs(self, args, .{ .params = try self.ctx.dupeIds(&.{view}), .returns = order_ty, .is_sub = false }, .{ .names = &.{"other"} }, method, pos, .{ .has_self = true, .origins = .{ .result = 0, .stores = 0 }, .declared = &.{view} });
-        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = order_ty, .num = value });
+        try self.ctx.record(.elem_calls, callee, .{ .op = op, .elem = order_ty, .num = value });
         return order_ty;
     }
     const params: []const TypeId = if (op == .clamp) &.{ value, value } else &.{value};
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(if (op == .clamp) &.{ value, value, value } else &.{ value, value }), .returns = value, .is_sub = false });
     try CallCheck.checkArgs(self, args, .{ .params = try self.ctx.dupeIds(params), .returns = value, .is_sub = false }, .{}, method, pos, .{ .has_self = true, .origins = .{ .result = 0, .stores = 0 }, .declared = params });
-    try self.ctx.recordElemCall(callee, .{ .op = op, .elem = value, .num = value });
+    try self.ctx.record(.elem_calls, callee, .{ .op = op, .elem = value, .num = value });
     return value;
 }
 
@@ -1242,7 +1242,7 @@ pub fn numberTypeCall(self: *Checker, callee: Sexp, obj: Sexp, target: TypeId, m
         if (ct) |b| return CallCheck.badCall(self, args, b, "`{s}` takes no compile-time arguments", .{method});
         if (args.len != 0) return CallCheck.badCall(self, args, pos, "`{s}.{s}()` takes no arguments; got {d}", .{ shown, method, args.len });
         try noteCallee(self, .{ .params = &.{}, .returns = target, .is_sub = false });
-        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = target, .num = target });
+        try self.ctx.record(.elem_calls, callee, .{ .op = op, .elem = target, .num = target });
         return target;
     }
     if ((is_wrap and tt != .int) or (is_bits and tt != .float) or !(is_wrap or is_bits)) {
@@ -1255,7 +1255,7 @@ pub fn numberTypeCall(self: *Checker, callee: Sexp, obj: Sexp, target: TypeId, m
     if (is_bits) {
         const u = try bitsType(self, tt.float);
         try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{u}), .returns = target, .is_sub = false });
-        try self.ctx.recordElemCall(callee, .{ .op = .from_bits, .elem = u, .num = target });
+        try self.ctx.record(.elem_calls, callee, .{ .op = .from_bits, .elem = u, .num = target });
         try ViewCheck.checkExpr(self, arg, u);
         return target;
     }
@@ -1270,7 +1270,7 @@ pub fn numberTypeCall(self: *Checker, callee: Sexp, obj: Sexp, target: TypeId, m
         from = self.t().int_id;
     }
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{from}), .returns = target, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = .wrap, .elem = from, .num = target });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .wrap, .elem = from, .num = target });
     return target;
 }
 
@@ -1292,7 +1292,7 @@ pub fn enumFromIntCall(self: *Checker, callee: Sexp, enum_ty: TypeId, shown: []c
         from = self.t().int_id;
     }
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{from}), .returns = result, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = .from_int, .elem = from, .num = enum_ty });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .from_int, .elem = from, .num = enum_ty });
     return result;
 }
 
@@ -1323,7 +1323,7 @@ pub fn fromTextCall(self: *Checker, callee: Sexp, enum_ty: TypeId, shown: []cons
     var scratch = std.heap.ArenaAllocator.init(self.ctx.allocator);
     defer scratch.deinit();
     try CallCheck.checkArgs(self, args, f, .{}, "from_text", pos, .{ .origins = try sema.defaultOrigins(self.ctx, scratch.allocator(), f) });
-    try self.ctx.recordElemCall(callee, .{ .op = .from_text, .elem = self.t().string_view_id, .num = enum_ty });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .from_text, .elem = self.t().string_view_id, .num = enum_ty });
     if (enum_ty != self.t().symbol_id) try self.ctx.recordTextTable(sema.nominalDecl(self.ctx, enum_ty).?);
     return result;
 }
@@ -1410,7 +1410,7 @@ pub fn slotTypeCall(self: *Checker, callee: Sexp, st: TypeId, method: []const u8
         from = self.t().int_id;
     }
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{from}), .returns = result, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = .from_int, .elem = from, .num = st });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .from_int, .elem = from, .num = st });
     return result;
 }
 
@@ -1432,7 +1432,7 @@ pub fn simdTypeCall(self: *Checker, callee: Sexp, vt: TypeId, method: []const u8
     if (ct) |b| return CallCheck.badCall(self, args, b, "`splat` takes no compile-time arguments", .{});
     if (args.len != 1 or args[0].isKind(.kwarg)) return CallCheck.badCall(self, args, pos, "`splat` takes one argument, the value of every lane; got {d}", .{args.len});
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{v.elem}), .returns = vt, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = .splat, .elem = v.elem, .num = vt });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .splat, .elem = v.elem, .num = vt });
     try ViewCheck.checkExpr(self, args[0], v.elem);
     return vt;
 }
@@ -1514,7 +1514,7 @@ pub fn simdCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method:
         else => &.{vt},
     };
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem, .num = vt });
+    try self.ctx.record(.elem_calls, callee, .{ .op = op, .elem = elem, .num = vt });
     if (op == .with) {
         try checkIndexArg(self, args[0], null);
         try checkLaneIndex(self, args[0], vt);
@@ -1558,7 +1558,7 @@ pub fn lookupCall(self: *Checker, callee: Sexp, obj: Sexp, vt: TypeId, arg: Sexp
         return self.t().invalid_id;
     }
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ vt, idx }), .returns = idx, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = .lookup, .elem = byte, .num = idx });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .lookup, .elem = byte, .num = idx });
     return idx;
 }
 
@@ -1567,7 +1567,7 @@ pub fn lookupCall(self: *Checker, callee: Sexp, obj: Sexp, vt: TypeId, arg: Sexp
 /// `k` is a constant integer from 1 to `n - 1`, checked now, so the
 /// lane count must be known too.
 pub fn lagCall(self: *Checker, callee: Sexp, vt: TypeId, b: Sexp, pos: u32, args: []const Sexp) Error!?TypeId {
-    try self.ctx.recordInstance(b, .function);
+    try self.ctx.record(.instances, b, .function);
     const given = sema.bracketArgs(b);
     if (given.len != 1) return try CallCheck.badCall(self, args, b, "`lag` takes one compile-time argument, how many lanes back: `v.lag[1](prev)`", .{});
     for (args) |a| if (a.isKind(.kwarg)) return try CallCheck.badCall(self, args, a, "`lag` takes no keyword arguments", .{});
@@ -1591,7 +1591,7 @@ pub fn lagCall(self: *Checker, callee: Sexp, vt: TypeId, b: Sexp, pos: u32, args
     }
     try ViewCheck.checkExpr(self, args[0], vt);
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ vt, vt }), .returns = vt, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = .lag, .elem = self.ctx.types.get(vt).simd.elem, .num = vt });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .lag, .elem = self.ctx.types.get(vt).simd.elem, .num = vt });
     return vt;
 }
 
@@ -1659,7 +1659,7 @@ pub fn splatOperand(self: *Checker, operand: Sexp, ty: TypeId, vt: TypeId, op: [
         try self.errAt(operand, "operator `{s}` operands have different types `{s}` and `{s}`{s}", .{ op, try self.tyName(vt), try self.tyName(ty), hint });
         return false;
     }
-    try self.ctx.recordSplat(operand, vt);
+    try self.ctx.record(.splats, operand, vt);
     return true;
 }
 
@@ -1786,7 +1786,7 @@ pub fn checkDurationArg(self: *Checker, arg: Sexp, param: TypeId, unit: ?i64, in
                 return null;
             }
             if (sema.isDurationType(self.ctx, value)) {
-                try self.ctx.recordDuration(arg, .{ .unit_ns = 0 });
+                try self.ctx.record(.durations, arg, .{ .unit_ns = 0 });
                 return null;
             }
         }
@@ -1852,11 +1852,11 @@ pub fn checkDurationArg(self: *Checker, arg: Sexp, param: TypeId, unit: ?i64, in
         // the program runs fails, as the sum does, where the sum may
         // (`checkArgs`).
         const part_how: sema.DurationHow = if (known == null and float) (if (info.fold) |into| .{ .folded = into } else .total) else .total;
-        try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float, .part = true, .how = part_how });
+        try self.ctx.record(.durations, arg, .{ .unit_ns = unit_ns, .float = float, .part = true, .how = part_how });
         return known;
     }
     const opt = if (target != null and !sema.isDurationType(self.ctx, param)) param else sema.type_invalid;
-    try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float, .ty = target orelse sema.type_invalid, .opt = opt, .how = how });
+    try self.ctx.record(.durations, arg, .{ .unit_ns = unit_ns, .float = float, .ty = target orelse sema.type_invalid, .opt = opt, .how = how });
     return known;
 }
 
@@ -2378,7 +2378,7 @@ pub fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv
     self.expect.view_recv = f.params[0];
     try CallCheck.checkArgs(self, args, rest, .{}, method, pos, .{ .has_self = true, .origins = origins, .declared = rest.params });
     if (self.ctx.diagnostics.items.len != mark or self.ctx.quiet != 0) return returns;
-    try self.ctx.recordTypeParamCall(call);
+    try self.ctx.record(.type_param_calls, call, {});
     for (self.ctx.generic_methods.items) |c| if (c.pos == self.startOf(call) and c.module_id == 0) return returns;
     try self.ctx.generic_methods.append(self.ctx.allocator, .{
         .param = param,
@@ -2447,7 +2447,7 @@ pub fn objectCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, o: se
     try noteCallee(self, f);
     self.expect.view_call = true;
     try CallCheck.checkArgs(self, args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params });
-    if (self.expect.current_call) |call| try self.ctx.recordDispatch(call, .{ .dynamic = .{ .api = m.api, .method = m.field.name, .table = o.api, .slot = m.slot.?, .self_mode = m.field.self_mode, .self_arg = true } });
+    if (self.expect.current_call) |call| try self.ctx.record(.dispatch, call, .{ .dynamic = .{ .api = m.api, .method = m.field.name, .table = o.api, .slot = m.slot.?, .self_mode = m.field.self_mode, .self_arg = true } });
     return f.returns;
 }
 
@@ -2546,10 +2546,10 @@ pub fn apiMethodCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, se
     }
     switch (via) {
         .witness => |witness| {
-            if (self.expect.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .self_mode = self_mode } });
+            if (self.expect.current_call) |call| try self.ctx.record(.dispatch, call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .self_mode = self_mode } });
             try recordApiCall(self, self_ty, m, own, pos);
         },
-        .table => |entry| if (self.expect.current_call) |call| try self.ctx.recordDispatch(call, .{ .dynamic = .{ .api = m.api, .method = m.field.name, .table = entry.api, .slot = entry.slot, .self_mode = self_mode } }),
+        .table => |entry| if (self.expect.current_call) |call| try self.ctx.record(.dispatch, call, .{ .dynamic = .{ .api = m.api, .method = m.field.name, .table = entry.api, .slot = entry.slot, .self_mode = self_mode } }),
     }
     return f.returns;
 }
@@ -2653,7 +2653,7 @@ pub fn apiNameCall(self: *Checker, ref: sema.ApiRef, api_text: []const u8, metho
     try noteCallee(self, f);
     self.expect.view_call = true;
     try CallCheck.checkArgs(self, args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params });
-    if (self.expect.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .self_arg = true, .self_mode = m.field.self_mode } });
+    if (self.expect.current_call) |call| try self.ctx.record(.dispatch, call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .self_arg = true, .self_mode = m.field.self_mode } });
     try recordApiCall(self, value, m, own, pos);
     return f.returns;
 }
@@ -2789,7 +2789,7 @@ pub fn actorMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) E
     const call: FunctionType = .{ .params = params, .returns = actor, .is_sub = false };
     try noteCallee(self, call);
     try CallCheck.checkArgs(self, args, call, .{ .names = names }, "Actor", self.startOf(callee), .{ .declared = call.params });
-    if (self.expect.current_call) |c| try self.ctx.recordActorMake(c);
+    if (self.expect.current_call) |c| try self.ctx.record(.actor_makes, c, {});
     self.ctx.makes_tasks = true;
     self.ctx.makes_actors = true;
     return actor;
@@ -2817,7 +2817,7 @@ pub fn frozenMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) 
     const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ty}), .returns = frozen, .is_sub = false };
     try noteCallee(self, call);
     try CallCheck.checkArgs(self, args, call, .{ .names = &.{"value"} }, "Frozen", self.startOf(callee), .{ .declared = call.params });
-    if (self.expect.current_call) |c| try self.ctx.recordFrozenMake(c);
+    if (self.expect.current_call) |c| try self.ctx.record(.frozen_makes, c, {});
     return frozen;
 }
 
@@ -2882,7 +2882,7 @@ pub fn actorSupervised(self: *Checker, callee: Sexp, method: []const u8, pos: u3
     const call: FunctionType = .{ .params = params, .returns = actor, .is_sub = false };
     try noteCallee(self, call);
     try CallCheck.checkArgs(self, args, call, .{ .names = names, .durations = optionDurations(names), .waits = true }, "Actor.supervised", self.startOf(callee), .{ .declared = call.params });
-    try self.ctx.recordActorSupervised(node);
+    try self.ctx.record(.actor_supervised, node, {});
     self.ctx.makes_tasks = true;
     self.ctx.makes_actors = true;
     return actor;
@@ -2974,7 +2974,7 @@ pub fn actorCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, method:
         return self.t().invalid_id;
     }
     try requireTask(self, result, .moves, pos, "is given back by an actor's task", false);
-    if (self.expect.current_call) |c| try self.ctx.recordActorCall(c);
+    if (self.expect.current_call) |c| try self.ctx.record(.actor_calls, c, {});
     // The method the call reaches, as any method call records it: its
     // proven depth is the room a run inline needs (`Actor.claim`). A
     // generic type's method keeps none, and runs inline only with a
@@ -2997,7 +2997,7 @@ pub fn noteTarget(self: *Checker, module: u32, pos: u32, marked: bool, recv: Typ
     const call = self.expect.current_call orelse return;
     if (pos >= sema.imported_decl_pos) return;
     const fun: sema.FnRef = .{ .module = module, .pos = pos };
-    try self.ctx.recordCallTarget(call, .{ .function = fun });
+    try self.ctx.record(.call_targets, call, .{ .function = fun });
     if (!marked) return;
     const a = self.ctx.arena.allocator();
     try self.ctx.recordInlineCall(call, .{ .fun = fun, .subst = .{
@@ -3038,7 +3038,7 @@ pub fn noteMethod(self: *Checker, callee: Sexp, self_mode: sema.SelfMode, return
         var p = ViewCheck.selfPlace(ir.Member.object(callee));
         while (true) switch (p.kind() orelse break) {
             .index => {
-                try self.ctx.recordElemViewed(p);
+                try self.ctx.record(.elem_viewed, p, {});
                 p = ir.get(p, .object);
             },
             .member => p = ir.get(p, .object),
@@ -3047,7 +3047,7 @@ pub fn noteMethod(self: *Checker, callee: Sexp, self_mode: sema.SelfMode, return
     }
     // How the call dispatches: `direct`, until a call through an API
     // records `static` (`apiMethodCall`).
-    if (self.expect.current_call) |call| if (self.ctx.dispatchOf(call) == null) try self.ctx.recordDispatch(call, .direct);
+    if (self.expect.current_call) |call| if (self.ctx.dispatchOf(call) == null) try self.ctx.record(.dispatch, call, .direct);
     return returns;
 }
 
@@ -3119,7 +3119,7 @@ pub fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method
         .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .min, .max, .clamp, .total_order, .sum, .prefetch => unreachable,
     };
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
-    try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
+    try self.ctx.record(.elem_calls, callee, .{ .op = op, .elem = elem });
     switch (op) {
         // `copy` keeps nothing of its source: a temporary array may
         // be viewed as it.
@@ -3173,7 +3173,7 @@ pub fn reduceCall(self: *Checker, obj: Sexp, obj_ty: TypeId, pos: u32, args: []c
     // `mk().reduce(...)` reads a temporary, dropped when its statement ends.
     if (ViewCheck.isTemporary(self, obj)) try ViewCheck.viewTemp(self, obj);
     try CallCheck.checkArgs(self, args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{ .names = &.{ "start", "f" } }, "reduce", pos, .{ .has_self = true, .origins = .{ .stores = 0 } });
-    if (self.expect.current_call) |c| try self.ctx.recordReduceCall(c);
+    if (self.expect.current_call) |c| try self.ctx.record(.reduce_calls, c, {});
     return closureResult(self, args[1], result);
 }
 
@@ -3191,7 +3191,7 @@ pub fn reduceFunction(self: *Checker, f: Sexp, acc: TypeId, each: TypeId) Error!
         if (plain_errors == 0) return plain;
         const failing_errors = try lambdaErrorsQuietly(self, f, failing);
         if (failing_errors == 0) return failing;
-        try self.ctx.putIn(.{ .ctx = .closures_in_error }, CompatCheck.nodeId(f), {});
+        try self.ctx.putIn(.check, .closures_in_error, CompatCheck.nodeId(f), {});
         return if (failing_errors < plain_errors) failing else plain;
     }
     const ty = try CallCheck.argType(self, f);
@@ -3635,7 +3635,7 @@ pub fn sumCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, peeled: 
     const recv = try self.ctx.intern(.{ .read_view = peeled });
     const params: []const TypeId = if (args.len == 1) &.{ recv, elem } else &.{recv};
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(params), .returns = elem, .is_sub = false });
-    try self.ctx.recordElemCall(callee, .{ .op = .sum, .elem = elem });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .sum, .elem = elem });
     // `mk().sum()` reads a temporary, dropped when its statement ends.
     if (ViewCheck.isTemporary(self, obj)) try ViewCheck.viewTemp(self, obj);
     if (args.len == 1) try ViewCheck.checkExpr(self, ir.get(args[0], .value), elem);
@@ -3658,7 +3658,7 @@ pub fn prefetchCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pee
     }
     const recv = try self.ctx.intern(.{ .read_view = peeled });
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{ recv, self.t().int_id }), .returns = self.t().void_id, .is_sub = true });
-    try self.ctx.recordElemCall(callee, .{ .op = .prefetch, .elem = elem });
+    try self.ctx.record(.elem_calls, callee, .{ .op = .prefetch, .elem = elem });
     // `mk().prefetch(i)` reads a temporary, dropped when its statement ends.
     if (ViewCheck.isTemporary(self, obj)) try ViewCheck.viewTemp(self, obj);
     try checkIndexArg(self, args[0], null);
@@ -3681,7 +3681,7 @@ pub fn bytesCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: 
     } else if (ViewCheck.isSelfSigil(self, obj) and !obj.isKind(.read)) try ViewCheck.misplacedSigil(self, obj, method, "only reads `self`");
     const example = if (op == .read) "read[U32, .little](at)" else "write[U32, .little](at, value)";
     const b = ct orelse return CallCheck.badCall(self, args, pos, "`{s}` takes the type and the byte order in brackets: `{s}`", .{ method, example });
-    try self.ctx.recordInstance(b, .function);
+    try self.ctx.record(.instances, b, .function);
     const given = sema.bracketArgs(b);
     if (given.len < 1 or given.len > 2) return CallCheck.badCall(self, args, b, "`{s}` takes the type and the byte order, in brackets: `{s}`", .{ method, example });
     const num = try CallCheck.typeArg(self, given[0]);
@@ -3713,7 +3713,7 @@ pub fn bytesCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: 
     const params: []const TypeId = if (op == .read) &.{ recv, self.t().int_id } else &.{ recv, self.t().int_id, num };
     const returns = if (op == .read) num else self.t().void_id;
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(params), .returns = returns, .is_sub = op == .write });
-    try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem, .num = num });
+    try self.ctx.record(.elem_calls, callee, .{ .op = op, .elem = elem, .num = num });
     try checkOffsetArg(self, args[0], num, len, method);
     if (op == .write) try ViewCheck.checkExpr(self, args[1], num);
     return returns;
@@ -3833,7 +3833,7 @@ pub fn stdForm(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32,
 /// generic body is typed, and emitted, once for every instance.
 /// Tasks that give values and tasks that give none do not mix:
 /// several results with holes would be a shape of its own. Which the
-/// call gives is recorded (`recordTaskJoin`) for emit and the runtime.
+/// call gives is recorded (`Facts.task_joins`) for emit and the runtime.
 /// Rig declares no function of any number of arguments, so the call
 /// is typed here, its parameters the tasks' own types (`argType`).
 pub fn taskJoin(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
@@ -3869,7 +3869,7 @@ pub fn taskJoin(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     const f: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = valued == null };
     try noteCallee(self, f);
     try CallCheck.checkArgs(self, args, f, .{}, try a.print("task.{s}", .{name}), pos, .{ .declared = f.params });
-    if (self.expect.current_call) |call| try self.ctx.recordTaskJoin(call, valued != null);
+    if (self.expect.current_call) |call| try self.ctx.record(.task_joins, call, valued != null);
     return result;
 }
 
@@ -3960,7 +3960,7 @@ pub fn parCall(self: *Checker, kind: sema.ParCall, pos: u32, args: []const Sexp)
         }
         try requireTask(self, value, .moves, self.startOf(f), "is given back by a task", false);
     }
-    if (self.expect.current_call) |c| try self.ctx.recordParCall(c, kind);
+    if (self.expect.current_call) |c| try self.ctx.record(.par_calls, c, kind);
     self.ctx.makes_tasks = true;
     return closureResult(self, f, result);
 }
@@ -4063,7 +4063,7 @@ pub fn parWorkers(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         }
         try requireTask(self, value, .moves, self.startOf(f), "is given back by a task", false);
     }
-    if (self.expect.current_call) |c| try self.ctx.recordParCall(c, .workers);
+    if (self.expect.current_call) |c| try self.ctx.record(.par_calls, c, .workers);
     self.ctx.makes_tasks = true;
     return closureResult(self, f, result);
 }
@@ -4132,7 +4132,7 @@ pub fn parPush(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         return self.t().invalid_id;
     }
     try requireTask(self, elem, .moves, self.startOf(table_arg), "is passed to tasks as a write view", false);
-    if (self.expect.current_call) |c| try self.ctx.recordParCall(c, .push);
+    if (self.expect.current_call) |c| try self.ctx.record(.par_calls, c, .push);
     self.ctx.makes_tasks = true;
     return closureResult(self, f, result);
 }
@@ -4207,7 +4207,7 @@ pub fn isolateCall(self: *Checker, supervise: bool, pos: u32, args: []const Sexp
         try self.errAt(name_node, "`{s}` drops what a panic in it half-changed, so it may take no write view of anything outside it, and `{s}` {s}", .{ shown, n, why });
         return self.t().invalid_id;
     };
-    if (self.expect.current_call) |c| try if (supervise) self.ctx.recordSuperviseCall(c) else self.ctx.recordIsolateCall(c);
+    if (self.expect.current_call) |c| try if (supervise) self.ctx.record(.supervise_calls, c, {}) else self.ctx.record(.isolate_calls, c, {});
     self.ctx.makes_tasks = true;
     return closureResult(self, f, result);
 }
@@ -4226,7 +4226,7 @@ pub fn chanMake(self: *Checker, call: Sexp, e: Sexp, ty: TypeId, args: []const S
     const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().int_id}), .returns = ty, .is_sub = false };
     try noteCallee(self, f);
     try CallCheck.checkArgs(self, args, f, .{ .names = &.{"capacity"} }, "Chan", self.startOf(e), .{ .declared = f.params });
-    try self.ctx.recordChanMake(call);
+    try self.ctx.record(.chan_makes, call, {});
     self.ctx.makes_tasks = true;
     return ty;
 }
@@ -4301,9 +4301,9 @@ pub fn taskSelect(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         try noteCallee(self, call);
         try CallCheck.checkArgs(self, arm_args, call, .{ .names = if (info.recv) &.{"f"} else &.{ "value", "f" } }, method, self.startOf(callee), .{ .declared = call.params });
         try self.ctx.recordType(arm, returns);
-        try self.ctx.recordSelectArm(arm, if (info.recv) .recv else .send);
+        try self.ctx.record(.select_arms, arm, if (info.recv) .recv else .send);
     }
-    if (saved_call) |c| try self.ctx.recordSelect(c);
+    if (saved_call) |c| try self.ctx.record(.select_calls, c, {});
     self.ctx.makes_tasks = true;
     return try self.ctx.intern(.{ .fallible = .{ .ok = value } });
 }
@@ -4344,7 +4344,7 @@ pub fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeI
             try noteCallee(self, f);
             try CallCheck.checkArgs(self, arm_args, f, .{ .names = &.{"d"}, .durations = sema.paramBit(0), .waits = true }, "time.after", self.startOf(callee), .{ .declared = f.params });
             try self.ctx.recordType(arm, self.t().void_id);
-            try self.ctx.recordSelectArm(arm, .after);
+            try self.ctx.record(.select_arms, arm, .after);
             payload.* = null;
             continue;
         }
@@ -4362,7 +4362,7 @@ pub fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeI
             const f: FunctionType = .{ .params = &.{}, .returns = self.t().void_id, .is_sub = true };
             try noteCallee(self, f);
             try self.ctx.recordType(arm, self.t().void_id);
-            try self.ctx.recordSelectArm(arm, .end);
+            try self.ctx.record(.select_arms, arm, .end);
             payload.* = null;
             continue;
         }
@@ -4381,10 +4381,10 @@ pub fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeI
         try noteCallee(self, f);
         try CallCheck.checkArgs(self, arm_args, f, .{ .names = if (recv) &.{} else &.{"value"} }, method, self.startOf(callee), .{ .declared = f.params });
         try self.ctx.recordType(arm, self.t().void_id);
-        try self.ctx.recordSelectArm(arm, if (recv) .recv else .send);
+        try self.ctx.record(.select_arms, arm, if (recv) .recv else .send);
         payload.* = if (recv) try self.ctx.intern(.{ .optional = elem }) else null;
     }
-    if (saved_call) |c| try self.ctx.recordSelect(c);
+    if (saved_call) |c| try self.ctx.record(.select_calls, c, {});
     self.ctx.makes_tasks = true;
     return try self.ctx.intern(.{ .fallible = .{ .ok = try sema.selectType(self.ctx, names, payloads, pos) } });
 }
@@ -4537,7 +4537,7 @@ pub fn httpServe(self: *Checker, module_sym: SymbolId, pos: u32, args: []const S
     if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
         if (!try parCapture(self, cap, "http.serve")) return self.t().invalid_id;
     };
-    if (self.expect.current_call) |c| try self.ctx.recordHttpServe(c);
+    if (self.expect.current_call) |c| try self.ctx.record(.http_serves, c, {});
     self.ctx.makes_tasks = true;
     return result;
 }
@@ -4564,7 +4564,7 @@ pub fn ioCopy(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     const call: FunctionType = .{ .params = try self.ctx.dupeIds(&params), .returns = result, .is_sub = false };
     try noteCallee(self, call);
     try CallCheck.checkArgs(self, args, call, .{ .names = &.{ "from", "to" } }, "io.copy", pos, .{ .declared = call.params });
-    if (self.expect.current_call) |c| try self.ctx.recordIoCopy(c);
+    if (self.expect.current_call) |c| try self.ctx.record(.io_copies, c, {});
     return result;
 }
 
@@ -4595,7 +4595,7 @@ pub fn parFunction(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const 
         const takes = ir.Lambda.params(f).items().len;
         if (!sub and takes > params.len) {
             try self.errAt(f, "this closure takes {d} parameters, but `{s}` passes {d}; a closure may take fewer, never more", .{ takes, shown, params.len });
-            try self.ctx.putIn(.{ .ctx = .closures_reported }, CompatCheck.nodeId(f), {});
+            try self.ctx.putIn(.check, .closures_reported, CompatCheck.nodeId(f), {});
             return null;
         }
         return try closureType(self, f, params, sub);
@@ -4671,7 +4671,7 @@ pub fn closureType(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) E
     const plain, const plain_errors = try closureQuietly(self, f, params, sub, false);
     if (plain_errors == 0) return plain;
     const failing, const failing_errors = try closureQuietly(self, f, params, sub, true);
-    if (failing_errors > 0) try self.ctx.putIn(.{ .ctx = .closures_in_error }, CompatCheck.nodeId(f), {});
+    if (failing_errors > 0) try self.ctx.putIn(.check, .closures_in_error, CompatCheck.nodeId(f), {});
     if (failing_errors >= plain_errors) return plain;
     // A body whose value is poison gives no failure to its type:
     // the closure still fails, as the call's own check of it must.
@@ -4699,7 +4699,7 @@ pub fn closureErrors(self: *Checker, f: Sexp, params: []const TypeId, sub: bool)
     _, const plain = try closureQuietly(self, f, params, sub, false);
     _, const failing = try closureQuietly(self, f, params, sub, true);
     _ = try closureAs(self, f, params, sub, failing < plain);
-    try self.ctx.putIn(.{ .ctx = .closures_reported }, CompatCheck.nodeId(f), {});
+    try self.ctx.putIn(.check, .closures_reported, CompatCheck.nodeId(f), {});
 }
 
 /// Closure literal `f` checked quietly as `closureType` checks it, as
@@ -4760,7 +4760,7 @@ pub fn taskSetWait(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, meth
     if (!sema.isTaskSet(self.ctx, set)) return null;
     const first = std.mem.eql(u8, method, "wait_first");
     if (!first and !rig.isWaitMember(callee)) return null;
-    if (first) try self.ctx.recordBuiltinCall(callee, .wait_first);
+    if (first) try self.ctx.record(.builtin_calls, callee, .wait_first);
     const each = sema.taskResult(self.ctx, set).?;
     const fails = self.ctx.types.get(each) == .fallible;
     const value = if (fails) self.ctx.types.get(each).fallible.ok else each;
@@ -4836,7 +4836,7 @@ pub fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, ele
     const Member = enum { push, pop, keep, clear, get };
     const member = std.meta.stringToEnum(Member, method) orelse return null;
     if (member == .get and args.len == 0) return null;
-    try self.ctx.recordBuiltinCall(callee, switch (member) {
+    try self.ctx.record(.builtin_calls, callee, switch (member) {
         .push => .list_push,
         .pop => .list_pop,
         .keep => .list_keep,

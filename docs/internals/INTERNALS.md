@@ -1665,7 +1665,7 @@ instead of re-deriving it by name:
 | `sliceViewOf(slice)` | what a slice `xs[a..b]` views of what it slices (`sema.sliceView`): the elements of an array or a List, a String's bytes through handles and boxes, or nothing of a value that is itself a view; the type checker slices by it, and the ownership checker views by it |
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (self too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
-| `ctCallOf(node)` | for a compile-time call, `(ct_call cap 8)`: the value the checker computed and its type (`cteval.Result`), none in a compile-time function's body ([Compile-time functions](#compile-time-functions)) |
+| `get(.ct_calls, node)` | for a compile-time call, `(ct_call cap 8)`: the value the checker computed and its type (`cteval.Result`), none in a compile-time function's body ([Compile-time functions](#compile-time-functions)) |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...), and the functions of a number type or a plain enum (`I32.wrap(x)`, `Status.from_int(n)`, `Color.from_text(word)`) |
 | `builtinCallOf(callee)` | for a call of a built-in type's method that emit lowers on its own (`sema.BuiltinCall`): `x.is_empty()` of a built-in length, a Cell-held List's `push`, `pop`, `clear`, `keep`, and `get`, a task set's `wait_first`, `get` of an array, a slice, or a `?String`, and a Cell's `set`, `swap`, `compare_swap`, `add`, and `sub`, recorded where typecheck resolves each, so emit matches no method name |
@@ -1742,7 +1742,7 @@ loan, and the bytes are the ones `?t[..]` already has.
 value is viewed for reading where it is, as `?e` would view it (Core sentence
 1). One branch of `viewByRows` decides it, for the argument being checked
 (`Checker.view_arg`), and records the view as implicit
-(`View.implicit`, and the use `view`, `recordImplicitView`). A slice is
+(`View.implicit`, and the use `view` recorded over it). A slice is
 viewed the way its name is: a slice argument written with no view,
 `xs[a..b]` of an array, a List, a String, or a `![]T`, desugars to
 `?xs[a..b]` where its parameter takes the read view that makes (a `[]T`
@@ -1796,21 +1796,41 @@ check, which a second replaces, give their memory back: from one arena,
 `rig check` of Trig peaked at 2.1 GB, against 0.65 GB
 (docs/history/records/2026-10/check-speed/).
 
+**The recorder.** Every fact a pass records about a node or a symbol
+is a column of one recorder (`sema.Column`): each map of `Facts`, and
+the maps of `SemContext` that `ctx_columns` names (the per-node records
+`write_sites`, `untakeable`, and `discards`, a call's target and its
+inline call, a closure's captures its one call takes, the constant
+values of bindings, a body's units, the proofs' records, and the type
+checker's records of what it reported). Each
+column declares its one writer pass (`sema.Pass`: the module check,
+storage, the module graph, the ownership checker, or the proof pass)
+and its key (`sema.specs`). It is written only through `putIn` and
+`removeIn`, which name the pass: a write by another pass fails to
+compile, and a self-checking build stops at a write after the pass
+sealed its columns (`SemContext.seal`). The module check writes a
+column by node with `record(.column, node, value)`, which keys the node
+as the column declares, and a reader asks `get` or `has`. The resolver
+and the type checker are one writer, the module check, since a
+rewrite's new nodes are resolved inside the check that finds it. Every
+list node a fact is keyed by has a node id, and recording one for a
+list without an id stops the compiler.
+
 **The trail.** A check can be taken back. `SemContext.mark` opens a
-mark, and while one is open every write to a column of the facts table,
-to the per-node records `write_sites`, `untakeable`, and `discards`,
-and to the type checker's records of what it reported once and does not
-report again, `kept_reported`, `closures_reported`, `closures_in_error`,
-and `uncaptured_reported` (`sema.Column`), goes on the trail with the
-value it replaced (`putIn`, `removeIn`, the one way each is written): a
+mark, and while one is open every write to a column goes on the trail
+with the value it replaced, the type checker's records of what it
+reported once and does not report again among them (`kept_reported`,
+`closures_reported`, `closures_in_error`, `uncaptured_reported`): a
 check taken back reports its errors again. `rollback` gives
 every column what it held at the mark, drops the diagnostics reported
 and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and
 a write costs nothing more. A symbol written through
 `SemContext.symbolMut` goes on the trail whole, so a rollback gives back
-its type and flags. Scopes and interned types are not taken back: each
-is made once for what it names, and asking again finds the same one. A rewrite of the tree, and the names and scopes of the
+its type and flags. Scopes, interned types, and the lists of what a
+check makes for what it names (generic instances and uses, API calls,
+embedded files) are not taken back: each is made once for what it
+names, and asking again finds the same one. A rewrite of the tree, and the names and scopes of the
 nodes it makes, are written outside every mark (`pauseTrail`), since
 the tree keeps the rewrite.
 
@@ -2067,7 +2087,7 @@ clears. Whether a binding has an alive flag is this fact; how emit
 spells and names the flag is printing. Whether an assignment drops the
 value it replaces is `SetOrder.drops_old`. Two kinds are facts the table already
 keeps: `temp` is `dropsTemp` and `header_copy` is `copiesHeader`, which
-typecheck records where it decides them (`recordTempDrop`,
+typecheck records where it decides them (`Facts.temp_drops`,
 `rejectHeaderCopy`). Bookkeeping that holds no value of the program is
 not storage: alive and `else` flags, a loop's index counter, a guarded
 match's arm number, labels, and renamed parameters.
@@ -2719,7 +2739,7 @@ written in the type's module or the API's, so only those are searched,
 and one type provides an API once in the program.
 
 **Dispatch.** Each method call records how it reaches its method,
-`sema.Dispatch` (`SemContext.recordDispatch`): `direct`, the method of
+`sema.Dispatch` (`Facts.dispatch`): `direct`, the method of
 self's type, which Zig finds on the value; `static`, through a
 `Witness`, a bound's compile-time parameter (`W_T_Shape`) or a
 conformance's struct (`__rig_impl_Shape_Square`); or `dynamic`, through
@@ -2835,7 +2855,7 @@ needs its own value is rejected rather than followed forever.
 A call is computed where it is first needed (`cteval.callAt`): where a
 type, a constant, or an enum value is resolved, `ctFoldBy` asks
 `ConstNames.ctCall`, which computes it; in a body, typecheck computes it
-(`Checker.synthCtCall`) and records it (`SemContext.ctCallOf`), which
+(`Checker.synthCtCall`) and records it (`Facts.ct_calls`), which
 `CheckedNames.ctCall`, emit, and the oracle read. Either way its
 arguments go through one check, `cteval.argValues`: each is held to its
 parameter's type, by the checker in a body (`Checker.checkCtValue`),
@@ -3120,7 +3140,7 @@ The table owns its slots' memory (`symbolContents` gives it glue,
 behind the table as a List's elements are, and `push` is a write call
 on it. Which slots are written is a fact: `Checker.requireAccess`, which
 every write of a place passes, records each table index on the written
-place's path (`recordTableWrite`), and emit reaches those with `slot` and
+place's path (`Facts.table_writes`), and emit reaches those with `slot` and
 every other slot with `constSlot` or `at` (`Facts.isTableWrite`), so a
 table held as it is written never grows for a read. It is not cloned
 (`deepCloneable`), and it is no field's default
@@ -3921,7 +3941,7 @@ and each desugars into forms the checker already walks:
 
 | Form | Desugars to |
 |---|---|
-| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write view written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would view nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeViewRead` first, and `print`, `?!x`, a read view's slot, a `?@` self, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
+| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `Facts.reads` marks, as for a `?Int` (`copiedThrough`); a write view written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would view nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeViewRead` first, and `print`, `?!x`, a read view's slot, a `?@` self, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
 | `x = w` with a `!T` of a `T` that copies | `x: T = w` |
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
@@ -4790,7 +4810,7 @@ Its readers, each taking the steps from `eachSetStep`:
 A new reader takes the steps from `eachSetStep` and the held storage
 from `setOrder`, and decides neither again.
 
-**The fact: `old_nones`** (`SemContext.recordOldNone`, read by emit as
+**The fact: `old_nones`** (`SemContext.recordOwnership`, read by emit as
 `Facts.oldIsNone`). An assignment to a field whose old value moves
 drops it through the slot, unless the ownership checker knows the
 field holds `none` there. Each var's flow keeps the optional fields
@@ -4874,7 +4894,7 @@ through a `!T` binding is recorded where typecheck decides it
 (`writesThrough`, with the binding's `rebound` flag for its Zig `var`),
 and whether an element read copies the element where its type is
 recorded and where a method call views it as self (`copiesElem`,
-`recordElemViewed`), and how a binding or a hidden storage holds a
+`Facts.elem_viewed`), and how a binding or a hidden storage holds a
 value that moves where the storage plan decides it (the var table's
 `drop`, `parts`, and `flag`, and `SetOrder.drops_old`; "Storage facts"). Emit
 makes no decision with a classifier the checkers also call: a unit test
