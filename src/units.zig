@@ -48,7 +48,7 @@ pub fn count(graph: *const modules.ModuleGraph, cores: usize) u16 {
 
 const Fun = struct { sema: *sema.SemContext, pos: u32, size: u32 };
 
-/// Records, in each module's `sema.split_units`, the unit that owns each
+/// Records, in the program table's `split_units`, the unit that owns each
 /// function it cuts. Nothing is recorded for one unit.
 pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, n: u16) !void {
     if (n <= 1) return;
@@ -60,10 +60,11 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, n: u16)
     }
     var total: u64 = 0;
     for (funs.items) |f| total += f.size;
+    const t = try graph.table();
     var at: u64 = 0;
     for (funs.items) |f| {
         const unit: u16 = @intCast(@min(n - 1, at * n / @max(total, 1)));
-        try f.sema.split_units.put(f.sema.allocator, f.pos, unit);
+        try t.put(.split_units, f.sema.module_id, f.pos, unit);
         at += f.size;
     }
 }
@@ -91,7 +92,7 @@ fn cuttable(s: *sema.SemContext, node: Sexp, root_top: bool) bool {
     const name = ir.get(node, .name);
     if (ir.get(node, .body) == .nil) return false;
     if (root_top and std.mem.eql(u8, sema.identAt(s.source, name) orelse "", "main")) return false;
-    if (s.inlined.contains(s.startOf(name))) return false;
+    if (s.decides(.inlined, s.startOf(name))) return false;
     const tparams = sema.tparamsOf(node);
     if (tparams == .list and tparams.items().len > 0) return false;
     const params = ir.get(node, .params);

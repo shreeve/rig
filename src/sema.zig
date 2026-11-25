@@ -56,9 +56,11 @@ pub const diag = @import("diag.zig");
 const resolve = @import("resolve.zig");
 const typecheck = @import("typecheck.zig");
 const storage = @import("storage.zig");
+const lowering = @import("lower.zig");
 const timing = @import("timing.zig");
 pub const cteval = @import("cteval.zig");
 const fastmap = @import("fastmap.zig");
+const program = @import("program.zig");
 /// The hash map of the fact tables and memos (`fastmap.zig`).
 pub const FastMap = fastmap.Map;
 
@@ -4474,21 +4476,11 @@ pub const SemContext = struct {
     /// An object that names its none (`none id == 0`) -> its none
     /// (`TypeResolver.resolveNominal`).
     named_nones: FastMap(SymbolId, NamedNone) = .empty,
-    /// The word-sized objects declared here that emit holds as one word,
-    /// a Zig `packed struct`, decided for the whole program after every
-    /// module is checked (`storage.decideWords`).
-    word_held: FastMap(SymbolId, void) = .empty,
     /// Each object declared here that holds a Cell, and whether it is a
     /// word-Cell object or which field keeps it from being one
     /// (`recordCellObjects`): read by the crossing walk (`cellObject`),
     /// its messages, and emit (`facts.isCellObject`).
     cell_objects: FastMap(SymbolId, CellVerdict) = .empty,
-    /// The plain enums declared here that an `exact` object holds, with
-    /// their tag's bytes (`enumBytes`): emit gives each its tag type,
-    /// `enum(u8)`, which a Zig `extern struct` needs where it takes no
-    /// inferred tag. Decided for the whole program after every module is
-    /// checked (`storage.decideExactEnums`).
-    exact_enums: FastMap(SymbolId, u8) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
     imported: FastMap(ForeignRef, SymbolId) = .empty,
@@ -4552,20 +4544,9 @@ pub const SemContext = struct {
     used: std.bit_set.Dynamic = .{},
     /// The values expression statements discard (`discardsValue`).
     discards: FastMap(u64, void) = .empty,
-    /// The functions and methods Zig inlines at every call, by where
-    /// their names are declared (`inlining.decide`).
-    inlined: FastMap(u32, void) = .empty,
-    /// The functions and methods that never return, by where their names
-    /// are declared: Zig's result for each is `noreturn`
-    /// (`returns.decide`).
-    never_returns: FastMap(u32, void) = .empty,
-    /// In a split build, the unit that owns each function and method it
-    /// cuts, by where their names are declared (`units.decide`).
-    split_units: FastMap(u32, u16) = .empty,
-    /// The functions and methods whose entry checks for work left
-    /// waiting, by where their names are declared: a set every cycle of
-    /// calls passes through (`inlining.decide`).
-    entry_checks: FastMap(u32, void) = .empty,
+    /// The decisions made once for the whole program, after every module
+    /// is checked (`program.Table`, `ModuleGraph.table`).
+    program: *const program.Table = &program.none,
     /// This module's functions and methods declared `inline fun`, by
     /// where their names are declared: their declarations (`resolve`).
     inline_decls: FastMap(u32, Sexp) = .empty,
@@ -4601,18 +4582,9 @@ pub const SemContext = struct {
     /// Those of other modules, found large at an instance made here;
     /// `inlining.decide` marks them in their own modules.
     large_foreign_frames: std.ArrayList(ForeignFrame) = .empty,
-    /// The plain enums of this module, by symbol, that the program calls
+    /// The plain enums, of any module, that this module calls
     /// `from_text` on (`recordTextTable`).
-    text_tables: FastMap(SymbolId, void) = .empty,
-    /// Those of other modules, called here.
-    foreign_text_tables: std.ArrayList(ForeignRef) = .empty,
-    /// The calls that may reach one of them, by node (`inlining.decide`).
-    inlined_calls: FastMap(NodeKey, void) = .empty,
-    /// The calls whose callee a task may run on a dense stack: every
-    /// function it can reach is known, none is recursive, and the frames
-    /// add up to less than `dense_depth_limit` (`inlining.decide`); each
-    /// with that depth, the most stack the call may take, in bytes.
-    dense_calls: FastMap(NodeKey, u64) = .empty,
+    text_tables: std.ArrayList(ForeignRef) = .empty,
     /// The node `Question`s decided so far, each once.
     decided: *Decided,
     /// Facts of types worked out on their first ask (`TypeMemo`).
@@ -4758,9 +4730,7 @@ pub const SemContext = struct {
         self.field_moves.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
         self.named_nones.deinit(self.allocator);
-        self.word_held.deinit(self.allocator);
         self.cell_objects.deinit(self.allocator);
-        self.exact_enums.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
         self.generic_api_calls.deinit(self.allocator);
@@ -4795,10 +4765,6 @@ pub const SemContext = struct {
         self.vars.deinit(self.allocator);
         self.used.deinit(self.allocator);
         self.discards.deinit(self.allocator);
-        self.inlined.deinit(self.allocator);
-        self.never_returns.deinit(self.allocator);
-        self.split_units.deinit(self.allocator);
-        self.entry_checks.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);
         self.inline_decls.deinit(self.allocator);
         self.inline_frames.deinit(self.allocator);
@@ -4811,9 +4777,6 @@ pub const SemContext = struct {
         self.large_frames.deinit(self.allocator);
         self.large_foreign_frames.deinit(self.allocator);
         self.text_tables.deinit(self.allocator);
-        self.foreign_text_tables.deinit(self.allocator);
-        self.inlined_calls.deinit(self.allocator);
-        self.dense_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
         self.proven_if.deinit(self.allocator);
@@ -5511,18 +5474,21 @@ pub const SemContext = struct {
     }
 
     /// The program calls `E.from_text` on plain enum `decl`, so its
-    /// module emits `E`'s table of names (`hasTextTable`). One of
-    /// another module is marked there once every module is checked
-    /// (`modules.ModuleGraph.markTextTables`).
+    /// module emits `E`'s table of names, marked once every module is
+    /// checked (`modules.ModuleGraph.decide`).
     pub fn recordTextTable(self: *SemContext, decl: NominalDecl) !void {
-        if (decl.module_id) |m| if (m != self.module_id) {
-            return self.foreign_text_tables.append(self.allocator, .{ .module_id = m, .sym = decl.sym });
-        };
-        try self.text_tables.put(self.allocator, decl.sym, {});
+        try self.text_tables.append(self.allocator, .{ .module_id = decl.module_id orelse self.module_id, .sym = decl.sym });
     }
 
-    pub fn hasTextTable(self: *const SemContext, sym: SymbolId) bool {
-        return self.text_tables.contains(sym);
+    /// Whether the program table records decision `d` at `at`, a name's
+    /// position, a node, or a symbol of this module.
+    pub fn decides(self: *const SemContext, comptime d: program.Table.Decision, at: u32) bool {
+        return self.program.has(d, self.module_id, at);
+    }
+
+    /// The value the program table records for decision `d` at `at`.
+    pub fn decisionOf(self: *const SemContext, comptime d: program.Table.Decision, at: u32) ?program.Table.Value(d) {
+        return self.program.get(d, self.module_id, at);
     }
 
     /// `node`, an optional field or element, could not be taken with
@@ -6711,6 +6677,9 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     t0 = timing.start(opts.timing);
     try storage.plan(&ctx, tree);
     timing.stop(opts.timing, .storage, t0);
+    // A self-checking build lowers each body and checks its LIR against
+    // the var table the plan made.
+    if (lowering.enabled) try lowering.shadow(&ctx, tree);
     try indexAllMembers(&ctx);
     if (!ctx.hasErrors()) try recordTypeWitnesses(&ctx);
     if (!ctx.hasErrors()) try recordPlainFacts(&ctx);
