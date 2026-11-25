@@ -618,9 +618,10 @@ pub const Emitter = struct {
     /// The value being written inside the `rig.pack` of the optional it
     /// becomes (`emitLift`), or written where it is held as itself.
     lifting: Sexp = .nil,
-    /// The argument whose temporary holds it as itself, which is lifted
-    /// where the call reads it (`hoist`), checked by `checkCoerced`.
-    lift_held: Sexp = .nil,
+    /// A value whose lift no body's LIR records (`checkCoerced`): an
+    /// argument whose temporary holds it as itself, lifted where the call
+    /// reads it (`hoist`), or a default's (`emitDefault`).
+    lift_outside: Sexp = .nil,
     /// Where each line of `source` starts, for the place of a failure's
     /// site (`markSite`), made at the first.
     line_starts: std.ArrayList(u32) = .empty,
@@ -6253,7 +6254,7 @@ pub const Emitter = struct {
         if (sameNode(sexp, self.durationing)) have.insert(.duration);
         if (sameNode(sexp, self.erasing_box)) have.insert(.erase);
         if (sameNode(sexp, self.failing)) have.insert(.fail);
-        if (sameNode(sexp, self.lifting) and !sameNode(sexp, self.lift_held)) have.insert(.lift);
+        if (sameNode(sexp, self.lifting) and !sameNode(sexp, self.lift_outside)) have.insert(.lift);
         if (sameNode(sexp, self.widening)) have.insert(.widen);
         if (sameNode(sexp, self.viewing)) have.insert(.view);
         if (deref) have.insert(.deref);
@@ -10272,9 +10273,10 @@ pub const Emitter = struct {
         // its own module's types) is packed into each level of `target`
         // that goes through the helpers.
         if (!sameNode(e, self.lifting)) if (decl.liftOf(e)) |lift| {
-            const saved = self.lifting;
-            defer self.lifting = saved;
+            const saved = .{ self.lifting, self.lift_outside };
+            defer self.lifting, self.lift_outside = saved;
             self.lifting = e;
+            self.lift_outside = e;
             const levels = if (lift.from == decl.types.none_id) 1 else optionalDepth(decl.types, lift.into) -| optionalDepth(decl.types, lift.from);
             var into = target;
             while (self.facts.types.get(into) == .fallible) into = self.facts.types.get(into).fallible.ok;
@@ -10654,10 +10656,10 @@ pub const Emitter = struct {
         {
             // The temporary holds the value as itself; where the call reads
             // it, it becomes the optional it goes into (`emitLift`).
-            const saved = .{ self.lifting, self.lift_held };
-            defer self.lifting, self.lift_held = saved;
+            const saved = .{ self.lifting, self.lift_outside };
+            defer self.lifting, self.lift_outside = saved;
             if (shown == ty) self.lifting = h.node;
-            if (shown == ty) self.lift_held = h.node;
+            if (shown == ty) self.lift_outside = h.node;
             if (fields) try self.emitStored(h.node) else if (self.facts.viewsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         }
         try self.w.writeAll(";\n");
