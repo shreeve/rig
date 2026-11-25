@@ -43,6 +43,7 @@ const SemContext = sema.SemContext;
 
 pub const TypeId = sema.TypeId;
 pub const SymbolId = sema.SymbolId;
+pub const SymbolRef = sema.SymbolRef;
 pub const MemberCompares = sema.MemberCompares;
 
 pub const ThroughWrite = storage.ThroughWrite;
@@ -144,23 +145,23 @@ pub const Facts = struct {
     zig_file: []const u8,
     /// The program's root module.
     is_root: bool,
-    cell_sym_id: SymbolId,
-    list_sym_id: SymbolId,
-    table_sym_id: SymbolId,
-    signal_sym_id: SymbolId,
-    actor_sym_id: SymbolId,
-    chan_sym_id: SymbolId,
-    frozen_sym_id: SymbolId,
-    task_sym_id: SymbolId,
-    tasks_sym_id: SymbolId,
-    box_sym_id: SymbolId,
-    endian_sym_id: SymbolId,
-    order_sym_id: SymbolId,
-    printer_sym_id: SymbolId,
-    hasher_sym_id: SymbolId,
-    arch_sym_id: SymbolId,
-    os_sym_id: SymbolId,
-    feature_sym_id: SymbolId,
+    cell_sym_id: sema.SymbolRef,
+    list_sym_id: sema.SymbolRef,
+    table_sym_id: sema.SymbolRef,
+    signal_sym_id: sema.SymbolRef,
+    actor_sym_id: sema.SymbolRef,
+    chan_sym_id: sema.SymbolRef,
+    frozen_sym_id: sema.SymbolRef,
+    task_sym_id: sema.SymbolRef,
+    tasks_sym_id: sema.SymbolRef,
+    box_sym_id: sema.SymbolRef,
+    endian_sym_id: sema.SymbolRef,
+    order_sym_id: sema.SymbolRef,
+    printer_sym_id: sema.SymbolRef,
+    hasher_sym_id: sema.SymbolRef,
+    arch_sym_id: sema.SymbolRef,
+    os_sym_id: sema.SymbolRef,
+    feature_sym_id: sema.SymbolRef,
 
     pub fn of(ctx: *const SemContext) Facts {
         return .{
@@ -171,28 +172,37 @@ pub const Facts = struct {
             .name = ctx.name,
             .zig_file = ctx.zig_file,
             .is_root = ctx.is_root,
-            .cell_sym_id = ctx.cell_sym_id,
-            .list_sym_id = ctx.list_sym_id,
-            .table_sym_id = ctx.table_sym_id,
-            .signal_sym_id = ctx.signal_sym_id,
-            .actor_sym_id = ctx.actor_sym_id,
-            .chan_sym_id = ctx.chan_sym_id,
-            .frozen_sym_id = ctx.frozen_sym_id,
-            .task_sym_id = ctx.task_sym_id,
-            .tasks_sym_id = ctx.tasks_sym_id,
-            .box_sym_id = ctx.box_sym_id,
-            .endian_sym_id = ctx.endian_sym_id,
-            .order_sym_id = ctx.order_sym_id,
-            .printer_sym_id = ctx.printer_sym_id,
-            .hasher_sym_id = ctx.hasher_sym_id,
-            .arch_sym_id = ctx.arch_sym_id,
-            .os_sym_id = ctx.os_sym_id,
-            .feature_sym_id = ctx.feature_sym_id,
+            .cell_sym_id = ctx.builtins.cell,
+            .list_sym_id = ctx.builtins.list,
+            .table_sym_id = ctx.builtins.table,
+            .signal_sym_id = ctx.builtins.signal,
+            .actor_sym_id = ctx.builtins.actor,
+            .chan_sym_id = ctx.builtins.chan,
+            .frozen_sym_id = ctx.builtins.frozen,
+            .task_sym_id = ctx.builtins.task,
+            .tasks_sym_id = ctx.builtins.tasks,
+            .box_sym_id = ctx.builtins.box,
+            .endian_sym_id = ctx.builtins.endian,
+            .order_sym_id = ctx.builtins.order,
+            .printer_sym_id = ctx.builtins.printer,
+            .hasher_sym_id = ctx.builtins.hasher,
+            .arch_sym_id = ctx.builtins.arch,
+            .os_sym_id = ctx.builtins.os,
+            .feature_sym_id = ctx.builtins.feature,
         };
     }
 
     fn c(f: Facts) *const SemContext {
         return @ptrCast(@alignCast(f.sema_context));
+    }
+
+    /// The program-wide name of this module's symbol `sym` (`SemContext.ref`).
+    pub fn refOf(f: Facts, sym: SymbolId) sema.SymbolRef {
+        return f.c().ref(sym);
+    }
+    /// Whether `r` names a symbol of this module's table (`SemContext.owns`).
+    pub fn owns(f: Facts, r: sema.SymbolRef) bool {
+        return f.c().owns(r);
     }
 
     /// Whether `ty` is a bare API object, `{Shape}`, which only a type
@@ -872,10 +882,10 @@ pub const Facts = struct {
         return sema.containsTypeVar(f.c(), ty);
     }
     pub fn isBuiltinEnum(f: Facts, sym: SymbolId) bool {
-        return sema.isBuiltinEnum(f.c(), sym);
+        return sema.isBuiltinEnum(f.c(), f.c().ref(sym));
     }
     pub fn isBuiltinGeneric(f: Facts, sym: SymbolId) bool {
-        return sema.isBuiltinGeneric(f.c(), sym);
+        return sema.isBuiltinGeneric(f.c(), f.c().ref(sym));
     }
     pub fn lookupDataFieldConst(f: Facts, self_ty: TypeId, name: []const u8) ?Field {
         return sema.lookupDataFieldConst(f.c(), self_ty, name);
@@ -1029,7 +1039,7 @@ pub const Facts = struct {
     pub fn wordAlignedField(f: Facts, ty: TypeId) bool {
         const d = sema.nominalDecl(f.c(), ty) orelse return false;
         return switch (f.c().types.get(ty)) {
-            .nominal, .imported_nominal => d.ctx.decides(.word_held, d.sym) and sema.wordBitsOfSym(d.ctx, d.sym) == 64,
+            .nominal => d.ctx.decides(.word_held, d.sym) and sema.wordBitsOfSym(d.ctx, d.sym) == 64,
             else => false,
         };
     }

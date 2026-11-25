@@ -355,11 +355,11 @@ pub fn sameProvider(ctx: *SemContext, x: TypeId, y: TypeId) Error!bool {
     return gx == gy;
 }
 
-pub fn genericSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
+pub fn genericSym(ctx: *const SemContext, ty: TypeId) ?sema.SymbolRef {
     return switch (ctx.types.get(ty)) {
         .parameterized_nominal => |pn| pn.sym,
         // Every `Slot[n]` is one type constructor's.
-        .slot => ctx.slot_sym_id,
+        .slot => ctx.builtins.slot,
         else => null,
     };
 }
@@ -369,8 +369,8 @@ pub fn genericSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
 /// there a header says the rest. False after a diagnostic.
 pub fn checkAddHome(ctx: *SemContext, conf: sema.Conformance, tname: []const u8, api_name: []const u8) Error!bool {
     const own_type = switch (ctx.types.get(conf.ty)) {
-        .nominal => |s| !sema.isProxy(ctx.symbols.items[s]) and ctx.symbols.items[s].decl_pos != sema.builtin_decl_pos,
-        .parameterized_nominal => |pn| !sema.isProxy(ctx.symbols.items[pn.sym]) and ctx.symbols.items[pn.sym].decl_pos != sema.builtin_decl_pos,
+        .nominal => |s| ctx.owns(s) and !sema.isProxy(ctx.symbols.items[s.sym]) and ctx.symbols.items[s.sym].decl_pos != sema.builtin_decl_pos,
+        .parameterized_nominal => |pn| !sema.isProxy(sema.symbolAt(ctx, pn.sym).*) and sema.symbolAt(ctx, pn.sym).decl_pos != sema.builtin_decl_pos,
         else => false,
     };
     if (own_type) {
@@ -504,16 +504,16 @@ pub fn checkMethodMeets(ctx: *SemContext, conf: sema.Conformance, tname: []const
         else => &.{},
     };
     for (want.ct_params, got.ct_params, 0..) |wc, gc, i| {
-        const gsym: ?sema.Symbol = if (i < got.ct_syms.len and got.ct_syms[i] != sema.symbol_invalid) ctx.symbols.items[got.ct_syms[i]] else null;
+        const gsym: ?sema.Symbol = if (i < got.ct_syms.len and got.ct_syms[i].sym != sema.symbol_invalid) sema.symbolAt(ctx, got.ct_syms[i]).* else null;
         const gname = if (gsym) |s| s.name else "?";
         if (wc != gc) {
             const as: []const u8 = if (ctx.types.get(gc) == .type_var) "a type" else try a.print("`{s}`", .{try sema.formatType(ctx, gc)});
             try ctx.err(have.decl_pos, "`{s}` takes `{s}` as {s}, but `{s}` declares `{s}`; a method meets its API with the same compile-time parameters: write `{s}`", .{ owner, gname, as, aname, signatureText(src, pos, true), header });
             return;
         }
-        if (ctx.types.get(gc) != .type_var or i >= api_ct_syms.len or api_ct_syms[i] == sema.symbol_invalid) continue;
+        if (ctx.types.get(gc) != .type_var or i >= api_ct_syms.len or api_ct_syms[i].sym == sema.symbol_invalid) continue;
         const g = gsym orelse continue;
-        if (try sameBounds(w.home, w.home.symbols.items[api_ct_syms[i]], ctx, g)) continue;
+        if (try sameBounds(w.home, sema.symbolAt(w.home, api_ct_syms[i]).*, ctx, g)) continue;
         const written = try sema.formatBounds(ctx, a, g, null);
         const by: []const u8 = if (written.len == 0) "nothing" else try a.print("`{s}`", .{written});
         try ctx.err(have.decl_pos, "`{s}` bounds `{s}` by {s}, but `{s}` declares `{s}`; a method meets its API with the same compile-time parameters: write `{s}`", .{ owner, gname, by, aname, signatureText(src, pos, true), header });
@@ -665,8 +665,8 @@ pub fn apiMethodType(ctx: *SemContext, w: ApiMethod, conf: sema.Conformance, hav
     try params.append(a, self_param);
     try args.append(a, conf.ty);
     if (f.ct_syms.len == got.ct_syms.len) for (f.ct_syms, got.ct_syms, 0..) |p, g, i| {
-        if (p == sema.symbol_invalid or g == sema.symbol_invalid) continue;
-        try params.append(a, p);
+        if (p.sym == sema.symbol_invalid or g.sym == sema.symbol_invalid) continue;
+        try params.append(a, ctx.localSym(p));
         const is_type = ctx.types.get(got.ct_params[i]) == .type_var;
         try args.append(a, try ctx.intern(if (is_type) .{ .type_var = g } else .{ .ct_param = g }));
     };

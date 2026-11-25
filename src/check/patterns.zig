@@ -1126,7 +1126,7 @@ pub fn matchReach(self: *Checker, mode: tc.MatchMode) Error!sema.MatchReach {
             // A value made here, an enum, an error, an integer, or a
             // Bool, is the match's whole.
             if (ViewCheck.hands(self, subject).kind == .made) if (self.ctx.typeOf(subject)) |ty| switch (self.ctx.types.get(ty)) {
-                .nominal, .parameterized_nominal, .imported_nominal, .any_error, .int, .bool, .symbol, .slot => break :blk .read_own,
+                .nominal, .parameterized_nominal, .any_error, .int, .bool, .symbol, .slot => break :blk .read_own,
                 else => {},
             };
             // Anything else is read.

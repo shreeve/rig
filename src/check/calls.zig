@@ -256,7 +256,7 @@ pub fn namedType(self: *Checker, obj: Sexp) Error!?Checker.NamedType {
         const target = (try instTarget(self, ir.get(obj, .object))) orelse return null;
         // `Simd[T, n]` and `Slot[n]` are built-in types, not nominal
         // ones (`builtinTypeNamed`).
-        if (target != .generic or target.generic.id == self.ctx.simd_sym_id or target.generic.id == self.ctx.slot_sym_id) return null;
+        if (target != .generic or self.ctx.ref(target.generic.id) == self.ctx.builtins.simd or self.ctx.ref(target.generic.id) == self.ctx.builtins.slot) return null;
         var nt = target.generic;
         const ty = try typeInstance(self, obj, nt);
         const arity = if (nt.sym.type_params) |tps| tps.len else 0;
@@ -294,12 +294,11 @@ pub fn namedType(self: *Checker, obj: Sexp) Error!?Checker.NamedType {
 /// other type.
 pub fn aliasNamedType(self: *Checker, ty: TypeId) ?Checker.NamedType {
     return switch (self.ctx.types.get(ty)) {
-        .nominal => |id| .{ .id = id, .sym = self.ctx.symbols.items[id] },
-        .imported_nominal => |in| blk: {
-            const foreign = self.ctx.foreign_semas.get(in.module_id) orelse break :blk null;
-            break :blk .{ .id = in.sym_id, .sym = foreign.symbols.items[in.sym_id], .foreign = .{ .ctx = foreign, .module_id = in.module_id } };
+        .nominal => |r| if (self.ctx.owns(r)) .{ .id = r.sym, .sym = self.ctx.symbols.items[r.sym] } else blk: {
+            const foreign = self.ctx.foreign_semas.get(r.module_id) orelse break :blk null;
+            break :blk .{ .id = r.sym, .sym = foreign.symbols.items[r.sym], .foreign = .{ .ctx = foreign, .module_id = r.module_id } };
         },
-        .parameterized_nominal => |pn| .{ .id = pn.sym, .sym = self.ctx.symbols.items[pn.sym], .args = pn.args },
+        .parameterized_nominal => |pn| .{ .id = self.ctx.localSym(pn.sym), .sym = sema.symbolAt(self.ctx, pn.sym).*, .args = pn.args },
         else => null,
     };
 }
@@ -328,8 +327,8 @@ pub fn declSource(self: *Checker, id: SymbolId) []const u8 {
 
 /// The type a (non-generic) named type denotes.
 pub fn namedTypeValue(self: *Checker, nt: Checker.NamedType) Error!TypeId {
-    if (nt.foreign) |fo| return self.ctx.intern(.{ .imported_nominal = .{ .module_id = fo.module_id, .sym_id = nt.id } });
-    return self.ctx.intern(.{ .nominal = nt.id });
+    if (nt.foreign) |fo| return self.ctx.intern(.{ .nominal = .{ .module_id = fo.module_id, .sym = nt.id } });
+    return self.ctx.intern(.{ .nominal = self.ctx.ref(nt.id) });
 }
 
 /// `Type.variant`: a variant without a payload.
@@ -554,7 +553,7 @@ pub fn ctCallInBody(self: *Checker, e: Sexp, target: sema.cteval.Target, f_there
     var args: std.ArrayList(TypeId) = .empty;
     var ok = true;
     for (sema.cteval.argsOf(e), f.ct_params, 0..) |g, pty, i| {
-        const sym = if (i < f.ct_syms.len) f.ct_syms[i] else sema.symbol_invalid;
+        const sym = if (i < f.ct_syms.len) f.ct_syms[i].sym else sema.symbol_invalid;
         const sized = sym != sema.symbol_invalid and self.ctx.types.get(pty) == .int and sema.usesParams(self.ctx, f.returns, &.{sym});
         if (!sized) {
             try ViewCheck.checkExpr(self, g, pty);
@@ -584,7 +583,7 @@ pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId
         const kw = given[given.len - 1];
         given = given[0 .. given.len - 1];
         const key = self.text(ir.Kwarg.name(kw));
-        if (nt.id != self.ctx.list_sym_id or !std.mem.eql(u8, key, "inline")) {
+        if (self.ctx.ref(nt.id) != self.ctx.builtins.list or !std.mem.eql(u8, key, "inline")) {
             try self.errAt(kw, "`{s}:` names no argument of `{s}`; only a List takes one, `List[T, inline: n]`", .{ key, nt.sym.name });
             return self.t().invalid_id;
         }
@@ -598,7 +597,7 @@ pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId
     const args = try self.ctx.arena.allocator().alloc(TypeId, given.len);
     var bad = false;
     // What a task gives may fail: `Tasks[Int!]()`.
-    const gives = nt.id == self.ctx.task_sym_id or nt.id == self.ctx.tasks_sym_id;
+    const gives = self.ctx.ref(nt.id) == self.ctx.builtins.task or self.ctx.ref(nt.id) == self.ctx.builtins.tasks;
     for (given, args, params, 0..) |g, *a, tp, i| {
         a.* = if (self.ctx.symbols.items[tp].kind == .param)
             (try StdFormCheck.ctIntArg(self, g, tp, i, nt.sym.name)) orelse self.t().invalid_id
@@ -622,7 +621,7 @@ pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId
     if (bad) return self.t().invalid_id;
     var ty = try ViewCheck.instantiate(self, nt.id, args, self.startOf(e));
     if (inline_len > 0 and !self.isPoison(ty))
-        ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = nt.id, .args = args, .inline_len = inline_len } });
+        ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(nt.id), .args = args, .inline_len = inline_len } });
     try self.ctx.record(.instances, e, .{ .type = ty });
     return ty;
 }
@@ -755,17 +754,17 @@ pub fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
 pub fn constructInstance(self: *Checker, call: Sexp, e: Sexp, nt: Checker.NamedType, args: []const Sexp) Error!TypeId {
     const ty = try typeInstance(self, e, nt);
     if (self.isPoison(ty)) return skipCall(self, args);
-    if (nt.id == self.ctx.list_sym_id) {
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.list) {
         try BuiltinCheck.checkListConstruction(self, call, ty);
         return ty;
     }
-    if (nt.id == self.ctx.table_sym_id) {
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.table) {
         try StdFormCheck.checkTableConstruction(self, call);
         return ty;
     }
-    if (nt.id == self.ctx.signal_sym_id and !CompatCheck.sameNode(call, self.expect.shared_operand)) return badCall(self, args, e, Checker.stack_signal, .{});
-    if (nt.id == self.ctx.chan_sym_id) return StdFormCheck.chanMake(self, call, e, ty, args);
-    if (nt.id == self.ctx.frozen_sym_id) {
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.signal and !CompatCheck.sameNode(call, self.expect.shared_operand)) return badCall(self, args, e, Checker.stack_signal, .{});
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.chan) return StdFormCheck.chanMake(self, call, e, ty, args);
+    if (self.ctx.ref(nt.id) == self.ctx.builtins.frozen) {
         const made = try StdFormCheck.frozenMake(self, call, e, args);
         if (!self.isPoison(made) and made != ty) return badCall(self, args, e, "`{s}` freezes a `{s}`", .{ try self.tyName(ty), try self.tyName(made) });
         return made;
@@ -962,7 +961,7 @@ pub fn hashFix(self: *Checker, e: Sexp, obj_ty: TypeId, idx_ty: TypeId) Error!bo
         .parameterized_nominal => |pn| pn,
         else => return false,
     };
-    const sym = self.ctx.symbols.items[pn.sym];
+    const sym = self.ctx.symbols.items[self.ctx.localSym(pn.sym)];
     const is_map = std.mem.eql(u8, sym.name, "Map") or std.mem.eql(u8, sym.name, "HashMap");
     const is_set = std.mem.eql(u8, sym.name, "Set") or std.mem.eql(u8, sym.name, "HashSet");
     if (!is_map and !is_set) return false;
@@ -1391,7 +1390,7 @@ pub fn taskOf(self: *Checker, node: Sexp, ty: TypeId) Error!TypeId {
     // a `!` marks the call, making no write view.
     if (self.ctx.isActorCall(node)) {
         self.ctx.makes_tasks = true;
-        return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+        return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.task, .args = try self.ctx.dupeIds(&.{ty}) } });
     }
     const target = self.ctx.callTargetOf(node) orelse .none;
     // A call through an API reaches a Rig method through its witness.
@@ -1470,7 +1469,7 @@ pub fn taskOf(self: *Checker, node: Sexp, ty: TypeId) Error!TypeId {
         try StdFormCheck.requireTask(self, result, .moves, self.startOf(callee), "is given back by a task", false);
     }
     self.ctx.makes_tasks = true;
-    return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+    return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.task, .args = try self.ctx.dupeIds(&.{ty}) } });
 }
 
 /// Call a value: a function-typed binding, a closure, or an owned
@@ -1608,7 +1607,7 @@ pub fn hasVariantNames(self: *Checker, ty: TypeId) bool {
 /// with no integer Rig fixes.
 pub fn isBuiltinEnumTy(self: *Checker, ty: TypeId) bool {
     const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, ty)) orelse return false;
-    return sema.isBuiltinEnum(decl.ctx, decl.sym);
+    return sema.isBuiltinEnum(decl.ctx, decl.ctx.ref(decl.sym));
 }
 
 /// The value of a variant named through its type, `Status.ok` or
@@ -2714,7 +2713,7 @@ pub fn selfArgs(self: *Checker, recv_ty: TypeId) TypeSubst {
         .parameterized_nominal => |pn| pn,
         else => return .empty,
     };
-    return .{ .params = self.ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args };
+    return .{ .params = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].type_params orelse &.{}, .args = pn.args };
 }
 
 /// The signature a call of `f` uses: `f` itself, or for a generic
@@ -3331,9 +3330,9 @@ pub fn valueBindingFits(self: *Checker, param: SymbolId, b: Checker.Bound, calle
             return false;
         },
         .ct_param => |sym| {
-            const ty = self.ctx.symbols.items[sym].ty;
+            const ty = self.ctx.symbols.items[self.ctx.localSym(sym)].ty;
             if (!self.isPoison(ty) and ty != p.ty) {
-                try self.err(pos, "{s} gives `{s}` of `{s}` the compile-time `{s}` `{s}`; `{s}` is a `{s}`", .{ from, p.name, callee, try self.tyName(ty), self.ctx.symbols.items[sym].name, p.name, try self.tyName(p.ty) });
+                try self.err(pos, "{s} gives `{s}` of `{s}` the compile-time `{s}` `{s}`; `{s}` is a `{s}`", .{ from, p.name, callee, try self.tyName(ty), self.ctx.symbols.items[self.ctx.localSym(sym)].name, p.name, try self.tyName(p.ty) });
                 return false;
             }
         },
@@ -3370,7 +3369,7 @@ pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own
         .type_var => |tv| tv,
         else => return,
     };
-    const i = std.mem.findScalar(SymbolId, own, tv) orelse return;
+    const i = std.mem.findScalar(SymbolId, own, self.ctx.localSym(tv)) orelse return;
     const b = inf.bound[i];
     if (b.ty == sema.type_invalid) {
         // `id(none)` and `nothing()` give some optional.
@@ -3387,7 +3386,7 @@ pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own
     if (path == .propagate_none) return;
     if (b.wanted == sema.type_invalid) return;
     const a = self.ctx.arena.allocator();
-    const took = try a.print("`{s}` takes `{s} = {s}` from argument {d}", .{ callee, self.ctx.symbols.items[tv].name, try self.tyName(b.ty), b.arg });
+    const took = try a.print("`{s}` takes `{s} = {s}` from argument {d}", .{ callee, self.ctx.symbols.items[self.ctx.localSym(tv)].name, try self.tyName(b.ty), b.arg });
     if (sema.isNumeric(self.ctx, b.ty) and sema.isNumeric(self.ctx, b.wanted)) {
         try self.result_hints.put(self.ctx.allocator, id, try a.print("{s}; convert its result with `{s}(...)`", .{ took, try self.tyName(b.wanted) }));
         return;
@@ -3435,7 +3434,7 @@ pub fn inferHint(self: *Checker, f: FunctionType, own: []const SymbolId, types: 
     if (try bracketHint(self, types, index, null)) |brackets| return a.print("give `{s}` in brackets: `{s}[{s}]{s}`", .{ pname, callee, brackets, parens });
     // The result with each known type argument in place.
     const args = try a.alloc(TypeId, own.len);
-    for (own, types, args) |p, ty, *arg| arg.* = if (ty == sema.type_invalid) try self.ctx.intern(.{ .type_var = p }) else ty;
+    for (own, types, args) |p, ty, *arg| arg.* = if (ty == sema.type_invalid) try self.ctx.intern(.{ .type_var = self.ctx.ref(p) }) else ty;
     const shown = try sema.substituteType(self.ctx, f.returns, .{ .params = own, .args = args });
     const holds = (try sema.substituteType(self.ctx, f.returns, .{ .params = own[index .. index + 1], .args = &.{self.t().void_id} })) != f.returns;
     if (holds) return a.print("give the type where the value goes: `x: {s} = {s}{s}`, with a type in place of `{s}`", .{ try self.tyName(shown), callee, parens, pname });
@@ -3456,7 +3455,7 @@ pub fn bindArg(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
     const at = self.ctx.types.get(actual);
     switch (self.ctx.types.get(pattern)) {
         .type_var => |tv| {
-            const i = std.mem.findScalar(SymbolId, inf.own, tv) orelse return;
+            const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(tv)) orelse return;
             const value = CompatCheck.readValue(self.ctx, actual);
             switch (self.ctx.types.get(value)) {
                 .none_literal => {
@@ -3547,7 +3546,7 @@ pub fn bindArg(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
         // the argument's type holds there: an array length, or a
         // generic type's value argument.
         .ct_param => |p| {
-            const i = std.mem.findScalar(SymbolId, inf.own, p) orelse return;
+            const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(p)) orelse return;
             if (at != .ct_value and at != .ct_param) return;
             const b = &inf.bound[i];
             if (b.ty == sema.type_invalid) {
@@ -3611,7 +3610,7 @@ pub fn bindArg(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
 pub fn reachedForView(self: *Checker, pattern: TypeId, actual: TypeId) Error!TypeId {
     switch (self.ctx.types.get(pattern)) {
         .type_var => |tv| {
-            const apis = self.ctx.symbols.items[tv].user_apis;
+            const apis = self.ctx.symbols.items[self.ctx.localSym(tv)].user_apis;
             if (apis.len == 0) return actual;
             const reached = GenericCheck.reachedValue(self.ctx, actual);
             if (reached == actual) return actual;
@@ -3641,7 +3640,7 @@ pub fn bindReturns(self: *Checker, inf: *Checker.Inference, pattern: TypeId, act
         .type_var => |tv| tv,
         else => return bindArg(self, inf, pattern, actual, arg, depth),
     };
-    const i = std.mem.findScalar(SymbolId, inf.own, tv) orelse return;
+    const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(tv)) orelse return;
     const b = &inf.bound[i];
     if (b.ty == sema.type_invalid) {
         b.ty = a;
@@ -3678,7 +3677,7 @@ pub fn failsBySet(self: *Checker, f: sema.FunctionType) bool {
 /// or brackets.
 pub fn bindSet(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual: TypeId, arg: u32) Error!void {
     if (!sema.isSetParam(self.ctx, pattern) or self.isPoison(actual)) return;
-    const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.types.get(pattern).type_var) orelse return;
+    const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(self.ctx.types.get(pattern).type_var)) orelse return;
     if (inf.lambda) {
         if (i < 64) inf.lambda_sets |= @as(u64, 1) << @intCast(i);
         inf.lambda_arg = arg;
@@ -3699,7 +3698,7 @@ pub fn bindSet(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
 /// The instance of generic type `sym` that an argument of type `at`
 /// is, or that the handle it is gives a view of: `*Cell[T]` where
 /// `!Cell[T]` goes.
-pub fn sameGeneric(self: *Checker, at: sema.Type, sym: SymbolId) ?sema.ParamNominal {
+pub fn sameGeneric(self: *Checker, at: sema.Type, sym: sema.SymbolRef) ?sema.ParamNominal {
     switch (at) {
         .parameterized_nominal => |p| if (p.sym == sym) return p,
         .shared => |inner| switch (self.ctx.types.get(inner)) {
@@ -3842,11 +3841,11 @@ pub fn mentionsCtLocal(self: *Checker, e: Sexp) bool {
 pub fn construct(self: *Checker, sym_id: SymbolId, args: []const Sexp, pos: u32, subst: TypeSubst, foreign: ?Checker.ForeignFields) Error!TypeId {
     const sym = if (foreign) |fo| fo.ctx.symbols.items[sym_id] else self.ctx.symbols.items[sym_id];
     const result = if (foreign) |fo|
-        try self.ctx.intern(.{ .imported_nominal = .{ .module_id = fo.module_id, .sym_id = sym_id } })
+        try self.ctx.intern(.{ .nominal = .{ .module_id = fo.module_id, .sym = sym_id } })
     else if (subst.isEmpty())
-        try self.ctx.intern(.{ .nominal = sym_id })
+        try self.ctx.intern(.{ .nominal = self.ctx.ref(sym_id) })
     else
-        try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = subst.args } });
+        try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(sym_id), .args = subst.args } });
     const fields = sym.fields orelse return badCall(self, args, pos, "opaque type `{s}` cannot be constructed", .{sym.name});
     const is_enum = for (fields) |f| {
         if (f.is_variant) break true;
@@ -4148,8 +4147,8 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
     if (ViewCheck.isSelfSigil(self, obj)) {
         const place = ir.get(obj, .operand);
         if ((try moduleNamed(self, place)) != null or (try namedType(self, place)) != null or
-            (try StdFormCheck.builtinTypeNamed(self, place, self.ctx.simd_sym_id, .simd)) != null or
-            (try StdFormCheck.builtinTypeNamed(self, place, self.ctx.slot_sym_id, .slot)) != null)
+            (try StdFormCheck.builtinTypeNamed(self, place, self.ctx.localSym(self.ctx.builtins.simd), .simd)) != null or
+            (try StdFormCheck.builtinTypeNamed(self, place, self.ctx.localSym(self.ctx.builtins.slot), .slot)) != null)
         {
             if (obj.isKind(.read)) {
                 try self.errAt(obj, "`{s}` is called through its type or module and has no `self`; to make a view of the call's result, write `?({s})`", .{ method, try FlowCheck.callWith(self, obj, sourceText(self, place), method) });
@@ -4167,13 +4166,13 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
         if (ct == null) if (try StdFormCheck.stdForm(self, id, method, pos, args)) |ty| return StdFormCheck.misreachedWrite(self, misreached, obj, method, ty);
         return StdFormCheck.misreachedWrite(self, misreached, obj, method, try ViewCheck.crossModuleCall(self, id, method, pos, args, ct));
     }
-    if (try StdFormCheck.builtinTypeNamed(self, obj, self.ctx.simd_sym_id, .simd)) |vt| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.simdTypeCall(self, callee, vt, method, pos, args, ct));
-    if (try StdFormCheck.builtinTypeNamed(self, obj, self.ctx.slot_sym_id, .slot)) |st| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.slotTypeCall(self, callee, st, method, pos, args, ct));
+    if (try StdFormCheck.builtinTypeNamed(self, obj, self.ctx.localSym(self.ctx.builtins.simd), .simd)) |vt| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.simdTypeCall(self, callee, vt, method, pos, args, ct));
+    if (try StdFormCheck.builtinTypeNamed(self, obj, self.ctx.localSym(self.ctx.builtins.slot), .slot)) |st| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.slotTypeCall(self, callee, st, method, pos, args, ct));
     if (StdFormCheck.symbolNamed(self, obj)) return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.symbolTypeCall(self, callee, method, pos, args, ct));
     if (try ViewCheck.numberType(self, obj)) |nty| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.numberTypeCall(self, callee, obj, nty, method, pos, args, ct));
     if (try StdFormCheck.apiNamedCallee(self, obj)) |ref| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.apiNameCall(self, ref, sourceText(self, obj), method, pos, args, ct));
     if (try namedType(self, obj)) |nt| {
-        if (nt.id == self.ctx.actor_sym_id) return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.actorSupervised(self, callee, method, pos, args));
+        if (self.ctx.ref(nt.id) == self.ctx.builtins.actor) return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.actorSupervised(self, callee, method, pos, args));
         return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.associatedCall(self, obj, nt, method, pos, args, ct));
     }
 
@@ -4216,9 +4215,9 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
     // `a.order(?b)`, unless the type declares an `order` of its own.
     if (resolved_method == null and ct == null and std.mem.eql(u8, method, "order") and !try StdFormCheck.hasDataField(self, obj_ty, method)) if (try StdFormCheck.orderCall(self, callee, obj, obj_ty, pos, args)) |ty| return ty;
     // `!h.add(x)` of a Hasher.
-    if (ct == null and std.mem.eql(u8, method, "add") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.hasher_sym_id })) return StdFormCheck.hasherAdd(self, callee, obj, pos, args);
+    if (ct == null and std.mem.eql(u8, method, "add") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.builtins.hasher })) return StdFormCheck.hasherAdd(self, callee, obj, pos, args);
     // `!out.value(x)` of a Printer.
-    if (ct == null and std.mem.eql(u8, method, "value") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.printer_sym_id })) return StdFormCheck.printerValue(self, callee, obj, obj_ty, pos, args);
+    if (ct == null and std.mem.eql(u8, method, "value") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.builtins.printer })) return StdFormCheck.printerValue(self, callee, obj, obj_ty, pos, args);
     // A method no type declares, which an API the type provides does.
     if (resolved_method == null) if (try StdFormCheck.apiShorthand(self, callee, obj, obj_ty, method, pos, args, ct)) |ty| return ty;
     // `x.f[i](args)` where `f` is a field: its element is called. A
@@ -4256,7 +4255,7 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
     const peeled = sema.unwrapAccess(self.ctx, obj_ty);
     switch (self.ctx.types.get(peeled)) {
         .optional => return badCall(self, args, pos, "cannot call `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ method, try self.tyName(peeled) }),
-        .type_var => |param| return StdFormCheck.typeParamCall(self, callee, obj, obj_ty, peeled, param, method, pos, args, ct),
+        .type_var => |param| return StdFormCheck.typeParamCall(self, callee, obj, obj_ty, peeled, self.ctx.localSym(param), method, pos, args, ct),
         .api_object => |o| return StdFormCheck.objectCall(self, callee, obj, obj_ty, o, null, method, pos, args, ct, false),
         else => {},
     }
@@ -4339,13 +4338,13 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
         return skipCall(self, args);
     };
     const self_mode = resolved.field.self_mode;
-    if (resolved.nominal_sym == self.ctx.cell_sym_id) {
+    if (self.ctx.ref(resolved.nominal_sym) == self.ctx.builtins.cell) {
         if (!try StdFormCheck.cellMethod(self, obj_ty, method, pos)) return skipCall(self, args);
         // On the Cell itself, or a view of it; a shared handle's is
         // its value's.
         const Change = enum { set, swap, compare_swap, add, sub };
         const own = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, obj_ty))) {
-            .parameterized_nominal => |pn| pn.sym == self.ctx.cell_sym_id,
+            .parameterized_nominal => |pn| pn.sym == self.ctx.builtins.cell,
             else => false,
         };
         if (own and std.meta.stringToEnum(Change, method) != null) try self.ctx.record(.builtin_calls, callee, .cell_change);

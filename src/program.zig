@@ -143,7 +143,7 @@ pub fn decideExactEnums(mods: []const modules.Module, t: *Table) !void {
 fn exactEnum(ctx: *SemContext, ty: TypeId, t: *Table) !void {
     switch (ctx.types.get(ty)) {
         .array => |arr| return exactEnum(ctx, arr.elem, t),
-        .nominal, .imported_nominal => {},
+        .nominal => {},
         else => return,
     }
     if (!sema.isPlainEnum(ctx, ty)) return;
