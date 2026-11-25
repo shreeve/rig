@@ -3241,6 +3241,30 @@ pub fn expectClean(ctx: *const SemContext) !void {
 /// Typecheck's source, its files joined, which the tests read.
 const typecheck_source = @embedFile("typecheck.zig") ++ @embedFile("check/builtins.zig") ++ @embedFile("check/calls.zig") ++ @embedFile("check/closures.zig") ++ @embedFile("check/expr.zig") ++ @embedFile("check/flow.zig") ++ @embedFile("check/patterns.zig") ++ @embedFile("check/stdforms.zig") ++ @embedFile("check/stmt.zig") ++ @embedFile("check/views.zig") ++ @embedFile("check/compat.zig") ++ @embedFile("check/generics.zig") ++ @embedFile("check/apis.zig");
 
+/// That `needle` stands in `src` once in each function `want` names, as
+/// many times as it names it, in any order: typecheck's files are joined
+/// in no order a reader keeps.
+fn expectCallers(src: []const u8, needle: []const u8, want: []const []const u8) !void {
+    var got: std.ArrayList([]const u8) = .empty;
+    defer got.deinit(std.testing.allocator);
+    var from: usize = 0;
+    while (std.mem.findPos(u8, src, from, needle)) |at| : (from = at + needle.len) {
+        const fn_at = std.mem.findLast(u8, src[0..at], "pub fn ").?;
+        try got.append(std.testing.allocator, src[fn_at + "pub fn ".len .. fn_at + std.mem.findScalar(u8, src[fn_at..], '(').?]);
+    }
+    const expected = try std.testing.allocator.dupe([]const u8, want);
+    defer std.testing.allocator.free(expected);
+    const lt = struct {
+        fn lt(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.order(u8, a, b) == .lt;
+        }
+    }.lt;
+    std.mem.sort([]const u8, expected, {}, lt);
+    std.mem.sort([]const u8, got.items, {}, lt);
+    try std.testing.expectEqual(expected.len, got.items.len);
+    for (expected, got.items) |e, g| try std.testing.expectEqualStrings(e, g);
+}
+
 test "check: implicit lift of T into T! and T?" {
     var r = try checkSource(std.testing.allocator,
         \\fun double(n: Int) -> Int!
@@ -3440,21 +3464,13 @@ test "check: where a Cell and a write view stand, and a branch viewed in place, 
     }
     // A value holding a Cell is made only at a home (`cellMadeAway`),
     // asked of every expression typed (`synthExpr`, `checkExpr`).
-    try std.testing.expectEqual(2, std.mem.count(u8, tc, "cellMadeAway" ++ "(self"));
+    try std.testing.expectEqual(2, std.mem.count(u8, tc, "cellMadeAway" ++ "(self,"));
     // Every view of a branch, written or in place, asks `viewsBranch`:
     // a sigil, a slice, a write view of a temporary, a weak handle `*`
     // upgrades, a temporary viewed to read, a header's subject, and a view
     // a context takes in place.
-    const call = "viewsBranch" ++ "(self";
-    var from: usize = 0;
-    for ([_][]const u8{ "headerViewsBranch", "makeViewOf", "checkWriteView", "viewSlice", "weakUpgrade", "viewTempIn", "checkExpr" }) |want| {
-        from = std.mem.findPos(u8, tc, from, call).?;
-        const fn_at = std.mem.findLast(u8, tc[0..from], "pub fn ").?;
-        const got = tc[fn_at + "pub fn ".len .. fn_at + std.mem.findScalar(u8, tc[fn_at..], '(').?];
-        try std.testing.expectEqualStrings(want, got);
-        from += call.len;
-    }
-    try std.testing.expect(std.mem.findPos(u8, tc, from, call) == null);
+    const call = "viewsBranch" ++ "(self,";
+    try expectCallers(tc, call, &.{ "headerViewsBranch", "makeViewOf", "checkWriteView", "viewSlice", "weakUpgrade", "viewTempIn", "checkExpr" });
     // What a Cell kept by value needed is gone: no per-instance
     // interior mutability, Cell temporaries, or write through a field.
     for ([_][]const u8{ "interior" ++ "Mutable", "ReadPtr" ++ "(", "Cell" ++ "Temp", "refuseHeld" ++ "Cell", "payloadReads" ++ "ThroughWrite", "headerCopies" ++ "WriteView" }) |gone| {
@@ -3499,13 +3515,7 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     const record = ").access" ++ " = ";
     const tc = typecheck_source;
     try std.testing.expectEqual(3, std.mem.count(u8, tc, decide));
-    var at: usize = 0;
-    for ([_][]const u8{ "pub fn loopElement(", "pub fn bindMatchView(", "pub fn asAccess(" }) |want| {
-        at = std.mem.findPos(u8, tc, at, decide).?;
-        const fn_at = std.mem.findLast(u8, tc[0..at], "pub fn ").?;
-        try std.testing.expect(std.mem.startsWith(u8, tc[fn_at..], want));
-        at += decide.len;
-    }
+    try expectCallers(tc, decide, &.{ "loopElement", "bindMatchView", "asAccess" });
     // The access is recorded where each binding's type is: in
     // `checkOptionalBinding`, `checkFor`, and `bindMatchView`, each also
     // marking it decided for the check that the two agree
@@ -3514,15 +3524,9 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     try std.testing.expectEqual(3, std.mem.count(u8, tc, "flags.access_decided" ++ " = true"));
     // One helper builds a binding's type from its access, for every kind
     // of binding: `viewOfAccess`, called from the three binding sites.
-    const derive = "viewOfAccess" ++ "(self";
+    const derive = "viewOfAccess" ++ "(self,";
     try std.testing.expectEqual(3, std.mem.count(u8, tc, derive));
-    at = 0;
-    for ([_][]const u8{ "pub fn checkOptionalBinding(", "pub fn loopElement(", "pub fn bindMatchView(" }) |want| {
-        at = std.mem.findPos(u8, tc, at, derive).?;
-        const fn_at = std.mem.findLast(u8, tc[0..at], "pub fn ").?;
-        try std.testing.expect(std.mem.startsWith(u8, tc[fn_at..], want));
-        at += derive.len;
-    }
+    try expectCallers(tc, derive, &.{ "checkOptionalBinding", "loopElement", "bindMatchView" });
     try std.testing.expectEqual(0, std.mem.count(u8, tc, "asBinding" ++ "Type("));
     // Whether a header passes on a write view its subject makes, and
     // whether it would copy one out of a place, are each one decider in
@@ -3533,17 +3537,9 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
         // Every header kind, `match` (and `as` with a pattern, which is
         // one), `if … as` / `while … as`, and `for`, views a branching
         // subject where it stands: none can skip it.
-        .{ .call = "headerViewsBranch" ++ "(self", .callers = &.{ "checkOptionalBinding", "checkFor", "checkMatchSubject" } },
+        .{ .call = "headerViewsBranch" ++ "(self,", .callers = &.{ "checkOptionalBinding", "checkFor", "checkMatchSubject" } },
     }) |shared| {
-        try std.testing.expectEqual(shared.callers.len, std.mem.count(u8, tc, shared.call));
-        var from: usize = 0;
-        for (shared.callers) |want| {
-            from = std.mem.findPos(u8, tc, from, shared.call).?;
-            const fn_at = std.mem.findLast(u8, tc[0..from], "pub fn ").?;
-            const got = tc[fn_at + "pub fn ".len .. fn_at + std.mem.findScalar(u8, tc[fn_at..], '(').?];
-            try std.testing.expectEqualStrings(want, got);
-            from += shared.call.len;
-        }
+        try expectCallers(tc, shared.call, shared.callers);
     }
     // The decider is sema's alone.
     try std.testing.expectEqual(1, std.mem.count(u8, @embedFile("sema.zig"), "pub fn " ++ "decideBindingAccess("));
