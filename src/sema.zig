@@ -1325,13 +1325,6 @@ pub const Symbol = struct {
     /// it, or null for one that owns or copies its value, recorded once by
     /// typecheck from `decideBindingAccess` (`SemContext.bindingAccess`).
     access: ?Access = null,
-    /// A parameter, local, or capture: how the binding holds its value,
-    /// or null for one that owns nothing to drop (`resourceKind` of its
-    /// type), recorded once by the storage plan (`storage.plan`). Emit
-    /// gives such a binding `var` storage and a drop guard of this kind,
-    /// and the ownership checker asserts it treats the binding as owning
-    /// exactly when this is set.
-    hold: ?ResourceKind = null,
     /// The previous symbol of the same name in the same scope, if any.
     prev_in_scope: SymbolId = symbol_invalid,
     /// A proxy (`proxyOf`): the other module's generic type or
@@ -2324,176 +2317,6 @@ pub const JumpDest = struct {
     };
 };
 
-/// A hidden storage location emit makes for an expression or construct
-/// (docs/internals/INTERNALS.md, "Storage facts"): decided once, before ownership
-/// is checked, so the ownership checker walks the storage the emitted
-/// program has, and emit declares no storage without one
-/// (`SemContext.storageOf`).
-pub const Storage = struct {
-    kind: StorageKind,
-    by: StorageBy,
-    life: StorageLife,
-};
-
-/// What a hidden storage location holds, and the Zig name emit gives it.
-pub const StorageKind = enum {
-    /// An owning temporary its statement or header drops at its end
-    /// (`__rig_tmp`): `dropsTemp`.
-    temp,
-    /// The value of a header that makes statement temporaries, yielded
-    /// by the block that ends them (`__rig_hdr`).
-    header_value,
-    /// The construct (`match`, `for`, `as`) binds the parts of that
-    /// yielded value, a copy of its subject: `copiesHeader`. No name of
-    /// its own: the storage is the header's value.
-    header_copy,
-    /// The made value a header's subject is a part of, held for the
-    /// construct (`__rig_held`): `Header.held`.
-    held,
-    /// The array a `for` takes, held for the loop (`__rig_src`):
-    /// `Header.taken`.
-    taken,
-    /// The iterator a consuming `for` hands its elements over from
-    /// (`__rig_it`).
-    iterator,
-    /// The element a consuming `for` hands over, before its binding
-    /// takes it (`__rig_elem`).
-    element,
-    /// A range `for`'s counter, from the range's start (`__rig_i`).
-    range_start,
-    /// A range `for`'s end (`__rig_end`).
-    range_end,
-    /// Whether an inclusive range `for` runs again (`__rig_more`): its
-    /// counter never steps past the end, which may be its type's largest
-    /// value.
-    range_more,
-    /// A `match` subject evaluated once, before its arms (`__rig_subject`).
-    subject,
-    /// The whole value a `match <x` arm takes (`__rig_whole`).
-    whole,
-    /// A variant's payload an arm captures (`__rig_payload`).
-    payload,
-    /// What `if … as` or `while … as` captures (`__rig_opt`).
-    as_value,
-    /// A mutable copy of what an `as` captures, which its binding views
-    /// (`__rig_opt_N_v`).
-    as_copy,
-    /// The value inside an optional a view reaches (`__rig_viewed`).
-    viewed,
-    /// The copy an API object of a read view of plain data, or of a type
-    /// parameter's value, views (`Erasure.copy`), a local of the erasing
-    /// block (`__rig_erased`).
-    erased_copy,
-    /// The payload a branch of a value read where its leaves are takes,
-    /// captured by address (`__rig_leaf`).
-    leaf,
-    /// The error a `catch |e|` handler names (`__rig_err`).
-    error_value,
-    /// An argument of a call whose arguments are evaluated first
-    /// (`__rig_arg`).
-    argument,
-    /// The self of such a call, or an actor's handle, or a select
-    /// arm's channel (`__rig_recv`): `storage.heldFirst`.
-    self,
-    /// The environment of a closure literal passed to a call (`__rig_env`).
-    environment,
-    /// A closure literal called where it is written, or the callee of a
-    /// call whose arguments are evaluated first, which a value the call
-    /// reaches is (`__rig_fn`): `storage.heldFirst`.
-    invoked,
-    /// The environment an owned closure allocates (`__rig_env`), which
-    /// the closure value then owns.
-    closure_env,
-    /// An assignment's value, made before the store (`__rig_new`).
-    new_value,
-    /// The value an assignment's target path starts from, evaluated after
-    /// the value and before the indexes (`__rig_base`).
-    base,
-    /// An index of an assignment's target, evaluated before the store
-    /// (`__rig_ix`).
-    index,
-    /// The place an assignment stores to, found once (`__rig_slot`).
-    slot,
-    /// The API object a call through its table reads twice, for the
-    /// table and the value, evaluated once (`__rig_obj`): a copy of the
-    /// view or box, which nothing views.
-    api_object,
-    /// The place a call through an API object's table writes its result
-    /// to (`TableEntry.result_out`), copied out as the call returns
-    /// (`__rig_res`).
-    result_place,
-    /// The several results a call gives, held for its statement while
-    /// each target takes its own, left to right (`__rig_res`): a
-    /// destructure's, `q, r = f()`. A result no target takes (`_`) it
-    /// drops at the statement's end.
-    results,
-    /// The header (pointer, length, and capacity) of a String or List a
-    /// write view parameter views, held in a local for the function's
-    /// body and written back as it returns (`__rig_header`;
-    /// `storage.planHeldHeaders`): the parameter's name views the local,
-    /// so a loop keeps the header in registers.
-    held_header,
-    /// The record of a task made by `t = f(x)&` that stays in its
-    /// maker's frame and is waited for there (`storage.taskRecordIn`): a
-    /// fork. Emit makes it in this slot, `var __rig_task_N =
-    /// rig.Task(T).frame.spawn(f, .{ x })`, and starts it there,
-    /// `t = __rig_task_N.start()`; it counts in the frame
-    /// (`typecheck.checkFrames`).
-    task_record,
-    /// A value made here whose address emit takes where Zig holds it, in
-    /// no slot: a leaf no statement slot keeps (`storage.leafStep` is
-    /// `made`, and not `dropsTemp`), or a literal, reached by address.
-    /// No name of its own: the storage is Zig's, which keeps it until its
-    /// statement ends.
-    zig_temp,
-};
-
-/// How a hidden storage location holds what it holds.
-pub const StorageBy = enum {
-    /// The value is its own: made there, or taken, and dropped there if
-    /// nothing takes it on.
-    owned,
-    /// A copy of a value that is still held where it was: a view of the
-    /// storage views the copy, not that value.
-    copy,
-    /// The address of a place, or of storage another fact records.
-    pointer,
-    /// Text a template makes where a `?String` reads it, held in the
-    /// storage itself while it fits 256 bytes, and in a heap block the
-    /// storage frees past them (`rig.TextBuf`): no String is made.
-    buffer,
-};
-
-/// How long a hidden storage location lives.
-pub const StorageLife = enum {
-    /// Until its statement ends; a header is its own statement.
-    statement,
-    /// Until its header ends.
-    header,
-    /// Until the construct (`match`, `for`, `if … as`) ends.
-    construct,
-    /// For one iteration of a loop.
-    iteration,
-    /// Until its `match` arm ends.
-    arm,
-    /// Until the body of its `if … as` or `while … as` ends.
-    body,
-    /// Until its `catch` handler ends.
-    handler,
-    /// Until the expression it is made in ends.
-    expression,
-    /// Until its call returns.
-    call,
-    /// Until the `task.select` whose arm it is a part of returns: the
-    /// select makes every arm, then runs the one it commits.
-    select,
-    /// Until its assignment's store.
-    assignment,
-    /// Until the block it is made in ends: each pass of a loop's body
-    /// makes it anew.
-    block,
-};
-
 /// A question about a node whose answer emit, the storage plan, and the
 /// checkers all act on: decided once, the first time a pass asks it, and
 /// recorded (`SemContext.decided`). Every later ask, emit's included,
@@ -2586,10 +2409,6 @@ pub const Question = enum(u8) {
     /// Of a box or a binding: whether the fill `[n of x]` it takes is
     /// built where its value goes (`storage.fillsInPlace`).
     fills_in_place,
-    /// Of a value emit holds in hidden storage or discards: how it is
-    /// held and dropped when nothing takes it, or null when it owns
-    /// nothing (`storage.dropKind`).
-    drop_kind,
     /// Of a `match` arm: whether its pattern takes every value, a name
     /// that binds or `_` (`storage.catchesAll`).
     catch_all,
@@ -2724,10 +2543,6 @@ pub const Decided = struct {
         } else try self.by_key.put(a, key, index);
     }
 };
-
-/// The key of a storage fact: the expression or construct (`exprKey`)
-/// and the kind of storage made for it.
-pub const StorageKey = struct { node: u64, kind: StorageKind };
 
 /// What a context does with a value (Core §3).
 pub const Use = enum {
@@ -3320,7 +3135,7 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
 }
 
 /// `rig check --facts=storage`: every hidden storage location emit makes
-/// for the root module (`Storage`), one per line, in source order:
+/// for the root module (`storage.Var`), one per line, in source order:
 ///
 ///   KIND NODE L:C-L:C "TEXT" BY LIFE
 ///
@@ -3344,9 +3159,10 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
     while (stack.pop()) |n| {
         if (n == .list) try stack.appendSlice(a, n.list.items());
         if (n != .src and !(n == .list and n.list.id != 0)) continue;
-        inline for (@typeInfo(StorageKind).@"enum".field_names) |name| {
-            const kind = @field(StorageKind, name);
-            if (ctx.storageOf(n, kind)) |s| {
+        inline for (@typeInfo(storage.StorageKind).@"enum".field_names) |name| {
+            const kind = @field(storage.StorageKind, name);
+            if (kind == .discard) continue;
+            if (ctx.varOf(n, kind)) |s| {
                 const span = if (ctx.parser) |p| p.span(n) else rig.leafSpan(ctx.source, n);
                 const from = lines.at(span.start);
                 const to = lines.at(span.end);
@@ -4490,11 +4306,6 @@ pub const SemContext = struct {
     /// other field out (Core §5, "A field of an owned object moves like
     /// a name").
     field_moves: FastMap(SymbolId, std.ArrayList([]const u8)) = .empty,
-    /// The several results a `destructure` takes, or a `return a, b`
-    /// makes into storage one by one (`storage.hoistsResults`): how each
-    /// part is held (`resourceKind` of its type), recorded by the storage
-    /// plan (`partDrops`).
-    part_drops: FastMap(u64, []const ?ResourceKind) = .empty,
     /// The captures of a closure called exactly once that it owns
     /// (`|<x|`, `|+x|`, `|~x|`; `recordOnceClosure`): its one call takes
     /// them, as a function takes a parameter given by value, so its body
@@ -4621,11 +4432,11 @@ pub const SemContext = struct {
     item_views: FastMap(ItemView, TypeId) = .empty,
     /// The method calls generic bodies make on type parameters.
     generic_methods: std.ArrayList(GenericMethodCall) = .empty,
-    /// The hidden storage emit makes (`Storage`), but for the kinds the
-    /// facts table keeps (`temp` is `temp_drops`, `header_copy` is
-    /// `header_copies`): recorded after the expressions are checked
-    /// (`storage.plan`).
-    storage: FastMap(StorageKey, Storage) = .empty,
+    /// The hidden storage emit makes and how bindings hold their values:
+    /// the var table, recorded after the expressions are checked
+    /// (`storage.plan`). A `temp` and a `header_copy` are the facts table's
+    /// (`temp_drops`, `header_copies`), which `varOf` reads.
+    vars: storage.Vars = .{},
     /// The symbols a name reads after its declaration, or a closure
     /// captures (`storage.plan`, `isUsed`): emit discards a binding none
     /// reads, and keeps a `catch`'s error value only for one that does.
@@ -4858,7 +4669,6 @@ pub const SemContext = struct {
             paths.deinit(self.allocator);
         }
         self.field_moves.deinit(self.allocator);
-        self.part_drops.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
         self.named_nones.deinit(self.allocator);
         self.word_held.deinit(self.allocator);
@@ -4895,7 +4705,7 @@ pub const SemContext = struct {
         self.generic_fn_uses_guard.deinit(self.allocator);
         self.item_views.deinit(self.allocator);
         self.generic_methods.deinit(self.allocator);
-        self.storage.deinit(self.allocator);
+        self.vars.deinit(self.allocator);
         self.used.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
@@ -5677,19 +5487,6 @@ pub const SemContext = struct {
         return paths.items;
     }
 
-    /// Record how each part of the results `node` holds is held
-    /// (`part_drops`).
-    pub fn recordPartDrops(self: *SemContext, node: Sexp, kinds: []const ?ResourceKind) !void {
-        const key = recordExprKey(node) orelse return;
-        try self.part_drops.put(self.allocator, key, try self.arena.allocator().dupe(?ResourceKind, kinds));
-    }
-
-    /// How each part of the results `node` holds is held, if the storage
-    /// plan recorded it (`part_drops`).
-    pub fn partDrops(self: *const SemContext, node: Sexp) ?[]const ?ResourceKind {
-        return self.part_drops.get(exprKey(node) orelse return null);
-    }
-
     pub fn copiesHeader(self: *const SemContext, node: Sexp) bool {
         return self.facts.header_copies.contains(nodeKey(node) orelse return false);
     }
@@ -5833,27 +5630,23 @@ pub const SemContext = struct {
         self.decided.put(self.allocator, key, .{ .node = node, .at = at, .answer = answer, .q = q }) catch std.debug.panic("out of memory", .{});
     }
 
-    /// Emit holds a value of `node` in hidden storage `s`
-    /// (`storage.plan`). A `temp` is recorded as `recordTempDrop`, and a
-    /// `header_copy` as `recordHeaderCopy`.
-    pub fn recordStorage(self: *SemContext, node: Sexp, s: Storage) !void {
-        std.debug.assert(s.kind != .temp and s.kind != .header_copy);
-        const key = recordExprKey(node) orelse return;
-        const gop = try self.storage.getOrPut(self.allocator, .{ .node = key, .kind = s.kind });
-        // One node's storage of one kind is decided once.
-        if (gop.found_existing) std.debug.assert(std.meta.eql(gop.value_ptr.*, s));
-        gop.value_ptr.* = s;
+    /// Emit holds a value of `node` in hidden var `v` (`storage.plan`). A
+    /// `temp` is recorded as `recordTempDrop`, and a `header_copy` as
+    /// `recordHeaderCopy`.
+    pub fn recordVar(self: *SemContext, node: Sexp, v: storage.Var) !void {
+        std.debug.assert(v.kind != .temp and v.kind != .header_copy);
+        try self.vars.put(self.allocator, recordExprKey(node) orelse return, v);
     }
 
-    /// The hidden storage of `kind` emit makes for `node`, if any
-    /// (`Storage`).
-    pub fn storageOf(self: *const SemContext, node: Sexp, kind: StorageKind) ?Storage {
+    /// The hidden var of `kind` emit makes for `node`, if any
+    /// (`storage.Var`).
+    pub fn varOf(self: *const SemContext, node: Sexp, kind: storage.StorageKind) ?storage.Var {
         return switch (kind) {
             // A template's temporary is its text, in a buffer (SPEC
             // "Templates"); any other is the value itself.
             .temp => if (self.dropsTemp(node)) .{ .kind = .temp, .by = if (node.isKind(.template)) .buffer else .owned, .life = .statement } else null,
             .header_copy => if (self.copiesHeader(node)) .{ .kind = .header_copy, .by = .copy, .life = .construct } else null,
-            else => self.storage.get(.{ .node = exprKey(node) orelse return null, .kind = kind }),
+            else => (self.vars.get(exprKey(node) orelse return null, kind) orelse return null).*,
         };
     }
 
@@ -14721,9 +14514,9 @@ pub const ResourceKind = enum {
 /// and payload bindings, and an owned closure environment; the kind
 /// picks its drop call. `rig.drop` releases only what needs cleanup: a
 /// unique value, or a value of a type parameter whose instance needs
-/// none, drops nothing. The storage plan records it for each binding
-/// (`Symbol.hold`) and each value emit holds or discards
-/// (`storage.dropKind`); emit reads only those records.
+/// none, drops nothing. The storage plan records it in its var table for
+/// each binding and each value emit holds or discards (`storage.Vars`);
+/// emit reads only those records.
 pub fn resourceKind(ctx: *const SemContext, ty: TypeId) ?ResourceKind {
     if (moves(ctx, ty) == .no) return null;
     return switch (ctx.types.get(ty)) {

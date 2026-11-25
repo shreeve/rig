@@ -9,7 +9,7 @@
 //! the plan decided.
 //!
 //! - A binding is `const` unless it is reassigned, written through
-//!   (`!x`, `x.f = ...`), owns what it holds (`Symbol.hold`, whose
+//!   (`!x`, `x.f = ...`), owns what it holds (`Binding.drop`, whose
 //!   methods take `*Self`), or has a compile-time-known initializer,
 //!   which Zig would otherwise fold at compile time.
 //! - A resource binding (`*T`, `~T`, a value with drop glue, or an
@@ -2134,7 +2134,7 @@ pub const Emitter = struct {
                     try self.fmt("__rig_in_{s}", .{rig_name});
                 local.launder = true;
             }
-            if (self.facts.storageOf(name_node, .held_header) != null) {
+            if (self.facts.varOf(name_node, .held_header) != null) {
                 local.held = name_node;
                 if (local.param_name.len == 0) local.param_name = if (isPlainIdent(rig_name)) try self.fmt("__rig_viewed_{s}", .{rig_name}) else try self.fmt("__rig_viewed_{d}", .{self.nextId()});
             }
@@ -2384,11 +2384,11 @@ pub const Emitter = struct {
     };
 
     /// The Zig name of the hidden storage of `kind` emit makes for
-    /// `node`, held `by` (`facts.Storage`). Every hidden storage location
-    /// is named here: the storage facts must record it, held the same
-    /// way, or emit would make storage the ownership checker did not walk.
+    /// `node`, held `by` (`facts.Var`). Every hidden storage location is
+    /// named here: the var table must record it, held the same way, or
+    /// emit would make storage the ownership checker did not walk.
     fn hiddenStorage(self: *Emitter, node: Sexp, kind: facts.StorageKind, by: facts.StorageBy, suffix: StorageSuffix) Error![]const u8 {
-        const fact = self.facts.storageOf(node, kind) orelse return self.unsupported(node, "hidden storage the storage facts do not record");
+        const fact = self.facts.varOf(node, kind) orelse return self.unsupported(node, "hidden storage the var table does not record");
         // A statement's slot is declared before it runs; its value is
         // written where the temporary is.
         if (kind != .temp and kind != .held_header) try self.inUnit(node);
@@ -2424,8 +2424,8 @@ pub const Emitter = struct {
             .held_header => "__rig_header",
             .task_record => "__rig_task",
             // The storage of these is another's: the header's value, the
-            // capture it copies, or Zig's (`zigTemporary`).
-            .header_copy, .as_copy, .zig_temp => "",
+            // capture it copies, or Zig's (`zigTemporary`, `emitDiscard`).
+            .header_copy, .as_copy, .zig_temp, .discard => "",
         };
         return switch (suffix) {
             .next => self.fmt("{s}_{d}", .{ base, self.nextId() }),
@@ -2438,10 +2438,10 @@ pub const Emitter = struct {
     }
 
     /// Take the address of `node`, a value Zig holds for its statement in
-    /// no slot: the storage facts must record it (`zig_temp`), so the
-    /// checker knew emit reaches it there.
+    /// no slot: the var table must record it (`zig_temp`), so the checker
+    /// knew emit reaches it there.
     fn zigTemporary(self: *Emitter, node: Sexp) Error!void {
-        const fact = self.facts.storageOf(node, .zig_temp) orelse return self.unsupported(node, "an address of a value Zig holds that the storage facts do not record");
+        const fact = self.facts.varOf(node, .zig_temp) orelse return self.unsupported(node, "an address of a value Zig holds that the var table does not record");
         if (fact.by != .owned) return self.unsupported(node, "a Zig temporary held other than its storage fact says");
     }
 
@@ -2572,7 +2572,7 @@ pub const Emitter = struct {
     /// How a resource binding's drop is armed: behind an alive flag when
     /// it may be consumed first.
     fn resourceGuard(self: *Emitter, sym: SymbolId) Guard {
-        return if (self.facts.consumes(sym)) .flag else .scope;
+        return if (self.facts.binding(sym).flag) .flag else .scope;
     }
 
     /// `var _h = base`, for a `header` that holds the value it makes of
@@ -2589,7 +2589,7 @@ pub const Emitter = struct {
         try self.emitBare(base);
         try self.w.writeAll(";\n");
         try self.poisonAtExit(name);
-        if (try self.dropKind(base)) |kind| {
+        if (try self.dropOf(header, .held)) |kind| {
             try self.writeIndent(self.indent);
             try self.w.writeAll("defer ");
             try self.writeDrop(name, kind);
@@ -2747,7 +2747,7 @@ pub const Emitter = struct {
         for (temps.items) |temp| {
             if (self.tempSlot(temp) != null) continue;
             // A template's temporary is a buffer of its text.
-            const buffer = if (self.facts.storageOf(temp, .temp)) |st| st.by == .buffer else false;
+            const buffer = if (self.facts.varOf(temp, .temp)) |st| st.by == .buffer else false;
             const name = try self.hiddenStorage(temp, .temp, if (buffer) .buffer else .owned, .next);
             try self.w.print("var {s}: ", .{name});
             if (buffer) try self.w.writeAll("rig.TextBuf") else try self.emitTypeTy(self.typeOf(temp) orelse return self.unsupported(temp, "an untyped temporary"));
@@ -2999,7 +2999,8 @@ pub const Emitter = struct {
             else => return self.unsupported(value, "a destructure of one value"),
         };
         if (parts.len != targets.len) return self.unsupported(node, "a destructure of the wrong arity");
-        const kinds = try self.need(self.facts.partDrops(node), node);
+        const kinds = (try self.need(self.facts.varOf(node, .results), node)).parts;
+        if (kinds.len != targets.len) return self.unsupported(node, "a destructure of results the plan did not part");
         var drops = false;
         for (targets, kinds) |t, k| if (!t.isKind(.set) and k != null) {
             drops = true;
@@ -3043,7 +3044,7 @@ pub const Emitter = struct {
             try self.emitBare(expr);
             return self.w.writeAll(");");
         }
-        if (try self.dropKind(expr) != null) {
+        if (try self.dropOf(expr, .discard) != null) {
             try self.w.writeAll("rig.discard(");
             try self.emitBare(expr);
             return self.w.writeAll(");");
@@ -3185,7 +3186,7 @@ pub const Emitter = struct {
                 // A `!T` whose `T` is a view: the view it reaches is
                 // pointed at another place, made first where the value
                 // can act (`storesAfterValue`).
-                if (self.facts.storageOf(value, .new_value) != null) {
+                if (self.facts.varOf(value, .new_value) != null) {
                     const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = self.nextId() });
                     try self.w.print("{{ const {s} = ", .{name});
                     try self.emitWriteViewPtr(value);
@@ -3206,7 +3207,7 @@ pub const Emitter = struct {
         const kind = local.kind orelse {
             // The value is made first when it can act, so the store goes
             // through the place as the value left it (`storesAfterValue`).
-            const first = self.facts.storageOf(value, .new_value) != null;
+            const first = self.facts.varOf(value, .new_value) != null;
             if (first) {
                 const id = self.nextId();
                 const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
@@ -3267,7 +3268,7 @@ pub const Emitter = struct {
         const order = try self.need(self.facts.setOrder(set), set);
         const id = self.nextId();
         const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
-        const kind: ?ResourceKind = if (order.guard) try self.dropKind(value) else null;
+        const kind: ?ResourceKind = if (order.guard) try self.dropOf(value, .new_value) else null;
         if (order.guard and kind == null) return self.unsupported(value, "a guarded assignment value that owns nothing");
         try self.w.print("{{ {s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", name });
         if (ty) |t| {
@@ -3739,7 +3740,7 @@ pub const Emitter = struct {
         const id = self.nextId();
         const names = try self.arena.allocator().alloc([]const u8, parts.len);
         const flags = try self.arena.allocator().alloc(?[]const u8, parts.len);
-        const kinds = try self.need(self.facts.partDrops(value), value);
+        const kinds = (try self.need(self.facts.varOf(value, .argument), value)).parts;
         if (kinds.len != parts.len) return self.unsupported(value, "results of another arity than the function's");
         try self.openBrace();
         for (parts, tys, kinds, names, flags, 0..) |p, ty, kind, *name, *flag, i| {
@@ -5936,7 +5937,7 @@ pub const Emitter = struct {
             .optional => |inner| inner,
             else => null,
         } else null;
-        if (if (self.facts.storageOf(cond, .as_value)) |st| st.by == .owned else false) {
+        if (if (self.facts.varOf(cond, .as_value)) |st| st.by == .owned else false) {
             const tmp = try self.hiddenStorage(cond, .as_value, .owned, .next);
             try self.w.print("|{s}| ", .{tmp});
             return .{ .optional = .{ .cond = cond, .name = if (sym != null) name else .nil, .tmp = tmp } };
@@ -6175,7 +6176,7 @@ pub const Emitter = struct {
             // view wants, is taken from the slot (`rig.keep`'s result).
             self.ptr_tail = false;
             // A template's text is written into its slot's buffer.
-            if (self.facts.storageOf(sexp, .temp).?.by == .buffer) {
+            if (self.facts.varOf(sexp, .temp).?.by == .buffer) {
                 try self.w.print("rig.TextBuf.keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
                 try self.emitPrintArgs(&.{sexp}, .{});
                 return self.w.writeAll(").*");
@@ -9684,7 +9685,7 @@ pub const Emitter = struct {
             // A channel or task its select evaluated in the arm's turn is
             // read where it was held (`hoistSelf`).
             if (self.hoistedOf(handle)) |h| {
-                try self.w.print("{s}{s}", .{ h.name, if (self.facts.storageOf(handle, .self).?.by == .pointer) ".*" else "" });
+                try self.w.print("{s}{s}", .{ h.name, if (self.facts.varOf(handle, .self).?.by == .pointer) ".*" else "" });
             } else if (of_chan) {
                 try self.emitExpr(ir.Member.object(callee));
             } else try self.emitMemberBase(handle, handle_ty);
@@ -10461,7 +10462,7 @@ pub const Emitter = struct {
         }
         const ty = self.typeOf(recv);
         const ptr = if (ty) |t| self.isPtrViewTy(t) else false;
-        const kind: ?ResourceKind = if (ptr) null else try self.dropKind(recv);
+        const kind = try self.dropOf(recv, first.kind);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or (writes and !ptr)) "var" else "const", name });
         if (ty) |t| {
             try self.w.writeAll(": ");
@@ -10574,10 +10575,9 @@ pub const Emitter = struct {
         // A value passed as the view its parameter expects is held as that
         // view, of the parameter's type, which owns nothing.
         const viewed = hold == .viewed;
-        // A temporary array viewed as a slice stays in its slot, which owns
-        // nothing to release: an array holds no value that needs cleanup.
-        const viewed_array = self.facts.viewsTempArray(h.node);
-        const kind: ?ResourceKind = if (ptr or viewed or viewed_array) null else try self.dropKind(h.node);
+        // Held as a view, or a temporary array viewed in its slot, it owns
+        // nothing to drop (`Var.drop`).
+        const kind = try self.dropOf(h.node, if (suffix == null) .self else .argument);
         if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, if (ptr or viewed) .pointer else .owned, sx);
         try self.writeIndent(self.indent);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
@@ -11722,19 +11722,19 @@ pub const Emitter = struct {
         return self.facts.variantPayload(enum_ty, vname);
     }
 
-    /// How binding `sym` holds its value (`Symbol.hold`, recorded by the
+    /// How binding `sym` holds its value (`Binding.drop`, recorded by the
     /// storage plan), or null for one that owns nothing to drop. A
     /// binding that holds one gets `var` storage and a drop guard, owned
     /// `as` and payload bindings, and an owned closure environment; the
     /// kind picks its drop call.
     fn holdOf(self: *Emitter, sym: SymbolId) ?ResourceKind {
-        return self.facts.symbols.items[sym].hold;
+        return self.facts.binding(sym).drop;
     }
 
-    /// How hidden storage holding the value of `e`, or a discard of it,
-    /// drops it (`storage.dropKind`), or null when it owns nothing.
-    fn dropKind(self: *Emitter, e: Sexp) Error!?ResourceKind {
-        return self.need(self.facts.dropKind(e), e);
+    /// How the var of `kind` that holds the value of `e`, or a discard of
+    /// it, drops it (`Var.drop`), or null when it owns nothing.
+    fn dropOf(self: *Emitter, e: Sexp, kind: facts.StorageKind) Error!?ResourceKind {
+        return (try self.need(self.facts.varOf(e, kind), e)).drop;
     }
 
     fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {

@@ -224,7 +224,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian`, `Arch`, `Os`, and `Feature` as built-in enums, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
-| `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
+| `src/storage.zig` | the storage facts: the var table of the hidden storage emit makes and how bindings hold their values, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/returns.zig` | which functions never return, emitted with the Zig result `noreturn`, decided once for the whole program after every module is checked (Emit, "Functions that never return") |
@@ -1981,14 +1981,17 @@ backend cannot express yet is rejected with a diagnostic that says so.
 
 Every hidden storage location emit makes, a Zig `var`, `const`, or
 capture holding a value of the program that no Rig name holds, is a
-recorded fact (`sema.Storage`), decided once, before the ownership
-checker runs, so the checker walks the storage the emitted program has
-(AGENTS.md: the checker checks exactly what is emitted). After the
-expressions are checked, `storage.plan` walks the module and records,
-for each expression or construct, the storage emit makes for it
-(`SemContext.storageOf(node, kind)`): what it holds (`kind`, which also
-gives its Zig name), how (`by`), and how long it lives (`life`).
-`rig check --facts=storage` prints them, one per line, in source order.
+var of the module's **var table** (`storage.Vars`, `SemContext.vars`),
+decided once, before the ownership checker runs, so the checker walks
+the storage the emitted program has (AGENTS.md: the checker checks
+exactly what is emitted). After the expressions are checked,
+`storage.plan` walks the module and records, for each expression or
+construct, the vars emit makes for it, in the order it makes them
+(`SemContext.varOf(node, kind)`, a `storage.Var`): what each holds
+(`kind`, which also gives its Zig name), how (`by`), how long it lives
+(`life`), how it drops what it holds (`drop`), and, for several
+results, how each part drops (`parts`). `rig check --facts=storage`
+prints them, one per line, in source order.
 
 | Kind | Zig name | Made for | By | Life |
 |---|---|---|---|---|
@@ -2021,17 +2024,22 @@ holds a copy of a value still held where it was, so a view of the
 storage views the copy; `pointer` holds the address of a place, or of
 storage another fact records; `buffer` is a template's `temp` where a
 `?String` reads it, its text in a `rig.TextBuf`, 256 bytes in the slot
-and a heap block past them, which its drop frees. How storage and bindings drop what they
-hold is recorded by the plan too, from `sema.resourceKind`: for each
-parameter, local, and capture, `Symbol.hold`, which gives the binding
-`var` storage and a drop guard of its kind, and which the ownership
-checker asserts, in self-check builds, it treats as owning exactly when
-set; for a value held in storage or discarded (a header's held base, an
-assignment's new value, an argument or self a call holds, the value
-of `_ = e` or `<e`), the decision `drop_kind` (`storage.dropKind`); for
-the parts of a destructure's `results` and of `return a, b` made in
-their turn, `partDrops`; and whether an assignment drops the value it
-replaces, `SetOrder.drops_old`. Two kinds are facts the table already
+and a heap block past them, which its drop frees.
+
+How storage and bindings drop what they hold is in the table too, from
+`sema.resourceKind`. A var emit drops by its `drop`: a header's held
+base, an assignment's new value, an argument or self a call holds
+(none for one held as a view or a pointer, or a temporary array viewed
+in its slot), and the value of `_ = e` or `<e`, a `discard`, which is
+not storage and has no name. Each parameter, local, and capture has a
+row of its own (`storage.Binding`, `vars.binding(sym)`): its `drop`,
+which gives it `var` storage and a drop guard of that kind, and which
+the ownership checker asserts, in self-check builds, it treats as
+owning exactly when set; and its `flag`, set when a use may move it out
+(`planConsumed`), so its drop is armed behind an alive flag the move
+clears. Whether a binding has an alive flag is this fact; how emit
+spells and names the flag is printing. Whether an assignment drops the
+value it replaces is `SetOrder.drops_old`. Two kinds are facts the table already
 keeps: `temp` is `dropsTemp` and `header_copy` is `copiesHeader`, which
 typecheck records where it decides them (`recordTempDrop`,
 `rejectHeaderCopy`). Bookkeeping that holds no value of the program is
@@ -4721,8 +4729,8 @@ through a `!T` binding is recorded where typecheck decides it
 and whether an element read copies the element where its type is
 recorded and where a method call views it as self (`copiesElem`,
 `recordElemViewed`), and how a binding or a hidden storage holds a
-value that moves where the storage plan decides it (`Symbol.hold`,
-`dropKind`, `partDrops`, `SetOrder.drops_old`; "Storage facts"). Emit
+value that moves where the storage plan decides it (the var table's
+`drop`, `parts`, and `flag`, and `SetOrder.drops_old`; "Storage facts"). Emit
 makes no decision with a classifier the checkers also call: a unit test
 of `facts.zig` reads `emit.zig` with Zig's tokenizer and fails if emit
 imports any other file of the compiler, reaches the context behind
@@ -4788,7 +4796,7 @@ and a query that decides more than that is a recorded fact.
   compares them, is renamed to a name of the emitter's,
   `__rig_local_x_3`, which no later name of the program's can be.
 - **Bindings** are `const` unless reassigned, written through, owning
-  what they hold (`Symbol.hold`, which the storage plan records), or
+  what they hold (`Binding.drop`, which the storage plan records), or
   initialized by a compile-time-known value, which Zig would fold. A
   binding holds its value, a pointer, or the address of the place it
   views as the plan decided (`bind_hold`).
@@ -6442,7 +6450,7 @@ Each pass owns one part.
   that makes a write view of one is rejected as it would be beside a plain
   argument; a template's value reads its slots and holds none of them.
   The oracle lowers the same (`flatArgs`).
-- **Storage.** A template's `temp` is held `by` `buffer` (`storageOf`);
+- **Storage.** A template's `temp` is held `by` `buffer` (`varOf`);
   each slot's value is read by address or copied as a print argument is
   (`printsByAddress`).
 - **Over several lines.** A backtick ending its line, and `"""` or
