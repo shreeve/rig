@@ -527,10 +527,11 @@ const Lowerer = struct {
                 _ = try l.expr(ir.Labeled.label(s));
                 const inner = ir.Labeled.stmt(s);
                 try l.consumed(inner);
+                if (inner.isKind(.@"for")) return l.forLoop(inner, r);
                 if (!inner.isKind(.@"while")) return l.uncovered(inner, "loops");
                 try l.whileLoop(inner, r);
             },
-            .@"for" => return l.uncovered(s, "loops"),
+            .@"for" => try l.forLoop(s, r),
             .match => return l.uncovered(s, "match"),
             else => try l.step(r, .{ .eval = try l.expr(s) }),
         }
@@ -727,7 +728,6 @@ const Lowerer = struct {
                 return id;
             },
             .as, .as_results => return l.asExpr(e),
-            .@"for" => return l.uncovered(e, "loops"),
             .match, .as_match, .matches => return l.uncovered(e, "match"),
             .lambda => return l.uncovered(e, "closures"),
             .call => {
@@ -759,7 +759,7 @@ const Lowerer = struct {
                 try l.note(e, id);
                 return id;
             },
-            .@"return", .@"break", .@"continue", .set, .destructure, .drop, .@"defer", .@"errdefer", .@"while", .labeled => {
+            .@"return", .@"break", .@"continue", .set, .destructure, .drop, .@"defer", .@"errdefer", .@"while", .@"for", .labeled => {
                 // A statement where a value goes: its temporaries are the
                 // statement's around it.
                 const r = try l.f.addRegion(l.a, e, .value);
@@ -1026,6 +1026,53 @@ const Lowerer = struct {
         try l.branch(ir.While.body(w), body_r, false);
         try l.conditionRules(w, scope);
         try l.step(scope, .{ .loop = .{ .node = w, .cond = cond, .body = body_r, .step = step_r } });
+        try l.step(r, .{ .region = scope });
+    }
+
+    /// `for x, i in source` and its body (`storage.Planner.forLoop`): the
+    /// loop's storage lives in a scope around it, an element's in the
+    /// body, made anew each pass.
+    fn forLoop(l: *Lowerer, loop: Sexp, r: RegionId) Error!void {
+        const ctx = l.ctx;
+        const source = ir.For.source(loop);
+        const scope = try l.f.addRegion(l.a, loop, .guard);
+        const body_r = try l.f.addRegion(l.a, ir.For.body(loop), .block);
+        // Each header that makes temporaries ends them in a region of its
+        // own: a range's two ends, or the source.
+        const range = source.isKind(.@"..");
+        for ([_]Sexp{ if (range) ir.@"..".left(source) else source, if (range) ir.@"..".right(source) else .nil }) |h| {
+            if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.a, sema.decisionKeyOf(h).?, null);
+        }
+        _ = try l.expr(ir.get(loop, .mode));
+        for ([_]Sexp{ ir.For.@"var"(loop), ir.get(loop, .index) }) |n| {
+            if (n == .nil) continue;
+            if ((try l.bindingVar(n, body_r)) == null) _ = try l.expr(n);
+        }
+        const src = try l.expr(source);
+        try l.branch(ir.For.body(loop), body_r, false);
+        // The vars the loop makes, once its parts are lowered.
+        const name = ir.For.@"var"(loop);
+        const used = if (name == .src) (if (ctx.symbolOf(name)) |s| ctx.isUsed(s) else false) else false;
+        if (storage.bindsStringBytes(ctx, loop) and used) _ = try l.hiddenVar(loop, .element, .pointer, .iteration, null, body_r);
+        if (range) {
+            _ = try l.hiddenVar(loop, .range_start, .owned, .construct, null, scope);
+            _ = try l.hiddenVar(loop, .range_end, .owned, .construct, null, scope);
+            if (rig.isInclusive(source)) _ = try l.hiddenVar(loop, .range_more, .owned, .construct, null, scope);
+            try l.headerVar(ir.@"..".left(source));
+            try l.headerVar(ir.@"..".right(source));
+        } else if (storage.forConsumes(ctx, loop)) {
+            _ = try l.hiddenVar(loop, .iterator, .owned, .construct, null, scope);
+            _ = try l.hiddenVar(loop, .element, .owned, .iteration, null, body_r);
+            try l.headerVar(source);
+        } else {
+            const how = ctx.headerOf(loop);
+            if (how == .held) _ = try l.hiddenVar(loop, .held, .owned, .construct, if (ctx.heldBaseOf(loop)) |b| storage.dropOf(ctx, b) else null, scope);
+            if (how == .taken) {
+                _ = try l.hiddenVar(loop, .taken, .owned, .construct, null, scope);
+                try l.headerVar(source);
+            } else try l.subjectHeader(source);
+        }
+        try l.step(scope, .{ .each = .{ .node = loop, .source = src, .body = body_r } });
         try l.step(r, .{ .region = scope });
     }
 

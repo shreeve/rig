@@ -88,6 +88,8 @@ pub const Step = union(enum) {
     /// `while cond: step`, running `body` while `cond` holds, then
     /// `step`.
     loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId },
+    /// `for x in source`, running `body` once for each element.
+    each: struct { node: Sexp, source: ExprId, body: RegionId },
 };
 
 /// A stretch of a function that declares vars, which live until it ends.
@@ -243,6 +245,10 @@ const Verifier = struct {
                 try v.region(gpa, lp.body);
                 if (lp.step) |st| try v.region(gpa, st);
             },
+            .each => |ea| {
+                try v.expr(gpa, ea.source);
+                try v.region(gpa, ea.body);
+            },
         };
         if (r.value) |e| try v.expr(gpa, e);
         for (r.decls.items) |x| v.open.unset(x);
@@ -357,6 +363,12 @@ const Printer = struct {
                     }
                     try p.w.writeAll(" do ");
                     try p.region(lp.body, depth + 1);
+                },
+                .each => |ea| {
+                    try p.w.writeAll("for ");
+                    try p.expr(ea.source, depth + 1);
+                    try p.w.writeAll(" do ");
+                    try p.region(ea.body, depth + 1);
                 },
             }
             try p.w.writeAll("\n");
