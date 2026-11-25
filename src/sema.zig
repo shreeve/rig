@@ -1160,7 +1160,7 @@ pub const SymbolFlags = packed struct(u64) {
 pub const SelfMode = enum { none, read, write, value };
 
 /// A parameter that belongs to a group (docs/design/options.md, section
-/// 2): the group as written, `..net: Net`, which the first check sees, or
+/// 2): the group as written, `..net: Net`, one the checks refused, or
 /// one of its fields, a name-only option, once the Parser wrapper has made
 /// each field a parameter.
 pub const GroupParam = struct {
@@ -14342,9 +14342,9 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
                 continue;
             };
             if (i >= f.params.len) continue;
-            // A group as written, in a module's first check, which the
-            // check after its rewrite checks as its fields
-            // (`groupFieldsNamed`).
+            // A group as written, one the checks refused, whose own
+            // errors say why; one made parameters is checked as its
+            // fields (`groupFieldsNamed`).
             if (d.params.items()[i].isKind(.group_param)) continue;
             if (named & paramBit(i) != 0) {
                 try ctx.errAt(n, "`keeps {s}`: `{s}` is named twice", .{ text, text });
@@ -17869,9 +17869,7 @@ pub fn captureList(captures: Sexp) []const Sexp {
 
 /// Whether literal text `text` is a string's, double- or single-quoted,
 /// or a piece of a template's text (`rig.isTemplateText`).
-pub fn isStringLiteralText(text: []const u8) bool {
-    return rig.isStringText(text);
-}
+pub const isStringLiteralText = rig.isStringText;
 
 /// The bytes a single-quoted string holds, one at a time: its body as
 /// written, each `''` one `'`. The checker and emit both read a

@@ -2746,7 +2746,7 @@ const HiddenName = enum(u16) {
     /// of the `match` it is (`Parser.boolMatch`).
     true_value = 6,
     false_value = 7,
-    /// The hidden bindings of a chain's loop (`Parser.desugarChains`), each
+    /// The hidden bindings of a chain's loop (`Parser.elaborateChains`), each
     /// with a space, so no program writes one.
     chain_source = 8,
     chain_item = 9,
@@ -5724,30 +5724,29 @@ pub const Parser = struct {
     }
 
     /// A closure whose type returns nothing has no value: the last line
-    /// `valueTail` kept as a move, and that of each branch ending it, is a
-    /// statement `<e` again, which drops (`dropStatement`). The type
-    /// checker calls it on the body of such a closure before any pass reads
-    /// it, and it changes nothing a second time.
-    pub fn dropTail(self: *const Parser, slot: *Sexp) std.mem.Allocator.Error!void {
-        const mutable: *Parser = @constCast(self);
-        try mutable.dropTailOf(slot);
+    /// of `lambda`'s body `valueTail` kept as a move, and that of each
+    /// branch ending it, is a statement `<e` again, which drops
+    /// (`dropStatement`). Typecheck elaborates such a closure so where it
+    /// learns its type, before any pass reads the body, and it changes
+    /// nothing a second time.
+    pub fn dropTail(self: *Parser, lambda: Sexp) std.mem.Allocator.Error!void {
+        try self.dropTailOf(&@constCast(lambda.items())[ir.slot(.lambda, .body)]);
     }
 
     /// A closure that declares fewer parameters than the function type it
     /// is checked against is the same closure with `_` for each trailing
-    /// parameter it leaves out. The type checker calls it on a closure
-    /// literal before any pass reads the parameters; it changes nothing
-    /// when the closure already has `count` parameters.
-    pub fn padLambda(self: *const Parser, lambda: Sexp, count: usize) std.mem.Allocator.Error!void {
-        const mutable: *Parser = @constCast(self);
+    /// parameter it leaves out. Typecheck elaborates a closure literal so
+    /// where it learns its type, before any pass reads the parameters; it
+    /// changes nothing when the closure already has `count` parameters.
+    pub fn padLambda(self: *Parser, lambda: Sexp, count: usize) std.mem.Allocator.Error!void {
         const slot = &@constCast(lambda.items())[ir.slot(.lambda, .params)];
         const have = slot.items();
         if (have.len >= count) return;
-        const out = try mutable.allocator().alloc(Sexp, count);
+        const out = try self.allocator().alloc(Sexp, count);
         @memcpy(out[0..have.len], have);
-        const at = mutable.span(lambda).start;
-        for (out[have.len..]) |*p| p.* = hiddenLeaf(try mutable.hiddenPos(at), .discard);
-        slot.* = try mutable.base.newList(out, .{ .start = at, .end = at });
+        const at = self.span(lambda).start;
+        for (out[have.len..]) |*p| p.* = hiddenLeaf(try self.hiddenPos(at), .discard);
+        slot.* = try self.base.newList(out, .{ .start = at, .end = at });
     }
 
     fn dropTailOf(self: *Parser, slot: *Sexp) std.mem.Allocator.Error!void {
@@ -5782,7 +5781,7 @@ pub const Parser = struct {
     // as in the loop written by hand.
     // -------------------------------------------------------------------------
 
-    /// Each string literal of `lits` in `tree` as the literal it is
+    /// Each string literal of `lits` in what `slot` holds as the literal it is
     /// where it stands: where a `U8` goes, the integer leaf of its byte,
     /// spanning the string; where a `[N]U8` goes, the array literal of
     /// its bytes, each a leaf inside the string, so that no two share a
@@ -5817,8 +5816,9 @@ pub const Parser = struct {
     //
     // Typecheck finds each group, `..net: Net` in a function's parameters,
     // and each spread, `..v` in a call or constructor, since the fields
-    // they stand for are known only from types, and the module is checked
-    // again on this rewrite (docs/design/options.md, section 11). A group
+    // they stand for are known only from types (docs/design/options.md,
+    // section 11): a group is rewritten before any body is checked, its
+    // uses and the spreads with the declaration that holds them. A group
     // becomes one name-only parameter per field, typed `(field_of ...)`;
     // a read of a field in the body, `net.timeout`, becomes a leaf that
     // names the field's parameter (`group_targets`), and a body that uses
@@ -6087,7 +6087,7 @@ pub const Parser = struct {
 
     const ChainStep = struct { name: []const u8, args: []const Sexp, at: u32 };
 
-    /// The rewrite of one chain (`desugarChains`).
+    /// The rewrite of one chain (`elaborateChains`).
     const ChainLowering = struct {
         p: *Parser,
         home: u32,
@@ -6411,7 +6411,7 @@ pub const Parser = struct {
         return @intCast(pos);
     }
 
-    /// One chain as its loop (`desugarChains`).
+    /// One chain as its loop (`elaborateChains`).
     fn lowerIterChain(self: *Parser, node: Sexp, c: Chain) std.mem.Allocator.Error!Sexp {
         const source = c.source;
         const a = self.allocator();

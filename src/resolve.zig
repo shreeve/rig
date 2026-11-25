@@ -2957,7 +2957,7 @@ pub const TypeResolver = struct {
     }
 
     /// The parameters that belong to a group (`sema.GroupParam`), or null
-    /// when none does: a group as written, the first check's, or a field
+    /// when none does: a group as written, one the checks refused, or a field
     /// of one, which the Parser wrapper made a parameter. Each is marked on
     /// its symbol, so the body names none by itself.
     fn paramGroups(self: *TypeResolver, fn_ty: TypeId, params: Sexp, pos: u32) Error!bool {
@@ -4372,7 +4372,7 @@ pub const TypeResolver = struct {
     // ---- type expressions ---------------------------------------------------
 
     /// `(item_type h)`, which only a chain's rewrite writes
-    /// (`Parser.desugarChains`): what the hidden binding `h` gives each
+    /// (`Parser.elaborateChains`): what the hidden binding `h` gives each
     /// step. A held source gives its items, as `for x in h` binds them
     /// (an iterator's `next`, a List's, array's, or slice's elements read
     /// as a `for` reads them); a bound closure, its result; any other

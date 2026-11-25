@@ -1054,13 +1054,12 @@ const Checker = struct {
     // -------------------------------------------------------------------------
     // Groups and spreads (docs/design/options.md, sections 2 to 4)
     //
-    // The first check of a module sees each group as written, one
-    // parameter `net` of type `Net`, and each spread as written: it checks
-    // them and records them (`rig.GroupSite`, `rig.SpreadSite`), and checks
-    // a call with a spread, or of a function whose group is as written,
-    // no further. The Parser wrapper rewrites them into parameters and
-    // keyword arguments, and the second check checks those as it checks
-    // any (`Parser.desugarOptions`).
+    // A group is checked and made parameters before any body
+    // (`flattenGroups`). The check of a body sees the group's own name,
+    // `net` of type `Net`, and each spread as written: it finds their uses
+    // (`rig.GroupUse`, `rig.SpreadSite`) and checks a call with a spread no
+    // further. The declaration is rewritten, its uses as parameters and
+    // keyword arguments, and checked again (`checkRewritten`).
     // -------------------------------------------------------------------------
 
     /// A group's type: an object, declared here or in module `module`
@@ -1313,10 +1312,6 @@ const Checker = struct {
             const g = types.items[gi].?;
             gi += 1;
             const id = nodeId(p);
-            const known = for (out.items) |site| {
-                if (site.node == id) break true;
-            } else false;
-            if (known) continue;
             const fields = try a.alloc([]const u8, g.fields.len);
             for (g.fields, fields) |f, *o| o.* = f.name;
             const written = if (g.module == null) try self.writtenFieldTypes(self.ctx.symbols.items[g.sym], g.fields) else &.{};
@@ -1394,7 +1389,7 @@ const Checker = struct {
     }
 
     /// A spread that will not be rewritten: a name of a group in it is a
-    /// use of the group whole, so the second check, which sees it again,
+    /// use of the group whole, so the check again, which sees it again,
     /// finds the group's value bound.
     fn spreadRefused(self: *Checker, spread: Sexp) Error!void {
         var place = rig.Parser.spreadPlace(ir.Spread.value(spread));
@@ -1484,11 +1479,11 @@ const Checker = struct {
         return false;
     }
 
-    /// A call with a spread, or of a function whose group is as written,
-    /// in the first check: each spread checked against the group it
-    /// fills and recorded, and each other argument typed, no further. True
-    /// when the call is such a call; the second check checks it as the
-    /// keyword call it then is.
+    /// A call with a spread, or of a function whose group is as written:
+    /// each spread checked against the group it fills and found, and each
+    /// other argument typed, no further. True when the call is such a
+    /// call; its declaration is checked again with it the keyword call it
+    /// then is (`checkRewritten`).
     fn optionsCall(self: *Checker, args: []const Sexp, info: ParamInfo, callee: []const u8) Error!bool {
         var spreads = false;
         for (args) |x| spreads = spreads or x.isKind(.spread);
@@ -1586,10 +1581,10 @@ const Checker = struct {
     }
 
     /// `Point(x: 3, ..p)`: a copy of `p` with the fields named set
-    /// (docs/design/options.md, "Object update"), in the first check:
-    /// one spread, of a place of exactly the type made, of plain data, and
-    /// no argument by position. The spread is recorded and the rest typed;
-    /// the second check checks the constructor it then is.
+    /// (docs/design/options.md, "Object update"): one spread, of a place of
+    /// exactly the type made, of plain data, and no argument by position.
+    /// The spread is found and the rest typed; the declaration is checked
+    /// again with the constructor it then is.
     fn objectUpdate(self: *Checker, args: []const Sexp, fields: []const Field, result: TypeId, owner: []const u8) Error!void {
         const a = self.ctx.arena.allocator();
         var rest: std.ArrayList(Sexp) = .empty;
@@ -20239,7 +20234,7 @@ const Checker = struct {
             if (self.ctx.quiet != 0) return;
             try self.kept_reported.put(self.ctx.allocator, nodeId(e), {});
             // A chain reported is not rewritten into its loop, so the
-            // report is the round's last word on it.
+            // report is the last word on it.
             for (self.chains.items, 0..) |c, i| if (c.node == e.list.id) {
                 _ = self.chains.orderedRemove(i);
                 break;
@@ -22888,7 +22883,7 @@ const Checker = struct {
         if (want) |w| if (sema.returnsNothing(self.ctx, w.returns)) {
             // A closure that returns nothing has no value: its last line
             // is a statement, as a `sub`'s is.
-            if (self.ctx.parser) |p| try p.dropTail(&@constCast(node.items())[ir.slot(.lambda, .body)]);
+            if (self.ctx.parser) |p| try p.dropTail(node);
         };
         const body = ir.Lambda.body(node);
         if (want) |w| {

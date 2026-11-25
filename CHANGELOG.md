@@ -664,6 +664,18 @@ serve no HTTP.
 
 ### Compiler
 
+- **`sema` checks each module once:** the module loop that checked a
+  module again after rewriting its byte literals, chains, groups, and
+  spreads is gone; each is rewritten where typecheck finds it. `rig
+  check` of Trig, whose last such module was std's `datetime`, checks
+  each of its 54 modules once; the emitted Zig is the same.
+- **A group is made its fields' parameters before any body is
+  checked,** and its uses and a call's spreads are rewritten with the
+  declaration that holds them, which is rolled back and checked again
+  (docs/internals/INTERNALS.md, "Groups and spreads").
+- **A chain is checked once, with its statement,** which is rolled back
+  and checked again with the chain written as the loop it means
+  (docs/internals/INTERNALS.md, "Chains").
 - **A string literal where a byte goes is checked once, with its
   statement:** a statement that holds a string literal is checked under
   a mark, and when typecheck finds the literal is a `U8` or a `[N]U8`, it
