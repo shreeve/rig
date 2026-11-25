@@ -35,7 +35,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │    typecheck src/typecheck.zig   every expression's type and facts
   │    cteval    src/cteval.zig      compile-time functions, run in the checker
   │  storage     src/storage.zig   the hidden storage emit makes
-  │  ownership   src/ownership.zig moves, loans, drops, aliasing
+  │  ownership   src/ownership/    moves, loans, drops, aliasing
   │  proofs      src/proofs.zig    the tests known to pass
   ▼
 inlining         src/inlining.zig  which small functions Zig inlines, program-wide
@@ -225,7 +225,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
 | `src/storage.zig` | the storage facts: the var table of the hidden storage emit makes and how bindings hold their values, decided once for emit and the ownership checker |
-| `src/ownership.zig` | the ownership checker |
+| `src/ownership.zig`, `src/ownership/` | the ownership checker, one file per part of the Core ([Ownership](#ownership)) |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/returns.zig` | which functions never return, emitted with the Zig result `noreturn`, decided once for the whole program after every module is checked (Emit, "Functions that never return") |
 | `src/units.zig` | a split build: how many units a program is built as, and which unit owns each function it cuts, decided once for the whole program ([Split builds](#split-builds)) |
@@ -3220,8 +3220,23 @@ with its counts always atomic (`Counted(T, true)`), made by
 
 ## Ownership
 
-`ownership.zig` checks one function body at a time as a flow-sensitive
-abstract interpretation of the IR.
+The ownership checker checks one function body at a time as a
+flow-sensitive abstract interpretation of the IR. `src/ownership.zig`
+is its interface (`Checker`) and its tests; the checker itself is laid
+out by docs/CORE.md in `src/ownership/`, so each sentence's rules are
+in one place:
+
+| File | Holds |
+|---|---|
+| `state.zig` | `Var`, `Flow`, `Loan`, `Paths`, points and the trail, join; the `Checker`, which names the methods the other files define |
+| `live.zig` | liveness: whether the var holding a loan may be used again (sentence 6) |
+| `transfer.zig` | the walk: what each construct does to the state, grouped by sentences 1 to 10, then return, branches, and loops |
+| `rules.zig` | the checks that reject a program, grouped by the sentence each enforces |
+| `origins.zig` | what a value carries (`carry`), what a call keeps (sentence 7), self's paths, and a body against its signature (`checkOrigins`) |
+| `exits.zig` | the one exit primitive (`exitTo`, CORE §9), defers, and jumps |
+| `generic.zig` | generic bodies: what they require of each instance |
+| `types.zig` | what the checker reads of sema's facts: per type and per expression (CORE §9) |
+| `notes.zig` | messages, and the notes that name both ends of a view |
 
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
 parameter, capture, pattern, loop element) paired with a `Flow`: its
