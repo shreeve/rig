@@ -259,7 +259,7 @@ pub const Var = struct {
     /// type, for the error when a loan on it outlives the block.
     erased_of: []const u8 = "",
     erased_view: ?TypeId = null,
-    /// The var with the same name this one hides, for name lookup.
+    /// The var of the same binding this one hides, for lookup.
     shadows: ?VarId = null,
     via: Via = .owned,
     /// A run-time parameter of the function or closure being checked:
@@ -527,8 +527,9 @@ pub const Checker = struct {
     diagnostics: std.ArrayList(Diagnostic) = .empty,
 
     vars: std.ArrayList(Var) = .empty,
-    /// The innermost var with each name (see `Var.shadows`).
-    names: std.StringHashMapUnmanaged(VarId) = .empty,
+    /// The innermost var of each binding sema resolved (see
+    /// `Var.shadows`).
+    syms: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
     /// What generic bodies copy: this module's, found while walking them,
     /// then those of other modules' bodies its instances use.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
@@ -763,7 +764,7 @@ pub const Checker = struct {
         for (self.diagnostics.items) |d| self.gpa.free(d.message);
         self.diagnostics.deinit(self.gpa);
         self.vars.deinit(self.gpa);
-        self.names.deinit(self.gpa);
+        self.syms.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
         self.old_nones.deinit(self.gpa);
         self.method_calls.deinit(self.gpa);
@@ -914,8 +915,8 @@ pub const Checker = struct {
                 else => {},
             }
         };
-        if (v.name.len > 0) {
-            const gop = try self.names.getOrPut(self.gpa, v.name);
+        if (v.sym) |sym| {
+            const gop = try self.syms.getOrPut(self.gpa, sym);
             v.shadows = if (gop.found_existing) gop.value_ptr.* else null;
             gop.value_ptr.* = id;
         }
@@ -926,7 +927,7 @@ pub const Checker = struct {
         return id;
     }
 
-    /// Drop the vars `>= start`, youngest first, so each name they hid
+    /// Drop the vars `>= start`, youngest first, so each var they hid
     /// is visible again.
     pub fn truncateVars(self: *Checker, start: u32) void {
         var i = self.vars.items.len;
@@ -934,11 +935,11 @@ pub const Checker = struct {
             i -= 1;
             const v = self.vars.items[i];
             self.countLoans(self.flows.items[i].loans, false);
-            if (v.name.len == 0) continue;
+            const sym = v.sym orelse continue;
             if (v.shadows) |prev| {
-                self.names.putAssumeCapacity(v.name, prev);
+                self.syms.putAssumeCapacity(sym, prev);
             } else {
-                _ = self.names.remove(v.name);
+                _ = self.syms.remove(sym);
             }
         }
         self.vars.shrinkRetainingCapacity(start);
@@ -946,11 +947,17 @@ pub const Checker = struct {
         self.loan_counts.shrinkRetainingCapacity(start);
     }
 
-    /// The innermost visible var named `name`. A local of a function
-    /// enclosing the current closure body is not visible: typecheck
-    /// reports its use.
-    pub fn find(self: *const Checker, name: []const u8) ?VarId {
-        var id = self.names.get(name) orelse return null;
+    /// The innermost visible var of the binding leaf `node` names, as
+    /// sema resolved it.
+    pub fn find(self: *const Checker, node: Sexp) ?VarId {
+        return self.varOf(self.sema.symbolOf(node) orelse return null);
+    }
+
+    /// The innermost visible var of binding `sym`. A local of a
+    /// function enclosing the current closure body is not visible:
+    /// typecheck reports its use.
+    pub fn varOf(self: *const Checker, sym: SymbolId) ?VarId {
+        var id = self.syms.get(sym) orelse return null;
         while (self.isHiddenVar(id)) id = self.vars.items[id].shadows orelse return null;
         var crossed = false;
         var si = self.scopes.items.len;
@@ -1488,7 +1495,6 @@ pub const Checker = struct {
     pub const rejectGlobal = rules.rejectGlobal;
     pub const checkNoImplicitCopy = rules.checkNoImplicitCopy;
     pub const readsThroughWriteView = rules.readsThroughWriteView;
-    pub const boundVar = rules.boundVar;
     pub const readsValue = rules.readsValue;
     pub const namesType = rules.namesType;
     pub const conflicts = rules.conflicts;

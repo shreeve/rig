@@ -526,7 +526,7 @@ pub fn walkList(self: *Checker, sexp: Sexp, kind: Tag) Error!Value {
 /// The operand of a view the type checker rejected: a closure
 /// binding there was reported with it.
 pub fn walkRejectedView(self: *Checker, operand: Sexp) Error!Value {
-    if (operand == .src) if (self.find(self.text(operand))) |id| if (self.vars.items[id].closure) return .{};
+    if (operand == .src) if (self.find(operand)) |id| if (self.vars.items[id].closure) return .{};
     return self.walk(operand);
 }
 
@@ -597,7 +597,7 @@ pub fn consumeTailName(self: *Checker, node: Sexp, t: Tail) Error!void {
     const sink = t.sink;
     const ctx = self.sema;
     const sym = ctx.symbolOf(node) orelse return;
-    const id = self.find(self.text(node)) orelse return;
+    const id = self.find(node) orelse return;
     const v = self.vars.items[id];
     if (v.decl != ctx.symbols.items[sym].decl_pos) return;
     if (!self.flowLive(id)) return;
@@ -637,7 +637,7 @@ pub fn isWriteViewPlace(self: *Checker, expr: Sexp) bool {
 pub fn walkName(self: *Checker, node: Sexp, as_callee: bool) Error!Value {
     const pos = node.src.pos;
     const name = self.text(node);
-    const id = self.find(name) orelse return .{};
+    const id = self.find(node) orelse return .{};
     const v = self.vars.items[id];
     if (v.closure and !as_callee) {
         try self.errClosureValue(pos, name);
@@ -716,7 +716,7 @@ pub fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
     if (self.hands(e).kind != .place and !self.heldPath(e)) return null;
     switch (e) {
         .src => {
-            const id = self.find(self.text(e)) orelse return null;
+            const id = self.find(e) orelse return null;
             return .{ .root = id, .whole = true, .through_view = self.vars.items[id].ref != .none };
         },
         .list => switch (e.kind() orelse return null) {
@@ -1339,7 +1339,7 @@ pub fn walkDrop(self: *Checker, node: Sexp) Error!void {
     }
     const pos = target.src.pos;
     const name = self.text(target);
-    const id = self.find(name) orelse return;
+    const id = self.find(target) orelse return;
     const v = self.vars.items[id];
     // Why `<x` cannot drop `x` is decided once (`sema.undroppable`),
     // which the type checker's hint for a statement `-x` reads too.
@@ -1788,7 +1788,7 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
     // read, and cannot leave early, never uses its old view again:
     // that view's loans end here (Core sentence 6), before the right
     // side makes a view anew.
-    if (kind == .default and self.sema.repoints(node)) if (self.find(name)) |id| {
+    if (kind == .default and self.sema.repoints(node)) if (self.find(target)) |id| {
         if (!self.readsName(expr, name) and !leavesEarly(expr)) try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
     };
     const mark = try self.useAfterValue(node);
@@ -1797,7 +1797,7 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
             // A closure literal makes a new binding, or is reported
             // rebinding a closure; stored into any other existing
             // slot (a `fun` local, a write view) it would escape.
-            self.lambda_ok = kind != .default or (if (self.find(name)) |id| self.vars.items[id].closure else true);
+            self.lambda_ok = kind != .default or (if (self.find(target)) |id| self.vars.items[id].closure else true);
             break :blk try self.walk(expr);
         } else blk: {
             const saved = self.binding;
@@ -1821,7 +1821,7 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
         .shadow => try self.bindNew(target, false, is_lambda, value),
         .fixed => try self.bindNew(target, true, is_lambda, value),
         .default => {
-            if (self.find(name)) |id| {
+            if (self.find(target)) |id| {
                 const repoints = self.sema.repoints(node);
                 try self.reassign(id, pos, value, repoints);
                 return;
@@ -1831,7 +1831,7 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
         },
         // Compound assignment (`+=`, ...).
         else => {
-            const id = self.find(name) orelse return;
+            const id = self.find(target) orelse return;
             try self.clearNones(id, whole_path);
             try self.checkReadable(id, null, pos);
             try self.checkAssignable(id, pos);
@@ -2655,7 +2655,7 @@ pub fn walkDestructure(self: *Checker, node: Sexp) Error!void {
         if (!t.isKind(.set) or !ctx.repoints(t)) continue;
         const name = self.text(ir.Set.target(t));
         if (self.readsName(value, name)) continue;
-        if (self.find(name)) |id| try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
+        if (self.find(ir.Set.target(t))) |id| try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
     };
     const saved_results = self.results_of;
     defer self.results_of = saved_results;
@@ -2723,7 +2723,7 @@ pub fn pendingView(self: *Checker, set: Sexp, targets: []const Sexp, parts: []co
     const ctx = self.sema;
     const sym = ctx.symbolOf(target) orelse return false;
     if (ctx.symbols.items[sym].decl_pos == target.src.pos) return false;
-    const id = self.find(self.text(target)) orelse return false;
+    const id = self.find(target) orelse return false;
     for (targets, parts, held, 0..) |o, part, h, k| {
         if (k == j or (k < j and o.isKind(.set)) or !h) continue;
         for (part.loans) |l| if (l.root == id and !l.ext) {
@@ -3088,8 +3088,11 @@ pub fn applyCapture(self: *Checker, cap: Sexp) Error!Value {
     const node = sema.captureNameNode(cap).?;
     const pos = node.src.pos;
     const name = self.text(node);
-    // Unresolved or nested captures are diagnosed by ctx.
-    const id = self.find(name) orelse return .{};
+    // The name declares the capture; the binding it captures is the
+    // capture's origin. Unresolved or nested captures are diagnosed by
+    // ctx.
+    const cap_sym = self.sema.symbolOf(node) orelse return .{};
+    const id = self.varOf(self.sema.symbols.items[cap_sym].origin) orelse return .{};
     const v = self.vars.items[id];
     if (v.closure) {
         if (mode == .cap_read) return self.viewClosure(id, pos);
@@ -3230,7 +3233,7 @@ pub fn walkReturnValue(self: *Checker, expr: Sexp, part: ?TypeId) Error!Value {
         value = try self.walk(expr);
     } else if (expr == .src) {
         try self.checkNoImplicitCopy(expr, .ret, true);
-        if (self.find(self.text(expr))) |id| {
+        if (self.find(expr)) |id| {
             const v = self.vars.items[id];
             if (v.closure) {
                 value = try self.walkName(expr, false);
@@ -4162,7 +4165,7 @@ pub fn walkPanic(self: *Checker, node: Sexp) Error!void {
 /// whose value owns, as `return x` moves one (`returnMoves`).
 pub fn breakMovesName(self: *Checker, value: Sexp, vars: u32) Error!?VarId {
     if (value != .src) return null;
-    const id = self.boundVar(value) orelse return null;
+    const id = self.find(value) orelse return null;
     if (id < vars) return null;
     const v = self.vars.items[id];
     if (v.closure or v.loop_view or v.capture_resource or v.alias_of != null or !self.returnMoves(v)) return null;

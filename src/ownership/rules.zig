@@ -166,7 +166,7 @@ pub fn checkNoImplicitCopy(self: *Checker, expr: Sexp, sink: Sink, top_return: b
     if (self.readsValue(expr)) self.copy_reads = true;
     switch (expr) {
         .src => {
-            const v = self.vars.items[self.boundVar(expr) orelse return];
+            const v = self.vars.items[self.find(expr) orelse return];
             const pos = expr.src.pos;
             const name = v.name;
             if (v.closure) return; // reported by walkName
@@ -240,23 +240,6 @@ pub fn checkNoImplicitCopy(self: *Checker, expr: Sexp, sink: Sink, top_return: b
 /// `w: !Int` or `w: !Point`, copies the value.
 pub fn readsThroughWriteView(self: *const Checker, ty: ?TypeId) bool {
     return self.copy_reads and self.refOfType(ty) == .write and self.copiedThrough(ty);
-}
-
-/// The var the name `expr` refers to, once the walk has bound it:
-/// null for a name the value being checked declares itself (a
-/// block's local at its tail), even where an outer binding has the
-/// same name.
-pub fn boundVar(self: *const Checker, expr: Sexp) ?VarId {
-    const id = self.find(self.text(expr)) orelse return null;
-    const ctx = self.sema;
-    const sym = ctx.symbolOf(expr) orelse return id;
-    if (self.vars.items[id].sym == sym) return id;
-    var i = self.vars.items.len;
-    while (i > 0) {
-        i -= 1;
-        if (self.vars.items[i].sym == sym) return @intCast(i);
-    }
-    return null;
 }
 
 /// Whether the context of `e` reads the value the view it yields
@@ -450,6 +433,6 @@ pub fn onceUses(self: *Checker, node: Sexp) Error![]const OnceUse {
 
 /// The `once` parameter `e` names, if it is one.
 pub fn onceVar(self: *const Checker, e: Sexp) ?VarId {
-    const id = self.find(self.text(e)) orelse return null;
+    const id = self.find(e) orelse return null;
     return if (self.vars.items[id].once) id else null;
 }

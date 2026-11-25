@@ -291,7 +291,7 @@ pub fn placeDepth(self: *const Checker, target: Sexp, writes_through: bool) u32 
         e = ir.get(e, .object);
         // A root var holding a write view (a `match !x` binding
         // among them, whatever its type) is one.
-        const root_is_write_view = e == .src and if (self.find(self.text(e))) |id| self.vars.items[id].ref == .write else false;
+        const root_is_write_view = e == .src and if (self.find(e)) |id| self.vars.items[id].ref == .write else false;
         const is_write_view = if (self.exprType(e)) |t| self.typeData(t) == .write_view else false;
         if (root_is_write_view or is_write_view) n += 1;
     }
@@ -432,7 +432,10 @@ pub fn tagSelf(self: *Checker, v: Value, root: VarId, path: PathId) Error!Value 
 pub fn bindSelfPaths(self: *Checker) Error!void {
     const sps = self.func.origins.self_paths;
     if (sps.len == 0) return;
-    const id = self.find("@") orelse return;
+    const start = self.scopes.items[self.scopes.items.len - 1].start;
+    const id: VarId = for (self.vars.items[start..], start..) |v, i| {
+        if (std.mem.eql(u8, v.name, "@")) break @intCast(i);
+    } else return;
     if (self.vars.items[id].kind != .param) return;
     const out = try self.arena().alloc(PathId, sps.len);
     for (sps, out) |sp, *p| p.* = try self.selfPathId(whole_path, sp);
