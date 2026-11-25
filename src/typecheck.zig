@@ -70,10 +70,10 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     };
     defer c.deinit();
     try c.placePanics(tree, .value);
-    for (ctx.const_order.items) |decl| try c.checkDecl(decl);
+    for (ctx.const_order.items) |*decl| try c.checkRewritten(decl, Checker.checkDecl, .{});
     // A compile-time function was checked before the constants that call
     // it (`resolve.ensureCtFun`, `checkCtFun`).
-    for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl) and !rig.isCtFun(decl)) try c.checkDecl(decl);
+    for (ir.Module.decls(tree)) |*decl| if (!rig.isModuleConst(decl.*) and !rig.isCtFun(decl.*)) try c.checkRewritten(decl, Checker.checkDecl, .{});
     for (ir.Module.decls(tree)) |decl| if (!rig.isCtFun(decl)) try c.checkViewBases(decl, decl, false, true);
 }
 
@@ -91,8 +91,59 @@ pub fn checkCtFun(ctx: *SemContext, decl: Sexp) Error!void {
     };
     defer c.deinit();
     try c.placePanics(decl, .value);
-    try c.checkDecl(decl);
+    try c.checkRewritten(&decl, Checker.checkDecl, .{});
     try c.checkViewBases(decl, decl, false, true);
+}
+
+/// Each group of a function or a method the module declares, `..net:
+/// Net` (docs/design/options.md), checked (`Checker.checkGroups`) and,
+/// when it holds, made the parameters it means, before any body is
+/// checked (`rig.Parser.flattenGroups`): its fields' parameters are
+/// declared, and the function's signature resolved again
+/// (`resolve.resolveFlattened`). Its uses in the body are rewritten
+/// where typecheck finds them (`Checker.checkRewritten`).
+pub fn flattenGroups(ctx: *SemContext, tree: Sexp) Error!void {
+    if (!tree.isKind(.module)) return;
+    const p = ctx.parser orelse return;
+    var c: Checker = .{
+        .ctx = ctx,
+        .scope = sema.module_scope,
+        .module_scope = sema.module_scope,
+        .body = .{ .ret = ctx.types.void_id },
+        .tree = tree,
+    };
+    defer c.deinit();
+    var sites: std.ArrayList(rig.GroupSite) = .empty;
+    defer sites.deinit(ctx.allocator);
+    var flat: std.ArrayList(rig.Parser.Flattened) = .empty;
+    defer flat.deinit(ctx.allocator);
+    for (ir.Module.decls(tree)) |decl| {
+        const d = rig.unpub(decl);
+        switch (d.kind() orelse continue) {
+            .fun, .sub => if (hasGroup(d)) try c.flattenIn(p, d, sema.symbol_invalid, &sites, &flat),
+            .@"struct", .@"enum", .generic_struct, .generic_enum => {
+                const any = for (ir.rest(d, .members)) |m| {
+                    if ((m.isKind(.fun) or m.isKind(.sub)) and hasGroup(m)) break true;
+                } else false;
+                if (!any) continue;
+                const sym = ctx.symbolOf(ir.get(d, .name)) orelse continue;
+                const prev = c.nominal;
+                c.nominal = try sema.makeNominalContext(ctx, sym);
+                defer c.nominal = prev;
+                for (ir.rest(d, .members)) |m| if (m.isKind(.fun) or m.isKind(.sub)) try c.flattenIn(p, m, sym, &sites, &flat);
+            },
+            else => {},
+        }
+    }
+    if (flat.items.len > 0) try resolve.fillGroupDefaults(ctx);
+}
+
+/// Whether function `def` declares a group among its parameters.
+fn hasGroup(def: Sexp) bool {
+    const params = ir.get(def, .params);
+    if (params != .list) return false;
+    for (params.items()) |p| if (p.isKind(.group_param)) return true;
+    return false;
 }
 
 /// Where a binding that cannot be written got its value: a loop element
@@ -156,6 +207,21 @@ const Checker = struct {
     /// (`sema.ownParamOf`), which a call through an API records
     /// (`sema.ApiCall.slots`).
     inst_slots: []const u32 = &.{},
+    /// The string literals found to be a byte or bytes (`byteString`) in
+    /// the statements being checked under a mark (`checkRewritten`), each
+    /// checked again with them rewritten; `rewrites_open` of them.
+    bytes: std.ArrayList(rig.ByteLiteral) = .empty,
+    /// The chains found so (`chainCall`).
+    chains: std.ArrayList(rig.Chain) = .empty,
+    /// The uses of groups made parameters (`noteGroupUse`), and the
+    /// spreads (`recordSpread`), found in the module's declaration being
+    /// checked, which is checked again with them rewritten
+    /// (`checkRewritten`); and the groups whose uses stay as written,
+    /// since the body writes one, which is refused.
+    group_uses: std.ArrayList(rig.GroupUse) = .empty,
+    spreads: std.ArrayList(rig.SpreadSite) = .empty,
+    refused: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    rewrites_open: u32 = 0,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
     /// The names `new q, r = f()` declares, while its call is checked.
@@ -487,6 +553,11 @@ const Checker = struct {
 
     fn deinit(self: *Checker) void {
         const a = self.ctx.allocator;
+        self.bytes.deinit(a);
+        self.chains.deinit(a);
+        self.group_uses.deinit(a);
+        self.spreads.deinit(a);
+        self.refused.deinit(a);
         self.arg_types.deinit(a);
         self.methods.deinit(a);
         self.expected.deinit(a);
@@ -646,7 +717,7 @@ const Checker = struct {
         if (target != .src) return self.errAt(node, not_at_module_level, .{});
         if (rig.bindingKindOf(ir.Set.op(node)) != .fixed) {
             if (self.ctx.symbolOf(target)) |id| if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
-                self.ctx.symbols.items[id].ty = self.t().invalid_id;
+                (try self.ctx.symbolMut(id)).ty = self.t().invalid_id;
             };
             return self.errAt(node, "a module-level binding is a constant; write `{s} = value`", .{self.text(target)});
         }
@@ -965,11 +1036,12 @@ const Checker = struct {
             const ty = self.ctx.bindingTypeOf(ir.Default.name(p)) orelse self.t().unknown_id;
             try self.checkDefaultValue(ir.Default.value(p), ty, "parameter", self.text(ir.Default.name(p)));
         };
-        try self.checkGroups(node);
+        // Its groups were checked, and made parameters, before any body
+        // (`flattenGroups`); a field read of one is found here.
         const saved_groups = self.in_group_body;
         defer self.in_group_body = saved_groups;
         self.in_group_body = for (ir.get(node, .params).items()) |p| {
-            if (p.isKind(.group_param)) break true;
+            if (p.isKind(.group_param) or sema.groupFieldOf(p) != null) break true;
         } else false;
         // `main` lowers to a fallible Zig `main`.
         const fallible = is_main or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
@@ -982,13 +1054,12 @@ const Checker = struct {
     // -------------------------------------------------------------------------
     // Groups and spreads (docs/design/options.md, sections 2 to 4)
     //
-    // The first check of a module sees each group as written, one
-    // parameter `net` of type `Net`, and each spread as written: it checks
-    // them and records them (`rig.GroupSite`, `rig.SpreadSite`), and checks
-    // a call with a spread, or of a function whose group is as written,
-    // no further. The Parser wrapper rewrites them into parameters and
-    // keyword arguments, and the second check checks those as it checks
-    // any (`Parser.desugarOptions`).
+    // A group is checked and made parameters before any body
+    // (`flattenGroups`). The check of a body sees the group's own name,
+    // `net` of type `Net`, and each spread as written: it finds their uses
+    // (`rig.GroupUse`, `rig.SpreadSite`) and checks a call with a spread no
+    // further. The declaration is rewritten, its uses as parameters and
+    // keyword arguments, and checked again (`checkRewritten`).
     // -------------------------------------------------------------------------
 
     /// A group's type: an object, declared here or in module `module`
@@ -1118,13 +1189,25 @@ const Checker = struct {
         return out;
     }
 
+    /// Function `def`'s groups (`checkGroups`), those that hold made its
+    /// parameters (`flattenGroups`).
+    fn flattenIn(self: *Checker, p: *rig.Parser, def: Sexp, nominal_sym: SymbolId, sites: *std.ArrayList(rig.GroupSite), flat: *std.ArrayList(rig.Parser.Flattened)) Error!void {
+        sites.clearRetainingCapacity();
+        try self.checkGroups(def, sites);
+        if (sites.items.len == 0) return;
+        const first = flat.items.len;
+        try p.flattenGroups(def, sites.items, self.ctx.allocator, flat);
+        for (flat.items[first..]) |f| try self.ctx.flat_groups.put(self.ctx.allocator, f.site.name, f);
+        try resolve.resolveFlattened(self.ctx, def, nominal_sym, flat.items[first..]);
+    }
+
     /// The groups of function `node`, `..net: Net` (docs/design/options.md,
     /// section 2): each an object of plain data, its fields public where the
     /// function is, no name among the function's parameters and its groups'
     /// fields twice, and 64 parameters at most in all. Each such group of
     /// a function whose declaration holds is recorded for the Parser
     /// wrapper to make parameters (`rig.GroupSite`).
-    fn checkGroups(self: *Checker, node: Sexp) Error!void {
+    fn checkGroups(self: *Checker, node: Sexp, out: *std.ArrayList(rig.GroupSite)) Error!void {
         const params = ir.get(node, .params);
         if (params != .list) return;
         var groups: usize = 0;
@@ -1229,14 +1312,10 @@ const Checker = struct {
             const g = types.items[gi].?;
             gi += 1;
             const id = nodeId(p);
-            const known = for (self.ctx.groups.items) |site| {
-                if (site.node == id) break true;
-            } else false;
-            if (known) continue;
             const fields = try a.alloc([]const u8, g.fields.len);
             for (g.fields, fields) |f, *o| o.* = f.name;
             const written = if (g.module == null) try self.writtenFieldTypes(self.ctx.symbols.items[g.sym], g.fields) else &.{};
-            try self.ctx.groups.append(self.ctx.allocator, .{ .node = id, .name = ir.GroupParam.name(p).src.pos, .fields = fields, .field_types = written, .moves = try self.fieldMoves(g.tys) });
+            try out.append(self.ctx.allocator, .{ .node = id, .name = ir.GroupParam.name(p).src.pos, .fields = fields, .field_types = written, .moves = try self.fieldMoves(g.tys) });
         }
     }
 
@@ -1245,7 +1324,7 @@ const Checker = struct {
     /// operand being checked (`group_member`), which records its own use.
     fn noteGroupUse(self: *Checker, leaf: Sexp, sym: sema.Symbol) Error!void {
         if (leaf.src.pos == self.group_member) return;
-        try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = sym.decl_pos, .pos = leaf.src.pos });
+        try self.group_uses.append(self.ctx.allocator, .{ .group = sym.decl_pos, .pos = leaf.src.pos });
     }
 
     /// Whether `e` is a spread's operand as one may be written: a name, or
@@ -1310,7 +1389,7 @@ const Checker = struct {
     }
 
     /// A spread that will not be rewritten: a name of a group in it is a
-    /// use of the group whole, so the second check, which sees it again,
+    /// use of the group whole, so the check again, which sees it again,
     /// finds the group's value bound.
     fn spreadRefused(self: *Checker, spread: Sexp) Error!void {
         var place = rig.Parser.spreadPlace(ir.Spread.value(spread));
@@ -1318,22 +1397,22 @@ const Checker = struct {
             // A field read in it stays as written, so the message about it
             // reads the same.
             var i: usize = 0;
-            while (i < self.ctx.group_uses.items.len) {
-                const u = self.ctx.group_uses.items[i];
+            while (i < self.group_uses.items.len) {
+                const u = self.group_uses.items[i];
                 if (u.member != 0 and u.member == place.list.id) {
-                    try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = u.group, .pos = u.pos });
-                    _ = self.ctx.group_uses.swapRemove(i);
+                    try self.group_uses.append(self.ctx.allocator, .{ .group = u.group, .pos = u.pos });
+                    _ = self.group_uses.swapRemove(i);
                 } else i += 1;
             }
         }
-        if (self.spreadGroup(spread)) |g| try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = g, .pos = rig.Parser.spreadPlace(ir.Spread.value(spread)).src.pos });
+        if (self.spreadGroup(spread)) |g| try self.group_uses.append(self.ctx.allocator, .{ .group = g, .pos = rig.Parser.spreadPlace(ir.Spread.value(spread)).src.pos });
     }
 
     /// Record spread `spread`, which gives `fields`.
     fn recordSpread(self: *Checker, spread: Sexp, given: Given) Error!void {
         const id = nodeId(spread);
-        for (self.ctx.spreads.items) |sp| if (sp.node == id) return;
-        try self.ctx.spreads.append(self.ctx.allocator, .{ .node = id, .fields = given.fields, .group = self.spreadGroup(spread), .sigil = spreadSigil(spread), .moves = given.moves });
+        for (self.spreads.items) |sp| if (sp.node == id) return;
+        try self.spreads.append(self.ctx.allocator, .{ .node = id, .fields = given.fields, .group = self.spreadGroup(spread), .sigil = spreadSigil(spread), .moves = given.moves });
     }
 
     /// The fields a spread gives, those no keyword of its call names, in
@@ -1400,11 +1479,11 @@ const Checker = struct {
         return false;
     }
 
-    /// A call with a spread, or of a function whose group is as written,
-    /// in the first check: each spread checked against the group it
-    /// fills and recorded, and each other argument typed, no further. True
-    /// when the call is such a call; the second check checks it as the
-    /// keyword call it then is.
+    /// A call with a spread, or of a function whose group is as written:
+    /// each spread checked against the group it fills and found, and each
+    /// other argument typed, no further. True when the call is such a
+    /// call; its declaration is checked again with it the keyword call it
+    /// then is (`checkRewritten`).
     fn optionsCall(self: *Checker, args: []const Sexp, info: ParamInfo, callee: []const u8) Error!bool {
         var spreads = false;
         for (args) |x| spreads = spreads or x.isKind(.spread);
@@ -1502,10 +1581,10 @@ const Checker = struct {
     }
 
     /// `Point(x: 3, ..p)`: a copy of `p` with the fields named set
-    /// (docs/design/options.md, "Object update"), in the first check:
-    /// one spread, of a place of exactly the type made, of plain data, and
-    /// no argument by position. The spread is recorded and the rest typed;
-    /// the second check checks the constructor it then is.
+    /// (docs/design/options.md, "Object update"): one spread, of a place of
+    /// exactly the type made, of plain data, and no argument by position.
+    /// The spread is found and the rest typed; the declaration is checked
+    /// again with the constructor it then is.
     fn objectUpdate(self: *Checker, args: []const Sexp, fields: []const Field, result: TypeId, owner: []const u8) Error!void {
         const a = self.ctx.arena.allocator();
         var rest: std.ArrayList(Sexp) = .empty;
@@ -1709,41 +1788,157 @@ const Checker = struct {
             .fallible => |inner| inner.ok == self.t().void_id,
             else => false,
         };
-        for (stmts, 0..) |s, i| {
-            if (wants_value and i == stmts.len - 1) {
-                if (loopsForever(self.ctx.source, s) or (ends_void and (self.yieldsNoValue(s) or isIfWithoutElse(s)))) {
-                    try self.checkStmt(s);
-                    continue;
-                }
-                if (self.yieldsNoValue(s) and !s.isKind(.@"return") and !s.isKind(.panic)) {
-                    try self.checkStmt(s);
-                    const what = switch (s.kind().?) {
-                        .set => "assignment",
-                        .@"while", .@"for" => "loop",
-                        .labeled => switch (ir.Labeled.stmt(s).kind() orelse .labeled) {
-                            .@"while", .@"for" => "loop",
-                            .match => "labeled `match` (a label makes it a statement)",
-                            .raw_block => "labeled `raw` block (a label makes it a statement)",
-                            .block => "labeled block",
-                            else => "labeled statement",
-                        },
-                        .drop => "drop",
-                        .pass => "`pass`",
-                        .rarely => "`rarely`",
-                        .@"defer", .@"errdefer" => "deferred statement",
-                        else => "jump",
-                    };
-                    try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
-                    continue;
-                }
-                const saved_tail = self.results_tail;
-                defer self.results_tail = saved_tail;
-                if (sema.resultsOf(self.ctx, ret) != null) self.results_tail = resultCall(s) orelse .nil;
-                try self.checkTail(s, ret);
-            } else {
-                try self.checkStmt(s);
-            }
+        for (stmts) |*s| try self.checkRewritten(s, checkBodyStmt, .{ wants_value and s == &stmts[stmts.len - 1], ret, ends_void });
+    }
+
+    /// Statement `s` of a function's body, `last` its last whose value
+    /// the function returns, `ret` its result type.
+    fn checkBodyStmt(self: *Checker, s: Sexp, last: bool, ret: TypeId, ends_void: bool) Error!void {
+        if (!last) return self.checkStmt(s);
+        if (loopsForever(self.ctx.source, s) or (ends_void and (self.yieldsNoValue(s) or isIfWithoutElse(s)))) {
+            try self.checkStmt(s);
+            return;
         }
+        if (self.yieldsNoValue(s) and !s.isKind(.@"return") and !s.isKind(.panic)) {
+            try self.checkStmt(s);
+            const what = switch (s.kind().?) {
+                .set => "assignment",
+                .@"while", .@"for" => "loop",
+                .labeled => switch (ir.Labeled.stmt(s).kind() orelse .labeled) {
+                    .@"while", .@"for" => "loop",
+                    .match => "labeled `match` (a label makes it a statement)",
+                    .raw_block => "labeled `raw` block (a label makes it a statement)",
+                    .block => "labeled block",
+                    else => "labeled statement",
+                },
+                .drop => "drop",
+                .pass => "`pass`",
+                .rarely => "`rarely`",
+                .@"defer", .@"errdefer" => "deferred statement",
+                else => "jump",
+            };
+            try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
+            return;
+        }
+        const saved_tail = self.results_tail;
+        defer self.results_tail = saved_tail;
+        if (sema.resultsOf(self.ctx, ret) != null) self.results_tail = resultCall(s) orelse .nil;
+        try self.checkTail(s, ret);
+    }
+
+    /// `check` of the block statement or module declaration `slot` holds,
+    /// with `args`, which typecheck may find holds a form that is
+    /// rewritten once types are known: a string literal that is a byte or
+    /// bytes where it stands (`byteString`), written as the integer or
+    /// array literal it is, and a chain (`chainCall`), written as the loop
+    /// it means. No pass sees either: what checking the statement recorded
+    /// is taken back, the tree is rewritten where they stand
+    /// (`rig.Parser.byteLiterals`, `rig.Parser.elaborateChains`, with the
+    /// loops' names and scopes from `resolve.resolveChains`), and the
+    /// statement is checked again in that form
+    /// (docs/internals/INTERNALS.md, "Strings as bytes", "Chains"). Only a
+    /// statement the parser found may hold one (`rig.Parser.rewrite_stmts`)
+    /// is checked under a mark.
+    inline fn checkRewritten(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
+        if (!self.mayRewrite(slot.*)) return @call(.auto, check, .{ self, slot.* } ++ args);
+        return self.checkUnderMark(slot, check, args);
+    }
+
+    /// `checkRewritten` of a statement that may be rewritten: under a
+    /// mark, checked again as long as the check finds a rewrite.
+    fn checkUnderMark(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
+        self.rewrites_open += 1;
+        defer self.rewrites_open -= 1;
+        // A group's uses and a spread are rewritten with the module's
+        // declaration that holds them: a group used whole is bound at its
+        // function's start, which changes how each of its field reads is
+        // written, wherever it stands.
+        const decl = comptime isDeclCheck(check);
+        const uses = self.group_uses.items.len;
+        const spreads = self.spreads.items.len;
+        defer if (decl) {
+            self.group_uses.shrinkRetainingCapacity(uses);
+            self.spreads.shrinkRetainingCapacity(spreads);
+        };
+        while (true) {
+            const m = self.ctx.mark();
+            const bytes = self.bytes.items.len;
+            const chains = self.chains.items.len;
+            const returns = if (self.body.returns) |r| r.items.len else 0;
+            const result = try @call(.auto, check, .{ self, slot.* } ++ args);
+            const options = decl and (self.spreads.items.len > spreads or self.groupRewrites(uses));
+            if (self.bytes.items.len == bytes and self.chains.items.len == chains and !options) {
+                self.ctx.commit(m);
+                return result;
+            }
+            try self.ctx.rollback(m);
+            if (self.body.returns) |r| r.shrinkRetainingCapacity(returns);
+            const p = self.ctx.parser.?;
+            try p.byteLiterals(slot, self.bytes.items[bytes..]);
+            self.bytes.shrinkRetainingCapacity(bytes);
+            if (self.chains.items.len > chains) {
+                // The rewritten tree stays, inside a check an open mark
+                // may take back, and so do the names and scopes of its
+                // new nodes.
+                const open = self.ctx.pauseTrail();
+                defer self.ctx.resumeTrail(open);
+                var loops: std.ArrayList(rig.Parser.ChainLoop) = .empty;
+                defer loops.deinit(self.ctx.allocator);
+                const fresh = p.base.nodeCount() + 1;
+                const found = self.chains.items[chains..];
+                try p.elaborateChains(slot, found, self.ctx.allocator, &loops);
+                try resolve.resolveChains(self.ctx, found, loops.items, fresh);
+                self.chains.shrinkRetainingCapacity(chains);
+            }
+            if (options) {
+                const open = self.ctx.pauseTrail();
+                defer self.ctx.resumeTrail(open);
+                var kept: std.ArrayList(rig.GroupUse) = .empty;
+                defer kept.deinit(self.ctx.allocator);
+                for (self.group_uses.items[uses..]) |u| if (self.rewritesGroup(u.group)) try kept.append(self.ctx.allocator, u);
+                var binds: std.ArrayList(rig.Parser.Flattened) = .empty;
+                defer binds.deinit(self.ctx.allocator);
+                try p.elaborateOptions(slot, &self.ctx.flat_groups, kept.items, self.spreads.items[spreads..], self.ctx.allocator, &binds);
+                for (binds.items) |f| try resolve.bindGroup(self.ctx, f);
+                self.group_uses.shrinkRetainingCapacity(uses);
+                self.spreads.shrinkRetainingCapacity(spreads);
+            }
+            // A module constant's value is folded before any body is
+            // checked (`resolve.foldModuleConsts`), so one written anew
+            // is folded again, with the constants that name it. A body's
+            // assignment is no constant: folding then would run a
+            // compile-time function while it is checked.
+            if (decl and rig.isModuleConst(slot.*)) try resolve.refoldModuleConsts(self.ctx);
+        }
+    }
+
+    /// Whether `check` checks a module's declaration (`checkDecl`).
+    fn isDeclCheck(comptime check: anytype) bool {
+        if (@TypeOf(check) != @TypeOf(Checker.checkDecl)) return false;
+        return check == Checker.checkDecl;
+    }
+
+    /// Whether a use of the group at `pos` is rewritten: a group made
+    /// parameters (`flattenGroups`) whose body writes it not.
+    fn rewritesGroup(self: *Checker, pos: u32) bool {
+        return self.ctx.flat_groups.contains(pos) and !self.refused.contains(pos);
+    }
+
+    /// Whether a use found since `from` is one to rewrite.
+    fn groupRewrites(self: *Checker, from: usize) bool {
+        for (self.group_uses.items[from..]) |u| if (self.rewritesGroup(u.group)) return true;
+        return false;
+    }
+
+    /// Whether `s`, a block's statement or a module's declaration, is a
+    /// string literal or may hold a form rewritten once types are known
+    /// (`checkRewritten`).
+    fn mayRewrite(self: *Checker, s: Sexp) bool {
+        return switch (s) {
+            .src => sema.isStringLiteralText(self.text(s)),
+            .list => |l| if (self.ctx.parser) |p| p.mayRewrite(l.id) else false,
+            else => false,
+        };
     }
 
     /// A function's last value, which is used (`value_tails`). It is the
@@ -1802,7 +1997,7 @@ const Checker = struct {
             .block => {
                 const prev = self.enter(stmt);
                 defer self.scope = prev;
-                for (ir.Block.stmts(stmt)) |c| try self.checkStmt(c);
+                for (ir.Block.stmts(stmt)) |*c| try self.checkRewritten(c, checkStmt, .{});
             },
             .drop => {
                 const name = ir.Drop.target(stmt);
@@ -1849,7 +2044,7 @@ const Checker = struct {
                 for (sets) |set| if (set.isKind(.set) and ir.Set.target(set) == .src) if (self.ctx.symbolOf(ir.Set.target(set))) |id| {
                     const target = ir.Set.target(set);
                     if (self.ctx.symbols.items[id].decl_pos == target.src.pos) {
-                        self.ctx.symbols.items[id].ty = self.t().invalid_id;
+                        (try self.ctx.symbolMut(id)).ty = self.t().invalid_id;
                         try self.errAt(target, "a deferred statement runs at scope exit and cannot declare `{s}`; use an indented `{s}` block", .{ self.text(target), @tagName(stmt.kind().?) });
                     }
                 };
@@ -2244,7 +2439,7 @@ const Checker = struct {
         const target = ir.Set.target(set);
         if (target != .src) return;
         const sym = self.ctx.symbolOf(target) orelse return;
-        if (self.ctx.symbols.items[sym].decl_pos == target.src.pos) self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+        if (self.ctx.symbols.items[sym].decl_pos == target.src.pos) (try self.ctx.symbolMut(sym)).ty = self.t().invalid_id;
         try self.ctx.recordType(ir.Set.value(set), self.t().invalid_id);
     }
 
@@ -2449,11 +2644,11 @@ const Checker = struct {
         }
         if (repoints) {
             try self.ctx.recordRepoint(node);
-            self.ctx.symbols.items[sym_id].flags.repointed = true;
+            (try self.ctx.symbolMut(sym_id)).flags.repointed = true;
         }
         if (writes_through) {
             try self.ctx.recordWriteThrough(node);
-        } else if (!is_decl) self.ctx.symbols.items[sym_id].flags.rebound = true;
+        } else if (!is_decl) (try self.ctx.symbolMut(sym_id)).flags.rebound = true;
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the viewed value.
         if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.putIn(.{ .facts = .writes }, target.src.pos, {});
@@ -2536,7 +2731,7 @@ const Checker = struct {
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
-        const s = &self.ctx.symbols.items[sym_id];
+        const s = try self.ctx.symbolMut(sym_id);
         // A rejected annotation or initializer leaves the binding without
         // a type, which later uses do not report again.
         if (s.ty == self.t().unknown_id) s.ty = if ((type_node != .nil and self.isPoison(declared)) or rhs_ty == self.t().unknown_id) self.t().invalid_id else rhs_ty;
@@ -3217,10 +3412,7 @@ const Checker = struct {
                     // A group as written: it stays so, and this is said
                     // again by every check (`rig.GroupSite`).
                     try self.err(pos, "cannot {s} group `{s}`{s}: parameters are immutable (bind a copy with `new copy = {s}`)", .{ verb.head, name, verb.tail, name });
-                    var i: usize = 0;
-                    while (i < self.ctx.groups.items.len) {
-                        if (self.ctx.groups.items[i].name == sym.decl_pos) _ = self.ctx.groups.swapRemove(i) else i += 1;
-                    }
+                    try self.refused.put(self.ctx.allocator, sym.decl_pos, {});
                 } else if (sym.flags.group_field) {
                     // A group's field, read through its group as written.
                     const group = self.ctx.group_fields.get(id) orelse "";
@@ -3686,9 +3878,9 @@ const Checker = struct {
         if (!owns and !self.isPoison(inner)) try self.rejectHeaderCopy(node, expr, inner);
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
-            self.ctx.symbols.items[sym].access = access;
-            self.ctx.symbols.items[sym].flags.access_decided = true;
-            self.ctx.symbols.items[sym].ty = inner;
+            (try self.ctx.symbolMut(sym)).access = access;
+            (try self.ctx.symbolMut(sym)).flags.access_decided = true;
+            (try self.ctx.symbolMut(sym)).ty = inner;
             // A read binding of a place's value, which `if !o as x` writes.
             if (access == .read and viewed) try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = expr, .kind = .as });
             try self.ctx.recordType(name, inner);
@@ -3962,17 +4154,17 @@ const Checker = struct {
             const prev = self.enter(node);
             defer self.scope = prev;
             if (self.ctx.symbolOf(binding)) |sym| {
-                self.ctx.symbols.items[sym].access = if (self.isPoison(elem_ty)) null else self.loop_access;
-                self.ctx.symbols.items[sym].flags.access_decided = true;
-                self.ctx.symbols.items[sym].ty = elem_ty;
+                (try self.ctx.symbolMut(sym)).access = if (self.isPoison(elem_ty)) null else self.loop_access;
+                (try self.ctx.symbolMut(sym)).flags.access_decided = true;
+                (try self.ctx.symbolMut(sym)).ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
-                if (sema.forViewsSlot(self.ctx, node)) self.ctx.symbols.items[sym].flags.slot_view = true;
+                if (sema.forViewsSlot(self.ctx, node)) (try self.ctx.symbolMut(sym)).flags.slot_view = true;
                 // An element of an array the loop takes is the body's own.
                 if (eff == .move and !source.isKind(.@"..")) try self.owned_bindings.put(self.ctx.allocator, sym, {});
                 if ((mode == .iter or mode == .read) and !source.isKind(.@"..") and self.hands(source).hasStorage() and !sema.isReadOrWriteView(self.ctx, elem_ty)) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = source, .kind = .loop });
             }
             if (self.ctx.symbolOf(index_binding)) |sym| {
-                self.ctx.symbols.items[sym].ty = self.t().int_id;
+                (try self.ctx.symbolMut(sym)).ty = self.t().int_id;
                 try self.ctx.recordType(index_binding, self.t().int_id);
                 if (self.ctx.symbolOf(binding)) |elem| {
                     const pair: LoopPair = .{ .elem = elem, .index = sym, .source = source };
@@ -4743,7 +4935,7 @@ const Checker = struct {
             const name = self.text(alt);
             const compare = if (std.mem.eql(u8, name, "_")) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to compare with `{s}`, write `{s} == {s}`", .{ name, try self.plainText(stripSigil(subject)), name });
             try self.errAt(alt, "`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value{s}", .{ name, compare });
-            self.poisonBinding(alt);
+            try self.poisonBinding(alt);
             cov.rejected = true;
         };
     }
@@ -5211,7 +5403,7 @@ const Checker = struct {
         for (alts) |alt| {
             if (!in_test and storage.isCatchAll(self.ctx, alt)) {
                 try self.errAt(alt, "`{s}` matches every value, so the other alternatives never matter; give it an arm of its own", .{self.text(alt)});
-                self.poisonBinding(alt);
+                try self.poisonBinding(alt);
             }
         }
         // Each alternative's names, against the first's.
@@ -5229,7 +5421,7 @@ const Checker = struct {
             const b = sema.bindingName(bound);
             if (b != .src or std.mem.eql(u8, self.text(b), "_")) continue;
             try self.errAt(b, "alternatives of an error bind no names: write `_`, or give each alternative an arm of its own", .{});
-            self.poisonBinding(b);
+            try self.poisonBinding(b);
             return;
         };
     }
@@ -5251,7 +5443,7 @@ const Checker = struct {
 
     fn rejectAltNames(self: *Checker, alts: []const Sexp, has: Sexp, lacks: Sexp, name: Sexp) Error!void {
         try self.errAt(lacks, "`{s}` is bound by `{s}` but not by `{s}`: every alternative must bind the same names", .{ self.text(name), try self.plainText(has), try self.plainText(lacks) });
-        for (alts) |alt| for (altNames(alt)) |b| self.poisonBinding(sema.bindingName(b));
+        for (alts) |alt| for (altNames(alt)) |b| try self.poisonBinding(sema.bindingName(b));
     }
 
     /// The names a variant alternative binds, `_` aside, as written.
@@ -5278,7 +5470,7 @@ const Checker = struct {
                     const set = self.ctx.typeOf(alt) orelse continue;
                     const v = (try sema.lookupVariant(self.ctx, set, self.text(rig.variantPatternName(alt)))) orelse continue;
                     try self.errAt(o, "`{s}` is field `{s}` in `{s}` and field `{s}` in `{s}`: alternatives of one variant bind each name to one field", .{ self.text(b), v.payload[at].name, try self.plainText(alt), v.payload[at_other].name, try self.plainText(other) });
-                    self.poisonBinding(b);
+                    try self.poisonBinding(b);
                     return;
                 }
             }
@@ -5296,7 +5488,7 @@ const Checker = struct {
                     const other = self.ctx.payloadFieldOf(o) orelse continue;
                     if (other == ty) continue;
                     try self.errAt(o, "`{s}` is {s} `{s}` in `{s}` and {s} `{s}` in `{s}`: alternatives bind each name with one type", .{ self.text(b), article(try self.tyName(ty)), try self.tyName(ty), try self.plainText(first), article(try self.tyName(other)), try self.tyName(other), try self.plainText(alt) });
-                    self.poisonBinding(b);
+                    try self.poisonBinding(b);
                     return;
                 }
             }
@@ -5305,9 +5497,9 @@ const Checker = struct {
 
     /// Give a rejected pattern binding no type, so its uses report
     /// nothing more.
-    fn poisonBinding(self: *Checker, b: Sexp) void {
+    fn poisonBinding(self: *Checker, b: Sexp) Error!void {
         const sym = self.ctx.symbolOf(b) orelse return;
-        self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+        (try self.ctx.symbolMut(sym)).ty = self.t().invalid_id;
     }
 
     /// Whether the arms so far match every value of the scrutinee type.
@@ -5428,7 +5620,7 @@ const Checker = struct {
                         // arm only.
                         const ty = try self.bindMatchView(pattern, mode, scrutinee);
                         const copied = self.arm_local or (mode == .read and !storage.catchAllCaptured(self.ctx, pattern, self.matching));
-                        if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                        if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) (try self.ctx.symbolMut(sym)).flags.arm_view = true;
                         try self.ctx.recordType(pattern, ty);
                     }
                 }
@@ -5647,7 +5839,7 @@ const Checker = struct {
         const several = subject == self.t().any_error_id or sema.isErrorUnion(self.ctx, subject);
         const set = (try self.variantPatternSet(pattern, subject, several)) orelse {
             cov.rejected = true;
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         };
         try self.ctx.recordType(pattern, set);
@@ -5655,7 +5847,7 @@ const Checker = struct {
         const resolved = (try sema.lookupVariant(self.ctx, set, vname)) orelse {
             try self.recordCovered(key, null, vpos, cov);
             try self.reportMissingVariant(scrutinee, vname, vpos);
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         };
         if (self.bindsNothing(pattern)) {
@@ -5665,12 +5857,12 @@ const Checker = struct {
         if (resolved.payload.len == 0) {
             try self.recordCovered(key, null, vpos, cov);
             if (bindings.len > 0) try self.err(vpos, "variant `{s}` has no payload to destructure", .{vname});
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         }
         const written = (try self.fieldBindings(pattern, resolved.payload)) orelse {
             try self.recordCovered(key, null, vpos, cov);
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         };
         // `r?` binds an optional field's value and `none` tests it holds
@@ -5689,7 +5881,7 @@ const Checker = struct {
                 break;
             };
             cov.rejected = true;
-            for (bindings) |b| self.poisonBinding(sema.bindingName(b));
+            for (bindings) |b| try self.poisonBinding(sema.bindingName(b));
             return;
         }
         try self.recordCovered(key, tests, vpos, cov);
@@ -5710,7 +5902,7 @@ const Checker = struct {
             if (self.ctx.symbolOf(b)) |sym| {
                 // A binding that is no plain data of a copy of the
                 // subject is usable in its arm only.
-                if (self.arm_local and mode == .read and view and sema.copies(self.ctx, field_ty) != .yes) self.ctx.symbols.items[sym].flags.arm_view = true;
+                if (self.arm_local and mode == .read and view and sema.copies(self.ctx, field_ty) != .yes) (try self.ctx.symbolMut(sym)).flags.arm_view = true;
             }
         }
     }
@@ -5736,7 +5928,7 @@ const Checker = struct {
             const name = if (some) ir.SomePattern.name(b.*) else Sexp.nil;
             if (!self.isPoison(f.ty) and self.ctx.types.get(f.ty) != .optional) {
                 try self.errAt(b.*, "`{s}` tests an optional field, and `{s}` is a `{s}`; bind it as `{s}`", .{ shown, f.name, try self.tyName(f.ty), if (some) self.text(name) else "_" });
-                if (some) self.poisonBinding(name);
+                if (some) try self.poisonBinding(name);
                 b.* = if (some) name else .nil;
                 continue;
             }
@@ -5784,9 +5976,9 @@ const Checker = struct {
         const access = if (self.isPoison(reached)) null else sema.decideBindingAccess(self.ctx, .{ .match = .{ .reach = try self.matchReach(mode), .reached = reached } });
         const ty = try self.viewOfAccess(access, reached);
         if (self.ctx.symbolOf(b)) |sym| {
-            self.ctx.symbols.items[sym].access = access;
-            self.ctx.symbols.items[sym].flags.access_decided = true;
-            self.ctx.symbols.items[sym].ty = ty;
+            (try self.ctx.symbolMut(sym)).access = access;
+            (try self.ctx.symbolMut(sym)).flags.access_decided = true;
+            (try self.ctx.symbolMut(sym)).ty = ty;
         }
         return ty;
     }
@@ -7470,8 +7662,8 @@ const Checker = struct {
         }
         const prev = self.enter(node);
         defer self.scope = prev;
-        for (stmts[0 .. stmts.len - 1]) |s| try self.checkStmt(s);
-        return self.synthTail(stmts[stmts.len - 1], expected);
+        for (stmts[0 .. stmts.len - 1]) |*s| try self.checkRewritten(s, checkStmt, .{});
+        return self.checkRewritten(&stmts[stmts.len - 1], synthTail, .{expected});
     }
 
     /// `a ?? b`: the value inside optional `a`, or `b` when `a` is `none`.
@@ -7664,7 +7856,7 @@ const Checker = struct {
             // The callee's set: `error` for a `T!`, or the set it declares.
             const set = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.set else self.t().any_error_id;
             if (self.ctx.symbolOf(name)) |sym| {
-                self.ctx.symbols.items[sym].ty = set;
+                (try self.ctx.symbolMut(sym)).ty = set;
                 try self.ctx.recordType(name, set);
             }
         }
@@ -9230,7 +9422,7 @@ const Checker = struct {
             const mark = self.ctx.diagnostics.items.len;
             const ty = try self.memberOf(e, obj, try self.synthOperand(obj));
             const read = self.ctx.diagnostics.items.len == mark and e.list.id != 0;
-            try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = self.ctx.symbols.items[id].decl_pos, .pos = obj.src.pos, .member = if (read) e.list.id else 0 });
+            try self.group_uses.append(self.ctx.allocator, .{ .group = self.ctx.symbols.items[id].decl_pos, .pos = obj.src.pos, .member = if (read) e.list.id else 0 });
             return ty;
         };
         return self.memberOf(e, obj, try self.synthOperand(obj));
@@ -17180,10 +17372,10 @@ const Checker = struct {
 
     /// A chain, `xs.filter(f).count()`: stages on a `for` source whose type
     /// declares no method of the name, ended by a consumer, or the source
-    /// of a `for`. It is recorded (`SemContext.chains`) and rewritten into
-    /// the loop it means (`Parser.desugarChains`), which the next round
-    /// checks; this round gives it no type. Null when the call is no
-    /// chain: self's own method, or a self no `for` walks.
+    /// of a `for`. It is found (`chains`) for its statement to be checked
+    /// again with the chain rewritten into the loop it means
+    /// (`checkRewritten`); this check gives it no type. Null when the call
+    /// is no chain: self's own method, or a self no `for` walks.
     fn chainCall(self: *Checker, callee: Sexp, method: []const u8, args: []const Sexp) Error!?TypeId {
         const call = self.current_call orelse return null;
         var root = ir.Member.object(callee);
@@ -17269,8 +17461,18 @@ const Checker = struct {
         if (views and !for_source) try self.chain_views.put(self.ctx.allocator, nodeId(call), root);
         const node = if (for_source) self.chain_for else call;
         const id = node.list.id;
-        for (self.ctx.chains.items) |c| if (c.node == id) return self.t().unknown_id;
-        try self.ctx.chains.append(self.ctx.allocator, .{ .node = id, .source = kind, .copies = found.copies, .zip = zip, .zip_copies = zip_copies });
+        if (self.ctx.parser == null) {
+            try self.errAt(call, "a chain needs the module graph, which rewrites it", .{});
+            return self.t().invalid_id;
+        }
+        // Every statement and declaration that holds a call that may be a
+        // chain is checked under a mark (`checkRewritten`).
+        if (self.rewrites_open == 0) {
+            try self.errAt(call, "internal error: this chain is outside any statement checked again", .{});
+            return self.t().invalid_id;
+        }
+        for (self.chains.items) |c| if (c.node == id) return self.t().unknown_id;
+        try self.chains.append(self.ctx.allocator, .{ .node = id, .source = kind, .copies = found.copies, .zip = zip, .zip_copies = zip_copies, .scope = self.scope });
         return self.t().unknown_id;
     }
 
@@ -20040,9 +20242,9 @@ const Checker = struct {
             if (self.ctx.quiet != 0) return;
             try self.kept_reported.put(self.ctx.allocator, nodeId(e), {});
             // A chain reported is not rewritten into its loop, so the
-            // report is the round's last word on it.
-            for (self.ctx.chains.items, 0..) |c, i| if (c.node == e.list.id) {
-                _ = self.ctx.chains.swapRemove(i);
+            // report is the last word on it.
+            for (self.chains.items, 0..) |c, i| if (c.node == e.list.id) {
+                _ = self.chains.orderedRemove(i);
                 break;
             };
             return self.reportKept(e, root, kept);
@@ -20340,10 +20542,10 @@ const Checker = struct {
 
     /// A string literal where a `U8` goes is its one byte, and where a
     /// `[N]U8` goes, its bytes, as an integer literal takes the type its
-    /// context gives it: recorded (`SemContext.byte_literals`) for the
-    /// Parser wrapper to write as the integer or array literal it is, and
-    /// the module checked again on that tree (`Parser.byteLiterals`).
-    /// Null where `target` is neither, so the literal stays text.
+    /// context gives it: found (`bytes`) for its statement to be checked
+    /// again with the literal written as the integer or array literal it
+    /// is (`checkRewritten`). Null where `target` is neither, so the literal
+    /// stays text.
     fn byteString(self: *Checker, e: Sexp, target: TypeId) Error!?TypeId {
         const len: ?u64 = switch (self.ctx.types.get(target)) {
             .array => |a| if (isU8(self.ctx, a.elem)) (sema.arrayLen(self.ctx, a) orelse return null) else return null,
@@ -20363,7 +20565,14 @@ const Checker = struct {
             try self.errAt(e, "{s}", .{try self.notOneByte(lit, bytes.len)});
             return self.t().invalid_id;
         }
-        try self.ctx.recordByteLiteral(e.src.pos, bytes, len != null);
+        // Every statement and declaration that holds a string literal is
+        // checked under a mark (`checkRewritten`).
+        if (self.rewrites_open == 0) {
+            try self.errAt(e, "internal error: string literal `{s}` is a byte here, outside any statement checked again", .{lit});
+            return self.t().invalid_id;
+        }
+        for (self.bytes.items) |l| if (l.pos == e.src.pos) return target;
+        try self.bytes.append(self.ctx.allocator, .{ .pos = e.src.pos, .bytes = bytes, .array = len != null });
         return target;
     }
 
@@ -21915,7 +22124,7 @@ const Checker = struct {
             }
             break :blk set;
         };
-        if (sym) |id| self.ctx.symbols.items[id].ty = bound;
+        if (sym) |id| (try self.ctx.symbolMut(id)).ty = bound;
         try self.ctx.recordType(name, bound);
         try self.ctx.recordType(pattern, bound);
         if (self.isPoison(bound)) {
@@ -22675,14 +22884,14 @@ const Checker = struct {
                 try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }
             try params.append(self.ctx.allocator, pty);
-            if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
+            if (self.ctx.symbolOf(pn)) |pid| (try self.ctx.symbolMut(pid)).ty = pty;
             try self.ctx.recordType(pn, pty);
         }
 
         if (want) |w| if (sema.returnsNothing(self.ctx, w.returns)) {
             // A closure that returns nothing has no value: its last line
             // is a statement, as a `sub`'s is.
-            if (self.ctx.parser) |p| try p.dropTail(&@constCast(node.items())[ir.slot(.lambda, .body)]);
+            if (self.ctx.parser) |p| try p.dropTail(node);
         };
         const body = ir.Lambda.body(node);
         if (want) |w| {
@@ -22703,22 +22912,22 @@ const Checker = struct {
             defer self.scope = bprev;
             const stmts = ir.Block.stmts(body);
             if (stmts.len > 0) {
-                for (stmts[0 .. stmts.len - 1]) |s| try self.checkStmt(s);
-                const last = stmts[stmts.len - 1];
+                for (stmts[0 .. stmts.len - 1]) |*s| try self.checkRewritten(s, checkStmt, .{});
+                const last = &stmts[stmts.len - 1];
                 ends_in_return = last.isKind(.@"return") or last.isKind(.panic);
                 // A closure ending in a statement, or an `if` without
                 // `else`, returns nothing.
-                const no_value = self.yieldsNoValue(last) or ifWithoutValue(last);
+                const no_value = self.yieldsNoValue(last.*) or ifWithoutValue(last.*);
                 // A closure's value is its result: it leaves the body,
                 // as `return` takes it.
                 ret = if (no_value) blk: {
-                    try self.checkStmt(last);
+                    try self.checkRewritten(last, checkStmt, .{});
                     break :blk self.t().void_id;
                 } else blk: {
-                    try self.recordUse(last, .take);
+                    try self.recordUse(last.*, .take);
                     const mark = self.ctx.diagnostics.items.len;
-                    const ty = try self.synthTail(last, null);
-                    if (self.ctx.diagnostics.items.len == mark) try self.keptViews(last, .returned);
+                    const ty = try self.checkRewritten(last, synthTail, .{null});
+                    if (self.ctx.diagnostics.items.len == mark) try self.keptViews(last.*, .returned);
                     break :blk ty;
                 };
             }
@@ -22890,44 +23099,44 @@ const Checker = struct {
             } else true;
             if (!place) {
                 try self.err(pos, "a capture names a local or a field of one, and `{s}` is not a local: use `{s}` in the closure directly", .{ self.text(root), name });
-                self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+                (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
                 return;
             }
-            self.ctx.symbols.items[cap_sym].ty = ty;
-            if (root_sym) |r| self.ctx.symbols.items[cap_sym].origin = r;
+            (try self.ctx.symbolMut(cap_sym)).ty = ty;
+            if (root_sym) |r| (try self.ctx.symbolMut(cap_sym)).origin = r;
             try self.ctx.recordType(name_node, ty);
             return;
         }
 
         const outer_id = self.lookupAt(outer, name, pos) orelse {
             try self.err(pos, "captured name `{s}` is not in scope", .{name});
-            self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+            (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
             return;
         };
         const outer_sym = self.ctx.symbols.items[outer_id];
         // A capture of a group as written uses it whole (`rig.GroupUse`).
-        if (outer_sym.flags.group) try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = outer_sym.decl_pos, .pos = pos });
+        if (outer_sym.flags.group) try self.group_uses.append(self.ctx.allocator, .{ .group = outer_sym.decl_pos, .pos = pos });
         const local = switch (outer_sym.kind) {
             .local, .param, .capture => outer_sym.scope != sema.module_scope,
             else => false,
         };
         if (!local) {
             try self.err(pos, "only a local can be captured; `{s}` is declared at module level, so use it in the closure directly", .{name});
-            self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+            (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
             return;
         }
         // A closure reaches outer locals only through its own captures,
         // so a closure nested in one captures from what that one holds.
         if (self.closureBetween(outer, name, pos)) {
             try self.err(pos, "`{s}` is a local outside the enclosing closure; capture `{s}` in the enclosing closure first", .{ name, name });
-            self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+            (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
             return;
         }
         const outer_ty = self.ctx.symbols.items[outer_id].ty;
         if (mode == .cap_read or mode == .cap_write) {
             const ty = try self.captureView(outer_id, name, pos, if (mode == .cap_read) .read else .write);
-            self.ctx.symbols.items[cap_sym].ty = ty;
-            self.ctx.symbols.items[cap_sym].origin = outer_id;
+            (try self.ctx.symbolMut(cap_sym)).ty = ty;
+            (try self.ctx.symbolMut(cap_sym)).origin = outer_id;
             try self.ctx.recordType(name_node, ty);
             return;
         }
@@ -22937,7 +23146,7 @@ const Checker = struct {
             .cap_weak => switch (self.ctx.types.get(outer_ty)) {
                 .shared => |inner| if (sema.frozenValue(self.ctx, inner) != null) {
                     try self.err(pos, "a frozen value has no weak handle: `|+{s}|` shares it", .{name});
-                    self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+                    (try self.ctx.symbolMut(cap_sym)).ty = self.t().invalid_id;
                     return;
                 } else try self.ctx.intern(.{ .weak = inner }),
                 else => null,
@@ -22953,8 +23162,8 @@ const Checker = struct {
         } else {
             try self.err(pos, "`|+{s}|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `{s}` is `{s}`, which has no clone; move it in with `|<{s}|`", .{ name, name, try self.tyName(outer_ty), name });
         };
-        self.ctx.symbols.items[cap_sym].ty = bound orelse self.t().invalid_id;
-        self.ctx.symbols.items[cap_sym].origin = outer_id;
+        (try self.ctx.symbolMut(cap_sym)).ty = bound orelse self.t().invalid_id;
+        (try self.ctx.symbolMut(cap_sym)).origin = outer_id;
         try self.ctx.recordType(name_node, bound orelse self.t().invalid_id);
     }
 
@@ -26110,6 +26319,13 @@ test "check: each distinct instance of a generic function is recorded once" {
     try std.testing.expectEqual(2, r.ctx.fn_instances.items.len);
 }
 
+
+/// Every file of the ownership checker, for the tests that read its
+/// source.
+const ownership_src = @embedFile("ownership.zig") ++ @embedFile("ownership/state.zig") ++ @embedFile("ownership/live.zig") ++
+    @embedFile("ownership/transfer.zig") ++ @embedFile("ownership/rules.zig") ++ @embedFile("ownership/origins.zig") ++
+    @embedFile("ownership/exits.zig") ++ @embedFile("ownership/generic.zig") ++ @embedFile("ownership/types.zig") ++
+    @embedFile("ownership/notes.zig");
 test "check: every read of a view as a value is decided by writeViewRead" {
     // `readOf` is the one place type checking records that a view is read
     // as the value it reaches, and it asks `writeViewRead` first. Another
@@ -26123,7 +26339,7 @@ test "check: every read of a view as a value is decided by writeViewRead" {
     try std.testing.expect(std.mem.startsWith(u8, src[fn_at..], "    fn readOf("));
     try std.testing.expect(std.mem.find(u8, src[fn_at..at], "self.writeViewRead(") != null);
     // Every pass after type checking reads the fact; none records it.
-    for ([_][]const u8{ @embedFile("emit.zig"), @embedFile("ownership.zig"), @embedFile("storage.zig"), @embedFile("resolve.zig") }) |other| {
+    for ([_][]const u8{ @embedFile("emit.zig"), ownership_src, @embedFile("storage.zig"), @embedFile("resolve.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, needle));
     }
 }
@@ -26143,7 +26359,7 @@ test "check: where a Cell and a write view stand, and a branch viewed in place, 
     try std.testing.expectEqual(1, std.mem.count(u8, res, "sema." ++ "misplaced("));
     try std.testing.expectEqual(1, std.mem.count(u8, tc, "sema." ++ "writeViewMisplaced("));
     try std.testing.expectEqual(1, std.mem.count(u8, res, "sema." ++ "writeViewMisplaced("));
-    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
+    for ([_][]const u8{ ownership_src, @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, "sema." ++ "misplaced("));
         try std.testing.expectEqual(0, std.mem.count(u8, other, "sema." ++ "writeViewMisplaced("));
     }
@@ -26167,14 +26383,14 @@ test "check: where a Cell and a write view stand, and a branch viewed in place, 
     // What a Cell kept by value needed is gone: no per-instance
     // interior mutability, Cell temporaries, or write through a field.
     for ([_][]const u8{ "interior" ++ "Mutable", "ReadPtr" ++ "(", "Cell" ++ "Temp", "refuseHeld" ++ "Cell", "payloadReads" ++ "ThroughWrite", "headerCopies" ++ "WriteView" }) |gone| {
-        for ([_][]const u8{ sema_src, tc, res, @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("runtime.zig") }) |src| {
+        for ([_][]const u8{ sema_src, tc, res, ownership_src, @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("runtime.zig") }) |src| {
             try std.testing.expectEqual(0, std.mem.count(u8, src, gone));
         }
     }
     // A read view changes nothing, a Cell included (Core sentence 4): neither
     // the emitter nor the ownership checker treats a read view of a value
     // that holds a Cell differently from any other.
-    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("facts.zig") }) |src| {
+    for ([_][]const u8{ ownership_src, @embedFile("emit.zig"), @embedFile("facts.zig") }) |src| {
         try std.testing.expectEqual(0, std.mem.count(u8, src, "holdsCell" ++ "ByValue"));
     }
 }
@@ -26188,8 +26404,8 @@ test "check: what `!x` puts on `x` is decided once, by loanOfView" {
     const tc = @embedFile("typecheck.zig");
     try std.testing.expectEqual(1, std.mem.count(u8, @embedFile("sema.zig"), "pub fn " ++ "loanOfView("));
     try std.testing.expectEqual(2, std.mem.count(u8, tc, "sema." ++ "loanOfView("));
-    try std.testing.expectEqual(2, std.mem.count(u8, @embedFile("ownership.zig"), "self.loan" ++ "Of("));
-    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
+    try std.testing.expectEqual(2, std.mem.count(u8, ownership_src, "loan" ++ "Of(self, "));
+    for ([_][]const u8{ ownership_src, @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, "loanOf" ++ "View("));
         try std.testing.expectEqual(0, std.mem.count(u8, other, "record" ++ "Loan("));
     }
@@ -26205,7 +26421,7 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     // (a match, `as`, a loop), ownership the loan a view of it makes, and
     // emit how it binds: no pass derives a binding's mode another way.
     const decide = "sema." ++ "decideBindingAccess(";
-    const record = "].access" ++ " = ";
+    const record = ").access" ++ " = ";
     const tc = @embedFile("typecheck.zig");
     try std.testing.expectEqual(3, std.mem.count(u8, tc, decide));
     var at: usize = 0;
@@ -26256,18 +26472,18 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     }
     // The decider is sema's alone.
     try std.testing.expectEqual(1, std.mem.count(u8, @embedFile("sema.zig"), "pub fn " ++ "decideBindingAccess("));
-    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("resolve.zig") }) |other| {
+    for ([_][]const u8{ ownership_src, @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("resolve.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, decide));
         try std.testing.expectEqual(0, std.mem.count(u8, other, record));
     }
     // Ownership views a binding by its access, in `viewTarget` alone,
     // which reads neither the binding's type (`ref`) nor how the match
     // reached it (`payload_view`, `matchMode`).
-    const own = @embedFile("ownership.zig");
+    const own = ownership_src;
     const read_fact = "ctx." ++ "bindingAccess(";
     try std.testing.expectEqual(1, std.mem.count(u8, own, read_fact));
-    const target_at = std.mem.find(u8, own, "    fn " ++ "viewTarget(").?;
-    const body = own[target_at .. std.mem.findPos(u8, own, target_at, "\n    }\n").?];
+    const target_at = std.mem.find(u8, own, "pub fn " ++ "viewTarget(").?;
+    const body = own[target_at .. std.mem.findPos(u8, own, target_at, "\n}\n").?];
     try std.testing.expect(std.mem.find(u8, body, read_fact) != null);
     for ([_][]const u8{ ".ref", "payload_view", "matchMode", "types.get" }) |other| {
         try std.testing.expect(std.mem.find(u8, body, other) == null);
