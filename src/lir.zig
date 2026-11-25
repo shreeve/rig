@@ -70,6 +70,8 @@ pub const Expr = union(enum) {
     /// A closure literal: the body it is (`owner`, a body of the
     /// module), and the values its captures take, made here.
     closure: struct { node: Sexp, owner: u32, captures: []const ExprId },
+    /// `value`, the value of `node`, made the type its context takes.
+    coerce: struct { node: Sexp, how: Coercion, value: ExprId },
 
     pub const Op = struct { node: Sexp, args: []const ExprId };
 
@@ -78,6 +80,36 @@ pub const Expr = union(enum) {
 
     /// A `match`: its subject, then the arm whose pattern it fits.
     pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId };
+};
+
+/// How a value becomes the type its context takes, where it goes. Each
+/// is a typing fact of the node it wraps, made explicit where the value
+/// is read: a value held in a var first is coerced where the var is
+/// written, or where it is read (`Module.Coerced`).
+pub const Coercion = union(enum) {
+    /// A scalar beside a vector, standing for every lane: the vector's
+    /// type (`sema.splatOf`).
+    splat: sema.TypeId,
+    /// A number given where a duration goes (`sema.Duration`).
+    duration: sema.Duration,
+    /// A box or a counted handle moved into one of an API object, which
+    /// keeps its allocation (`sema.Erasure`, of form `box` or `shared`).
+    erase: sema.Erasure,
+    /// An error value the function fails with, held rather than made
+    /// here, whose fields go through the caller's slot.
+    fail,
+    /// A `T` or `none` packed into an optional that goes through the
+    /// optional helpers (`sema.Lift`).
+    lift: sema.Lift,
+    /// An error of a set without fields where one that carries fields
+    /// goes (`SemContext.isCodeWidening`).
+    widen,
+    /// A view of the type its context takes, as the rows of the view
+    /// table make it (`sema.View`).
+    view: sema.View,
+    /// A pointer view read through where its context takes the value
+    /// (`SemContext.readsThrough`).
+    deref,
 };
 
 /// A step of a region, run in order.
@@ -129,6 +161,9 @@ pub const Region = struct {
         header,
         /// Parts evaluated first, then the value they make.
         value,
+        /// The parts a call or an array literal holds, each evaluated
+        /// first, in its turn, then the call or the array.
+        call,
         /// An `if` or a `while` and the bindings its condition names,
         /// which the condition's later parts and its body see.
         guard,
@@ -294,6 +329,7 @@ const Verifier = struct {
             },
             .choice => |c| try v.choice(c),
             .closure => |c| for (c.captures) |x| try v.expr(x),
+            .coerce => |c| try v.expr(c.value),
         }
     }
 
@@ -435,6 +471,11 @@ const Printer = struct {
                     if (i > 0) try p.w.writeAll(", ");
                     try p.expr(x, depth);
                 }
+                try p.w.writeAll(")");
+            },
+            .coerce => |c| {
+                try p.w.print("{s}(", .{@tagName(c.how)});
+                try p.expr(c.value, depth);
                 try p.w.writeAll(")");
             },
         }

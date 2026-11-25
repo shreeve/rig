@@ -438,6 +438,9 @@ pub const Emitter = struct {
     /// Generated names and other emit-lifetime allocations.
     arena: std.heap.ArenaAllocator,
     facts: Facts,
+    /// The module's bodies lowered (`src/lir.zig`): every var emit writes,
+    /// a binding or hidden storage, is one of theirs.
+    lowered: ?facts.Lowered = null,
 
     scopes: std.ArrayList(Scope) = .empty,
     /// Symbol -> its innermost local in `scopes`.
@@ -615,6 +618,10 @@ pub const Emitter = struct {
     /// The value being written inside the `rig.pack` of the optional it
     /// becomes (`emitLift`), or written where it is held as itself.
     lifting: Sexp = .nil,
+    /// A value whose lift no body's LIR records (`checkCoerced`): an
+    /// argument whose temporary holds it as itself, lifted where the call
+    /// reads it (`hoist`), or a default's (`emitDefault`).
+    lift_outside: Sexp = .nil,
     /// Where each line of `source` starts, for the place of a failure's
     /// site (`markSite`), made at the first.
     line_starts: std.ArrayList(u32) = .empty,
@@ -647,6 +654,7 @@ pub const Emitter = struct {
         self.flag_names.deinit(self.allocator);
         self.paused.deinit(self.allocator);
         self.line_starts.deinit(self.allocator);
+        if (self.lowered) |*l| l.deinit();
         self.arena.deinit();
     }
 
@@ -654,6 +662,8 @@ pub const Emitter = struct {
         try self.w.writeAll("const std = @import(\"std\");\n");
         try self.w.print("const rig = @import(\"{s}\");\n", .{self.runtime_import});
         if (!sexp.isKind(.module)) return;
+        self.lowered = try self.facts.lower(self.allocator, sexp, self.strict_optionals);
+        for (self.lowered.?.owners) |o| if (o.skip) |why| return self.unsupported(why.node, "a body lowering does not cover");
         const decls = ir.Module.decls(sexp);
         try self.collectModule(decls);
         for (decls) |d0| {
@@ -2136,7 +2146,7 @@ pub const Emitter = struct {
                     try self.fmt("__rig_in_{s}", .{rig_name});
                 local.launder = true;
             }
-            if (self.facts.varOf(name_node, .held_header) != null) {
+            if (self.varOf(name_node, .held_header) != null) {
                 local.held = name_node;
                 if (local.param_name.len == 0) local.param_name = if (isPlainIdent(rig_name)) try self.fmt("__rig_viewed_{s}", .{rig_name}) else try self.fmt("__rig_viewed_{d}", .{self.nextId()});
             }
@@ -2386,15 +2396,15 @@ pub const Emitter = struct {
     };
 
     /// The Zig name of the hidden storage of `kind` emit makes for
-    /// `node`, held `by` (`facts.Var`). Every hidden storage location is
-    /// named here: the var table must record it, held the same way, or
+    /// `node`, held `by` (`lir.Var`). Every hidden storage location is
+    /// named here: lowering must have made its var, held the same way, or
     /// emit would make storage the ownership checker did not walk.
     fn hiddenStorage(self: *Emitter, node: Sexp, kind: facts.StorageKind, by: facts.StorageBy, suffix: StorageSuffix) Error![]const u8 {
         const fact = try self.needVar(node, kind);
         // A statement's slot is declared before it runs; its value is
         // written where the temporary is.
         if (kind != .temp and kind != .held_header) try self.inUnit(node);
-        if (fact.by != by) return self.unsupported(node, "hidden storage held other than its storage fact says");
+        if (fact.by != by) return self.unsupported(node, "hidden storage held other than its var says");
         const base: []const u8 = switch (kind) {
             .temp => "__rig_tmp",
             .header_value => "__rig_hdr",
@@ -2440,10 +2450,10 @@ pub const Emitter = struct {
     }
 
     /// Take the address of `node`, a value Zig holds for its statement in
-    /// no slot: the var table must record it (`zig_temp`), so the checker
+    /// no slot: lowering must have made its var (`zig_temp`), so the checker
     /// knew emit reaches it there.
     fn zigTemporary(self: *Emitter, node: Sexp) Error!void {
-        if ((try self.needVar(node, .zig_temp)).by != .owned) return self.unsupported(node, "a Zig temporary held other than its storage fact says");
+        if ((try self.needVar(node, .zig_temp)).by != .owned) return self.unsupported(node, "a Zig temporary held other than its var says");
     }
 
     /// A decision a pass made before emit (`facts.Question`), which emit
@@ -2573,7 +2583,8 @@ pub const Emitter = struct {
     /// How a resource binding's drop is armed: behind an alive flag when
     /// it may be consumed first.
     fn resourceGuard(self: *Emitter, sym: SymbolId) Guard {
-        return if (self.facts.binding(sym).flag) .flag else .scope;
+        const v = self.bindingVar(sym) orelse return .scope;
+        return if (v.flag) .flag else .scope;
     }
 
     /// `var _h = base`, for a `header` that holds the value it makes of
@@ -2743,12 +2754,10 @@ pub const Emitter = struct {
     /// on their own, or in its headers, which are their own statements:
     /// `openHeader`) that has none yet, inline before the statement.
     fn emitTempSlots(self: *Emitter, stmt: Sexp) Error!void {
-        var temps: std.ArrayList(Sexp) = .empty;
-        try self.facts.stmtTemps(self.arena.allocator(), stmt, &temps);
-        for (temps.items) |temp| {
+        for (self.lowered.?.tempsOf(stmt)) |temp| {
             if (self.tempSlot(temp) != null) continue;
             // A template's temporary is a buffer of its text.
-            const buffer = if (self.facts.varOf(temp, .temp)) |st| st.by == .buffer else false;
+            const buffer = if (self.varOf(temp, .temp)) |st| st.by == .buffer else false;
             const name = try self.hiddenStorage(temp, .temp, if (buffer) .buffer else .owned, .next);
             try self.w.print("var {s}: ", .{name});
             if (buffer) try self.w.writeAll(rt(.TextBuf)) else try self.emitTypeTy(self.typeOf(temp) orelse return self.unsupported(temp, "an untyped temporary"));
@@ -2759,16 +2768,22 @@ pub const Emitter = struct {
         }
     }
 
+    /// Whether `e` is an owning temporary its statement drops: lowering
+    /// made it a `temp` var.
+    fn dropsTemp(self: *Emitter, e: Sexp) bool {
+        return self.varOf(e, .temp) != null;
+    }
+
     fn tempSlot(self: *Emitter, node: Sexp) ?TempSlot {
         if (node != .list) return null;
         for (self.temp_slots.items) |t| if (t.node == node.list.id) return t;
         return null;
     }
 
-    /// Whether statement `stmt` holds an owning temporary its end drops
-    /// (`sema.firstStmtTemp`).
+    /// Whether statement or header `stmt` makes owning temporaries its
+    /// end drops (`lower.Module.tempsOf`).
     fn hasTemps(self: *Emitter, stmt: Sexp) bool {
-        return self.facts.firstStmtTemp(stmt) != null;
+        return self.lowered.?.tempsOf(stmt).len > 0;
     }
 
     /// Start header `e` (`facts.syntax.isHeaderOf`), its own statement: when it
@@ -2805,11 +2820,12 @@ pub const Emitter = struct {
         try self.closeHeader(h);
     }
 
-    /// `storage.headerPoints`: the header over construct subject `e`
-    /// makes temporaries, and its block yields the address of the place
-    /// `e` reaches.
-    fn headerPoints(self: *Emitter, e: Sexp) Error!bool {
-        return self.need(self.facts.headerPoints(e), e);
+    /// The header over construct subject `e` makes temporaries, and its
+    /// block yields the address of the place `e` reaches: its value's var
+    /// holds a pointer.
+    fn headerPoints(self: *Emitter, e: Sexp) bool {
+        const v = self.varOf(e, .header_value) orelse return false;
+        return v.by == .pointer;
     }
 
     /// The address of the place a construct's subject `e` reaches, which
@@ -2906,7 +2922,7 @@ pub const Emitter = struct {
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
         if (self.facts.calleeOf(e).isKind(.lambda)) return true;
-        if (try self.hoistsArgs(e)) return true;
+        if (self.hoistsArgs(e)) return true;
         return !self.yieldsNothing(e);
     }
 
@@ -2961,7 +2977,7 @@ pub const Emitter = struct {
             if (in_place) return self.emitFillBind(target, sym, expr);
             // A fork's record is made in the slot of this frame its
             // storage fact names (`task_record`), then started there.
-            if (self.facts.taskInFrame(expr)) {
+            if (self.taskInFrame(expr)) {
                 const slot = try self.hiddenStorage(expr, .task_record, .owned, .next);
                 try self.w.print("var {s} = ", .{slot});
                 try self.emitTask(expr);
@@ -3182,7 +3198,7 @@ pub const Emitter = struct {
                 // A `!T` whose `T` is a view: the view it reaches is
                 // pointed at another place, made first where the value
                 // can act (`storesAfterValue`).
-                if (self.facts.varOf(value, .new_value) != null) {
+                if (self.varOf(value, .new_value) != null) {
                     const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = self.nextId() });
                     try self.w.print("{{ const {s} = ", .{name});
                     try self.emitWriteViewPtr(value);
@@ -3203,7 +3219,7 @@ pub const Emitter = struct {
         const kind = local.kind orelse {
             // The value is made first when it can act, so the store goes
             // through the place as the value left it (`storesAfterValue`).
-            const first = self.facts.varOf(value, .new_value) != null;
+            const first = self.varOf(value, .new_value) != null;
             if (first) {
                 const id = self.nextId();
                 const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
@@ -3381,7 +3397,7 @@ pub const Emitter = struct {
         const first = self.hoisted.items.len;
         const value = ir.Set.value(set);
         var id: u32 = undefined;
-        if (try self.isPureArg(value)) {
+        if (self.varOf(value, .new_value) == null) {
             id = self.nextId();
             try self.w.writeAll("{ ");
         } else {
@@ -3436,7 +3452,7 @@ pub const Emitter = struct {
     }
 
     fn hoistIndex(self: *Emitter, index: Sexp, id: u32) Error!void {
-        if (try self.isPureArg(index)) return;
+        if (self.varOf(index, .index) == null) return;
         const name = try self.hiddenStorage(index, .index, .owned, .{ .pair = .{ id, @intCast(self.hoisted.items.len) } });
         try self.w.print("const {s}", .{name});
         // An index is a number, read through a view of one.
@@ -4398,8 +4414,9 @@ pub const Emitter = struct {
         const src_ty = if (through) walked else held_ty;
         const is_list = src_ty != null and (self.isListTy(src_ty.?) or self.facts.tableElem(self.peelViews(src_ty.?)) != null);
         // A List or an array of values that move, which the loop takes or
-        // its source makes, hands its elements over one at a time.
-        if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_list);
+        // its source makes, hands its elements over one at a time, each
+        // taken from its `iterator` var.
+        if (self.varOf(sexp, .iterator) != null) return self.emitConsumingFor(sexp, lp, !is_list);
         if (try self.need(self.facts.fold(sexp), sexp)) |how| return self.emitFold(sexp, lp, how, is_list);
         const elem_sym = self.facts.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
@@ -4445,7 +4462,7 @@ pub const Emitter = struct {
             if (array_ptr) try self.w.writeAll("&");
             try self.emitMemberBase(source, held_ty);
             try self.writeReach(held_ty.?);
-        } else if (owned) try self.w.print("&{s}", .{taken}) else if (try self.headerPoints(source)) {
+        } else if (owned) try self.w.print("&{s}", .{taken}) else if (self.headerPoints(source)) {
             // A place reached through temporaries is walked where it is.
             try self.emitSubjectPtr(source, mode == .write);
             if (!array_ptr) try self.w.writeAll(".*");
@@ -4496,7 +4513,7 @@ pub const Emitter = struct {
         try self.w.print(" = " ++ rt(.fold) ++ "(.{s}, ", .{@tagName(how)});
         try self.writeLocalPlace(local);
         try self.w.writeAll(", ");
-        if (try self.headerPoints(source)) {
+        if (self.headerPoints(source)) {
             try self.emitSubjectPtr(source, false);
             try self.w.writeAll(".*");
         } else {
@@ -4706,7 +4723,7 @@ pub const Emitter = struct {
             try self.writeErrorCode(info.ty.?, place);
         } else if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
             try self.w.writeAll(info.reread);
-        } else if (try self.headerPoints(subject)) {
+        } else if (self.headerPoints(subject)) {
             // A place reached through temporaries is switched on where it
             // is, so each payload captured by pointer is the place's own.
             try self.emitSubjectPtr(subject, info.mode == .write);
@@ -4891,14 +4908,15 @@ pub const Emitter = struct {
         }
     }
 
-    /// Evaluate the subject once, into `info.reread`: a field path as
-    /// it is, an element by its address, a value no binding holds (a
-    /// call's result, or what `match <` takes from one) into a local.
+    /// Evaluate the subject once, into `info.reread`, as its `subject`
+    /// var holds it: a field path as it is, an element by its address, a
+    /// value no binding holds (a call's result, or what `match <` takes
+    /// from one) into a local.
     fn evalSubject(self: *Emitter, info: *MatchInfo) Error!void {
-        const by = (try self.need(self.facts.subjectHold(info.match), info.match)) orelse {
+        const by = (self.varOf(info.match, .subject) orelse {
             info.reread = try self.placeText(info.*);
             return;
-        };
+        }).by;
         const name = try self.hiddenStorage(info.match, .subject, by, .next);
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
         if ((try self.hasStorage(value)) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
@@ -4913,7 +4931,7 @@ pub const Emitter = struct {
         // which the header's block yields, and a view a call returns
         // (`match get(e)`) as the pointer it is, never copied: the
         // bindings view the value it points to.
-        const points = try self.headerPoints(value);
+        const points = self.headerPoints(value);
         if (!info.subject.isKind(.move) and (points or self.isPtrViewExpr(value))) {
             try self.writeIndent(self.indent);
             try self.w.print("const {s} = ", .{name});
@@ -5819,7 +5837,7 @@ pub const Emitter = struct {
         // no place (`copiesHeader`); a place it reaches, the place's own.
         const owns = value.isKind(.move) or (try self.need(self.facts.handsOver(value), value) == .made and !self.facts.isReadOrWriteView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
         const copies = !owns and self.facts.copiesHeader(cond);
-        const points = try self.headerPoints(value);
+        const points = self.headerPoints(value);
         // An optional that goes through the helpers is tested as the Zig
         // optional `rig.some` gives, and captured by address through
         // `rig.somePtr`.
@@ -5933,7 +5951,7 @@ pub const Emitter = struct {
             .optional => |inner| inner,
             else => null,
         } else null;
-        if (if (self.facts.varOf(cond, .as_value)) |st| st.by == .owned else false) {
+        if (if (self.varOf(cond, .as_value)) |st| st.by == .owned else false) {
             const tmp = try self.hiddenStorage(cond, .as_value, .owned, .next);
             try self.w.print("|{s}| ", .{tmp});
             return .{ .optional = .{ .cond = cond, .name = if (sym != null) name else .nil, .tmp = tmp } };
@@ -6159,7 +6177,7 @@ pub const Emitter = struct {
         if (!sameNode(sexp, self.viewing) and self.hoistedOf(sexp) == null) if (self.facts.viewOf(sexp)) |made| if (made.implicit) return self.emitView(sexp, made, tail, want_ptr);
         // (An argument hoisted before its call was kept there: its name
         // holds the kept value.)
-        if (self.facts.dropsTemp(sexp) and !sameNode(sexp, self.keeping) and self.hoistedOf(sexp) == null) {
+        if (self.dropsTemp(sexp) and !sameNode(sexp, self.keeping) and self.hoistedOf(sexp) == null) {
             const slot = self.tempSlot(sexp) orelse return self.unsupported(sexp, "a temporary outside a statement");
             const saved = self.keeping;
             const saved_ptr = self.ptr_tail;
@@ -6172,7 +6190,7 @@ pub const Emitter = struct {
             // view wants, is taken from the slot (`rig.keep`'s result).
             self.ptr_tail = false;
             // A template's text is written into its slot's buffer.
-            if (self.facts.varOf(sexp, .temp).?.by == .buffer) {
+            if (self.varOf(sexp, .temp).?.by == .buffer) {
                 try self.w.print(rt(.TextBuf) ++ ".keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
                 try self.emitPrintArgs(&.{sexp}, .{});
                 return self.w.writeAll(").*");
@@ -6184,6 +6202,7 @@ pub const Emitter = struct {
         }
         // A temporary holds the value its context reads (`hoist`).
         if (self.hoistedOf(sexp)) |h| {
+            self.checkCoerced(sexp, true, want_ptr, false);
             if (h.flag.len > 0) return self.w.print(rt(.take) ++ "(&{s}, {s})", .{ h.flag, h.name });
             return self.w.print("{s}{s}", .{ h.name, if (h.ptr) ".*" else "" });
         }
@@ -6204,6 +6223,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(").read()");
             }
         };
+        self.checkCoerced(sexp, false, want_ptr, !want_ptr and self.readsThrough(sexp));
         if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
@@ -6217,6 +6237,45 @@ pub const Emitter = struct {
             .list => try self.emitList(sexp, tail, bare, literal_ty),
             else => return self.unsupported(sexp, "this expression"),
         }
+    }
+
+    /// In a self-checking build, that the coercions emit made of `sexp`
+    /// on its way to its value are those its LIR records there: where a
+    /// var holding it is read (`hoisted`), where that var is written, or
+    /// where it stands. A context that takes the pointer (`want_ptr`) makes
+    /// no lift and reads through no view.
+    fn checkCoerced(self: *Emitter, sexp: Sexp, hoisted: bool, want_ptr: bool, deref: bool) void {
+        if (!facts.self_check) return;
+        const c = self.lowered.?.coercedOf(sexp);
+        const want = if (hoisted) c.use else if (c.hoisted) c.held else c.use;
+        const Kind = std.meta.Tag(facts.Coercion);
+        var have = std.EnumSet(Kind).empty;
+        if (sameNode(sexp, self.splatting)) have.insert(.splat);
+        if (sameNode(sexp, self.durationing)) have.insert(.duration);
+        if (sameNode(sexp, self.erasing_box)) have.insert(.erase);
+        if (sameNode(sexp, self.failing)) have.insert(.fail);
+        if (sameNode(sexp, self.lifting) and !sameNode(sexp, self.lift_outside)) have.insert(.lift);
+        if (sameNode(sexp, self.widening)) have.insert(.widen);
+        if (sameNode(sexp, self.viewing)) have.insert(.view);
+        if (deref) have.insert(.deref);
+        var lir_has = std.EnumSet(Kind).empty;
+        for (want) |k| lir_has.insert(k);
+        if (want_ptr) {
+            lir_has.remove(.lift);
+            lir_has.remove(.deref);
+        }
+        if (have.eql(lir_has)) return;
+        var buf: [256]u8 = undefined;
+        var w: std.Io.Writer = .fixed(&buf);
+        w.writeAll("emit made") catch {};
+        var it = have.iterator();
+        while (it.next()) |k| w.print(" {s}", .{@tagName(k)}) catch {};
+        w.writeAll("; the LIR has") catch {};
+        it = lir_has.iterator();
+        while (it.next()) |k| w.print(" {s}", .{@tagName(k)}) catch {};
+        w.print(" ({s})", .{if (hoisted) "read from its var" else if (c.hoisted) "written to its var" else "in place"}) catch {};
+        const at = diag.lineCol(self.source, self.facts.startOf(sexp));
+        std.debug.panic("{s}:{d}:{d}: internal error: coercions of a `{s}`: {s}", .{ self.file.path, at.line, at.col, @tagName(sexp.kind() orelse .module), w.buffered() });
     }
 
     /// `sexp`, viewed where a view of another type is expected, as the rows
@@ -7317,7 +7376,7 @@ pub const Emitter = struct {
                 try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp));
             },
             .@"while", .@"for", .labeled => if (facts.syntax.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
-            .array => if (try self.hoistsArgs(sexp)) try self.emitHoistedArray(sexp) else try self.emitArray(sexp),
+            .array => if (self.hoistsArgs(sexp)) try self.emitHoistedArray(sexp) else try self.emitArray(sexp),
             .array_fill => try self.emitArrayFill(sexp),
             // A jump as a fallback (`?? return`, `catch break`): a block
             // that leaves, which Zig types as `noreturn`.
@@ -7618,7 +7677,7 @@ pub const Emitter = struct {
         try self.openBrace();
         const first = self.hoisted.items.len;
         for (ir.Array.elems(sexp), 0..) |e, i| {
-            if (try self.isPureArg(e)) continue;
+            if (self.varOf(e, .argument) == null) continue;
             try self.hoist(.{ .node = e, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, i }) }, .{ .pair = .{ id, @intCast(i) } }, &.{}, 0, true);
         }
         try self.writeIndent(self.indent);
@@ -8111,7 +8170,7 @@ pub const Emitter = struct {
         // (`sema.writesTemp`) or not, is reached in the slot (below),
         // which has that type, never in a copy: a change through it is
         // the temporary's own, which its drop sees.
-        if (!self.facts.writesTemp(o) and !self.facts.dropsTemp(o)) if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (o_ty) |t| {
+        if (!self.facts.writesTemp(o) and !self.dropsTemp(o)) if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (o_ty) |t| {
             if (self.hoistedOf(o)) |h| if (h.flag.len == 0) {
                 try self.w.writeAll(h.name);
                 return self.derefToHandle(t);
@@ -8245,7 +8304,7 @@ pub const Emitter = struct {
             },
             .made => {
                 // A value kept in its statement's slot is reached there.
-                if (self.facts.dropsTemp(e)) {
+                if (self.dropsTemp(e)) {
                     try self.w.writeAll("&(");
                     try self.emitBare(e);
                     return self.w.writeAll(")");
@@ -8357,7 +8416,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(").*");
             },
             // The payload is captured by address where Zig holds it.
-            .made => if (!self.facts.dropsTemp(e)) {
+            .made => if (!self.dropsTemp(e)) {
                 try self.zigTemporary(e);
             },
             // A view of an optional or fallible value whose payload is read
@@ -9349,7 +9408,7 @@ pub const Emitter = struct {
             try self.emitBare(ir.Call.args(sexp)[0]);
             return self.w.writeAll("))");
         }
-        if (try self.hoistsArgs(sexp)) return self.emitHoistedCall(sexp);
+        if (self.hoistsArgs(sexp)) return self.emitHoistedCall(sexp);
         try self.emitCallDirect(sexp);
     }
 
@@ -9433,7 +9492,7 @@ pub const Emitter = struct {
         }
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
         // A task that stays in its maker's frame, a fork, starts so.
-        if (self.facts.taskInFrame(sexp)) try self.w.writeAll(".frame");
+        if (self.taskInFrame(sexp)) try self.w.writeAll(".frame");
         // Through a witness: its method, given self as it takes it.
         if (self.facts.dispatchOf(sexp)) |d| if (d == .static and !d.static.self_arg and d.static.self_mode != .value) {
             const recv = self.selfOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its self");
@@ -9685,7 +9744,7 @@ pub const Emitter = struct {
             // A channel or task its select evaluated in the arm's turn is
             // read where it was held (`hoistSelf`).
             if (self.hoistedOf(handle)) |h| {
-                try self.w.print("{s}{s}", .{ h.name, if (self.facts.varOf(handle, .self).?.by == .pointer) ".*" else "" });
+                try self.w.print("{s}{s}", .{ h.name, if (self.varOf(handle, .self).?.by == .pointer) ".*" else "" });
             } else if (of_chan) {
                 try self.emitExpr(ir.Member.object(callee));
             } else try self.emitMemberBase(handle, handle_ty);
@@ -10214,9 +10273,10 @@ pub const Emitter = struct {
         // its own module's types) is packed into each level of `target`
         // that goes through the helpers.
         if (!sameNode(e, self.lifting)) if (decl.liftOf(e)) |lift| {
-            const saved = self.lifting;
-            defer self.lifting = saved;
+            const saved = .{ self.lifting, self.lift_outside };
+            defer self.lifting, self.lift_outside = saved;
             self.lifting = e;
+            self.lift_outside = e;
             const levels = if (lift.from == decl.types.none_id) 1 else optionalDepth(decl.types, lift.into) -| optionalDepth(decl.types, lift.from);
             var into = target;
             while (self.facts.types.get(into) == .fallible) into = self.facts.types.get(into).fallible.ok;
@@ -10387,19 +10447,15 @@ pub const Emitter = struct {
     fn isTypeSym(self: *Emitter, id: SymbolId) bool {
         return self.facts.isTypeSym(id);
     }
-    /// `storage.hoistsArgs`.
-    fn hoistsArgs(self: *Emitter, call: Sexp) Error!bool {
-        return self.need(self.facts.hoistsArgs(call), call);
+    /// Whether call or array literal `call` holds its parts, each
+    /// evaluated first (a `call` region of its LIR).
+    fn hoistsArgs(self: *Emitter, call: Sexp) bool {
+        return self.lowered.?.holdsParts(call);
     }
 
     /// `storage.consumedTemporary`.
     fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
         return if (try self.need(self.facts.consumesSelf(call), call)) self.facts.selfOf(call) else null;
-    }
-
-    /// `storage.isPureArg`.
-    fn isPureArg(self: *Emitter, e: Sexp) Error!bool {
-        return self.need(self.facts.isPureArg(e), e);
     }
 
     /// `storage.selfOf`.
@@ -10541,7 +10597,7 @@ pub const Emitter = struct {
         } else try self.hoistSelf(call, id);
         for (args, 0..) |a, ai| {
             const value = argValue(a);
-            if (try self.isPureArg(value)) continue;
+            if (self.varOf(value, .argument) == null) continue;
             const slot: usize = if (slots) |ss| facts.slotOf(ss, ai) orelse ai else ai;
             try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, params, slot, fields);
         }
@@ -10600,9 +10656,10 @@ pub const Emitter = struct {
         {
             // The temporary holds the value as itself; where the call reads
             // it, it becomes the optional it goes into (`emitLift`).
-            const saved = self.lifting;
-            defer self.lifting = saved;
+            const saved = .{ self.lifting, self.lift_outside };
+            defer self.lifting, self.lift_outside = saved;
             if (shown == ty) self.lifting = h.node;
+            if (shown == ty) self.lift_outside = h.node;
             if (fields) try self.emitStored(h.node) else if (self.facts.viewsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         }
         try self.w.writeAll(";\n");
@@ -10622,7 +10679,7 @@ pub const Emitter = struct {
         defer self.read_place = saved;
         self.read_place = true;
         try self.w.writeAll("&(");
-        if (self.facts.dropsTemp(e)) try self.emitBare(e) else try self.emitPlace(e);
+        if (self.dropsTemp(e)) try self.emitBare(e) else try self.emitPlace(e);
         try self.w.writeAll(")");
     }
 
@@ -11729,7 +11786,7 @@ pub const Emitter = struct {
     /// `as` and payload bindings, and an owned closure environment; the
     /// kind picks its drop call.
     fn holdOf(self: *Emitter, sym: SymbolId) ?ResourceKind {
-        return self.facts.binding(sym).drop;
+        return (self.bindingVar(sym) orelse return null).drop;
     }
 
     /// How the var of `kind` that holds the value of `e`, or a discard of
@@ -11738,10 +11795,26 @@ pub const Emitter = struct {
         return (try self.needVar(e, kind)).drop;
     }
 
-    /// The var of `kind` the plan made for `node`: one it did not make is
+    /// Whether the task `call` makes stays in its maker's frame and is
+    /// waited for there, a fork (`StorageKind.task_record`).
+    fn taskInFrame(self: *Emitter, call: Sexp) bool {
+        return self.varOf(call, .task_record) != null;
+    }
+
+    /// The var of binding `sym`, or null for a symbol no body binds.
+    fn bindingVar(self: *Emitter, sym: SymbolId) ?*const facts.lir.Var {
+        return self.lowered.?.bindingOf(sym);
+    }
+
+    /// The hidden var of `kind` lowering made for `node`.
+    fn varOf(self: *Emitter, node: Sexp, kind: facts.StorageKind) ?*const facts.lir.Var {
+        return self.lowered.?.varOf(node, kind);
+    }
+
+    /// The var of `kind` lowering made for `node`: one it did not make is
     /// storage the ownership checker did not walk, an internal error.
-    fn needVar(self: *Emitter, node: Sexp, kind: facts.StorageKind) Error!facts.Var {
-        return self.facts.varOf(node, kind) orelse self.unsupported(node, "hidden storage the var table does not record");
+    fn needVar(self: *Emitter, node: Sexp, kind: facts.StorageKind) Error!*const facts.lir.Var {
+        return self.varOf(node, kind) orelse self.unsupported(node, "hidden storage no body's lowering made");
     }
 
     fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {
@@ -12329,11 +12402,7 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                 // A value loop (`x = loop` ... `break v`), labeled or not.
                 .@"while", .labeled => return true,
                 // `+v` of a value that copies is `v` in Zig.
-                .clone,
-                .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match, .block,
-                .propagate, .propagate_none, .@"catch", .@"??", .neg, .not, .@"and", .@"or",
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^",
-                .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
+                .clone, .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match, .block, .propagate, .propagate_none, .@"catch", .@"??", .neg, .not, .@"and", .@"or", .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
                     for (rig.children(e)) |c| {
                         if (c == .tag or c == .nil) continue;
                         if (!isZigComptimeIn(em, c, depth + 1)) return false;
