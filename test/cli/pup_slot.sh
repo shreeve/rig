@@ -1,7 +1,7 @@
 # tools/pup-slot (Linux only; elsewhere it checks the script parses): a
 # board slot pauses a build and close resumes it; a board slot waits, and
 # gives up with 75, when too few free 2 MiB blocks remain or a test suite
-# runs, leaving nothing paused. Its state, log, block count and the
+# runs, leaving nothing paused; a slot's owner's builds run on. Its state, log, block count and the
 # processes it may touch are the test's own, so no real build is paused.
 # timeout: 90
 source "$ROOT/test/cli/_lib.sh"
@@ -89,5 +89,26 @@ out=$("$S" open 11 5 board); rc=$?
 expect_rc $rc 0 "a stale correctness file is ignored"
 "$S" close 11 >/dev/null
 [[ -e corr/$c ]] || fail "pup-slot removed a file it does not own"
-kill $c $b
+kill $c
+
+# A slot's own job: the builds under PUP_SLOT_OWNER run on, at open and
+# when they start inside the slot; every other build is paused.
+bash -c 'exec -a pupslottest-build sleep 60 & wait' &
+o=$!
+sleep 0.3
+ob=$(pgrep -P $o)
+export PUP_SLOT_TMP=$PWD/t6; mkdir -p "$PUP_SLOT_TMP"
+out=$(PUP_SLOT_OWNER=$o "$S" open 12 5 ab); rc=$?
+expect_rc $rc 0 "an ab slot with an owner opens"
+expect_eq "$(pstate $ob)" S "the owner's build runs on"
+expect_eq "$(pstate $b)" T "another build is paused"
+bash -c 'exec -a pupslottest-build sleep 60' &
+l=$!
+for _ in $(seq 30); do [[ $(pstate $l) == T ]] && break; sleep 0.2; done
+expect_eq "$(pstate $l)" T "a build outside the owner, started in the slot, is paused"
+expect_eq "$(pstate $ob)" S "the owner's build still runs"
+"$S" close 12 >/dev/null
+[[ ! -e $PUP_SLOT_TMP/pup-slot/owner ]] || fail "close left the owner behind"
+expect_eq "$(pstate $b)" S "close resumes the other build"
+kill $l $ob $o $b 2>/dev/null; kill -CONT $l $ob $b 2>/dev/null
 exit 0
