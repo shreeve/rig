@@ -5459,23 +5459,9 @@ pub const SemContext = struct {
     /// Record `value` for `key` in column `c`, on the trail while a mark
     /// is open.
     pub fn putIn(self: *SemContext, comptime c: Column, key: MapKey(c.Map()), value: MapValue(c.Map())) std.mem.Allocator.Error!void {
-        _ = try self.exchangeIn(c, key, value);
-    }
-
-    /// `putIn`, which gives the value `key` had in column `c`, if any.
-    fn exchangeIn(self: *SemContext, comptime c: Column, key: MapKey(c.Map()), value: MapValue(c.Map())) std.mem.Allocator.Error!?MapValue(c.Map()) {
         const map = self.columnMap(c);
-        if (comptime @hasField(c.Map(), "dense")) {
-            const old = map.get(key);
-            if (self.trail.open > 0) try self.trail.log(self.allocator, comptime c.index(), key, old);
-            try map.put(self.allocator, key, value);
-            return old;
-        }
-        const gop = try map.getOrPut(self.allocator, key);
-        const old: ?MapValue(c.Map()) = if (gop.found_existing) gop.value_ptr.* else null;
-        gop.value_ptr.* = value;
-        if (self.trail.open > 0) try self.trail.log(self.allocator, comptime c.index(), key, old);
-        return old;
+        if (self.trail.open > 0) try self.trail.log(self.allocator, comptime c.index(), key, map.get(key));
+        try map.put(self.allocator, key, value);
     }
 
     /// Remove `key` from column `c`, on the trail while a mark is open.
@@ -6327,9 +6313,11 @@ pub const SemContext = struct {
     /// take before the view, and keeps the view.
     pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
         const key = recordExprKey(node) orelse return;
-        const old = try self.exchangeIn(.{ .facts = .uses }, key, use) orelse return;
-        if (old == .view and use == .take) return self.putIn(.{ .facts = .uses }, key, .view);
-        std.debug.assert(old == use);
+        if (self.facts.uses.get(key)) |old| {
+            if (old == .view and use == .take) return;
+            std.debug.assert(old == use);
+        }
+        try self.putIn(.{ .facts = .uses }, key, use);
     }
 
     /// The member access `node` reaches a field read-only here
