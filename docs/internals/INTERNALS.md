@@ -2185,9 +2185,27 @@ declared by one region; and each var is used only inside the region
 that declares it. `rig check --facts=lir` prints the root module's LIR,
 and lists each body not lowered with the construct that stopped it.
 
-LIR runs in shadow, and nothing reads it yet. In a self-checking build,
-`sema.check` lowers each module after `storage.plan`, and `lower.shadow`
-asserts, for each body, that:
+Emit reads the storage it writes from LIR. `Emitter.emit` lowers its
+module first (`Facts.lower`). `lower.Module` indexes every body's vars
+by node and kind, bindings by symbol, the `call` regions of calls and
+array literals that hold their parts, and the temporaries of each
+statement and header, in the order they are made. From those, emit
+takes:
+
+- each hidden var it names, and each binding's drop and flag;
+- whether a call holds its parts, and which parts it holds;
+- a statement's slots, and whether a node is a temporary;
+- whether a header makes temporaries, and whether it yields a pointer;
+- how a match holds its subject;
+- whether a `for` consumes its source.
+
+Lowering covers every body. Emit reports an internal error at any body
+it did not lower. Emit still allocates each name in its own recursion
+(`Emitter.nextId`), so the names it writes do not depend on LIR's
+numbering.
+
+In a self-checking build, `sema.check` also lowers each module after
+`storage.plan`, and `lower.shadow` asserts, for each body, that:
 
 - its hidden vars are the var table's rows for nodes in that body, in
   the table's order, each held the same way (`by`, `life`, `drop`,
@@ -2198,8 +2216,7 @@ asserts, for each body, that:
 
 Lowering asks the questions the plan asks. A node's vars are numbered
 after its operands' (the plan's order), and its steps are placed in the
-order they run. A body that uses a construct lowering does not yet
-cover is not lowered. The back track of docs/internals/architecture.md
+order they run. The back track of docs/internals/architecture.md
 makes emit a printer of LIR, and dissolves the storage plan into
 lowering.
 
