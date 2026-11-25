@@ -258,6 +258,10 @@ const LocalRef = struct { scope: u32, index: u32 };
 /// An argument evaluated into the temporary `name`. An owned one is
 /// dropped at scope exit while `flag` is set; the call clears it. With
 /// `ptr`, `name` holds the address of `node`, which stays where it is.
+/// What emit makes of a value on its way to it: each coercion of the
+/// LIR (`facts.Coercion`), and the slot an owning temporary is kept in.
+const Coerce = enum { splat, duration, erase, fail, lift, widen, view, deref, keep };
+
 const Hoisted = struct {
     node: Sexp,
     name: []const u8,
@@ -505,22 +509,14 @@ pub const Emitter = struct {
     /// Emitting the object chain of an assignment target: an indexed
     /// element in it is a slot, not a copy.
     place_chain: bool = false,
-    /// The value `emitView` is making, which it emits as itself.
-    viewing: Sexp = .nil,
-    /// The error value a failing `return` is sending through `__out`.
-    failing: Sexp = .nil,
-    /// The code-only error being made a `rig.ErrorValue` (`isCodeWidening`).
-    widening: Sexp = .nil,
-    /// The scalar operand being written splatted (`sema.splatOf`).
-    splatting: Sexp = .nil,
-    /// The duration argument being written (`sema.durationOf`).
-    durationing: Sexp = .nil,
+    /// The node whose coercions are being written, and those made around
+    /// the point being written, which its value is written inside
+    /// (`emitValue`).
+    coercing: struct { node: Sexp = .nil, made: std.EnumSet(Coerce) = .empty } = .{},
     /// The label of the call being written whose duration forms join
     /// its failure (`sema.DurationHow.folded`): a conversion that fails
     /// breaks out of it with the callee's error (`emitCallPlain`).
     fold_label: ?[]const u8 = null,
-    /// The box being erased to a box of an API object (`emitValue`).
-    erasing_box: Sexp = .nil,
     /// Arguments and selves of the calls being emitted that were
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
@@ -531,8 +527,6 @@ pub const Emitter = struct {
     /// The slots of the copies the statements being emitted erase
     /// (`emitErasedSlots`).
     erased_slots: std.ArrayList(ErasedSlot) = .empty,
-    /// The temporary whose value is being written into its slot.
-    keeping: Sexp = .nil,
     /// The loops and labeled blocks around the current point that a jump
     /// can name, innermost last.
     targets: std.ArrayList(JumpTarget) = .empty,
@@ -615,13 +609,6 @@ pub const Emitter = struct {
     /// The functions the module cuts, each exported by the unit that owns
     /// it (`emitCut`).
     cut_exports: std.ArrayList([]const u8) = .empty,
-    /// The value being written inside the `rig.pack` of the optional it
-    /// becomes (`emitLift`), or written where it is held as itself.
-    lifting: Sexp = .nil,
-    /// A value whose lift no body's LIR records (`checkCoerced`): an
-    /// argument whose temporary holds it as itself, lifted where the call
-    /// reads it (`hoist`), or a default's (`emitDefault`).
-    lift_outside: Sexp = .nil,
     /// Where each line of `source` starts, for the place of a failure's
     /// site (`markSite`), made at the first.
     line_starts: std.ArrayList(u32) = .empty,
@@ -1222,14 +1209,8 @@ pub const Emitter = struct {
         try self.w.writeAll(", .{})");
     }
 
-    /// Whether `sexp` is an error that may carry fields, a `rig.ErrorValue`;
-    /// an error of a set without them is its code alone.
-    fn holdsErrorValue(self: *Emitter, sexp: Sexp) bool {
-        const ty = self.typeOf(sexp) orelse return false;
-        return self.isErrorValueTy(self.peelViews(ty));
-    }
-
-    /// `holdsErrorValue`, or an optional of an error value.
+    /// Whether `sexp` is an error, or an optional of one, that may carry
+    /// fields, a `rig.ErrorValue`.
     fn holdsErrorValueOpt(self: *Emitter, sexp: Sexp) bool {
         const ty = self.typeOf(sexp) orelse return false;
         return self.isErrorValueTy(self.unwrapOptionals(self.peelViews(ty)));
@@ -6070,92 +6051,98 @@ pub const Emitter = struct {
         const entered = try self.enterUnit(sexp);
         defer self.leaveUnit(entered);
         try self.inUnit(sexp);
-        // A scalar beside a vector stands for every lane (`sema.splatOf`):
-        // Zig splats only where it is told to, and the vector is a run-time
-        // value (`writeVectorOpen`).
-        if (self.facts.splatOf(sexp)) |vt| if (!sameNode(sexp, self.splatting)) {
-            const saved = self.splatting;
-            defer self.splatting = saved;
-            self.splatting = sexp;
-            self.want_ptr = false;
-            try self.writeVectorOpen(vt);
-            try self.w.writeAll("@splat(");
-            try self.emitBare(sexp);
-            return self.w.writeAll(")))");
-        };
-        // An argument given as a duration form (`sema.Duration`): a
-        // number of its unit, which becomes the `Duration` its parameter
-        // takes or an `Int` of nanoseconds, or a `Duration` whose
-        // nanoseconds an `Int` parameter takes. A hoisted one is read
-        // from its temporary, which holds what it became.
-        if (self.facts.durationOf(sexp)) |d| if (!sameNode(sexp, self.durationing) and self.hoistedOf(sexp) == null) {
-            const saved = self.durationing;
-            defer self.durationing = saved;
-            self.durationing = sexp;
-            if (d.unit_ns == 0) {
-                try self.w.writeAll(rt(.durationNs) ++ "(");
+        // The coercions the LIR makes of the value here, outermost first:
+        // each not yet made is written around the value, which is
+        // written inside it.
+        var view: ?facts.View = null;
+        var deref = false;
+        for (self.coercionsAt(sexp)) |c| switch (c) {
+            // A scalar beside a vector stands for every lane: Zig splats
+            // only where it is told to, and the vector is a run-time value
+            // (`writeVectorOpen`).
+            .splat => |vt| if (!self.made(sexp, .splat)) {
+                const saved = self.making(sexp, .splat);
+                defer self.coercing = saved;
+                self.want_ptr = false;
+                try self.writeVectorOpen(vt);
+                try self.w.writeAll("@splat(");
                 try self.emitBare(sexp);
-                return self.w.writeAll(")");
-            }
-            if (d.opt != facts.type_invalid) try self.w.print(rt(.pack) ++ "({s}, ", .{try self.typeText(d.opt)});
-            if (d.how == .folded) try self.w.writeAll("(");
-            try self.w.print("{s}(", .{durationFn(if (d.float) .float else .int, d.how)});
-            if (d.part) try self.w.writeAll("i128") else if (d.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(d.ty);
-            try self.w.writeAll(", ");
-            try self.emitBare(sexp);
-            try self.w.print(", {d}", .{d.unit_ns});
-            try self.writeFoldErrors(d.how, d.float);
-            try self.w.writeAll(")");
-            try self.writeFoldBreak(d.how, sexp);
-            if (d.opt != facts.type_invalid) try self.w.writeAll(")");
-            return;
+                return self.w.writeAll(")))");
+            },
+            // An argument given as a duration form (`sema.Duration`): a
+            // number of its unit, which becomes the `Duration` its
+            // parameter takes or an `Int` of nanoseconds, or a `Duration`
+            // whose nanoseconds an `Int` parameter takes.
+            .duration => |d| if (!self.made(sexp, .duration)) {
+                const saved = self.making(sexp, .duration);
+                defer self.coercing = saved;
+                if (d.unit_ns == 0) {
+                    try self.w.writeAll(rt(.durationNs) ++ "(");
+                    try self.emitBare(sexp);
+                    return self.w.writeAll(")");
+                }
+                if (d.opt != facts.type_invalid) try self.w.print(rt(.pack) ++ "({s}, ", .{try self.typeText(d.opt)});
+                if (d.how == .folded) try self.w.writeAll("(");
+                try self.w.print("{s}(", .{durationFn(if (d.float) .float else .int, d.how)});
+                if (d.part) try self.w.writeAll("i128") else if (d.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(d.ty);
+                try self.w.writeAll(", ");
+                try self.emitBare(sexp);
+                try self.w.print(", {d}", .{d.unit_ns});
+                try self.writeFoldErrors(d.how, d.float);
+                try self.w.writeAll(")");
+                try self.writeFoldBreak(d.how, sexp);
+                if (d.opt != facts.type_invalid) try self.w.writeAll(")");
+                return;
+            },
+            // A box moved into a box of an API object keeps its
+            // allocation, its value's type erased (`sema.Erasure`):
+            // `rig.ApiBox(T).of(Square, b, __rig_table_Shape_of(Square, W,
+            // .box))`, allocating nothing; a counted handle moved into a
+            // `*{A}` keeps its allocation and its count,
+            // `rig.ApiShared(T).of(h, __rig_table_Shape_of(Square, W,
+            // .counted))`.
+            .erase => |e| if (!self.made(sexp, .erase)) {
+                const saved = self.making(sexp, .erase);
+                defer self.coercing = saved;
+                const ty = try self.typeText(e.from);
+                try self.emitTypeTy(e.view);
+                try self.w.writeAll(if (e.optional) ".ofSome(" else ".of(");
+                if (e.form == .box) try self.w.print("{s}, ", .{ty});
+                try self.emitValue(sexp, tail);
+                try self.w.writeAll(", ");
+                try self.writeTableName(e.api);
+                try self.w.print("_of({s}, ", .{ty});
+                try self.writeWitness(e.witness);
+                return self.w.print(", .{s}))", .{@tagName(e.holding)});
+            },
+            // An error value the function fails with, held rather than
+            // made here, sends its fields through the caller's slot.
+            .fail => if (!self.made(sexp, .fail)) {
+                const saved = self.making(sexp, .fail);
+                defer self.coercing = saved;
+                try self.w.print("@errorCast(" ++ rt(.failValue) ++ "({s}, ", .{self.fun.out_name});
+                try self.emitValue(sexp, tail);
+                return self.w.writeAll("))");
+            },
+            // A `T` or `none` that becomes an optional going through the
+            // helpers is packed into it, unless its context takes the
+            // pointer.
+            .lift => |lift| if (!self.want_ptr and !self.made(sexp, .lift)) return self.emitLift(sexp, lift, tail),
+            // An error of a set without fields where one that carries
+            // fields goes: a `rig.ErrorValue` of its code and none (inside
+            // the optional it is lifted into).
+            .widen => if (!self.made(sexp, .widen)) {
+                const saved = self.making(sexp, .widen);
+                defer self.coercing = saved;
+                try self.w.writeAll(rt(.ErrorValue) ++ ".of(");
+                try self.emitValue(sexp, tail);
+                return self.w.writeAll(", .{})");
+            },
+            .view => |v| if (!self.made(sexp, .view)) {
+                view = v;
+            },
+            .deref => deref = true,
         };
-        // A box moved into a box of an API object keeps its allocation,
-        // its value's type erased (`sema.Erasure`): `rig.ApiBox(T).of(Square,
-        // b, __rig_table_Shape_of(Square, W, .box))`, allocating nothing; a
-        // counted handle moved into a `*{A}` keeps its allocation and its
-        // count, `rig.ApiShared(T).of(h, __rig_table_Shape_of(Square, W,
-        // .counted))`.
-        if (!sameNode(sexp, self.erasing_box)) if (self.facts.erasureOf(sexp)) |e| if (e.form == .box or e.form == .shared) {
-            const saved = self.erasing_box;
-            defer self.erasing_box = saved;
-            self.erasing_box = sexp;
-            const ty = try self.typeText(e.from);
-            try self.emitTypeTy(e.view);
-            try self.w.writeAll(if (e.optional) ".ofSome(" else ".of(");
-            if (e.form == .box) try self.w.print("{s}, ", .{ty});
-            try self.emitValue(sexp, tail);
-            try self.w.writeAll(", ");
-            try self.writeTableName(e.api);
-            try self.w.print("_of({s}, ", .{ty});
-            try self.writeWitness(e.witness);
-            return self.w.print(", .{s}))", .{@tagName(e.holding)});
-        };
-        // An error value the function fails with, held rather than made
-        // here, sends its fields through the caller's slot.
-        if (self.fun.has_out and !sameNode(sexp, self.failing) and self.facts.isFailingLeaf(sexp) and !self.namesErrorMember(sexp) and self.holdsErrorValue(sexp)) {
-            const saved = self.failing;
-            defer self.failing = saved;
-            self.failing = sexp;
-            try self.w.print("@errorCast(" ++ rt(.failValue) ++ "({s}, ", .{self.fun.out_name});
-            try self.emitValue(sexp, tail);
-            return self.w.writeAll("))");
-        }
-        // A `T` or `none` that becomes an optional going through the
-        // helpers is packed into it.
-        // (A temporary that holds an assignment's new value holds it packed.)
-        if (!self.want_ptr and !sameNode(sexp, self.lifting) and !(if (self.hoistedOf(sexp)) |h| h.lifted else false)) if (self.facts.liftOf(sexp)) |lift| if (self.liftRouted(lift)) return self.emitLift(sexp, lift, tail);
-        // An error of a set without fields where one that carries fields
-        // goes: a `rig.ErrorValue` of its code and none (inside the
-        // optional it is lifted into).
-        if (!sameNode(sexp, self.widening) and self.facts.isCodeWidening(sexp)) {
-            const saved = self.widening;
-            defer self.widening = saved;
-            self.widening = sexp;
-            try self.w.writeAll(rt(.ErrorValue) ++ ".of(");
-            try self.emitValue(sexp, tail);
-            return self.w.writeAll(", .{})");
-        }
         // A part of the value whose use is known has that use; any other
         // value has the use its own context recorded.
         const saved_use = self.use;
@@ -6173,19 +6160,18 @@ pub const Emitter = struct {
         // An owning temporary is kept in its statement's slot, which
         // drops it at the statement's end.
         // A bare value is viewed around its temporary's slot, as `?e`
-        // views it (unless an argument hoisted before the call holds it).
-        if (!sameNode(sexp, self.viewing) and self.hoistedOf(sexp) == null) if (self.facts.viewOf(sexp)) |made| if (made.implicit) return self.emitView(sexp, made, tail, want_ptr);
+        // views it.
+        if (view) |v| if (v.implicit) return self.emitView(sexp, v, tail, want_ptr);
         // (An argument hoisted before its call was kept there: its name
         // holds the kept value.)
-        if (self.dropsTemp(sexp) and !sameNode(sexp, self.keeping) and self.hoistedOf(sexp) == null) {
+        if (self.dropsTemp(sexp) and !self.made(sexp, .keep) and self.hoistedOf(sexp) == null) {
             const slot = self.tempSlot(sexp) orelse return self.unsupported(sexp, "a temporary outside a statement");
-            const saved = self.keeping;
+            const saved = self.making(sexp, .keep);
             const saved_ptr = self.ptr_tail;
             defer {
-                self.keeping = saved;
+                self.coercing = saved;
                 self.ptr_tail = saved_ptr;
             }
-            self.keeping = sexp;
             // The slot holds the value: a view of it, the pointer a write
             // view wants, is taken from the slot (`rig.keep`'s result).
             self.ptr_tail = false;
@@ -6202,29 +6188,20 @@ pub const Emitter = struct {
         }
         // A temporary holds the value its context reads (`hoist`).
         if (self.hoistedOf(sexp)) |h| {
-            self.checkCoerced(sexp, true, want_ptr, false);
             if (h.flag.len > 0) return self.w.print(rt(.take) ++ "(&{s}, {s})", .{ h.flag, h.name });
             return self.w.print("{s}{s}", .{ h.name, if (h.ptr) ".*" else "" });
         }
-        if (!sameNode(sexp, self.viewing)) if (self.facts.viewOf(sexp)) |made| {
-            if (!made.has(.read_only)) return self.emitView(sexp, made, tail, made.implicit and want_ptr);
+        if (view) |v| {
+            if (!v.has(.read_only)) return self.emitView(sexp, v, tail, false);
             // A `!{Shape}` passed on to read: the read view it makes, also
             // where an optional of one goes, which Zig lifts it into.
-            var view = made.ty;
-            for (made.steps()) |row| if (row == .lift) {
-                view = self.facts.types.get(view).optional;
-            };
-            if (self.facts.objectView(view) != null) {
-                const saved = self.viewing;
-                defer self.viewing = saved;
-                self.viewing = sexp;
-                try self.w.writeAll("(");
-                try self.emitValue(sexp, tail);
-                return self.w.writeAll(").read()");
-            }
-        };
-        self.checkCoerced(sexp, false, want_ptr, !want_ptr and self.readsThrough(sexp));
-        if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
+            const saved = self.making(sexp, .view);
+            defer self.coercing = saved;
+            try self.w.writeAll("(");
+            try self.emitValue(sexp, tail);
+            return self.w.writeAll(").read()");
+        }
+        if (!want_ptr and deref) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
         defer self.literal_ty = literal_ty;
@@ -6239,51 +6216,42 @@ pub const Emitter = struct {
         }
     }
 
-    /// In a self-checking build, that the coercions emit made of `sexp`
-    /// on its way to its value are those its LIR records there: where a
-    /// var holding it is read (`hoisted`), where that var is written, or
-    /// where it stands. A context that takes the pointer (`want_ptr`) makes
-    /// no lift and reads through no view.
-    fn checkCoerced(self: *Emitter, sexp: Sexp, hoisted: bool, want_ptr: bool, deref: bool) void {
-        if (!facts.self_check) return;
+    /// The coercions the LIR makes of `sexp` where it is being written:
+    /// where a var holding it is read, where that var is written, or where
+    /// it stands (`lower.Module.Coerced`).
+    fn coercionsAt(self: *Emitter, sexp: Sexp) []const facts.Coercion {
         const c = self.lowered.?.coercedOf(sexp);
-        const want = if (hoisted) c.use else if (c.hoisted) c.held else c.use;
-        const Kind = std.meta.Tag(facts.Coercion);
-        var have = std.EnumSet(Kind).empty;
-        if (sameNode(sexp, self.splatting)) have.insert(.splat);
-        if (sameNode(sexp, self.durationing)) have.insert(.duration);
-        if (sameNode(sexp, self.erasing_box)) have.insert(.erase);
-        if (sameNode(sexp, self.failing)) have.insert(.fail);
-        if (sameNode(sexp, self.lifting) and !sameNode(sexp, self.lift_outside)) have.insert(.lift);
-        if (sameNode(sexp, self.widening)) have.insert(.widen);
-        if (sameNode(sexp, self.viewing)) have.insert(.view);
-        if (deref) have.insert(.deref);
-        var lir_has = std.EnumSet(Kind).empty;
-        for (want) |k| lir_has.insert(k);
-        if (want_ptr) {
-            lir_has.remove(.lift);
-            lir_has.remove(.deref);
-        }
-        if (have.eql(lir_has)) return;
-        var buf: [256]u8 = undefined;
-        var w: std.Io.Writer = .fixed(&buf);
-        w.writeAll("emit made") catch {};
-        var it = have.iterator();
-        while (it.next()) |k| w.print(" {s}", .{@tagName(k)}) catch {};
-        w.writeAll("; the LIR has") catch {};
-        it = lir_has.iterator();
-        while (it.next()) |k| w.print(" {s}", .{@tagName(k)}) catch {};
-        w.print(" ({s})", .{if (hoisted) "read from its var" else if (c.hoisted) "written to its var" else "in place"}) catch {};
-        const at = diag.lineCol(self.source, self.facts.startOf(sexp));
-        std.debug.panic("{s}:{d}:{d}: internal error: coercions of a `{s}`: {s}", .{ self.file.path, at.line, at.col, @tagName(sexp.kind() orelse .module), w.buffered() });
+        return if (c.hoisted and self.hoistedOf(sexp) == null) c.held else c.use;
+    }
+
+    /// Whether coercion `k` of `sexp` is made around the point being
+    /// written.
+    fn made(self: *Emitter, sexp: Sexp, k: Coerce) bool {
+        return sameNode(sexp, self.coercing.node) and self.coercing.made.contains(k);
+    }
+
+    /// Coercion `k` of `sexp` is made around what is written next; returns
+    /// what to restore when it is written.
+    fn making(self: *Emitter, sexp: Sexp, k: Coerce) @TypeOf(self.coercing) {
+        const saved = self.coercing;
+        if (!sameNode(sexp, self.coercing.node)) self.coercing = .{ .node = sexp };
+        self.coercing.made.insert(k);
+        return saved;
+    }
+
+    /// The view the LIR makes of `e` where it is being written, unless it
+    /// is made around this point.
+    fn viewAt(self: *Emitter, e: Sexp) ?facts.View {
+        if (self.made(e, .view)) return null;
+        for (self.coercionsAt(e)) |c| if (c == .view) return c.view;
+        return null;
     }
 
     /// `sexp`, viewed where a view of another type is expected, as the rows
     /// of the view table make it (`SemContext.viewOf`).
     fn emitView(self: *Emitter, sexp: Sexp, view: facts.View, tail: bool, as_ptr: bool) Error!void {
-        const saved = self.viewing;
-        defer self.viewing = saved;
-        self.viewing = sexp;
+        const saved = self.making(sexp, .view);
+        defer self.coercing = saved;
         if (view.callable()) |fn_ty| {
             // A bare stack closure is viewed as `?f` views it.
             if (view.implicit and sexp == .src) if (self.localOf(sexp)) |local| if (local.stack_closure) return self.emitFnRef(sexp, fn_ty);
@@ -6684,15 +6652,6 @@ pub const Emitter = struct {
         return false;
     }
 
-    /// An expression yielding a pointer view where its context reads the
-    /// value behind it (`SemContext.readsThrough`): `!x`, or a call
-    /// returning `!Int`. A name, field, or element holding a view reads
-    /// through it already.
-    fn readsThrough(self: *Emitter, e: Sexp) bool {
-        if (e == .src or e.isKind(.member) or e.isKind(.index)) return false;
-        return self.facts.readsThrough(e) and self.isPtrViewExpr(e);
-    }
-
     /// An expression whose value is a writable slice `![]T`.
     fn isWriteSliceExpr(self: *Emitter, e: Sexp) bool {
         const t = self.typeOf(e) orelse return false;
@@ -6737,7 +6696,7 @@ pub const Emitter = struct {
     /// `?x` or `!x` held by pointer: the address of `x`, or for a generic
     /// read view, `rig.readView` of it.
     fn emitViewAddress(self: *Emitter, e: Sexp) Error!void {
-        if (!sameNode(e, self.viewing)) if (self.facts.viewOf(e)) |view| if (!view.has(.read_only) and view.callable() == null) return self.emitView(e, view, false, true);
+        if (self.viewAt(e)) |view| if (!view.has(.read_only) and view.callable() == null) return self.emitView(e, view, false, true);
         const operand = ir.get(e, .operand);
         // A read view reaches a List element through a read-only slot, a
         // write view through a writable one.
@@ -6848,19 +6807,6 @@ pub const Emitter = struct {
         if (open) try self.w.writeAll(")");
     }
 
-    /// Whether some level of the optional `lift` makes goes through the
-    /// helpers (`emitLift`).
-    fn liftRouted(self: *Emitter, lift: facts.Lift) bool {
-        var o = lift.into;
-        var levels = self.liftLevels(lift);
-        while (levels > 0) : (levels -= 1) {
-            const inner = self.facts.types.get(o).optional;
-            if (self.routesPayload(inner)) return true;
-            o = inner;
-        }
-        return false;
-    }
-
     /// How many levels of optional `lift` adds to its value: one for
     /// `none`.
     fn liftLevels(self: *Emitter, lift: facts.Lift) u32 {
@@ -6873,9 +6819,8 @@ pub const Emitter = struct {
     /// helpers (`rig.pack(O, e)`, and `rig.pack(O, null)` for `none`);
     /// Zig lifts it into any other.
     fn emitLift(self: *Emitter, e: Sexp, lift: facts.Lift, tail: bool) Error!void {
-        const saved = self.lifting;
-        defer self.lifting = saved;
-        self.lifting = e;
+        const saved = self.making(e, .lift);
+        defer self.coercing = saved;
         const opened = try self.openPacks(lift.into, self.liftLevels(lift));
         self.bare = true;
         try self.emitValue(e, tail);
@@ -10272,11 +10217,9 @@ pub const Emitter = struct {
         // A default that becomes an optional where it goes (`liftOf`, in
         // its own module's types) is packed into each level of `target`
         // that goes through the helpers.
-        if (!sameNode(e, self.lifting)) if (decl.liftOf(e)) |lift| {
-            const saved = .{ self.lifting, self.lift_outside };
-            defer self.lifting, self.lift_outside = saved;
-            self.lifting = e;
-            self.lift_outside = e;
+        if (!self.made(e, .lift)) if (decl.liftOf(e)) |lift| {
+            const saved = self.making(e, .lift);
+            defer self.coercing = saved;
             const levels = if (lift.from == decl.types.none_id) 1 else optionalDepth(decl.types, lift.into) -| optionalDepth(decl.types, lift.from);
             var into = target;
             while (self.facts.types.get(into) == .fallible) into = self.facts.types.get(into).fallible.ok;
@@ -10653,15 +10596,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(if (self.facts.readsThrough(h.node) and self.isPtrViewExpr(h.node)) self.peelViews(t) else t);
         };
         try self.w.writeAll(" = ");
-        {
-            // The temporary holds the value as itself; where the call reads
-            // it, it becomes the optional it goes into (`emitLift`).
-            const saved = .{ self.lifting, self.lift_outside };
-            defer self.lifting, self.lift_outside = saved;
-            if (shown == ty) self.lifting = h.node;
-            if (shown == ty) self.lift_outside = h.node;
-            if (fields) try self.emitStored(h.node) else if (self.facts.viewsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
-        }
+        if (fields) try self.emitStored(h.node) else if (self.facts.viewsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         try self.w.writeAll(";\n");
         if (kind == .value or kind == .optional) try self.poisonAtExit(h.name);
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
@@ -11405,9 +11340,8 @@ pub const Emitter = struct {
         try self.emitCallableTy(.FnRef, f);
         const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped callable");
         try self.w.writeAll(if (self.facts.ownedClosureFn(ty) != null) ".ofClosure(" else ".ofFn(");
-        const saved = self.viewing;
-        defer self.viewing = saved;
-        self.viewing = e;
+        const saved = self.making(e, .view);
+        defer self.coercing = saved;
         try self.emitExpr(e);
         try self.w.writeAll(")");
     }
