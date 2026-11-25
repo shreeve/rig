@@ -35,6 +35,7 @@ const typeOf = storage.typeOf;
 /// A place in module `module`: a name's position, a node, or a symbol.
 pub const Key = struct { module: u32, at: u32 };
 
+/// A map by place, carrying `V` for each.
 pub fn Of(comptime V: type) type {
     return fastmap.Map(Key, V);
 }
