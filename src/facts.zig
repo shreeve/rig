@@ -699,9 +699,23 @@ pub const Facts = struct {
     pub fn fieldMoves(f: Facts, sym: SymbolId) []const []const u8 {
         return f.c().fieldMoves(sym);
     }
-    /// The module's bodies, lowered: tree `module` is the module's.
-    pub fn lower(f: Facts, gpa: std.mem.Allocator, module: Sexp, strict_optionals: bool) !Lowered {
-        return lowering.lowerModule(gpa, @constCast(f.c()), module, .{ .strict_optionals = strict_optionals });
+    /// The module's bodies as sema lowered them, with emit's questions
+    /// answered: tree `module` is the module's.
+    pub fn lowered(f: Facts, module: Sexp) !?*const Lowered {
+        const ctx = @constCast(f.c());
+        const m = &(ctx.lowered orelse return null);
+        try lowering.answerModule(m, ctx, module);
+        return m;
+    }
+    /// The module's bodies lowered again with each object's optional
+    /// held as a tagged struct (`RIG_STRICT_OPTIONALS`), owned by the
+    /// caller.
+    pub fn lowerStrict(f: Facts, gpa: std.mem.Allocator, module: Sexp) !Lowered {
+        const ctx = @constCast(f.c());
+        var m = try lowering.lowerModule(gpa, ctx, module, .{ .strict_optionals = true });
+        errdefer m.deinit();
+        try lowering.answerModule(&m, ctx, module);
+        return m;
     }
     /// The value a constant pattern compares with (`sema.patternConst`).
     pub fn patternConst(f: Facts, pattern: Sexp) ?sema.ConstScalar {

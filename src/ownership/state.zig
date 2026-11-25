@@ -7,6 +7,7 @@
 const std = @import("std");
 const parser = @import("../parser.zig");
 const sema = @import("../sema.zig");
+const storage = @import("../storage.zig");
 const diag = @import("../diag.zig");
 const self_check = @import("build_options").self_check;
 const Sexp = parser.Sexp;
@@ -903,14 +904,14 @@ pub const Checker = struct {
         if (v.kind != .hidden) {
             v.sym = ctx.symbolAt(v.decl);
         }
-        // Emit holds a binding as the storage plan recorded it
-        // (`storage.Binding.drop`): the checker treats as owning exactly
-        // the bindings that record says hold a value that moves.
+        // Emit holds a binding as lowering made its var
+        // (`storage.bindingDrop`): the checker treats as owning exactly
+        // the bindings whose var holds a value that moves.
         if (self_check) if (v.sym) |sym| if (v.ty) |t| {
-            const drop = ctx.vars.binding(sym).drop;
+            const drop = storage.bindingDrop(ctx, sym);
             switch (ctx.symbols.items[sym].kind) {
                 .param, .local, .capture => if ((drop != null) != (types.owningKind(self, t) != null))
-                    try notes.err(self, v.decl, "internal error: the checker holds `{s}` as {s}, but the storage plan records {s}", .{ v.name, if (types.owningKind(self, t) != null) "owning" else "owning nothing", if (drop) |h| @tagName(h) else "nothing to drop" }),
+                    try notes.err(self, v.decl, "internal error: the checker holds `{s}` as {s}, but its var holds {s}", .{ v.name, if (types.owningKind(self, t) != null) "owning" else "owning nothing", if (drop) |h| @tagName(h) else "nothing to drop" }),
                 else => {},
             }
         };

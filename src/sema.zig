@@ -3068,7 +3068,7 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
 }
 
 /// `rig check --facts=storage`: every hidden storage location emit makes
-/// for the root module (`storage.Var`), one per line, in source order:
+/// for the root module (`lir.Var`), one per line, in source order:
 ///
 ///   KIND NODE L:C-L:C "TEXT" BY LIFE
 ///
@@ -3085,6 +3085,7 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
             return std.mem.order(u8, x.text, y.text) == .lt;
         }
     };
+    const lowered = &(ctx.lowered orelse return);
     var out: std.ArrayList(Line) = .empty;
     var lines: diag.Lines = .{ .source = ctx.source };
     var stack: std.ArrayList(Sexp) = .empty;
@@ -3095,7 +3096,12 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
         inline for (@typeInfo(storage.StorageKind).@"enum".field_names) |name| {
             const kind = @field(storage.StorageKind, name);
             if (kind == .discard) continue;
-            if (ctx.varOf(n, kind)) |s| {
+            const s: ?struct { by: storage.StorageBy, life: storage.StorageLife } = switch (kind) {
+                // A `header_copy` is the header's value, no var of its own.
+                .header_copy => if (ctx.copiesHeader(n)) .{ .by = .copy, .life = .construct } else null,
+                else => if (lowered.varOf(n, kind)) |v| .{ .by = v.by, .life = v.life } else null,
+            };
+            if (s) |_| {
                 const span = if (ctx.parser) |p| p.span(n) else rig.leafSpan(ctx.source, n);
                 const from = lines.at(span.start);
                 const to = lines.at(span.end);
@@ -3105,7 +3111,7 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
                 try t.print("{s} {s} {d}:{d}-{d}:{d} \"", .{ @tagName(kind), node_kind, from.line, from.col, to.line, to.col });
                 for (diag.textBetween(ctx.source, span.start, @min(span.end, span.start + 40))) |c|
                     if (c == '\n') try t.writeAll("\\n") else try t.writeByte(c);
-                try t.print("\" {s} {s}", .{ @tagName(s.by), @tagName(s.life) });
+                try t.print("\" {s} {s}", .{ @tagName(s.?.by), @tagName(s.?.life) });
                 try out.append(a, .{ .start = span.start, .end = span.end, .text = text.written() });
             }
         }
@@ -4378,15 +4384,18 @@ pub const SemContext = struct {
     item_views: FastMap(ItemView, TypeId) = .empty,
     /// The method calls generic bodies make on type parameters.
     generic_methods: std.ArrayList(GenericMethodCall) = .empty,
-    /// The hidden storage emit makes and how bindings hold their values:
-    /// the var table, recorded after the expressions are checked
-    /// (`storage.plan`). A `temp` and a `header_copy` are the facts table's
-    /// (`temp_drops`, `header_copies`), which `varOf` reads.
-    vars: storage.Vars = .{},
+    /// The module's bodies lowered (`src/lower.zig`), after the
+    /// expressions are checked: the storage emit makes and how each
+    /// binding holds its value. Null for a module with an error.
+    lowered: ?lowering.Module = null,
     /// The symbols a name reads after its declaration, or a closure
-    /// captures (`storage.plan`, `isUsed`): emit discards a binding none
+    /// captures (`lower.lowerChecked`, `isUsed`): emit discards a binding none
     /// reads, and keeps a `catch`'s error value only for one that does.
     used: std.bit_set.Dynamic = .{},
+    /// The bindings a use may move out (`lower.markMoved`), so each
+    /// drops behind an alive flag the move clears: whether the flag
+    /// exists is this fact; how emit spells and names it is emit's.
+    moved: std.bit_set.Dynamic = .{},
     /// The values expression statements discard (`discardsValue`).
     discards: FastMap(u64, void) = .empty,
     /// The decisions made once for the whole program, after every module
@@ -4606,8 +4615,9 @@ pub const SemContext = struct {
         self.generic_fn_uses_guard.deinit(self.allocator);
         self.item_views.deinit(self.allocator);
         self.generic_methods.deinit(self.allocator);
-        self.vars.deinit(self.allocator);
+        if (self.lowered) |*m| m.deinit();
         self.used.deinit(self.allocator);
+        self.moved.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);
         self.inline_decls.deinit(self.allocator);
@@ -4857,6 +4867,11 @@ pub const SemContext = struct {
     /// (`used`).
     pub fn isUsed(self: *const SemContext, sym: SymbolId) bool {
         return sym < self.used.bit_length and self.used.isSet(sym);
+    }
+
+    /// Whether a use may move binding `sym` out (`moved`).
+    pub fn mayMove(self: *const SemContext, sym: SymbolId) bool {
+        return sym < self.moved.bit_length and self.moved.isSet(sym);
     }
 
     pub fn symbolOf(self: *const SemContext, node: Sexp) ?SymbolId {
@@ -5459,26 +5474,6 @@ pub const SemContext = struct {
     /// null for any other call.
     pub fn swapCallOf(self: *const SemContext, call: Sexp) ?SwapCall {
         return self.facts.swap_calls.get(nodeKey(call) orelse return null);
-    }
-
-    /// Emit holds a value of `node` in hidden var `v` (`storage.plan`). A
-    /// `temp` is recorded as `Facts.temp_drops`, and a `header_copy` as
-    /// `Facts.header_copies`.
-    pub fn recordVar(self: *SemContext, node: Sexp, v: storage.Var) !void {
-        std.debug.assert(v.kind != .temp and v.kind != .header_copy);
-        try self.vars.put(self.allocator, recordExprKey(node) orelse return, v);
-    }
-
-    /// The hidden var of `kind` emit makes for `node`, if any
-    /// (`storage.Var`).
-    pub fn varOf(self: *const SemContext, node: Sexp, kind: storage.StorageKind) ?storage.Var {
-        return switch (kind) {
-            // A template's temporary is its text, in a buffer (SPEC
-            // "Templates"); any other is the value itself.
-            .temp => if (self.dropsTemp(node)) .{ .kind = .temp, .by = if (node.isKind(.template)) .buffer else .owned, .life = .statement } else null,
-            .header_copy => if (self.copiesHeader(node)) .{ .kind = .header_copy, .by = .copy, .life = .construct } else null,
-            else => (self.vars.get(exprKey(node) orelse return null, kind) orelse return null).*,
-        };
     }
 
     /// `stmt` is an expression statement, whose value nothing uses: the
@@ -6208,12 +6203,10 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     }
     timing.stop(opts.timing, .typecheck, t0);
     t0 = timing.start(opts.timing);
-    try storage.plan(&ctx, tree);
+    try lowering.lowerChecked(&ctx, tree);
+    try storage.planUnits(&ctx, tree);
     ctx.seal(.storage);
-    timing.stop(opts.timing, .storage, t0);
-    // A self-checking build lowers each body and checks its LIR against
-    // the var table the plan made.
-    if (lowering.enabled) try lowering.shadow(&ctx, tree);
+    timing.stop(opts.timing, .lower, t0);
     try indexAllMembers(&ctx);
     if (!ctx.hasErrors()) try recordTypeWitnesses(&ctx);
     if (!ctx.hasErrors()) try recordPlainFacts(&ctx);

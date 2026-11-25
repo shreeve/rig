@@ -444,7 +444,10 @@ pub const Emitter = struct {
     facts: Facts,
     /// The module's bodies lowered (`src/lir.zig`): every var emit writes,
     /// a binding or hidden storage, is one of theirs.
-    lowered: ?facts.Lowered = null,
+    lowered: ?*const facts.Lowered = null,
+    /// The module lowered again for `strict_optionals`, which `lowered`
+    /// then points at.
+    strict_lowered: ?facts.Lowered = null,
 
     scopes: std.ArrayList(Scope) = .empty,
     /// Symbol -> its innermost local in `scopes`.
@@ -641,7 +644,7 @@ pub const Emitter = struct {
         self.flag_names.deinit(self.allocator);
         self.paused.deinit(self.allocator);
         self.line_starts.deinit(self.allocator);
-        if (self.lowered) |*l| l.deinit();
+        if (self.strict_lowered) |*l| l.deinit();
         self.arena.deinit();
     }
 
@@ -649,8 +652,11 @@ pub const Emitter = struct {
         try self.w.writeAll("const std = @import(\"std\");\n");
         try self.w.print("const rig = @import(\"{s}\");\n", .{self.runtime_import});
         if (!sexp.isKind(.module)) return;
-        self.lowered = try self.facts.lower(self.allocator, sexp, self.strict_optionals);
-        for (self.lowered.?.owners) |o| if (o.skip) |why| return self.unsupported(why.node, "a body lowering does not cover");
+        if (self.strict_optionals) {
+            self.strict_lowered = try self.facts.lowerStrict(self.allocator, sexp);
+            self.lowered = &self.strict_lowered.?;
+        } else self.lowered = try self.facts.lowered(sexp) orelse return self.unsupported(sexp, "a module sema did not lower");
+        for (self.lowered.?.owners) |o| if (o.skip) |why| if (!o.ct) return self.unsupported(why.node, "a body lowering does not cover");
         const decls = ir.Module.decls(sexp);
         try self.collectModule(decls);
         for (decls) |d0| {

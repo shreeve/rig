@@ -441,7 +441,7 @@ pub fn main(init: std.process.Init) !void {
                     const m = graph.root();
                     var buffer: [4096]u8 = undefined;
                     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
-                    try lower.writeModule(allocator, m.sema, m.ir, &writer.interface);
+                    try lower.writeModule(m.sema, &writer.interface);
                     try writer.interface.flush();
                 },
                 .sema, .storage, .proofs => {
