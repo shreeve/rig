@@ -1405,7 +1405,7 @@ pub fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, p
 /// in parentheses.
 pub fn isSelfSigil(self: *Checker, node: Sexp) bool {
     const p = self.ctx.parser orelse return false;
-    return p.isSelfSigil(node);
+    return p.marked(.self_sigil, node);
 }
 
 /// `?p.m(...)`, `!p.m(...)`, or `<p.m(...)` where `m` takes no

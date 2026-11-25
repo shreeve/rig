@@ -1850,7 +1850,7 @@ pub const Checker = struct {
     /// loops' names and scopes from `resolve.resolveChains`), and the
     /// statement is checked again in that form
     /// (docs/internals/INTERNALS.md, "Strings as bytes", "Chains"). Only a
-    /// statement the parser found may hold one (`rig.Parser.rewrite_stmts`)
+    /// statement the parser found may hold one (`rig.Parser.Mark.rewrite`)
     /// is checked under a mark.
     pub inline fn checkRewritten(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
         if (!self.mayRewrite(slot.*)) return @call(.auto, check, .{ self, slot.* } ++ args);
@@ -1949,7 +1949,7 @@ pub const Checker = struct {
     pub fn mayRewrite(self: *Checker, s: Sexp) bool {
         return switch (s) {
             .src => sema.isStringLiteralText(self.text(s)),
-            .list => |l| if (self.ctx.parser) |p| p.mayRewrite(l.id) else false,
+            .list => if (self.ctx.parser) |p| p.marked(.rewrite, s) else false,
             else => false,
         };
     }
