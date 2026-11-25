@@ -8411,13 +8411,27 @@ pub fn proxyOrigin(ctx: *const SemContext, sym: Symbol) ?struct { module_id: u32
 /// fallible's value then its set, a slice's element, an array's element
 /// then its length, a function's
 /// parameters then its return type, a generic instance's arguments.
+/// `held` gives only the parts a value of the type holds, which a walk
+/// of what it holds folds over after its own arms: an optional's,
+/// view's, or handle's value, a failure's value, an array's or slice's
+/// element, and a generic instance's arguments.
 pub const TypeChildren = struct {
     ty: Type,
     i: usize = 0,
+    held_only: bool = false,
+
+    pub fn held(ctx: *const SemContext, ty: TypeId) TypeChildren {
+        return .{ .ty = ctx.types.get(ty), .held_only = true };
+    }
 
     pub fn next(self: *TypeChildren) ?TypeId {
         const i = self.i;
         self.i += 1;
+        if (self.held_only) switch (self.ty) {
+            .range, .callable, .simd, .slot, .function, .results => return null,
+            .fallible, .array => if (i > 0) return null,
+            else => {},
+        };
         return switch (self.ty) {
             .optional, .read_view, .write_view, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
             .fallible => |inner| if (i == 0) inner.ok else if (i == 1) inner.set else null,
@@ -8428,32 +8442,6 @@ pub const TypeChildren = struct {
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
             .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
             .results => |parts| if (i < parts.len) parts[i] else null,
-            else => null,
-        };
-    }
-};
-
-/// The parts a value of a type holds, which a walk of what it holds
-/// folds over after its own arms: an optional's, view's, or handle's
-/// value, a failure's value, an array's or slice's element, and a
-/// generic instance's arguments.
-pub const HeldParts = struct {
-    ty: Type,
-    i: usize = 0,
-
-    pub fn of(ctx: *const SemContext, ty: TypeId) HeldParts {
-        return .{ .ty = ctx.types.get(ty) };
-    }
-
-    pub fn next(self: *HeldParts) ?TypeId {
-        const i = self.i;
-        self.i += 1;
-        return switch (self.ty) {
-            .optional, .read_view, .write_view, .shared, .weak => |inner| if (i == 0) inner else null,
-            .fallible => |f| if (i == 0) f.ok else null,
-            .array => |a| if (i == 0) a.elem else null,
-            .slice => |sl| if (i == 0) sl.elem else null,
-            .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
             else => null,
         };
     }
@@ -8950,7 +8938,7 @@ pub fn callableOfFn(ctx: *SemContext, fn_ty: TypeId) !TypeId {
 /// callable view is only ever a parameter, a local, or a result.
 pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
     if (ctx.types.get(ty) == .callable) return true;
-    var parts: HeldParts = .of(ctx, ty);
+    var parts: TypeChildren = .held(ctx, ty);
     while (parts.next()) |part| if (holdsCallable(ctx, part)) return true;
     return false;
 }
@@ -9035,7 +9023,7 @@ pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, pn.args[0])) return ty,
         else => {},
     }
-    var parts: HeldParts = .of(ctx, ty);
+    var parts: TypeChildren = .held(ctx, ty);
     while (parts.next()) |part| if (findHeapStacked(ctx, part)) |found| return found;
     return null;
 }
@@ -9162,7 +9150,7 @@ fn handleAt(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) bool {
         .range, .callable => |inner| handleAt(ctx, inner, path),
         .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, path),
         else => blk: {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (handleAt(ctx, part, path)) break :blk true;
             break :blk ctx.types.get(ty) == .parameterized_nominal and fieldsHoldHandle(ctx, ty, path);
         },
@@ -9736,7 +9724,7 @@ fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey,
             return if (try objectUnownedFields(decl.ctx, decl.sym, seen) != null) ty else null;
         },
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (try objectUnownedIn(ctx, part, seen)) |o| return o;
             const pn = switch (ctx.types.get(ty)) {
                 .parameterized_nominal => |pn| pn,
@@ -12129,7 +12117,7 @@ fn isHeldWriteView(ctx: *const SemContext, ty: TypeId) bool {
 /// declared type's fields are decided where they are declared.
 fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
     if (ctx.types.get(ty) == .write_view) return true;
-    var parts: HeldParts = .of(ctx, ty);
+    var parts: TypeChildren = .held(ctx, ty);
     while (parts.next()) |part| if (nestsWriteView(ctx, part)) return true;
     return false;
 }
@@ -13383,7 +13371,7 @@ fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) b
             return fieldsHoldTask(decl.ctx, decl.sym, seen);
         },
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (taskIn(ctx, part, seen)) return true;
             const pn = switch (ctx.types.get(ty)) {
                 .parameterized_nominal => |pn| pn,
@@ -14929,7 +14917,7 @@ pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(S
     switch (ctx.types.get(ty)) {
         .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| try reachedTypeVars(ctx, part, out, a);
         },
     }
@@ -14945,7 +14933,7 @@ pub fn reachesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId) bool {
             if (reachesTypeVar(ctx, part, sym)) return true;
         },
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (reachesTypeVar(ctx, part, sym)) return true;
         },
     }
@@ -14969,7 +14957,7 @@ pub fn setParamAsValue(ctx: *const SemContext, ty: TypeId) ?SymbolId {
             return setParamAsValue(ctx, f.returns);
         },
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (setParamAsValue(ctx, part)) |sym| return sym;
         },
     }
@@ -14998,7 +14986,7 @@ pub fn setParamUnviewed(ctx: *const SemContext, ty: TypeId) ?SymbolId {
             if (setParamUnviewed(ctx, part)) |sym| break sym;
         } else null,
         else => blk: {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (setParamUnviewed(ctx, part)) |sym| break :blk sym;
             break :blk null;
         },
