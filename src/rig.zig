@@ -3161,13 +3161,14 @@ pub const IterSource = enum {
 /// place; a List, array, or slice, read by element; or a range.
 pub const ChainSource = enum { iterator, elements, range };
 
-/// A chain typecheck found (`Parser.desugarChains`): the call of its
+/// A chain typecheck found (`Parser.elaborateChains`): the call of its
 /// consumer, or the `for` whose source it is, and what it walks.
 /// `copies`: an element of a List, array, or slice source is plain data,
 /// which a loop's item copies; else the loop views it, and a consumer
 /// that keeps one keeps its index (`Parser.lowerPeel`).
 /// `zip` and `zip_copies` say the same of a `zip`'s second source.
-pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: bool = true, zip: ChainSource = .elements, zip_copies: bool = true };
+/// `scope`: the scope it stands in, where its loop's names are declared.
+pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: bool = true, zip: ChainSource = .elements, zip_copies: bool = true, scope: u32 = 0 };
 
 /// A group typecheck found (`Parser.flattenGroups`), `..net: Net` in a
 /// function's parameters, whose fields become the function's name-only
@@ -3229,6 +3230,16 @@ pub fn isChainConsumer(name: []const u8) bool {
     return false;
 }
 
+/// Whether `node` is a call of a method named as a chain's stage or
+/// consumer, which typecheck may find is a chain (`Checker.chainCall`).
+fn mayBeChain(source: []const u8, node: Sexp) bool {
+    if (!node.isKind(.call) or !ir.Call.callee(node).isKind(.member)) return false;
+    const name = ir.Member.name(ir.Call.callee(node));
+    if (name != .src) return false;
+    const text = leafText(source, name.src);
+    return isChainStage(text) or isChainConsumer(text);
+}
+
 /// A string literal typecheck found where a `U8` or a `[N]U8` goes
 /// (`Parser.byteLiterals`): the position of its leaf and its bytes.
 pub const ByteLiteral = struct { pos: u32, bytes: []const u8, array: bool };
@@ -3264,12 +3275,18 @@ pub const Parser = struct {
     /// its name (`Parser.desugarOptions`).
     group_targets: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
     /// The statements of a block, and the declarations of the module,
-    /// that hold a string literal outside any block of their own: one
-    /// typecheck may find is a byte or bytes, and the statement is then
-    /// checked again in that form (`Checker.checkBytes`).
-    byte_stmts: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// How many string literals the walk has met (`rewrite`).
-    strings: u32 = 0,
+    /// that hold, outside any block of their own, a string literal, which
+    /// typecheck may find is a byte or bytes, or a call of a method named
+    /// as a chain's stage or consumer, which may be a chain: the statement
+    /// is then checked again in the form it is rewritten into
+    /// (`Checker.checkRewritten`).
+    rewrite_stmts: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// How many string literals and calls that may be chains the walk has
+    /// met (`rewrite`).
+    rewritable: u32 = 0,
+    /// The block the last loop a chain's rewrite made runs its body in
+    /// (`ChainLowering.loop`).
+    chain_body: Sexp = .nil,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -4272,7 +4289,7 @@ pub const Parser = struct {
 
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
         if (sexp != .list) {
-            if (sexp == .src and isStringText(leafText(self.base.source, sexp.src))) self.strings += 1;
+            if (sexp == .src and isStringText(leafText(self.base.source, sexp.src))) self.rewritable += 1;
             return sexp;
         }
         var items = sexp.items();
@@ -4288,13 +4305,14 @@ pub const Parser = struct {
         };
         if (in_type) self.type_depth += 1;
         const holds_stmts = sexp.kind() == .block or sexp.kind() == .module;
-        const strings = self.strings;
+        const rewritable = self.rewritable;
         for (items, 0..) |child, i| {
-            const before = self.strings;
+            const before = self.rewritable;
             walked[i] = try self.rewrite(child);
-            if (holds_stmts and self.strings > before and walked[i] == .list) try self.byte_stmts.put(self.allocator(), walked[i].list.id, {});
+            if (holds_stmts and self.rewritable > before and walked[i] == .list) try self.rewrite_stmts.put(self.allocator(), walked[i].list.id, {});
         }
-        if (holds_stmts) self.strings = strings;
+        if (holds_stmts) self.rewritable = rewritable;
+        if (mayBeChain(self.base.source, sexp)) self.rewritable += 1;
         if (in_type) self.type_depth -= 1;
         // A `for` source sigil the self rewrite left in place is the
         // loop's mode; one before a method call went to its self.
@@ -6017,29 +6035,33 @@ pub const Parser = struct {
         return self.copyTree(place);
     }
 
-    /// Rewrite each `for` of `loops` in `tree` into the `while` it means.
-    /// Every other node keeps its position and id.
-    /// Each chain of `chains` in `tree` as the loop it means
-    /// (docs/design/iterators.md): a value that is a `loop` run
-    /// once, which holds the source and binds each stage's function, then
-    /// walks the source and gives the consumer's result with `break`; a
-    /// `for` over a chain is a block of the same holds around its loop.
-    /// Every name it binds is hidden, at a position past the source's end
-    /// whose home is the chain (`span`), and a type it needs is written
-    /// `(item_type h)`: what the hidden binding `h` gives
+    /// What a chain was rewritten into (`elaborateChains`): the node that
+    /// stands where it stood, the chain's index, and for a `for` over a
+    /// chain, the `for` and the block its body's statements now stand in.
+    pub const ChainLoop = struct { node: Sexp, chain: usize, loop: Sexp = .nil, body: Sexp = .nil };
+
+    /// Each chain of `chains` in what `slot` holds, rewritten where it
+    /// stands into the loop it means (docs/design/iterators.md), each
+    /// rewrite appended to `out`: a value that is a `loop` run once, which
+    /// holds the source and binds each stage's function, then walks the
+    /// source and gives the consumer's result with `break`; a `for` over a
+    /// chain is a block of the same holds around its loop. Every name it
+    /// binds is hidden, at a position past the source's end whose home is
+    /// the chain (`span`), and a type it needs is written `(item_type h)`:
+    /// what the hidden binding `h` gives
     /// (`resolve.TypeResolver.chainItemType`). An inner chain, in a stage's
     /// function, is rewritten first.
-    pub fn desugarChains(self: *Parser, tree: Sexp, chains: []const Chain) std.mem.Allocator.Error!void {
-        if (tree != .list) return;
-        for (@constCast(tree.items())) |*slot| {
-            try self.desugarChains(slot.*, chains);
-            if (slot.* != .list) continue;
-            const id = slot.list.id;
-            for (chains) |c| if (c.node == id) {
-                slot.* = try self.lowerIterChain(slot.*, c);
-                break;
-            };
-        }
+    pub fn elaborateChains(self: *Parser, slot: *const Sexp, chains: []const Chain, gpa: std.mem.Allocator, out: *std.ArrayList(ChainLoop)) std.mem.Allocator.Error!void {
+        const at: *Sexp = @constCast(slot);
+        if (at.* != .list) return;
+        for (at.items()) |*child| try self.elaborateChains(child, chains, gpa, out);
+        const id = at.list.id;
+        for (chains, 0..) |c, i| if (c.node == id) {
+            const old = at.*;
+            at.* = try self.lowerIterChain(old, c);
+            try out.append(gpa, .{ .node = at.*, .chain = i, .loop = if (old.isKind(.@"for")) old else .nil, .body = if (old.isKind(.@"for")) self.chain_body else .nil });
+            return;
+        };
     }
 
     const ChainStep = struct { name: []const u8, args: []const Sexp, at: u32 };
@@ -6283,13 +6305,17 @@ pub const Parser = struct {
             return out;
         }
 
+        /// The loop of `h` around `body`; the block that is its body is
+        /// `Parser.chain_body`.
         fn loop(l: *const ChainLowering, h: Head, body: Sexp) std.mem.Allocator.Error!Sexp {
+            l.p.chain_body = body;
             if (l.source == .elements) return l.node(.@"for", &.{ .{ .tag = .iter }, h.item, h.index, h.src, body, .nil, .nil });
             if (h.pre[1] == .nil) return l.node(.@"while", &.{ h.cond, .nil, body, .nil });
             var stmts: std.ArrayList(Sexp) = .empty;
             for (h.pre) |s| if (s != .nil) try stmts.append(l.p.allocator(), s);
             try stmts.appendSlice(l.p.allocator(), ir.rest(body, .stmts));
-            return l.node(.@"while", &.{ h.cond, .nil, try l.block(stmts.items), .nil });
+            l.p.chain_body = try l.block(stmts.items);
+            return l.node(.@"while", &.{ h.cond, .nil, l.p.chain_body, .nil });
         }
     };
 

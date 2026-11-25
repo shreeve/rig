@@ -4632,15 +4632,11 @@ pub const SemContext = struct {
     embed_sites: std.ArrayList(EmbedSite) = .empty,
     /// The embedded files calls make records from (`EmbedRecord`).
     embed_records: std.ArrayList(EmbedRecord) = .empty,
-    /// The iterator chains typecheck found (`rig.Chain`), each to be
-    /// rewritten into the loop it means; a module with any is checked
-    /// again on the rewritten tree, so no pass sees one.
-    chains: std.ArrayList(rig.Chain) = .empty,
     /// The groups typecheck found (`rig.GroupSite`), each to be made the
     /// parameters it means, and the uses of each in its function's body,
     /// by the position of the group's name; the spreads (`rig.SpreadSite`),
-    /// each to be made the keyword arguments it means. Checked again, as
-    /// for `chains`.
+    /// each to be made the keyword arguments it means. A module with any is
+    /// checked again on the rewritten tree, so no pass sees one.
     groups: std.ArrayList(rig.GroupSite) = .empty,
     /// The group each parameter that is a group's field belongs to, by
     /// name (`GroupParam`), for the message that the body reads it through
@@ -4736,7 +4732,6 @@ pub const SemContext = struct {
         self.declared_origins.deinit(self.allocator);
         self.declared_keeps.deinit(self.allocator);
         self.declared_once.deinit(self.allocator);
-        self.chains.deinit(self.allocator);
         self.groups.deinit(self.allocator);
         self.group_fields.deinit(self.allocator);
         self.group_params.deinit(self.allocator);
@@ -18094,8 +18089,6 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     const names = ctx.facts.names.count();
     const plus_use = ctx.useOf(plus);
     const diagnostics = ctx.diagnostics.items.len;
-    const b_sym = ctx.symbolAt(b).?;
-    const b_was = ctx.symbols.items[b_sym];
 
     const m = ctx.mark();
     // Changed, added, and removed facts, of a leaf and of a list node.
@@ -18105,6 +18098,8 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     try ctx.removeIn(.{ .facts = .names }, b);
     try ctx.err(0, "a diagnostic the rollback drops", .{});
     // A symbol written through `symbolMut`.
+    const b_sym = ctx.symbolAt(b).?;
+    const b_was = ctx.symbols.items[b_sym];
     const s = try ctx.symbolMut(b_sym);
     s.ty = ctx.types.bool_id;
     s.flags.comptime_known = !b_was.flags.comptime_known;

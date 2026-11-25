@@ -105,10 +105,42 @@ pub fn resolveIterWhile(ctx: *SemContext, loop: Sexp, w: rig.Parser.IterWhile) E
     try ctx.recordWrite(view, h, .write_viewed);
 }
 
+/// The names and scopes of the loops chains were rewritten into
+/// (`rig.Parser.elaborateChains`), each `loops[i]` standing for
+/// `chains[loops[i].chain]`, as the walk of the loop would give them.
+/// Only the nodes the rewrite made are walked, those from `fresh` on:
+/// what the chain held (its source, its stages' functions, a `for`'s
+/// body) keeps the names the module's walk gave it, made where the walk
+/// met them in order, and each scope of it that stood in the chain's
+/// scope stands in the loop's (`adopt`). The names a `for` over a chain
+/// binds stay its own, in the `for`'s scope, which stands around its
+/// body's block, as the loop's `new x = item` binds them.
+pub fn resolveChains(ctx: *SemContext, chains: []const rig.Chain, loops: []const rig.Parser.ChainLoop, fresh: parser.NodeId) Error!void {
+    var r: SymbolResolver = .{ .ctx = ctx, .scope = sema.module_scope, .module_scope = sema.module_scope, .fresh = fresh, .loops = loops, .chains = chains };
+    defer r.pending_shadows.deinit(ctx.allocator);
+    r.walked = try ctx.allocator.alloc(bool, loops.len);
+    defer ctx.allocator.free(r.walked);
+    @memset(r.walked, false);
+    // An outer chain's loop holds the loops of the chains in its source.
+    var i = loops.len;
+    while (i > 0) {
+        i -= 1;
+        if (!r.walked[i]) try r.walkLoop(i, chains[loops[i].chain].scope);
+    }
+}
+
 const SymbolResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,
     module_scope: ScopeId,
+    /// Walking a chain's rewrite (`resolveChains`): the first node id it
+    /// made, the loops, which of them are walked, and the scope the
+    /// chain being walked stood in.
+    fresh: parser.NodeId = 0,
+    loops: []const rig.Parser.ChainLoop = &.{},
+    chains: []const rig.Chain = &.{},
+    walked: []bool = &.{},
+    outer: ScopeId = sema.scope_invalid,
     /// The generic parameters of the generic type whose members are
     /// being walked.
     type_params: []const SymbolId = &.{},
@@ -123,6 +155,16 @@ const SymbolResolver = struct {
     const PendingShadow = struct { name_node: Sexp, what: []const u8, at: usize };
 
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
+        if (self.fresh != 0 and sexp == .list) {
+            for (self.loops, 0..) |l, i| if (l.node == .list and l.node.list.id == sexp.list.id) {
+                return if (self.walked[i]) self.adopt(sexp) else self.walkLoop(i, self.scope);
+            };
+            if (sexp.list.id < self.fresh) return self.adopt(sexp);
+        }
+        return self.walkNode(sexp);
+    }
+
+    fn walkNode(self: *SymbolResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
             .module => {
                 // A file's `use`s name its modules everywhere in it.
@@ -200,6 +242,24 @@ const SymbolResolver = struct {
                 for (ir.Destructure.targets(sexp).items()) |t| try self.walk(t);
             },
             .block => {
+                // The body of a `for` over a chain is its body block's
+                // scope, inside the `for`'s, which binds its names.
+                if (self.chainFor(sexp)) |loop| {
+                    const names = self.ctx.scopeOf(loop).?;
+                    const body = self.ctx.scopeOf(ir.For.body(loop)).?;
+                    self.ctx.scopes.items[names].parent = self.scope;
+                    try self.ctx.recordScope(sexp, body);
+                    const saved_scope = self.scope;
+                    const saved_outer = self.outer;
+                    defer {
+                        self.scope = saved_scope;
+                        self.outer = saved_outer;
+                    }
+                    self.scope = body;
+                    self.outer = body;
+                    for (ir.Block.stmts(sexp)) |c| try self.walk(c);
+                    return;
+                }
                 const prev = try self.enter(sexp, .block);
                 defer self.scope = prev;
                 for (ir.Block.stmts(sexp)) |c| try self.walk(c);
@@ -222,6 +282,53 @@ const SymbolResolver = struct {
             .@"catch" => try self.walkCatch(sexp),
             else => for (rig.children(sexp)) |c| try self.walk(c),
         }
+    }
+
+    /// Walk `loops[i]`, a chain's loop, in `scope`: the scope the chain
+    /// stood in, or, inside an outer chain's loop, where that loop holds
+    /// it.
+    fn walkLoop(self: *SymbolResolver, i: usize, scope: ScopeId) Error!void {
+        self.walked[i] = true;
+        const saved_scope = self.scope;
+        const saved_outer = self.outer;
+        defer {
+            self.scope = saved_scope;
+            self.outer = saved_outer;
+        }
+        self.scope = scope;
+        self.outer = self.chains[self.loops[i].chain].scope;
+        try self.walkNode(self.loops[i].node);
+    }
+
+    /// The `for` over a chain whose body's statements stand in `block`
+    /// (`rig.Parser.ChainLoop.body`), if any.
+    fn chainFor(self: *const SymbolResolver, block: Sexp) ?Sexp {
+        if (self.fresh == 0) return null;
+        for (self.loops) |l| if (l.body == .list and l.body.list.id == block.list.id) return l.loop;
+        return null;
+    }
+
+    /// `node`, which the chain held and the module's walk gave its names
+    /// and scopes: each of its outermost scopes that stood in the chain's
+    /// scope stands in the current one.
+    fn adopt(self: *SymbolResolver, node: Sexp) Error!void {
+        if (node != .list) return;
+        if (self.ctx.scopeOf(node)) |s| {
+            if (self.ctx.scopes.items[s].parent == self.outer) self.ctx.scopes.items[s].parent = self.scope;
+            // A closure padded to the values its stage passes
+            // (`rig.Parser.padLambda`) declares its `_` parameters, as the
+            // walk of it would.
+            if (node.isKind(.lambda)) {
+                const saved = self.scope;
+                defer self.scope = saved;
+                self.scope = s;
+                for (ir.Lambda.params(node).items()) |p| if (sema.paramNameNode(p)) |n| {
+                    if (self.ctx.symbolOf(n) == null) _ = try self.declare(n, .param, .{});
+                };
+            }
+            return;
+        }
+        for (node.items()) |c| try self.adopt(c);
     }
 
     /// A marker the declaration cannot take: the program's `main`, which
@@ -1073,6 +1180,9 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .shadow => {
+                // A name a `for` over a chain binds keeps its symbol
+                // (`resolveChains`).
+                if (self.fresh != 0 and self.ctx.symbolOf(target) != null) return;
                 try self.checkCapturedRoot(target);
                 // A name a `for` over a chain binds is a loop binding,
                 // which may not hide a local, as any `for`'s may not.

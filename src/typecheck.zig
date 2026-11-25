@@ -70,10 +70,10 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     };
     defer c.deinit();
     try c.placePanics(tree, .value);
-    for (ctx.const_order.items) |*decl| try c.checkBytes(decl, Checker.checkDecl, .{});
+    for (ctx.const_order.items) |*decl| try c.checkRewritten(decl, Checker.checkDecl, .{});
     // A compile-time function was checked before the constants that call
     // it (`resolve.ensureCtFun`, `checkCtFun`).
-    for (ir.Module.decls(tree)) |*decl| if (!rig.isModuleConst(decl.*) and !rig.isCtFun(decl.*)) try c.checkBytes(decl, Checker.checkDecl, .{});
+    for (ir.Module.decls(tree)) |*decl| if (!rig.isModuleConst(decl.*) and !rig.isCtFun(decl.*)) try c.checkRewritten(decl, Checker.checkDecl, .{});
     for (ir.Module.decls(tree)) |decl| if (!rig.isCtFun(decl)) try c.checkViewBases(decl, decl, false, true);
 }
 
@@ -91,7 +91,7 @@ pub fn checkCtFun(ctx: *SemContext, decl: Sexp) Error!void {
     };
     defer c.deinit();
     try c.placePanics(decl, .value);
-    try c.checkBytes(&decl, Checker.checkDecl, .{});
+    try c.checkRewritten(&decl, Checker.checkDecl, .{});
     try c.checkViewBases(decl, decl, false, true);
 }
 
@@ -157,10 +157,12 @@ const Checker = struct {
     /// (`sema.ApiCall.slots`).
     inst_slots: []const u32 = &.{},
     /// The string literals found to be a byte or bytes (`byteString`) in
-    /// the statements being checked under a mark (`checkBytes`), each
-    /// checked again with them rewritten; `bytes_open` of them.
+    /// the statements being checked under a mark (`checkRewritten`), each
+    /// checked again with them rewritten; `rewrites_open` of them.
     bytes: std.ArrayList(rig.ByteLiteral) = .empty,
-    bytes_open: u32 = 0,
+    /// The chains found so (`chainCall`).
+    chains: std.ArrayList(rig.Chain) = .empty,
+    rewrites_open: u32 = 0,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
     /// The names `new q, r = f()` declares, while its call is checked.
@@ -493,6 +495,7 @@ const Checker = struct {
     fn deinit(self: *Checker) void {
         const a = self.ctx.allocator;
         self.bytes.deinit(a);
+        self.chains.deinit(a);
         self.arg_types.deinit(a);
         self.methods.deinit(a);
         self.expected.deinit(a);
@@ -1715,7 +1718,7 @@ const Checker = struct {
             .fallible => |inner| inner.ok == self.t().void_id,
             else => false,
         };
-        for (stmts) |*s| try self.checkBytes(s, checkBodyStmt, .{ wants_value and s == &stmts[stmts.len - 1], ret, ends_void });
+        for (stmts) |*s| try self.checkRewritten(s, checkBodyStmt, .{ wants_value and s == &stmts[stmts.len - 1], ret, ends_void });
     }
 
     /// Statement `s` of a function's body, `last` its last whose value
@@ -1754,32 +1757,51 @@ const Checker = struct {
     }
 
     /// `check` of the block statement or module declaration `slot` holds,
-    /// with `args`. A string literal typecheck finds is a byte or bytes
-    /// where it stands (`byteString`) is written as the integer or array
-    /// literal it is, and no pass sees it a string: what checking the
-    /// statement recorded is taken back, the literals are rewritten in the
-    /// tree (`rig.Parser.byteLiterals`), and the statement is checked
-    /// again in that form (docs/internals/INTERNALS.md, "Strings as
-    /// bytes"). Only a statement the parser found holds a string literal
-    /// outside its own blocks (`rig.Parser.byte_stmts`), or that is one,
+    /// with `args`, which typecheck may find holds a form that is
+    /// rewritten once types are known: a string literal that is a byte or
+    /// bytes where it stands (`byteString`), written as the integer or
+    /// array literal it is, and a chain (`chainCall`), written as the loop
+    /// it means. No pass sees either: what checking the statement recorded
+    /// is taken back, the tree is rewritten where they stand
+    /// (`rig.Parser.byteLiterals`, `rig.Parser.elaborateChains`, with the
+    /// loops' names and scopes from `resolve.resolveChains`), and the
+    /// statement is checked again in that form
+    /// (docs/internals/INTERNALS.md, "Strings as bytes", "Chains"). Only a
+    /// statement the parser found may hold one (`rig.Parser.rewrite_stmts`)
     /// is checked under a mark.
-    fn checkBytes(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
-        if (!self.holdsString(slot.*)) return @call(.auto, check, .{ self, slot.* } ++ args);
-        self.bytes_open += 1;
-        defer self.bytes_open -= 1;
+    fn checkRewritten(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
+        if (!self.mayRewrite(slot.*)) return @call(.auto, check, .{ self, slot.* } ++ args);
+        self.rewrites_open += 1;
+        defer self.rewrites_open -= 1;
         while (true) {
             const m = self.ctx.mark();
-            const found = self.bytes.items.len;
+            const bytes = self.bytes.items.len;
+            const chains = self.chains.items.len;
             const returns = if (self.body.returns) |r| r.items.len else 0;
             const result = try @call(.auto, check, .{ self, slot.* } ++ args);
-            if (self.bytes.items.len == found) {
+            if (self.bytes.items.len == bytes and self.chains.items.len == chains) {
                 self.ctx.commit(m);
                 return result;
             }
             try self.ctx.rollback(m);
             if (self.body.returns) |r| r.shrinkRetainingCapacity(returns);
-            try self.ctx.parser.?.byteLiterals(slot, self.bytes.items[found..]);
-            self.bytes.shrinkRetainingCapacity(found);
+            const p = self.ctx.parser.?;
+            try p.byteLiterals(slot, self.bytes.items[bytes..]);
+            self.bytes.shrinkRetainingCapacity(bytes);
+            if (self.chains.items.len > chains) {
+                // The rewritten tree stays, inside a check an open mark
+                // may take back, and so do the names and scopes of its
+                // new nodes.
+                const open = self.ctx.pauseTrail();
+                defer self.ctx.resumeTrail(open);
+                var loops: std.ArrayList(rig.Parser.ChainLoop) = .empty;
+                defer loops.deinit(self.ctx.allocator);
+                const fresh = p.base.nodeCount() + 1;
+                const found = self.chains.items[chains..];
+                try p.elaborateChains(slot, found, self.ctx.allocator, &loops);
+                try resolve.resolveChains(self.ctx, found, loops.items, fresh);
+                self.chains.shrinkRetainingCapacity(chains);
+            }
             // A module constant's value is folded before any body is
             // checked (`resolve.foldModuleConsts`), so one written anew
             // is folded again, with the constants that name it.
@@ -1788,11 +1810,12 @@ const Checker = struct {
     }
 
     /// Whether `s`, a block's statement or a module's declaration, is a
-    /// string literal or holds one outside its own blocks.
-    fn holdsString(self: *Checker, s: Sexp) bool {
+    /// string literal or may hold a form rewritten once types are known
+    /// (`checkRewritten`).
+    fn mayRewrite(self: *Checker, s: Sexp) bool {
         return switch (s) {
             .src => sema.isStringLiteralText(self.text(s)),
-            .list => |l| if (self.ctx.parser) |p| p.byte_stmts.contains(l.id) else false,
+            .list => |l| if (self.ctx.parser) |p| p.rewrite_stmts.contains(l.id) else false,
             else => false,
         };
     }
@@ -1853,7 +1876,7 @@ const Checker = struct {
             .block => {
                 const prev = self.enter(stmt);
                 defer self.scope = prev;
-                for (ir.Block.stmts(stmt)) |*c| try self.checkBytes(c, checkStmt, .{});
+                for (ir.Block.stmts(stmt)) |*c| try self.checkRewritten(c, checkStmt, .{});
             },
             .drop => {
                 const name = ir.Drop.target(stmt);
@@ -7521,8 +7544,8 @@ const Checker = struct {
         }
         const prev = self.enter(node);
         defer self.scope = prev;
-        for (stmts[0 .. stmts.len - 1]) |*s| try self.checkBytes(s, checkStmt, .{});
-        return self.checkBytes(&stmts[stmts.len - 1], synthTail, .{expected});
+        for (stmts[0 .. stmts.len - 1]) |*s| try self.checkRewritten(s, checkStmt, .{});
+        return self.checkRewritten(&stmts[stmts.len - 1], synthTail, .{expected});
     }
 
     /// `a ?? b`: the value inside optional `a`, or `b` when `a` is `none`.
@@ -17231,10 +17254,10 @@ const Checker = struct {
 
     /// A chain, `xs.filter(f).count()`: stages on a `for` source whose type
     /// declares no method of the name, ended by a consumer, or the source
-    /// of a `for`. It is recorded (`SemContext.chains`) and rewritten into
-    /// the loop it means (`Parser.desugarChains`), which the next round
-    /// checks; this round gives it no type. Null when the call is no
-    /// chain: self's own method, or a self no `for` walks.
+    /// of a `for`. It is found (`chains`) for its statement to be checked
+    /// again with the chain rewritten into the loop it means
+    /// (`checkRewritten`); this check gives it no type. Null when the call
+    /// is no chain: self's own method, or a self no `for` walks.
     fn chainCall(self: *Checker, callee: Sexp, method: []const u8, args: []const Sexp) Error!?TypeId {
         const call = self.current_call orelse return null;
         var root = ir.Member.object(callee);
@@ -17320,8 +17343,18 @@ const Checker = struct {
         if (views and !for_source) try self.chain_views.put(self.ctx.allocator, nodeId(call), root);
         const node = if (for_source) self.chain_for else call;
         const id = node.list.id;
-        for (self.ctx.chains.items) |c| if (c.node == id) return self.t().unknown_id;
-        try self.ctx.chains.append(self.ctx.allocator, .{ .node = id, .source = kind, .copies = found.copies, .zip = zip, .zip_copies = zip_copies });
+        if (self.ctx.parser == null) {
+            try self.errAt(call, "a chain needs the module graph, which rewrites it", .{});
+            return self.t().invalid_id;
+        }
+        // Every statement and declaration that holds a call that may be a
+        // chain is checked under a mark (`checkRewritten`).
+        if (self.rewrites_open == 0) {
+            try self.errAt(call, "internal error: this chain is outside any statement checked again", .{});
+            return self.t().invalid_id;
+        }
+        for (self.chains.items) |c| if (c.node == id) return self.t().unknown_id;
+        try self.chains.append(self.ctx.allocator, .{ .node = id, .source = kind, .copies = found.copies, .zip = zip, .zip_copies = zip_copies, .scope = self.scope });
         return self.t().unknown_id;
     }
 
@@ -20092,8 +20125,8 @@ const Checker = struct {
             try self.kept_reported.put(self.ctx.allocator, nodeId(e), {});
             // A chain reported is not rewritten into its loop, so the
             // report is the round's last word on it.
-            for (self.ctx.chains.items, 0..) |c, i| if (c.node == e.list.id) {
-                _ = self.ctx.chains.swapRemove(i);
+            for (self.chains.items, 0..) |c, i| if (c.node == e.list.id) {
+                _ = self.chains.orderedRemove(i);
                 break;
             };
             return self.reportKept(e, root, kept);
@@ -20393,7 +20426,7 @@ const Checker = struct {
     /// `[N]U8` goes, its bytes, as an integer literal takes the type its
     /// context gives it: found (`bytes`) for its statement to be checked
     /// again with the literal written as the integer or array literal it
-    /// is (`checkBytes`). Null where `target` is neither, so the literal
+    /// is (`checkRewritten`). Null where `target` is neither, so the literal
     /// stays text.
     fn byteString(self: *Checker, e: Sexp, target: TypeId) Error!?TypeId {
         const len: ?u64 = switch (self.ctx.types.get(target)) {
@@ -20415,8 +20448,8 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         // Every statement and declaration that holds a string literal is
-        // checked under a mark (`checkBytes`).
-        if (self.bytes_open == 0) {
+        // checked under a mark (`checkRewritten`).
+        if (self.rewrites_open == 0) {
             try self.errAt(e, "internal error: string literal `{s}` is a byte here, outside any statement checked again", .{lit});
             return self.t().invalid_id;
         }
@@ -22761,7 +22794,7 @@ const Checker = struct {
             defer self.scope = bprev;
             const stmts = ir.Block.stmts(body);
             if (stmts.len > 0) {
-                for (stmts[0 .. stmts.len - 1]) |*s| try self.checkBytes(s, checkStmt, .{});
+                for (stmts[0 .. stmts.len - 1]) |*s| try self.checkRewritten(s, checkStmt, .{});
                 const last = &stmts[stmts.len - 1];
                 ends_in_return = last.isKind(.@"return") or last.isKind(.panic);
                 // A closure ending in a statement, or an `if` without
@@ -22770,12 +22803,12 @@ const Checker = struct {
                 // A closure's value is its result: it leaves the body,
                 // as `return` takes it.
                 ret = if (no_value) blk: {
-                    try self.checkBytes(last, checkStmt, .{});
+                    try self.checkRewritten(last, checkStmt, .{});
                     break :blk self.t().void_id;
                 } else blk: {
                     try self.recordUse(last.*, .take);
                     const mark = self.ctx.diagnostics.items.len;
-                    const ty = try self.checkBytes(last, synthTail, .{null});
+                    const ty = try self.checkRewritten(last, synthTail, .{null});
                     if (self.ctx.diagnostics.items.len == mark) try self.keptViews(last.*, .returned);
                     break :blk ty;
                 };

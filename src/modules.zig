@@ -882,17 +882,15 @@ pub const ModuleGraph = struct {
         };
         m.sema.deinit();
         m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
-        // A chain is the loop it means, and a group and a spread the
-        // parameters and arguments they stand for: typecheck found them,
-        // and no pass sees one once the tree is rewritten and the module
-        // checked again (docs/internals/INTERNALS.md, "Groups and
-        // spreads"). Each round rewrites what it found, so the rounds end.
-        while (m.sema.chains.items.len > 0 or m.sema.groups.items.len > 0 or m.sema.spreads.items.len > 0) {
+        // A group and a spread are the parameters and arguments they
+        // stand for: typecheck found them, and no pass sees one once the
+        // tree is rewritten and the module checked again
+        // (docs/internals/INTERNALS.md, "Groups and spreads").
+        while (m.sema.groups.items.len > 0 or m.sema.spreads.items.len > 0) {
             // A group's fields become its function's parameters, and a
             // spread the keyword arguments it gives
             // (docs/design/options.md, section 11).
-            if (m.sema.groups.items.len > 0 or m.sema.spreads.items.len > 0) try m.parser.desugarOptions(m.ir, m.sema.groups.items, m.sema.group_uses.items, m.sema.spreads.items);
-            if (m.sema.chains.items.len > 0) try m.parser.desugarChains(m.ir, m.sema.chains.items);
+            try m.parser.desugarOptions(m.ir, m.sema.groups.items, m.sema.group_uses.items, m.sema.spreads.items);
             m.sema.deinit();
             m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
         }
