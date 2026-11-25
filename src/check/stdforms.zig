@@ -279,11 +279,18 @@ pub fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
     if (callee == .src) {
         const name = self.text(callee);
         if (CallCheck.lookupQuiet(self, callee) == null) {
-            if (std.mem.eql(u8, name, "print")) return checkPrint(self, args);
-            if (std.mem.eql(u8, name, "warn")) return checkWarn(self, args);
+            if (std.mem.eql(u8, name, "print")) {
+                try self.ctx.record(.builtins, node, .print);
+                return checkPrint(self, args);
+            }
+            if (std.mem.eql(u8, name, "warn")) {
+                try self.ctx.record(.builtins, node, .warn);
+                return checkWarn(self, args);
+            }
             if (std.mem.eql(u8, name, "String")) return checkStringNew(self, node, args);
             if (std.mem.eql(u8, name, "swap")) return CallCheck.checkSwap(self, node, callee, args);
             if (resolve.isNumericTypeName(name)) {
+                try self.ctx.record(.builtins, node, .conversion);
                 var r = self.resolver();
                 return CallCheck.checkConversion(self, try r.resolveType(callee), name, args, callee.src.pos);
             }

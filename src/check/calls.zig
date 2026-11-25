@@ -1642,11 +1642,11 @@ pub fn checkFloatFits(self: *Checker, arg: Sexp, target: TypeId) Error!void {
 /// (`SemContext.swapCallOf`), for the ownership checker and emit.
 pub fn checkSwap(self: *Checker, call: Sexp, callee: Sexp, args: []const Sexp) Error!TypeId {
     if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) {
-        try self.ctx.record(.swap_calls, call, .value);
+        try self.ctx.record(.builtins, call, .{ .swap = .value });
         return badCall(self, args, callee, "`swap` takes a write view of a place, and another to exchange it with, `swap(!a, !b)`, or a value to put in it, `old = swap(!x, v)`", .{});
     }
     const places = sema.swapsTwoPlaces(self.ctx, args[1], StdFormCheck.heldViewType(self, args[1]));
-    try self.ctx.record(.swap_calls, call, if (places) .places else .value);
+    try self.ctx.record(.builtins, call, .{ .swap = if (places) .places else .value });
     const a = (try StdFormCheck.swapPlace(self, args[0], "swap")) orelse return skipCall(self, args[1..]);
     if (places) {
         const b = (try StdFormCheck.swapPlace(self, args[1], "swap")) orelse return self.t().void_id;

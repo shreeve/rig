@@ -2969,7 +2969,7 @@ pub fn recordLift(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Err
     var into = expected;
     while (ts.get(into) == .fallible) into = ts.get(into).fallible.ok;
     if (ts.get(into) != .optional) return self.ctx.recordLift(e, null);
-    if (e == .src and self.ctx.symbolOf(e) == null and std.mem.eql(u8, self.text(e), "none")) {
+    if (sema.isNoneLeaf(self.ctx, e)) {
         return self.ctx.recordLift(e, .{ .into = into, .from = self.t().none_id });
     }
     var from = actual;
