@@ -23,6 +23,7 @@ const exits = @import("exits.zig");
 const generic = @import("generic.zig");
 const types = @import("types.zig");
 const notes = @import("notes.zig");
+const lowered = @import("lowered.zig");
 const Place = transfer.Place;
 
 pub const VarId = u32;
@@ -561,6 +562,9 @@ pub const Checker = struct {
     /// The current read match arm's hidden var (`Var.arm_of`), made when
     /// a binding first needs it.
     arm_var: ?VarId = null,
+    /// The binding each loan on an arm's hidden var stands for, by the
+    /// loan's position (`notes.reportArmView`).
+    arm_binds: sema.FastMap(u32, SymbolId) = .empty,
     /// The subject of the match whose arm is being bound, as written.
     arm_subject: []const u8 = "",
     /// The owner's name that subject could take instead (`Var.arm_take`).
@@ -649,6 +653,11 @@ pub const Checker = struct {
     reachable: bool = true,
     /// Non-zero while computing a loop fixpoint: diagnostics suppressed.
     quiet: u32 = 0,
+    /// The walk reads each body's LIR (`lowered.zig`): the shadow walk of
+    /// a self-checking build.
+    on_lir: bool = false,
+    /// The lowered body being walked, when `on_lir`.
+    lir_body: ?*lowered.Body = null,
 
     func: FnCtx = .{},
     /// The body of the function being walked, at whose end its own scope
@@ -789,6 +798,7 @@ pub const Checker = struct {
         self.after_value.deinit(self.gpa);
         self.temps.deinit(self.gpa);
         self.reaches.deinit(self.gpa);
+        self.arm_binds.deinit(self.gpa);
         self.paths.deinit(self.gpa);
         self.gpa.destroy(self.paths);
         self.fn_arena_state.deinit();
@@ -901,9 +911,6 @@ pub const Checker = struct {
         const id: VarId = @intCast(self.vars.items.len);
         var v = var_;
         const ctx = self.sema;
-        if (v.kind != .hidden) {
-            v.sym = ctx.symbolAt(v.decl);
-        }
         // Emit holds a binding as lowering made its var
         // (`storage.bindingDrop`): the checker treats as owning exactly
         // the bindings whose var holds a value that moves.
@@ -947,10 +954,16 @@ pub const Checker = struct {
         self.loan_counts.shrinkRetainingCapacity(start);
     }
 
-    /// The innermost visible var of the binding leaf `node` names, as
-    /// sema resolved it.
+    /// The binding name `node` declares or reads: on the walk of LIR, the
+    /// one its var in the body being walked declares, or the one the var
+    /// read there binds, when the body has one; else as sema resolved it.
+    pub fn bindingOf(self: *const Checker, node: Sexp) ?SymbolId {
+        return lowered.bindingAt(self, node) orelse lowered.symbolOf(self, node) orelse self.sema.symbolOf(node);
+    }
+
+    /// The innermost visible var of the binding leaf `node` names.
     pub fn find(self: *const Checker, node: Sexp) ?VarId {
-        return self.varOf(self.sema.symbolOf(node) orelse return null);
+        return self.varOf(self.bindingOf(node) orelse return null);
     }
 
     /// The innermost visible var of binding `sym`. A local of a

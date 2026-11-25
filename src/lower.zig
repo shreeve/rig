@@ -451,7 +451,7 @@ const Lowerer = struct {
         var kept: usize = 0;
         while (l.f.exprs.items[e] == .coerce and readCoercion(held, l.f.exprs.items[e].coerce.how.*)) : (kept += 1) e = l.f.exprs.items[e].coerce.value;
         const moved = try l.addExpr(l.f.exprs.items[e]);
-        l.f.exprs.items[e] = .{ .@"var" = v };
+        l.f.exprs.items[e] = .{ .@"var" = .{ .v = v, .node = node } };
         try l.step(in, .{ .bind = .{ .v = v, .value = moved } });
         const gop = try l.module.coerced.getOrPut(l.a, sema.decisionKeyOf(node).?);
         if (!gop.found_existing) gop.value_ptr.* = .{};
@@ -745,7 +745,7 @@ const Lowerer = struct {
         const target = ir.Drop.target(s);
         const e = try l.expr(target);
         if (target == .src) {
-            if (l.ctx.symbolOf(target)) |sym| if (l.bindings.get(sym)) |v| return l.step(r, .{ .drop = v });
+            if (l.ctx.symbolOf(target)) |sym| if (l.bindings.get(sym)) |v| return l.step(r, .{ .drop = .{ .v = v, .node = target } });
             return l.step(r, .{ .eval = e });
         }
         // `<e` of anything but a name drops what it takes.
@@ -766,7 +766,7 @@ const Lowerer = struct {
         var declared: ?VarId = null;
         const target_e = if (declares) blk: {
             declared = try l.bindingVar(target, l.block);
-            const e = try l.addExpr(.{ .@"var" = declared.? });
+            const e = try l.addExpr(.{ .@"var" = .{ .v = declared.?, .node = target } });
             try l.note(target, e);
             break :blk e;
         } else try l.expr(target);
@@ -879,7 +879,7 @@ const Lowerer = struct {
     fn made(l: *Lowerer, e: Sexp) Error!ExprId {
         switch (e) {
             .src => {
-                const id = if (l.ctx.symbolOf(e)) |sym| (if (l.bindings.get(sym)) |v| try l.addExpr(.{ .@"var" = v }) else try l.addExpr(.{ .leaf = e })) else try l.addExpr(.{ .leaf = e });
+                const id = if (l.ctx.symbolOf(e)) |sym| (if (l.bindings.get(sym)) |v| try l.addExpr(.{ .@"var" = .{ .v = v, .node = e } }) else try l.addExpr(.{ .leaf = e })) else try l.addExpr(.{ .leaf = e });
                 try l.note(e, id);
                 try l.viewRules(e);
                 return id;
@@ -1189,7 +1189,7 @@ const Lowerer = struct {
         const names: []const Sexp = if (e.isKind(.as)) &.{ir.As.name(e)} else ir.AsResults.names(e).items();
         const args = try l.a.alloc(ExprId, 1 + names.len);
         args[0] = value;
-        for (names, args[1..]) |n, *x| x.* = if (try l.bindingVar(n, l.guarded)) |v| try l.addExpr(.{ .@"var" = v }) else try l.expr(n);
+        for (names, args[1..]) |n, *x| x.* = if (try l.bindingVar(n, l.guarded)) |v| try l.addExpr(.{ .@"var" = .{ .v = v, .node = n } }) else try l.expr(n);
         const id = try l.addExpr(.{ .op = .{ .node = e, .args = args } });
         try l.note(e, id);
         try l.temp(e);
@@ -1508,7 +1508,7 @@ const Lowerer = struct {
                 // `|x|` reads the binding it captures where the closure is
                 // made.
                 const origin: ?SymbolId = if (ctx.symbolOf(name)) |s| ctx.symbols.items[s].origin else null;
-                x.* = if (origin) |o| (if (l.bindings.get(o)) |v| try l.addExpr(.{ .@"var" = v }) else try l.addExpr(.{ .leaf = name })) else try l.addExpr(.{ .leaf = name });
+                x.* = if (origin) |o| (if (l.bindings.get(o)) |v| try l.addExpr(.{ .@"var" = .{ .v = v, .node = name } }) else try l.addExpr(.{ .leaf = name })) else try l.addExpr(.{ .leaf = name });
                 try l.note(name, x.*);
                 try l.viewRules(name);
             }

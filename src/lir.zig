@@ -51,8 +51,9 @@ pub const Var = struct {
 
 /// A value, evaluated left to right: each operand before the operation.
 pub const Expr = union(enum) {
-    /// A var's value.
-    @"var": VarId,
+    /// A var's value, read at `node`: the name as written, or the node
+    /// whose value a var holds in its place.
+    @"var": Use,
     /// A leaf read as written: a literal, or a name no var of the
     /// function holds (a constant, a function, a type, a module).
     leaf: Sexp,
@@ -75,6 +76,8 @@ pub const Expr = union(enum) {
     coerce: struct { node: Sexp, how: *const Coercion, value: ExprId },
 
     pub const Op = struct { node: Sexp, args: []const ExprId };
+
+    pub const Use = struct { v: VarId, node: Sexp };
 
     /// An `if`: its condition, then the branch it picks.
     pub const If = struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId };
@@ -135,8 +138,8 @@ pub const Step = union(enum) {
     store: struct { node: Sexp, target: ExprId, value: ExprId },
     /// Evaluate `value` for what it does.
     eval: ExprId,
-    /// Drop what `v` holds.
-    drop: VarId,
+    /// Drop what `v` holds: `<x`, the name read at `node`.
+    drop: Expr.Use,
     /// Leave: the `return`, `break`, or `continue` `node`.
     jump: struct { node: Sexp, value: ?ExprId },
     /// A region run in place.
@@ -296,7 +299,7 @@ const Verifier = struct {
                 try v.expr(st.value);
             },
             .eval => |e| try v.expr(e),
-            .drop => |x| try v.use(x, r.node),
+            .drop => |x| try v.use(x.v, r.node),
             .jump => |j| if (j.value) |e| try v.expr(e),
             .region => |sub| try v.region(sub),
             .@"if" => |i| {
@@ -329,7 +332,7 @@ const Verifier = struct {
         if (v.seen_exprs.isSet(id)) return v.fail(v.f.root, "an expression reached twice");
         v.seen_exprs.set(id);
         switch (v.f.exprs.items[id]) {
-            .@"var" => |x| try v.use(x, v.f.root),
+            .@"var" => |x| try v.use(x.v, x.node),
             .leaf => {},
             .op => |o| for (o.args) |a| try v.expr(a),
             .hold => |h| {
@@ -417,7 +420,7 @@ const Printer = struct {
                     try p.expr(st.value, depth + 1);
                 },
                 .eval => |e| try p.expr(e, depth + 1),
-                .drop => |x| try p.w.print("drop %{d}", .{x}),
+                .drop => |x| try p.w.print("drop %{d}", .{x.v}),
                 .jump => |j| {
                     try p.w.writeAll(@tagName(j.node.kind() orelse .module));
                     if (j.value) |e| {
@@ -459,7 +462,7 @@ const Printer = struct {
 
     fn expr(p: *Printer, id: ExprId, depth: usize) std.Io.Writer.Error!void {
         switch (p.f.exprs.items[id]) {
-            .@"var" => |x| try p.w.print("%{d}", .{x}),
+            .@"var" => |x| try p.w.print("%{d}", .{x.v}),
             .leaf => |l| switch (l) {
                 .src => |src| try p.w.writeAll(rig.leafText(p.ctx.source, src)),
                 .tag => |t| try p.w.writeAll(@tagName(t)),
@@ -530,7 +533,7 @@ test "verify accepts a var used in its region, and finds one used outside it" {
     try f.region(f.body).steps.append(a, .{ .region = inner });
     try std.testing.expect(try verify(std.testing.allocator, &f) == null);
     // Read after the region that declares it ends.
-    try f.region(f.body).steps.append(a, .{ .eval = try f.addExpr(a, .{ .@"var" = v }) });
+    try f.region(f.body).steps.append(a, .{ .eval = try f.addExpr(a, .{ .@"var" = .{ .v = v, .node = .nil } }) });
     const p = (try verify(std.testing.allocator, &f)).?;
     try std.testing.expectEqualStrings("a var used outside the region that declares it", p.what);
 }

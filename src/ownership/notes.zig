@@ -665,7 +665,7 @@ pub fn reportArmView(self: *Checker, l: Loan) Error!void {
     while (end < self.source.len and (std.ascii.isAlphanumeric(self.source[end]) or self.source[end] == '_')) end += 1;
     const name = diag.textBetween(self.source, l.pos, end);
     const root = self.vars.items[l.root];
-    const clones = if (self.sema.symbolAt(l.pos)) |sym| sema.cloneable(self.sema, self.sema.symbols.items[sym].ty) != .no else false;
+    const clones = if (self.arm_binds.get(l.pos)) |sym| sema.cloneable(self.sema, self.sema.symbols.items[sym].ty) != .no else false;
     const a = self.arena();
     const take = if (root.arm_take.len > 0) try std.fmt.allocPrint(a, "take the subject with `match <{s}` and move it with `<{s}`", .{ root.arm_take, name }) else "";
     const hint = if (clones and take.len > 0)
