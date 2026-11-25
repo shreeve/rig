@@ -15,8 +15,6 @@ const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const symbols = @import("symbols.zig");
-const inlining = @import("inlining.zig");
-const returns = @import("returns.zig");
 const units = @import("units.zig");
 const bolt = @import("bolt.zig");
 const pgo = @import("pgo.zig");
@@ -957,31 +955,7 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
-    // Inlining is decided for a program with no errors, and reports a
-    // cycle of marked `inline` functions, which Zig cannot inline.
-    if (!graph.hasErrors()) {
-        const t1 = timing.start(times);
-        // Which word-sized objects are held as one word: the whole
-        // program's views decide it, before emit reads it.
-        {
-            const n = graph.modules.items.len;
-            const ctxs = try allocator.alloc(*sema.SemContext, n);
-            defer allocator.free(ctxs);
-            const trees = try allocator.alloc(parser.Sexp, n);
-            defer allocator.free(trees);
-            for (graph.modules.items, ctxs, trees) |*m, *c, *t| {
-                c.* = m.sema;
-                t.* = m.ir;
-            }
-            try storage.decideWords(ctxs, trees);
-            // The tag type of each enum an `exact` object holds.
-            try storage.decideExactEnums(ctxs);
-        }
-        try inlining.decide(allocator, &graph, inlining.max_size);
-        try returns.decide(allocator, &graph);
-        timing.stop(times, .inlining, t1);
-        try graph.markTextTables();
-    }
+    if (!graph.hasErrors()) try graph.decide();
     try graph.writeAllDiagnostics(&writer.interface);
     try writer.interface.flush();
     const failed = graph.hasErrors();
@@ -3260,7 +3234,7 @@ test {
     _ = frames;
     _ = pgo;
     _ = bolt;
-    _ = inlining;
+    _ = @import("inlining.zig");
     _ = map_trace;
     _ = @import("ownership.zig");
     _ = @import("lir.zig");
