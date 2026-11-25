@@ -166,7 +166,7 @@ pub fn decideWords(mods: []const modules.Module, t: *Table) !void {
 /// whole program at once, since the enum may be another module's.
 pub fn decideExactEnums(mods: []const modules.Module, t: *Table) !void {
     for (mods) |m| for (m.sema.symbols.items) |sym| {
-        if (sema.isProxy(sym) or sym.kind != .nominal_type or !sym.flags.exact) continue;
+        if (sym.kind != .nominal_type or !sym.flags.exact) continue;
         for (sym.fields orelse &.{}) |f| {
             if (f.is_method or f.is_variant or f.is_drop_method) continue;
             try exactEnum(m.sema, f.ty, t);

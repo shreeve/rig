@@ -1104,7 +1104,6 @@ pub const syntax = struct {
     pub const paramName = sema.paramName;
     pub const paramNameNode = sema.paramNameNode;
     pub const tparamsOf = sema.tparamsOf;
-    pub const isProxy = sema.isProxy;
     pub const ownApiMethod = sema.ownApiMethod;
     pub const isIntLiteralText = sema.isIntLiteralText;
     pub const isFloatLiteralText = sema.isFloatLiteralText;

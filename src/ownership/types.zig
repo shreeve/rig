@@ -301,14 +301,7 @@ pub fn rejected(self: *const Checker, e: Sexp) bool {
 pub fn dropBodyType(self: *const Checker, ty: TypeId) bool {
     const ctx = self.sema;
     const decl = sema.nominalDecl(ctx, ty) orelse return false;
-    var dctx = decl.ctx;
-    var sym = decl.symbol();
-    if (sema.isProxy(sym)) {
-        if (sym.from.module_id == 0) return false;
-        const foreign = dctx.foreign_semas.get(sym.from.module_id) orelse return false;
-        dctx = foreign;
-        sym = foreign.symbols.items[sym.from.sym];
-    }
+    const sym = decl.symbol();
     for (sym.fields orelse &.{}) |fld| if (fld.is_drop_method) return true;
     return false;
 }

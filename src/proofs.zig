@@ -1730,7 +1730,7 @@ fn calledFn(ctx: *const SemContext, call: Sexp) ?Callee {
     if (callee == .src) {
         const id = ctx.symbolOf(callee) orelse return null;
         const s = ctx.symbols.items[id];
-        if (s.kind != .function or sema.isProxy(s)) return null;
+        if (s.kind != .function) return null;
         return .{ .ctx = ctx, .pos = s.decl_pos };
     }
     if (!callee.isKind(.member)) return null;
@@ -1740,7 +1740,7 @@ fn calledFn(ctx: *const SemContext, call: Sexp) ?Callee {
     const name = sema.identAt(ctx.source, ir.Member.name(callee)) orelse return null;
     const fid = foreign.moduleMember(name) orelse return null;
     const s = foreign.symbols.items[fid];
-    if (s.kind != .function or sema.isProxy(s)) return null;
+    if (s.kind != .function) return null;
     return .{ .ctx = foreign, .pos = s.decl_pos };
 }
 

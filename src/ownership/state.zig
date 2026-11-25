@@ -800,9 +800,6 @@ pub const Checker = struct {
         try generic.checkMethodCalls(self);
         self.own_plain_reqs = self.plain_reqs.items.len;
         try generic.checkBoundedCopies(self);
-        for (self.sema.plain_reqs.items) |r| {
-            if (r.module_id != 0) try self.plain_reqs.append(self.gpa, r);
-        }
         try generic.checkInstantiations(self);
     }
 

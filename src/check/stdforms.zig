@@ -256,9 +256,9 @@ pub fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
     // `f[...](args)`, `Wrap[Int](args)`: compile-time arguments.
     var ct: ?Sexp = null;
     if (rig.isBracketList(callee)) if (try CallCheck.instTarget(self, ir.get(callee, .object))) |target| switch (target) {
-        .generic => |nt| return if (self.ctx.ref(nt.id) == self.ctx.builtins.simd)
+        .generic => |nt| return if (nt.ref(self.ctx) == self.ctx.builtins.simd)
             simdConvert(self, try CallCheck.typeInstance(self, callee, nt), args, self.startOf(callee))
-        else if (self.ctx.ref(nt.id) == self.ctx.builtins.slot)
+        else if (nt.ref(self.ctx) == self.ctx.builtins.slot)
             slotMade(self, callee, try CallCheck.typeInstance(self, callee, nt), args)
         else
             CallCheck.constructInstance(self, node, callee, nt, args),
@@ -315,7 +315,7 @@ pub fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
                 if (self.ctx.ref(sym_id) == self.ctx.builtins.signal and !CompatCheck.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
                 if (self.ctx.ref(sym_id) == self.ctx.builtins.actor) return actorMake(self, node, callee, args);
                 if (self.ctx.ref(sym_id) == self.ctx.builtins.frozen) return frozenMake(self, node, callee, args);
-                return constructGeneric(self, callee, sym_id, args, name, callee.src.pos);
+                return constructGeneric(self, callee, self.ctx.ref(sym_id), args, name, callee.src.pos);
             },
             .module => return CallCheck.badCall(self, args, callee, "module `{s}` cannot be called", .{name}),
             .generic_param => return CallCheck.badCall(self, args, callee, "`{s}` is a type parameter; it cannot be called or constructed", .{name}),
@@ -345,38 +345,38 @@ pub fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty:
     if (ty == self.t().string_id) return checkStringNew(self, call, args);
     if (sema.boxedType(self.ctx, ty) != null) return CallCheck.badCall(self, args, callee, "`{s}` is a type alias for `{s}`; a box is made with `^`: write `^value`", .{ name, try self.tyName(ty) });
     const nt = CallCheck.aliasNamedType(self, ty) orelse return CallCheck.badCall(self, args, callee, "`{s}` is a type alias for `{s}`, which has no constructor", .{ name, try self.tyName(ty) });
-    if (nt.foreign) |fo| return CallCheck.construct(self, nt.id, args, pos, TypeSubst.empty, fo);
+    if (nt.foreign) |fo| if (nt.sym.kind != .generic_type) return CallCheck.construct(self, nt.id, args, pos, TypeSubst.empty, fo);
     if (nt.args) |targs| {
-        if (self.ctx.ref(nt.id) == self.ctx.builtins.list) {
+        if (nt.ref(self.ctx) == self.ctx.builtins.list) {
             try BuiltinCheck.checkListConstruction(self, call, ty);
             return ty;
         }
-        if (self.ctx.ref(nt.id) == self.ctx.builtins.table) {
+        if (nt.ref(self.ctx) == self.ctx.builtins.table) {
             try checkTableConstruction(self, call);
             return ty;
         }
-        if (self.ctx.ref(nt.id) == self.ctx.builtins.signal and !CompatCheck.sameNode(call, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
-        return CallCheck.construct(self, nt.id, args, pos, .{ .params = CallCheck.namedParams(self, nt), .args = targs }, null);
+        if (nt.ref(self.ctx) == self.ctx.builtins.signal and !CompatCheck.sameNode(call, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
+        return CallCheck.construct(self, nt.id, args, pos, .{ .params = CallCheck.namedParams(self, nt), .args = targs }, nt.foreign);
     }
     if (callee == .src) try self.ctx.recordName(callee, nt.id);
     return CallCheck.construct(self, nt.id, args, pos, TypeSubst.empty, null);
 }
 
-/// `Wrap(v: 3)`, `lib.Wrap(v: 3)`: generic type `sym_id`, named `name`
+/// `Wrap(v: 3)`, `lib.Wrap(v: 3)`: generic type `gref`, named `name`
 /// by `callee`, constructed at the type arguments its fields' values
 /// and the type expected of it give.
-pub fn constructGeneric(self: *Checker, callee: Sexp, sym_id: SymbolId, args: []const Sexp, name: []const u8, pos: u32) Error!TypeId {
+pub fn constructGeneric(self: *Checker, callee: Sexp, gref: SymbolRef, args: []const Sexp, name: []const u8, pos: u32) Error!TypeId {
     if (args.len > 0 and isTypeName(self, args[0])) {
         try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
         return self.t().invalid_id;
     }
-    const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
+    const fields = sema.symbolAt(self.ctx, gref).fields orelse &.{};
     // An update makes the instance its spread's value is
     // (`objectUpdate`).
     for (args) |a| if (a.isKind(.spread)) {
         const ty = sema.unwrapAccess(self.ctx, try FlowCheck.synthQuiet(self, rig.Parser.spreadPlace(ir.Spread.value(a))));
         const result = switch (self.ctx.types.get(ty)) {
-            .parameterized_nominal => |pn| if (pn.sym == self.ctx.ref(sym_id)) ty else null,
+            .parameterized_nominal => |pn| if (pn.sym == gref) ty else null,
             else => null,
         } orelse {
             try self.errAt(a, "`..{s}` is a `{s}`, but this makes a `{s}`: a spread passes a value of the type it updates", .{ try ViewCheck.plainText(self, ir.Spread.value(a)), try self.tyName(ty), name });
@@ -390,9 +390,10 @@ pub fn constructGeneric(self: *Checker, callee: Sexp, sym_id: SymbolId, args: []
         try CallCheck.positionalFieldsError(self, fields, name, pos);
         return CallCheck.skipCall(self, args);
     };
-    const subst = (try inferTypeArgs(self, sym_id, args, .{ .fields = fields }, pos, CallCheck.expectedResult(self, (try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return CallCheck.skipCall(self, args);
-    _ = try ViewCheck.instantiate(self, sym_id, subst.args, pos);
-    return CallCheck.construct(self, sym_id, args, pos, subst, null);
+    const subst = (try inferTypeArgs(self, gref, args, .{ .fields = fields }, pos, CallCheck.expectedResult(self, try sema.genericSelfType(self.ctx, gref)), null)) orelse return CallCheck.skipCall(self, args);
+    _ = try ViewCheck.instantiate(self, gref, subst.args, pos);
+    const foreign: ?Checker.ForeignFields = if (self.ctx.owns(gref)) null else .{ .ctx = self.ctx.foreign_semas.get(gref.module_id).?, .module_id = gref.module_id };
+    return CallCheck.construct(self, gref.sym, args, pos, subst, foreign);
 }
 
 /// Call function `sym`, named by `callee`, with the compile-time
@@ -2205,10 +2206,10 @@ pub fn boundForMethod(self: *Checker, pname: []const u8, method: []const u8) Err
     const a = self.ctx.arena.allocator();
     var refs: std.ArrayList(sema.ApiRef) = .empty;
     for (self.ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = self.ctx.module_id, .sym = @intCast(i) });
+        if (sym.kind == .api) try refs.append(a, .{ .module_id = self.ctx.module_id, .sym = @intCast(i) });
     }
     for (self.ctx.imports) |imp| for (imp.sema.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and sym.flags.is_public and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = imp.module_id, .sym = @intCast(i) });
+        if (sym.kind == .api and sym.flags.is_public) try refs.append(a, .{ .module_id = imp.module_id, .sym = @intCast(i) });
     };
     var found: ?sema.ApiRef = null;
     for (refs.items) |r| {
@@ -2253,8 +2254,7 @@ pub fn apiMethodAt(self: *Checker, m: ApiCheck.ApiMethod, self_ty: TypeId) Error
     if (self.ctx.types.get(local_ty) != .function or sema.containsPoison(self.ctx, local_ty)) return null;
     const api_sym = sema.apiSymbol(self.ctx, m.api) orelse return null;
     const home_self = (api_sym.type_params orelse return null)[0];
-    const self_param = if (m.home == @as(*const SemContext, self.ctx)) home_self else try sema.proxyOf(self.ctx, .{ .module_id = m.api.module_id, .sym = home_self });
-    return try sema.substituteType(self.ctx, local_ty, .{ .params = &.{self.ctx.ref(self_param)}, .args = &.{self_ty} });
+    return try sema.substituteType(self.ctx, local_ty, .{ .params = &.{m.home.ref(home_self)}, .args = &.{self_ty} });
 }
 
 /// `x.area()` where two APIs that apply to `x`'s type declare `area`:
@@ -2602,11 +2602,11 @@ pub fn visibleApis(self: *Checker) Error![]const sema.ApiRef {
     const a = self.ctx.arena.allocator();
     var out: std.ArrayList(sema.ApiRef) = .empty;
     for (self.ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and !sema.isProxy(sym)) try out.append(a, .{ .module_id = self.ctx.module_id, .sym = @intCast(i) });
+        if (sym.kind == .api) try out.append(a, .{ .module_id = self.ctx.module_id, .sym = @intCast(i) });
     }
     for (self.ctx.imports) |imp| {
         for (imp.sema.symbols.items, 0..) |sym, i| {
-            if (sym.kind != .api or !sym.flags.is_public or sema.isProxy(sym)) continue;
+            if (sym.kind != .api or !sym.flags.is_public) continue;
             const ref: sema.ApiRef = .{ .module_id = imp.module_id, .sym = @intCast(i) };
             const seen = for (out.items) |o| {
                 if (o.eql(ref)) break true;
@@ -3013,7 +3013,7 @@ pub fn noteTarget(self: *Checker, module: u32, pos: u32, marked: bool, recv: Typ
 /// `recv_ty` (`sema.BodyReach`), at `pos`.
 pub fn noteMethodTarget(self: *Checker, field: Field, owner: sema.Symbol, module: ?u32, recv: TypeSubst, recv_ty: TypeId, pos: u32) Error!void {
     if (owner.decl_pos == sema.builtin_decl_pos) return;
-    const declared = module orelse if (sema.isProxy(owner)) owner.from.module_id else self.ctx.module_id;
+    const declared = module orelse self.ctx.module_id;
     try noteTarget(self, declared, field.decl_pos, field.inline_marked, recv);
     if (recv.params.len == 0 or self.tentative != 0 or field.decl_pos >= sema.imported_decl_pos or self.isPoison(recv_ty)) return;
     _ = try self.ctx.recordBodyReach(.{ .fun = .{ .module = declared, .pos = field.decl_pos }, .in = bodyRef(self), .params = recv.params, .args = recv.args, .recv = recv_ty, .method = field.name, .site = pos });
@@ -4970,8 +4970,8 @@ pub fn associatedCall(self: *Checker, obj: Sexp, nt: Checker.NamedType, name: []
             if (generic) {
                 // The type's arguments are given (`Pair[Int, ?String].make`)
                 // or come from the call's arguments.
-                const subst = if (nt.args) |given| TypeSubst{ .params = CallCheck.namedParams(self, nt), .args = given } else (try inferTypeArgs(self, nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names, .defaults = m.param_defaults } }, pos, CallCheck.expectedResult(self, f.returns), name)) orelse return CallCheck.skipCall(self, args);
-                if (nt.args == null) try self.ctx.recordType(obj, try ViewCheck.instantiate(self, nt.id, subst.args, pos));
+                const subst = if (nt.args) |given| TypeSubst{ .params = CallCheck.namedParams(self, nt), .args = given } else (try inferTypeArgs(self, nt.ref(self.ctx), args, .{ .params = .{ .params = f.params, .names = m.param_names, .defaults = m.param_defaults } }, pos, CallCheck.expectedResult(self, f.returns), name)) orelse return CallCheck.skipCall(self, args);
+                if (nt.args == null) try self.ctx.recordType(obj, try ViewCheck.instantiate(self, nt.ref(self.ctx), subst.args, pos));
                 f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                 recv = subst;
             }
@@ -4984,7 +4984,7 @@ pub fn associatedCall(self: *Checker, obj: Sexp, nt: Checker.NamedType, name: []
             info.zoneless = sema.duration.zoneless(home_ctx, nt.sym.name, name);
             info.datetime = home_ctx.is_std and std.mem.eql(u8, home_ctx.name, "std.datetime");
             f = (try CallCheck.instantiateCall(self, f, ct, args, info, 0, name, pos, m.self_mode != .none, recv)) orelse return CallCheck.skipCall(self, args);
-            try noteMethodTarget(self, m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv, if (recv.args.len > 0) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(nt.id), .args = try self.ctx.dupeIds(recv.args) } }) else sema.type_invalid, pos);
+            try noteMethodTarget(self, m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv, if (recv.args.len > 0) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = nt.ref(self.ctx), .args = try self.ctx.dupeIds(recv.args) } }) else sema.type_invalid, pos);
             if (!try ViewCheck.meetsNeeds(self, m, nt.id, recv.args, pos, if (m.self_mode != .none and args.len > 0) args[1..] else args)) return CallCheck.skipCall(self, args);
             if (!try ViewCheck.meetsOwnerBounds(self, m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv.args, pos, m.self_mode != .none)) return CallCheck.skipCall(self, args);
             try noteCallee(self, f);
@@ -5008,7 +5008,7 @@ pub fn associatedCall(self: *Checker, obj: Sexp, nt: Checker.NamedType, name: []
         var ty = try CallCheck.namedTypeValue(self, nt);
         if (nt.args) |given| {
             subst = .{ .params = CallCheck.namedParams(self, nt), .args = given };
-            ty = try ViewCheck.instantiate(self, nt.id, given, pos);
+            ty = try ViewCheck.instantiate(self, nt.ref(self.ctx), given, pos);
         } else if (generic) {
             // Arguments that fill no field bind nothing to infer from:
             // say what the variant takes instead.
@@ -5016,19 +5016,19 @@ pub fn associatedCall(self: *Checker, obj: Sexp, nt: Checker.NamedType, name: []
                 if (!a.isKind(.kwarg)) break true;
             } else false;
             if (args.len == 0 or (positional and !(args.len == 1 and CallCheck.soleField(payload) != null))) {
-                try CallCheck.checkFieldArgs(self, args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .foreign = nt.foreign, .kind = .variant });
+                try CallCheck.checkFieldArgs(self, args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = if (nt.foreign != null and generic) nt.foreign.?.module_id else 0, .pos = pos, .foreign = nt.foreign, .kind = .variant });
                 return self.t().invalid_id;
             }
-            const self_type = (try sema.makeNominalContext(self.ctx, nt.id)).self_type;
-            subst = (try inferTypeArgs(self, nt.id, args, .{ .payload = payload }, pos, CallCheck.expectedResult(self, self_type), name)) orelse return CallCheck.skipCall(self, args);
-            ty = try ViewCheck.instantiate(self, nt.id, subst.args, pos);
+            const self_type = try sema.genericSelfType(self.ctx, nt.ref(self.ctx));
+            subst = (try inferTypeArgs(self, nt.ref(self.ctx), args, .{ .payload = payload }, pos, CallCheck.expectedResult(self, self_type), name)) orelse return CallCheck.skipCall(self, args);
+            ty = try ViewCheck.instantiate(self, nt.ref(self.ctx), subst.args, pos);
         }
-        try CallCheck.checkFieldArgs(self, args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant, .instance = ty });
+        try CallCheck.checkFieldArgs(self, args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = if (nt.foreign != null and generic) nt.foreign.?.module_id else 0, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant, .instance = ty });
         return ty;
     }
     const hint = (if (nt.foreign) |fo| sema.stdRenamed(fo.ctx, nt.sym.name, name) else null) orelse try ExprCheck.memberHint(self, nt.sym.fields orelse &.{}, name, .associated);
     try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ name, tname, hint });
-    try PatternCheck.noteDeclared(self, nt.sym, nt.foreign == null);
+    try PatternCheck.noteDeclaredNamed(self, nt);
     return CallCheck.skipCall(self, args);
 }
 
@@ -5036,11 +5036,13 @@ pub fn associatedCall(self: *Checker, obj: Sexp, nt: Checker.NamedType, name: []
 /// each argument's type is matched against the field or parameter it
 /// fills (`inferBindings`). Null, after a diagnostic, when some
 /// parameter is left unbound or the arguments disagree on one.
-pub fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from: Checker.InferFrom, pos: u32, result: ?Checker.ResultType, member: ?[]const u8) Error!?TypeSubst {
-    const sym = self.ctx.symbols.items[sym_id];
-    const params = sema.paramRefs(self.ctx, self.ctx.ref(sym_id));
+pub fn inferTypeArgs(self: *Checker, gref: SymbolRef, args: []const Sexp, from: Checker.InferFrom, pos: u32, result: ?Checker.ResultType, member: ?[]const u8) Error!?TypeSubst {
+    var sym = sema.symbolAt(self.ctx, gref).*;
+    // Another module's generic type is named as this module spells it.
+    if (!self.ctx.owns(gref)) sym.name = try sema.formatTypeValue(self.ctx, self.ctx.arena.allocator(), .{ .nominal = gref });
+    const params = sema.paramRefs(self.ctx, gref);
     const inf = try CallCheck.inferBindings(self, params, args, from, result);
-    if (member) |name| try noteTypeArgsHint(self, sym_id, name, inf);
+    if (member) |name| try noteTypeArgsHint(self, gref, name, inf);
     for (params, inf.bound) |p, b| {
         const pname = sema.symbolAt(self.ctx, p).name;
         if (b.ty == sema.type_invalid) {
@@ -5066,7 +5068,7 @@ pub fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from:
 /// another type than the one the expected type gives it, what to
 /// write for the mismatch that follows (`result_hints`): the type
 /// named, which passes the expected type on to the arguments.
-pub fn noteTypeArgsHint(self: *Checker, sym_id: SymbolId, member: []const u8, inf: Checker.Inference) Error!void {
+pub fn noteTypeArgsHint(self: *Checker, gref: SymbolRef, member: []const u8, inf: Checker.Inference) Error!void {
     const call = self.expect.current_call orelse return;
     if (call.list.id == 0) return;
     _ = self.result_hints.remove(call.list.id);
@@ -5079,10 +5081,11 @@ pub fn noteTypeArgsHint(self: *Checker, sym_id: SymbolId, member: []const u8, in
     }
     const i = first orelse return;
     for (types) |ty| if (ty == sema.type_invalid) return;
-    const sym = self.ctx.symbols.items[sym_id];
+    var sym = sema.symbolAt(self.ctx, gref).*;
+    if (!self.ctx.owns(gref)) sym.name = try sema.formatTypeValue(self.ctx, self.ctx.arena.allocator(), .{ .nominal = gref });
     const b = inf.bound[i];
     const took = try a.print("`{s}.{s}` takes `{s} = {s}` from argument {d}", .{ sym.name, member, self.ctx.symbols.items[sym.type_params.?[i]].name, try self.tyName(b.ty), b.arg });
-    const named = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(sym_id), .args = try self.ctx.dupeIds(types) } });
+    const named = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = gref, .args = try self.ctx.dupeIds(types) } });
     const hint = if (CompatCheck.spelledInBrackets(self.ctx, named)) try a.print("{s}; to pass `{s}` on to it, name the type: `{s}.{s}(...)`", .{ took, try self.tyName(types[i]), try self.tyName(named), member }) else took;
     try self.result_hints.put(self.ctx.allocator, call.list.id, hint);
 }

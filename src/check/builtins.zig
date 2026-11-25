@@ -338,8 +338,8 @@ pub fn checkPayloadVariant(self: *Checker, call: Sexp, expected: TypeId) Error!v
         try CallCheck.synthArgs(self, args);
         return;
     }
-    const decl_pos = if (resolved.nominal_sym == sema.symbol_invalid) sema.builtin_decl_pos else resolved.field.decl_pos;
-    const module_id = if (resolved.nominal_sym == sema.symbol_invalid) 0 else self.ctx.symbols.items[resolved.nominal_sym].from.module_id;
+    const decl_pos = if (resolved.nominal_sym == sema.symbol_invalid and resolved.module == null) sema.builtin_decl_pos else resolved.field.decl_pos;
+    const module_id = resolved.module orelse 0;
     try CallCheck.checkFieldArgs(self, args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .module_id = module_id, .pos = pos, .kind = .variant, .call = call });
 }
 

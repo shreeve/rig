@@ -153,7 +153,7 @@ pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule
     for (mods, 0..) |m, i| {
         var used = false;
         for (m.facts.symbols.items) |sym| {
-            if (!sym.flags.error_set or sym.error_parts != null or facts.syntax.isProxy(sym)) continue;
+            if (!sym.flags.error_set or sym.error_parts != null) continue;
             for (sym.fields orelse &.{}) |f| {
                 if (!f.is_variant or f.payload == null or f.payload.?.len == 0) continue;
                 try members.append(a, .{ .module = i, .set = sym.name, .name = f.name, .facts = m.facts, .compares = m.facts.memberCompares(f) });
@@ -1575,10 +1575,10 @@ pub const Emitter = struct {
 
     /// The arguments of `ty`, an instance of generic type `sym`: with the
     /// witnesses its bounds take, so one Rig type is one Zig type.
-    fn emitTypeArgs(self: *Emitter, ty: TypeId, sym: SymbolId, args: []const TypeId) Error!void {
+    fn emitTypeArgs(self: *Emitter, ty: TypeId, witnessed: bool, args: []const TypeId) Error!void {
         const bits = self.facts.typePlainBits(ty);
-        if (!self.facts.takesWitnesses(sym) and bits.len == 0) return self.emitTypeList(args);
-        const ws = if (self.facts.takesWitnesses(sym)) self.facts.typeWitnesses(ty) orelse return self.unsupported(.nil, "an instance of a generic type whose witnesses no check recorded") else &.{};
+        if (!witnessed and bits.len == 0) return self.emitTypeList(args);
+        const ws = if (witnessed) self.facts.typeWitnesses(ty) orelse return self.unsupported(.nil, "an instance of a generic type whose witnesses no check recorded") else &.{};
         try self.writeArgsWithBits(args, ws, bits);
     }
 
@@ -1692,7 +1692,7 @@ pub const Emitter = struct {
     fn witnessTypeParams(self: *Emitter, conf: facts.Conformance) []const SymbolId {
         if (conf.kind == .add) return conf.params;
         return switch (self.facts.types.get(conf.ty)) {
-            .parameterized_nominal => |pn| self.facts.symbols.items[pn.sym.sym].type_params orelse &.{},
+            .parameterized_nominal => |pn| (if (self.facts.owns(pn.sym)) self.facts else self.facts.foreign(pn.sym.module_id).?).symbols.items[pn.sym.sym].type_params orelse &.{},
             else => &.{},
         };
     }
@@ -11540,9 +11540,13 @@ pub const Emitter = struct {
                     try self.emitTypeList(pn.args);
                     return self.w.print(", {d})", .{pn.inline_len});
                 }
-                try self.writeNominalName(pn.sym.sym);
+                const home = if (ctx.owns(pn.sym)) ctx else ctx.foreign(pn.sym.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
+                if (ctx.owns(pn.sym)) try self.writeNominalName(pn.sym.sym) else {
+                    try self.writeModuleRef(pn.sym.module_id);
+                    try self.w.print(".{f}", .{ident(home.symbols.items[pn.sym.sym].name)});
+                }
                 try self.w.writeAll("(");
-                try self.emitTypeArgs(ty, pn.sym.sym, pn.args);
+                try self.emitTypeArgs(ty, home.takesWitnesses(pn.sym.sym), pn.args);
                 try self.w.writeAll(")");
             },
             // A generic function's type parameter is its `comptime`
@@ -11613,8 +11617,7 @@ pub const Emitter = struct {
         }
     }
 
-    /// A user nominal, or a runtime one (`List` → `rig.List`), or another
-    /// module's generic type through its proxy (`lib.Wrap`).
+    /// A user nominal, or a runtime one (`List` → `rig.List`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.facts.symbols.items[sym];
         // The value of `task.select(name: arm, ...)`: one Zig type per
@@ -11633,11 +11636,6 @@ pub const Emitter = struct {
             // The runtime's `Box(T)` is `^T`.
             if (self.facts.refOf(sym) == self.facts.box_sym_id) return self.w.writeAll(rt(.Box));
             return self.w.print("rig.{s}", .{s.name});
-        }
-        if (facts.syntax.isProxy(s)) {
-            const foreign = self.facts.foreign(s.from.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
-            try self.writeModuleRef(s.from.module_id);
-            return self.w.print(".{f}", .{ident(foreign.symbols.items[s.from.sym].name)});
         }
         try self.writeModuleName(s.name);
     }
