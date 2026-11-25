@@ -35,6 +35,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │    typecheck src/typecheck.zig   every expression's type and facts
   │    cteval    src/cteval.zig      compile-time functions, run in the checker
   │  storage     src/storage.zig   the hidden storage emit makes
+  │  lower       src/lower.zig     each body's LIR (src/lir.zig), in shadow
   │  ownership   src/ownership/    moves, loans, drops, aliasing
   │  proofs      src/proofs.zig    the tests known to pass
   ▼
@@ -64,8 +65,9 @@ prints the root module's IR as flat facts ([Syntax facts](#syntax-facts)),
 (`sema.Facts`), `check --facts=storage` the hidden storage emit makes
 for them ([Storage facts](#storage-facts)), one per line, keyed by node
 kind and span with no compiler ids, so two compilers' dumps of a program
-diff cleanly, and `check --facts=proofs` the tests known to pass
-([Proven checks](#proven-checks)).
+diff cleanly, `check --facts=proofs` the tests known to pass
+([Proven checks](#proven-checks)), and `check --facts=lir` each body's
+lowered IR ([LIR](#lir)).
 A module whose sema reports an error (other than a local that is never
 read, a lint on well-typed code) is not ownership-checked: ownership
 reads the types sema settled, as Rust's checker waits for its
@@ -2140,6 +2142,41 @@ a read match's
 payload view of a copy lives for its arm (`arm_view`); a `payload` copy only copies
 fields out, and an `error_value` is the failure's own error, which the
 handler's binding takes as it starts: the checker walks the binding.
+
+### LIR
+
+Each body (a function, a `sub`, a test, a `drop` body, a closure) has
+a lowered IR, LIR (`src/lir.zig`), which `src/lower.zig` builds from
+the typed tree and the recorded facts. A body's LIR holds its vars, one
+for each binding and each piece of hidden storage ([Storage
+facts](#storage-facts): a var's kind is the table's kind), and its
+regions and steps in the order they run. Control flow stays
+structured, as Zig needs it. A region declares vars that live until it
+ends. It nests in a step, or in an expression where a value goes: a
+call whose parts are held first, a header that ends its temporaries, a
+value `if` or `match`. `lir.verify` checks that a body is well formed:
+each region and expression is reached once, from the body; each var is
+declared by one region; and each var is used only inside the region
+that declares it. `rig check --facts=lir` prints the root module's LIR,
+and lists each body not lowered with the construct that stopped it.
+
+LIR runs in shadow, and nothing reads it yet. In a self-checking build,
+`sema.check` lowers each module after `storage.plan`, and `lower.shadow`
+asserts, for each body, that:
+
+- its hidden vars are the var table's rows for nodes in that body, in
+  the table's order, each held the same way (`by`, `life`, `drop`,
+  `parts`);
+- each statement's and header's temporaries are `sema.stmtTemps`', in
+  its order;
+- each binding's `drop` and `flag` are its row's.
+
+Lowering asks the questions the plan asks. A node's vars are numbered
+after its operands' (the plan's order), and its steps are placed in the
+order they run. A body that uses a construct lowering does not yet
+cover is not lowered. The back track of docs/internals/architecture.md
+makes emit a printer of LIR, and dissolves the storage plan into
+lowering.
 
 ### Proven checks
 
