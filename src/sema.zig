@@ -2166,7 +2166,7 @@ pub const KeyKind = enum { node, expr, raw };
 pub const ColumnSpec = struct { writer: Pass = .check, key: ?KeyKind = null };
 
 /// The maps of `SemContext` outside `Facts` that are columns too.
-const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards", "call_targets", "inline_calls", "once_captures" };
+const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards", "call_targets", "inline_calls", "once_captures", "const_ints", "const_floats", "ct_locals" };
 
 /// Every column of the recorder: each map of `Facts`, then each of
 /// `ctx_columns`. A column has one writer pass (`specs`), and every write
@@ -2193,6 +2193,9 @@ pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .embeds = .{ .writer = .modules },
     .old_nones = .{ .writer = .ownership },
     .once_captures = .{ .key = .raw },
+    .const_ints = .{ .key = .raw },
+    .const_floats = .{ .key = .raw },
+    .ct_locals = .{ .key = .raw },
 };
 
 fn specOf(comptime c: Column) ColumnSpec {

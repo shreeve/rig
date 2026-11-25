@@ -800,12 +800,12 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
     if (s.flags.comptime_known and s.scope != self.module_scope and sema.perTargetLeaf(self.ctx, rhs) != null) s.flags.per_target = true;
     // `k =! n` stands for the compile-time parameter `n` where an
     // array length or a compile-time argument names it.
-    if (kind == .fixed and is_decl and s.kind == .local) if (try StdFormCheck.ctParamOf(self, rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
+    if (kind == .fixed and is_decl and s.kind == .local) if (try StdFormCheck.ctParamOf(self, rhs)) |ct| try self.ctx.putIn(.check, .ct_locals, sym_id, ct);
     try self.ctx.recordType(target, s.ty);
     // A binding that never changes keeps a constant value.
     // (A module constant's was folded before any type was resolved.)
     if (is_decl and s.kind == .local and s.scope != self.module_scope and !s.flags.reassigned and !s.flags.written and sema.isInteger(self.ctx, s.ty)) {
-        if (ExprCheck.constInt(self, rhs)) |v| try self.ctx.const_ints.put(self.ctx.allocator, sym_id, .{ .value = v, .int = switch (self.ctx.types.get(s.ty)) {
+        if (ExprCheck.constInt(self, rhs)) |v| try self.ctx.putIn(.check, .const_ints, sym_id, .{ .value = v, .int = switch (self.ctx.types.get(s.ty)) {
             .int => |i| i,
             else => .{},
         } });
@@ -814,7 +814,7 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
     }
     // So does one of a `Float`, here and at module level (`floatConst`).
     if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and ExprCheck.canonical(self, s.ty) == self.t().float_id) switch (StdFormCheck.floatConst(self, rhs)) {
-        .value => |v| try self.ctx.const_floats.put(self.ctx.allocator, sym_id, v),
+        .value => |v| try self.ctx.putIn(.check, .const_floats, sym_id, v),
         else => {},
     };
 }
