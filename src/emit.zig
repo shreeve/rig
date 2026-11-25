@@ -426,7 +426,7 @@ const Nominal = struct {
     /// names (`ident`, `nameTaken`), each set built once per type.
     rig_methods: std.StringHashMapUnmanaged(void),
     zig_methods: std.StringHashMapUnmanaged(void),
-    /// It is held as one word, a `packed struct` (`storage.decideWords`).
+    /// It is held as one word, a `packed struct` (`program.decideWords`).
     word: bool = false,
 };
 
@@ -986,7 +986,7 @@ pub const Emitter = struct {
         const members = ir.Struct.members(node);
         const prev = try self.enterNominal(ir.Struct.name(node), false, members);
         defer self.nominal = prev;
-        // A word-held object is one word (`storage.decideWords`); a
+        // A word-held object is one word (`program.decideWords`); a
         // word-sized one says so, for the runtime's `ReadView`.
         const sym = self.nominal.?.sym;
         if (self.facts.wordHeldBitsOfSym(sym)) |bits| {
