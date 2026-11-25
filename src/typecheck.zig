@@ -239,8 +239,9 @@ pub const Checker = struct {
     /// variant the checker knows, by name (`constVariant`).
     fixed_variants: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
     /// The chains whose result holds views of the items of their source,
-    /// each a consumer's call to the source it walks (`chainTypes`).
-    chain_views: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
+    /// each a consumer's call to the source it walks and the source's
+    /// type, learned by a quiet check (`chainSource`, `chainTypes`).
+    chain_views: std.AutoHashMapUnmanaged(parser.NodeId, struct { root: Sexp, ty: TypeId }) = .empty,
     /// The binding conditions whose `else` is being checked, innermost
     /// last: a name one binds is unbound there (`unboundHint`).
     else_conds: std.ArrayList(Sexp) = .empty,
