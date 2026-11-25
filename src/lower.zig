@@ -496,7 +496,9 @@ const Lowerer = struct {
         };
         if (!ok) {
             const at = diag.lineCol(l.ctx.source, l.ctx.startOf(s));
-            std.debug.panic("{d}:{d}: internal error: lir: a statement's temporaries are not those sema lists ({d} made, {d} listed)", .{ at.line, at.col, have.len, want.items.len });
+            const first_want: Sexp = if (want.items.len > 0) want.items[0] else .nil;
+            const w_at = diag.lineCol(l.ctx.source, l.ctx.startOf(first_want));
+            std.debug.panic("{s}:{d}:{d}: internal error: lir: a statement's temporaries are not those sema lists ({d} made, {d} listed, the first a `{s}` at {d}:{d})", .{ l.ctx.name, at.line, at.col, have.len, want.items.len, @tagName(first_want.kind() orelse .module), w_at.line, w_at.col });
         }
     }
 
@@ -775,6 +777,7 @@ const Lowerer = struct {
                 l.region(b).value = value_3;
                 const id = try l.addExpr(.{ .block = b });
                 try l.note(e, id);
+                try l.temp(e);
                 try l.viewRules(e);
                 return id;
             },
@@ -787,6 +790,8 @@ const Lowerer = struct {
                 l.region(b).value = value_4;
                 const id = try l.addExpr(.{ .block = b });
                 try l.note(e, id);
+                try l.temp(e);
+                try l.viewRules(e);
                 return id;
             },
             .@"return", .@"break", .@"continue", .set, .destructure, .drop, .@"defer", .@"errdefer", .@"while", .@"for", .labeled => {
@@ -796,6 +801,9 @@ const Lowerer = struct {
                 try l.stmtBody(e, r);
                 const id = try l.addExpr(.{ .block = r });
                 try l.note(e, id);
+                // A loop a chain became gives a value (`Parser.desugarChains`).
+                try l.temp(e);
+                try l.viewRules(e);
                 return id;
             },
             .@"catch" => return l.catchExpr(e),
