@@ -6224,19 +6224,18 @@ pub const Emitter = struct {
             // A flattened temporary's value goes into its slot ahead of
             // the statement, which reads the slot.
             if (slot.pre) |pre| {
+                // The value is written apart first: a flattened temporary
+                // inside it goes ahead of it.
+                var value: Writer.Allocating = .init(self.arena.allocator());
                 const saved_w = self.w;
-                self.w = pre;
-                if (self.varOf(sexp, .temp).?.by == .buffer) {
-                    try self.w.print("{s}.fill(", .{slot.name});
-                    try self.emitPrintArgs(&.{sexp}, .{});
-                    try self.w.writeAll(")");
-                } else {
-                    try self.w.print("{s} = ", .{slot.name});
+                self.w = &value.writer;
+                const buffer = self.varOf(sexp, .temp).?.by == .buffer;
+                if (buffer) try self.emitPrintArgs(&.{sexp}, .{}) else {
                     self.bare = true;
                     try self.emitValue(sexp, tail);
                 }
-                try self.w.print("; {s}_live = true; ", .{slot.name});
                 self.w = saved_w;
+                try pre.print("{s}{s}{s}{s}; {s}_live = true; ", .{ slot.name, if (buffer) ".fill(" else " = ", value.written(), if (buffer) ")" else "", slot.name });
                 return self.w.writeAll(slot.name);
             }
             // A template's text is written into its slot's buffer.
