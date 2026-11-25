@@ -1708,7 +1708,7 @@ const Lowerer = struct {
         return switch (self.ctx.types.get(ty)) {
             .array => |arr| arr.elem,
             .slice => |sl| sl.elem,
-            .parameterized_nominal => |pn| if (pn.sym == self.ctx.list_sym_id and pn.args.len == 1) pn.args[0] else null,
+            .parameterized_nominal => |pn| if (self.ctx.ref(pn.sym) == self.ctx.builtins.list and pn.args.len == 1) pn.args[0] else null,
             else => null,
         };
     }
@@ -3769,7 +3769,7 @@ const Lowerer = struct {
                 .nominal_type, .generic_type, .type_alias => {
                     is_ctor = true;
                     // An actor's value is a shared home too (SPEC "Actors").
-                    cell_store = sym_id.? == self.ctx.cell_sym_id or sym_id.? == self.ctx.signal_sym_id or sym_id.? == self.ctx.actor_sym_id;
+                    cell_store = self.ctx.ref(sym_id.?) == self.ctx.builtins.cell or self.ctx.ref(sym_id.?) == self.ctx.builtins.signal or self.ctx.ref(sym_id.?) == self.ctx.builtins.actor;
                 },
                 // A closure, a function value, or a view of one: the
                 // callee value first; the result carries its loans, the
@@ -4327,7 +4327,7 @@ const Lowerer = struct {
     /// Whether `ty` is a List, or a view of one.
     fn isList(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
-            .parameterized_nominal => |pn| pn.sym == self.ctx.list_sym_id,
+            .parameterized_nominal => |pn| self.ctx.ref(pn.sym) == self.ctx.builtins.list,
             else => false,
         };
     }
@@ -4725,7 +4725,7 @@ const Lowerer = struct {
     fn isCell(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(ty)) {
             .read_view, .write_view, .shared => |inner| self.isCell(inner),
-            .parameterized_nominal => |pn| pn.sym == self.ctx.cell_sym_id or pn.sym == self.ctx.signal_sym_id,
+            .parameterized_nominal => |pn| self.ctx.ref(pn.sym) == self.ctx.builtins.cell or self.ctx.ref(pn.sym) == self.ctx.builtins.signal,
             else => false,
         };
     }
@@ -4891,8 +4891,8 @@ const Lowerer = struct {
         // A `Cell[List[T]]` answers its List's members, each marked as the
         // List's own are (SPEC "Cell").
         switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
-            .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id and pn.args.len == 1) {
-                if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (held.sym == self.ctx.list_sym_id) {
+            .parameterized_nominal => |pn| if (self.ctx.ref(pn.sym) == self.ctx.builtins.cell and pn.args.len == 1) {
+                if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (self.ctx.ref(held.sym) == self.ctx.builtins.list) {
                     if (try self.methodOf(held, mname)) |found_method| return found_method;
                 };
             },

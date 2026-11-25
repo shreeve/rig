@@ -349,9 +349,9 @@ fn objectBlockerIn(ctx: *const SemContext, ty: TypeId, shares: bool, seen: anyty
             return objectBlockerIn(ctx, inner, true, seen, depth + 1);
         },
         .parameterized_nominal => |pn| {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.tasks_sym_id) return null;
+            if (ctx.ref(pn.sym) == ctx.builtins.cell or ctx.ref(pn.sym) == ctx.builtins.signal or ctx.ref(pn.sym) == ctx.builtins.actor or ctx.ref(pn.sym) == ctx.builtins.chan or ctx.ref(pn.sym) == ctx.builtins.tasks) return null;
             for (pn.args) |a| if (try objectBlockerIn(ctx, a, shares, seen, depth + 1)) |b| return b;
-            if (sema.isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.task_sym_id) return null;
+            if (sema.isBuiltinGeneric(ctx, pn.sym) or ctx.ref(pn.sym) == ctx.builtins.task) return null;
             return objectFieldsBlock(ctx, ty, pn.sym, shares, seen, depth);
         },
         .nominal => |sym| return objectFieldsBlock(ctx, ty, sym, shares, seen, depth),
@@ -459,7 +459,7 @@ const Scan = struct {
                 // of a `?T`, `!T`, or slice is the compiler's to reject.
                 // One of a task holds what may carry a loan: the store
                 // that puts the task there is C8.
-                if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
+                if (ctx.ref(pn.sym) == ctx.builtins.cell or ctx.ref(pn.sym) == ctx.builtins.signal) {
                     for (pn.args) |arg| {
                         const outer = self.reached_task;
                         self.reached_task = false;
@@ -472,13 +472,13 @@ const Scan = struct {
                 }
                 // A task's drop waits for its call, which uses what the
                 // task was given views of (Core s6), as a `drop` body would.
-                if ((pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) and !self.under_weak) {
+                if ((ctx.ref(pn.sym) == ctx.builtins.task or ctx.ref(pn.sym) == ctx.builtins.tasks) and !self.under_weak) {
                     self.drop_body = true;
                     self.reached_task = true;
                     if (!self.read_only) self.task = true;
                 }
                 for (pn.args) |arg| try self.walk(ctx, arg, depth + 1, in_generic);
-                if (pn.sym != ctx.list_sym_id and pn.sym != ctx.box_sym_id) try self.fields(ctx, pn.sym, depth, true);
+                if (ctx.ref(pn.sym) != ctx.builtins.list and ctx.ref(pn.sym) != ctx.builtins.box) try self.fields(ctx, pn.sym, depth, true);
             },
             else => {},
         }
@@ -526,7 +526,7 @@ pub const Reach = struct {
         if (depth > 32) return w.writeAll("...");
         const t = ctx.types.get(ty);
         switch (t) {
-            .nominal => |sym| if (sym == ctx.endian_sym_id) try w.writeAll("Endian") else try w.print("N{d}.{d}", .{ ctx.module_id, sym }),
+            .nominal => |sym| if (ctx.ref(sym) == ctx.builtins.endian) try w.writeAll("Endian") else try w.print("N{d}.{d}", .{ ctx.module_id, sym }),
             .imported_nominal => |n| try w.print("N{d}.{d}", .{ n.module_id, n.sym_id }),
             .parameterized_nominal => |pn| {
                 const sym = ctx.symbols.items[pn.sym];
@@ -672,7 +672,7 @@ pub const Reach = struct {
         return switch (n.ctx.types.get(n.ty)) {
             .function => !n.held,
             .callable, .api_object, .invalid, .unknown => true,
-            .parameterized_nominal => |pn| pn.sym == n.ctx.task_sym_id or pn.sym == n.ctx.tasks_sym_id,
+            .parameterized_nominal => |pn| n.ctx.ref(pn.sym) == n.ctx.builtins.task or n.ctx.ref(pn.sym) == n.ctx.builtins.tasks,
             .type_var => |sym| if (n.subst) |s| s.lookup(sym) == null else true,
             else => false,
         };
