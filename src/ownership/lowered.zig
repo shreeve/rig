@@ -1,17 +1,16 @@
-//! The checker's view of each body's LIR (`src/lir.zig`): the statements
-//! of a body or block are its regions' (`stmtsOf`), a binding's symbol is
-//! the one its `lir.Var` declares (`bindingAt`), a name's use finds its
-//! binding through the var it reads (`symbolOf`), a statement's
-//! temporaries are the vars its region declares for them (`holdsTemp`),
-//! and the uses that liveness reads are the names its vars are read at
-//! (`indexUses`).
+//! The checker's view of each body's LIR (`src/lir.zig`). Every walk
+//! reads the statements of a body or block from its regions
+//! (`stmtsOf`), the operands of a statement from its step (`stepOf`,
+//! `stepOperand`), and the operands of an expression from its LIR
+//! operation (`Expr`, `operand`). The checkers' lowering lowers every
+//! body the checker walks (`lower.Options.checked`).
 //!
-//! Every walk of a lowered body takes the operands of its expressions
-//! from the body's LIR (`Expr`, `operand`). A self-checking build walks
-//! each module twice, the second time with `Checker.on_lir` set, which
-//! also reads statements, bindings, temporaries, and uses from LIR, and
-//! compares the two walks' diagnostics (`compare`): the shadow of the
-//! checker on LIR.
+//! A self-checking build walks each module twice, the second time with
+//! `Checker.on_lir` set, which also reads bindings (`bindingAt`), a
+//! name's binding through the var its use reads (`symbolOf`), a
+//! statement's temporaries (`holdsTemp`), and the uses liveness reads
+//! (`indexUses`) from LIR, and compares the two walks' diagnostics
+//! (`compare`): the shadow of the checker on LIR.
 
 const std = @import("std");
 const parser = @import("../parser.zig");
@@ -36,8 +35,11 @@ pub const Body = struct {
     /// The outermost expression made for each node, by its key.
     exprs: sema.FastMap(u64, lir.ExprId) = .empty,
     /// The region made for each block, by its node's key: the body's
-    /// by the key of the function's block.
+    /// by the key of the function's block, a `defer`'s by its body's.
     regions: sema.FastMap(u64, lir.RegionId) = .empty,
+    /// The region of each statement, which holds its temporaries, by
+    /// its node's key.
+    stmts: sema.FastMap(u64, lir.RegionId) = .empty,
     /// The binding each var of a binding declares, by its declaring
     /// name's key.
     binds: sema.FastMap(u64, SymbolId) = .empty,
@@ -156,9 +158,12 @@ fn index(b: *Body, a: std.mem.Allocator, r: lir.RegionId) Error!void {
     const reg = &b.f.regions.items[r];
     if (sema.decisionKeyOf(reg.node)) |key| switch (reg.kind) {
         .block => {
-            const gop = try b.regions.getOrPut(a, key);
+            // A `defer`'s region is its body's.
+            const body = if (reg.node.isKind(.@"defer") or reg.node.isKind(.@"errdefer")) ir.get(reg.node, .body) else reg.node;
+            const gop = try b.regions.getOrPut(a, sema.decisionKeyOf(body) orelse key);
             if (!gop.found_existing) gop.value_ptr.* = r;
         },
+        .stmt => try b.stmts.put(a, key, r),
         else => {},
     };
     for (reg.steps.items) |s| switch (s) {
@@ -229,28 +234,67 @@ fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
 }
 
 /// The statements of block or body `body` as the regions of its lowered
-/// body list them, or null for one not lowered. A statement whose value
-/// the body yields comes last, as `value` says.
-pub fn stmtsOf(self: *Checker, body: Sexp) Error!?Stmts {
-    if (!self.on_lir) return null;
-    const b = self.lir_body orelse return null;
-    const r = b.regions.get(sema.decisionKeyOf(body) orelse return null) orelse return null;
+/// body list them. A statement whose value the body yields comes last,
+/// as `yields` says. A block with no region of statements is reported
+/// as an internal error, and has none.
+pub fn stmtsOf(self: *Checker, body: Sexp) Error!Stmts {
+    const b = self.lir_body orelse return noStmts(self, body);
+    const r = b.regions.get(sema.decisionKeyOf(body) orelse return noStmts(self, body)) orelse return noStmts(self, body);
     const reg = &b.f.regions.items[r];
     var out: std.ArrayList(Sexp) = .empty;
     const a = self.arena();
+    try out.ensureTotalCapacity(a, reg.steps.items.len + 1);
     for (reg.steps.items) |s| switch (s) {
-        .region => |sub| try out.append(a, b.f.regions.items[sub].node),
-        else => return null,
+        .region => |sub| out.appendAssumeCapacity(b.f.regions.items[sub].node),
+        else => return noStmts(self, body),
     };
     var yields = false;
     if (reg.value) |v| switch (b.f.exprs.items[v]) {
         .block => |sub| {
-            try out.append(a, b.f.regions.items[sub].node);
+            out.appendAssumeCapacity(b.f.regions.items[sub].node);
             yields = true;
         },
-        else => return null,
+        else => return noStmts(self, body),
     };
     return .{ .list = out.items, .yields = yields };
+}
+
+fn noStmts(self: *Checker, body: Sexp) Error!Stmts {
+    if (self_check) {
+        const at = diag.lineCol(self.source, self.sema.startOf(body));
+        std.debug.panic("{s}:{d}:{d}: internal error: a `{s}` the ownership checker walks has no LIR statements", .{ self.sema.name, at.line, at.col, @tagName(body.kind() orelse .module) });
+    }
+    try notes.errAt(self, body, "internal error: this block has no lowered statements", .{});
+    return .{ .list = &.{}, .yields = false };
+}
+
+/// The step of statement `stmt` that does what it says: its region's
+/// last, after the parts it holds first; null for a statement with no
+/// region of its own (a target of `q, r = f()`).
+pub fn stepOf(self: *const Checker, stmt: Sexp) ?lir.Step {
+    const b = self.lir_body orelse return null;
+    const r = b.stmts.get(sema.decisionKeyOf(stmt) orelse return null) orelse return null;
+    const steps = b.f.regions.items[r].steps.items;
+    return if (steps.len > 0) steps[steps.len - 1] else null;
+}
+
+/// Statement `stmt`, whose value its body yields, as its region's value.
+pub fn yieldOf(self: *const Checker, stmt: Sexp) Expr {
+    const b = self.lir_body orelse return exprAt(self, stmt);
+    const r = b.stmts.get(sema.decisionKeyOf(stmt) orelse return exprAt(self, stmt)) orelse return exprAt(self, stmt);
+    return stepOperand(self, stmt, b.f.regions.items[r].value orelse return exprAt(self, stmt));
+}
+
+/// Statement operand `node` (the value an assignment stores, a jump
+/// leaves with, or a drop takes) as step expression `id` holds it.
+/// A self-checking build panics where the step's expression is not
+/// the node's.
+pub fn stepOperand(self: *const Checker, node: Sexp, id: lir.ExprId) Expr {
+    if (self_check) {
+        const n = nodeOf(self.lir_body.?, id);
+        if (sema.decisionKeyOf(n) != sema.decisionKeyOf(node)) std.debug.panic("internal error: a lowered statement's operand is not its tree's (`{s}` for `{s}`)", .{ @tagName(n.kind() orelse .module), @tagName(node.kind() orelse .module) });
+    }
+    return .{ .node = node, .id = id };
 }
 
 pub const Stmts = struct { list: []const Sexp, yields: bool };

@@ -350,7 +350,7 @@ pub fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
     const v: Value = if (value == .nil) .{} else if (moved) |id|
         (if (self.vars.items[id].payload_view) try transfer.movePayload(self, id, value.src.pos, "move") else try transfer.moveVar(self, id, value.src.pos, .move))
     else
-        try transfer.walkConsumed(self, value, .brk);
+        try transfer.walkConsumedE(self, transfer.jumpValue(self, node, value), .brk);
     self.value_reads = false;
     const t = target orelse {
         // The type checker resolves every jump of a module it accepts.
