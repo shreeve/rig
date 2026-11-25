@@ -15,12 +15,14 @@ as it lands. Newest entries first.
 
 | Step | Kind | Track | Builder | State | PR | Net source lines |
 |---|---|---|---|---|---|---:|
-| Pilot front F1: the recorder's trail | I | front | pilot-front | claimed | | |
-| Pilot front F2: byte literals at the site | I | front | pilot-front | claimed | | |
-| Pilot front F3: iterator loops at the `for` | I | front | pilot-front | claimed | | |
+| Pilot front F1: the recorder's trail | I | front | pilot-front | merged | #1258 | +232 |
+| Front F2: byte literals, by statement re-check (redesigned) | I | front | front | claimed | | |
+| Front F4–F6: chains, option groups and spreads; the module loop deleted | I | front | front | claimed | | |
+| Pilot front F3: iterator loops at the `for` | I | front | pilot-front | merged | #1259 | +70 |
 | Pilot back: the var table | I | back | pilot-back | merged | #1256 | +20 |
+| Back 1: LIR in shadow | I | back | back | claimed | | |
 | Back: `field_moves` into `Binding` | I | back | | next | | |
-| LLVM bitcode measurement | experiment | side | llvm-probe | claimed | | |
+| LLVM bitcode measurement | experiment | side | llvm-probe | done: yes, with conditions | | |
 
 ## Line scoreboard
 
@@ -44,6 +46,29 @@ budgets"). Updated as steps land.
 | print and type layout | 14,192 | | 8,000 |
 
 ## Entries
+
+### 2026-11-25, later
+
+- The front pilot landed (#1258, #1259): a `for` over an iterator is
+  checked where it stands, so 16 of Trig's 54 modules, 74% of its
+  lines, no longer take a second sema round. `rig check` on Trig went
+  from 2,131 ms to 1,454 ms (31.8% faster, 30% fewer instructions, the
+  same peak memory). Emit-diff identical on 38 programs, Trig included;
+  Trig's and loco's light gates GREEN. The loop-free check guard
+  workload retires 0.6% more instructions, cause not found; the owner
+  accepted the trade and guard.txt carries the new baseline. The
+  pilot's +302 lines come back when F6 deletes the module loop.
+- The pilot found that the trail needs only fact writes: symbols,
+  scopes, and interning join it when a step needs them, and type-id
+  order does not reach emitted text.
+- F2 is redesigned: re-check the enclosing statement, since rewriting a
+  literal leaf in place changed std's emit.
+- The LLVM bitcode measurement answered yes, with conditions: a
+  per-program Zig shim instantiating the runtime's generic code behind
+  C entry points; LTO through LLD on Linux, a merged compile on macOS;
+  Zig's target features copied, Rig's code kept in its section. Error
+  unions, preemption of IR code, and build time are unknown. Kept in
+  the lead's notes until December.
 
 ### 2026-11-25
 
