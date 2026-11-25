@@ -2190,7 +2190,7 @@ pub const Facts = struct {
 
 /// The per-node records of `SemContext` outside `Facts` that a check
 /// writes, which the trail covers with every column of `Facts`.
-pub const CtxColumn = enum { write_sites, untakeable, discards };
+pub const CtxColumn = enum { write_sites, untakeable, discards, kept_reported, closures_reported, closures_in_error, uncaptured_reported };
 
 /// A map the trail covers: a column of `Facts`, or a record of
 /// `SemContext` (`CtxColumn`).
@@ -4280,6 +4280,26 @@ pub const SemContext = struct {
     /// the path to them allows no write (`recordUntakeable`). Only a
     /// diagnostic's hint reads it, so it is no fact.
     untakeable: FastMap(NodeKey, void) = .empty,
+    // What the type checker reported once and does not report again: on
+    // the trail with the facts, so a check taken back reports it again.
+    /// The calls whose lasting views were reported (`keptViews`), so that
+    /// one reached from two kept values is reported once.
+    kept_reported: FastMap(NodeKey, void) = .empty,
+    /// The closure literals whose errors were reported by a check aloud
+    /// given the parameter types their call gives them (`closureErrors`,
+    /// `lambdaLeftUnbound`), where the call then stops: `synthArgs`
+    /// leaves them out, since its check, with no parameter types and as
+    /// one that cannot fail, would report errors the closure has not.
+    closures_reported: FastMap(NodeKey, void) = .empty,
+    /// The closure literals a std form calls that check clean neither as
+    /// one that cannot fail nor as one that can (`closureType`,
+    /// `reduceFunction`): the call reports their errors and gives poison,
+    /// so whether it fails, which the closure's errors leave open, adds
+    /// no error of its own (`closureResult`).
+    closures_in_error: FastMap(NodeKey, void) = .empty,
+    /// The closures and outer locals whose missing capture was reported
+    /// (`useName`), each a closure's scope above a local's symbol.
+    uncaptured_reported: FastMap(u64, void) = .empty,
     facts: Facts = .{},
     /// The facts recorded since the oldest open mark, so a check can be
     /// taken back (`mark`, `rollback`).
@@ -4711,6 +4731,10 @@ pub const SemContext = struct {
         self.diagnostics.deinit(self.allocator);
         self.reported.deinit(self.allocator);
         self.untakeable.deinit(self.allocator);
+        self.kept_reported.deinit(self.allocator);
+        self.closures_reported.deinit(self.allocator);
+        self.closures_in_error.deinit(self.allocator);
+        self.uncaptured_reported.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.trail.deinit(self.allocator);
         self.declared_origins.deinit(self.allocator);

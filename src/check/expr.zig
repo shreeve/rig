@@ -247,8 +247,8 @@ pub fn useName(self: *Checker, leaf: Sexp) Error!?SymbolId {
                 // One error for each closure and local, at its first
                 // use: the capture it names fixes every use.
                 const key = (@as(u64, crossed_lambda.?) << 32) | id;
-                if (self.uncaptured_reported.contains(key)) return id;
-                if (self.ctx.quiet == 0) try self.uncaptured_reported.put(self.ctx.arena.allocator(), key, {});
+                if (self.ctx.uncaptured_reported.contains(key)) return id;
+                if (self.ctx.quiet == 0) try self.ctx.putIn(.{ .ctx = .uncaptured_reported }, key, {});
                 try self.errAt(leaf, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` makes a view of it, `|~{s}|` holds it weakly)", .{ name, name, name, name, name, name });
             }
             return id;
