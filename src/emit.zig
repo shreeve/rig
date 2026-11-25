@@ -2388,7 +2388,7 @@ pub const Emitter = struct {
     /// named here: the var table must record it, held the same way, or
     /// emit would make storage the ownership checker did not walk.
     fn hiddenStorage(self: *Emitter, node: Sexp, kind: facts.StorageKind, by: facts.StorageBy, suffix: StorageSuffix) Error![]const u8 {
-        const fact = self.facts.varOf(node, kind) orelse return self.unsupported(node, "hidden storage the var table does not record");
+        const fact = try self.needVar(node, kind);
         // A statement's slot is declared before it runs; its value is
         // written where the temporary is.
         if (kind != .temp and kind != .held_header) try self.inUnit(node);
@@ -2441,8 +2441,7 @@ pub const Emitter = struct {
     /// no slot: the var table must record it (`zig_temp`), so the checker
     /// knew emit reaches it there.
     fn zigTemporary(self: *Emitter, node: Sexp) Error!void {
-        const fact = self.facts.varOf(node, .zig_temp) orelse return self.unsupported(node, "an address of a value Zig holds that the var table does not record");
-        if (fact.by != .owned) return self.unsupported(node, "a Zig temporary held other than its storage fact says");
+        if ((try self.needVar(node, .zig_temp)).by != .owned) return self.unsupported(node, "a Zig temporary held other than its storage fact says");
     }
 
     /// A decision a pass made before emit (`facts.Question`), which emit
@@ -2999,7 +2998,7 @@ pub const Emitter = struct {
             else => return self.unsupported(value, "a destructure of one value"),
         };
         if (parts.len != targets.len) return self.unsupported(node, "a destructure of the wrong arity");
-        const kinds = (try self.need(self.facts.varOf(node, .results), node)).parts;
+        const kinds = (try self.needVar(node, .results)).parts;
         if (kinds.len != targets.len) return self.unsupported(node, "a destructure of results the plan did not part");
         var drops = false;
         for (targets, kinds) |t, k| if (!t.isKind(.set) and k != null) {
@@ -3039,12 +3038,7 @@ pub const Emitter = struct {
         // A discarded resource is dropped at once, and so is what a
         // method gives through a type parameter, whose type each
         // instance decides.
-        if (self.facts.isTypeParamCall(expr)) {
-            try self.w.writeAll("rig.discard(");
-            try self.emitBare(expr);
-            return self.w.writeAll(");");
-        }
-        if (try self.dropOf(expr, .discard) != null) {
+        if (self.facts.isTypeParamCall(expr) or try self.dropOf(expr, .discard) != null) {
             try self.w.writeAll("rig.discard(");
             try self.emitBare(expr);
             return self.w.writeAll(");");
@@ -3740,7 +3734,7 @@ pub const Emitter = struct {
         const id = self.nextId();
         const names = try self.arena.allocator().alloc([]const u8, parts.len);
         const flags = try self.arena.allocator().alloc(?[]const u8, parts.len);
-        const kinds = (try self.need(self.facts.varOf(value, .argument), value)).parts;
+        const kinds = (try self.needVar(value, .argument)).parts;
         if (kinds.len != parts.len) return self.unsupported(value, "results of another arity than the function's");
         try self.openBrace();
         for (parts, tys, kinds, names, flags, 0..) |p, ty, kind, *name, *flag, i| {
@@ -11734,7 +11728,13 @@ pub const Emitter = struct {
     /// How the var of `kind` that holds the value of `e`, or a discard of
     /// it, drops it (`Var.drop`), or null when it owns nothing.
     fn dropOf(self: *Emitter, e: Sexp, kind: facts.StorageKind) Error!?ResourceKind {
-        return (try self.need(self.facts.varOf(e, kind), e)).drop;
+        return (try self.needVar(e, kind)).drop;
+    }
+
+    /// The var of `kind` the plan made for `node`: one it did not make is
+    /// storage the ownership checker did not walk, an internal error.
+    fn needVar(self: *Emitter, node: Sexp, kind: facts.StorageKind) Error!facts.Var {
+        return self.facts.varOf(node, kind) orelse self.unsupported(node, "hidden storage the var table does not record");
     }
 
     fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {
