@@ -1201,15 +1201,6 @@ pub const Emitter = struct {
         return self.isErrorValueTy(self.unwrapOptionals(self.peelViews(ty)));
     }
 
-    /// Whether `sexp` names an error member, `E.name` or `E.name(fields)`,
-    /// which emit writes as what the function fails with itself.
-    fn namesErrorMember(self: *Emitter, sexp: Sexp) bool {
-        if (sexp.isKind(.enum_lit) or self.facts.isErrorMember(sexp)) return true;
-        if (!sexp.isKind(.call)) return false;
-        const callee = ir.Call.callee(sexp);
-        return callee.isKind(.member) and self.facts.typeOf(callee) == null;
-    }
-
     fn enterNominal(self: *Emitter, name_node: Sexp, generic: bool, members: []const Sexp) Error!?Nominal {
         const prev = self.nominal;
         const sym = self.facts.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved type");
@@ -7392,7 +7383,7 @@ pub const Emitter = struct {
             const value = operands[1 - i];
             const member = operands[i];
             const vt = self.typeOf(value) orelse continue;
-            if (!self.isErrorValueTy(self.peelViews(vt)) or !self.namesErrorMember(member) or member.isKind(.call)) continue;
+            if (!self.isErrorValueTy(self.peelViews(vt)) or !self.facts.namesErrorMember(member) or member.isKind(.call)) continue;
             const temp = try self.dropsWhenTested(value);
             if (kind == .@"!=") try self.w.writeAll("!");
             try self.w.writeAll(if (temp) rt(.isErrorDiscard) ++ "(" else rt(.isError) ++ "(");

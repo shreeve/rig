@@ -5369,6 +5369,15 @@ pub const SemContext = struct {
         return self.facts.error_members.contains(nodeKey(node) orelse return false);
     }
 
+    /// Whether `e` names an error member, `E.name` or `E.name(fields)`,
+    /// which a function fails with itself.
+    pub fn namesErrorMember(self: *const SemContext, e: Sexp) bool {
+        if (e.isKind(.enum_lit) or self.isErrorMember(e)) return true;
+        if (!e.isKind(.call)) return false;
+        const callee = ir.Call.callee(e);
+        return callee.isKind(.member) and self.typeOf(callee) == null;
+    }
+
     pub fn isEnumText(self: *const SemContext, node: Sexp) bool {
         return self.facts.enum_texts.contains(nodeKey(node) orelse return false);
     }
