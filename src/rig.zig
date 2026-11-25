@@ -2962,19 +2962,6 @@ pub fn hiddenIteratorName() []const u8 {
 /// there ends with no overflow.
 pub const last_hidden_pos: u32 = std.math.maxInt(u32) - 2;
 
-/// A leaf for a name no source text holds, at `pos` inside the `for`
-/// keyword (which holds no leaf); its `id` tells `leafText` which name.
-fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
-    return .{ .src = .{ .pos = pos, .len = 1, .id = hidden_id_base + @intFromEnum(name) } };
-}
-
-/// The integer leaf of byte `value`, which spans `len` bytes at `pos`
-/// (a string literal where a `U8` goes, or one byte of one where a
-/// `[N]U8` goes) and reads as its decimal value.
-fn byteLeaf(pos: u32, len: u16, value: u8) Sexp {
-    return .{ .src = .{ .pos = pos, .len = len, .id = byte_id_base + value } };
-}
-
 /// Leaf ids from here to `hidden_id_base` are bytes (`byteLeaf`).
 const byte_id_base: u16 = 0xFE00;
 
@@ -4519,7 +4506,7 @@ pub const Parser = struct {
     /// that ends only by a jump, and the one that gives a value.
     fn loopBlock(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const at = self.span(node);
-        return self.base.newNode(.@"while", &.{ hiddenLeaf(at.start, .true_value), .nil, ir.Loop.body(node), .nil }, at);
+        return self.base.newNode(.@"while", &.{ self.hiddenLeaf(at.start, .true_value), .nil, ir.Loop.body(node), .nil }, at);
     }
 
     /// The slot of a node of `kind` whose parentheses, a `paren` the
@@ -4818,7 +4805,7 @@ pub const Parser = struct {
         const pat_at = self.span(pattern);
         const pass = try self.base.newNode(.pass, &.{}, pat_at);
         const arm = try self.base.newNode(.arm, &.{ pattern, .nil, pass }, pat_at);
-        const other = try self.base.newNode(.arm, &.{ hiddenLeaf(pat_at.start, .discard), .nil, try self.base.newNode(.pass, &.{}, pat_at) }, pat_at);
+        const other = try self.base.newNode(.arm, &.{ self.hiddenLeaf(pat_at.start, .discard), .nil, try self.base.newNode(.pass, &.{}, pat_at) }, pat_at);
         const match = try self.base.newNode(.match, &.{ ir.get(node, .value), arm, other }, at);
         return self.base.newNode(.as_match, &.{match}, at);
     }
@@ -4918,9 +4905,9 @@ pub const Parser = struct {
         const kw = self.matchesKeyword(node);
         const pattern = ir.get(node, .pattern);
         const pat_at = self.span(pattern);
-        const yes = then orelse hiddenLeaf(kw + 1, .true_value);
+        const yes = then orelse self.hiddenLeaf(kw + 1, .true_value);
         const arm = try self.base.newNode(.arm, &.{ pattern, .nil, yes }, pat_at);
-        const other = try self.base.newNode(.arm, &.{ hiddenLeaf(kw, .discard), .nil, hiddenLeaf(kw + 2, .false_value) }, pat_at);
+        const other = try self.base.newNode(.arm, &.{ self.hiddenLeaf(kw, .discard), .nil, self.hiddenLeaf(kw + 2, .false_value) }, pat_at);
         return self.base.newNode(.match, &.{ ir.get(node, .value), arm, other }, at);
     }
 
@@ -5416,7 +5403,7 @@ pub const Parser = struct {
         const at = self.span(node);
         const moved = try self.base.newNode(.move, &.{ir.get(node, .operand)}, at);
         try self.mark(.self_sigil, moved);
-        const member = try self.base.newNode(.member, &.{ moved, hiddenLeaf(at.start, .wait) }, at);
+        const member = try self.base.newNode(.member, &.{ moved, self.hiddenLeaf(at.start, .wait) }, at);
         return self.base.newNode(.call, &.{ .nil, member }, at);
     }
 
@@ -5611,7 +5598,7 @@ pub const Parser = struct {
             self.reject(place, "a captured field path is longer than 65533 bytes; bind it to a shorter name first, and capture the name");
             return node;
         }
-        out[ir.slot(.cap_read, .name)] = .{ .src = .{ .pos = at.start, .len = @intCast(text.len + 1), .id = path_capture_id } };
+        out[ir.slot(.cap_read, .name)] = .{ .src = self.base.newLeaf(at.start, @intCast(text.len + 1), path_capture_id) };
         out[ir.slot(.cap_read, .value)] = try self.base.newNode(sigil, &.{place}, at);
         return node;
     }
@@ -5677,7 +5664,7 @@ pub const Parser = struct {
                 self.reject(node, std.fmt.allocPrint(self.allocator(), "write `{s}`, the path this closure captures, on one line", .{path}) catch "write the path this closure captures on one line");
                 return null;
             };
-            return .{ .src = .{ .pos = self.span(node).start, .len = @intCast(text.len), .id = 0 } };
+            return .{ .src = self.base.newLeaf(self.span(node).start, @intCast(text.len), 0) };
         };
         const items = node.items();
         var copy: ?[]Sexp = null;
@@ -5762,7 +5749,7 @@ pub const Parser = struct {
         const out = try self.allocator().alloc(Sexp, count);
         @memcpy(out[0..have.len], have);
         const at = self.span(lambda).start;
-        for (out[have.len..]) |*p| p.* = hiddenLeaf(try self.hiddenPos(at), .discard);
+        for (out[have.len..]) |*p| p.* = self.hiddenLeaf(try self.hiddenPos(at), .discard);
         slot.* = try self.base.newList(out, .{ .start = at, .end = at });
     }
 
@@ -5816,11 +5803,11 @@ pub const Parser = struct {
             .src => |leaf| if (at.get(leaf.pos)) |i| {
                 const lit = lits[i];
                 if (!lit.array) {
-                    slot.* = byteLeaf(leaf.pos, leaf.len, lit.bytes[0]);
+                    slot.* = self.byteLeaf(leaf.pos, leaf.len, lit.bytes[0]);
                     return;
                 }
                 const elems = try self.allocator().alloc(Sexp, lit.bytes.len);
-                for (lit.bytes, elems, 0..) |b, *e, k| e.* = byteLeaf(leaf.pos + 1 + @as(u32, @intCast(k)), 1, b);
+                for (lit.bytes, elems, 0..) |b, *e, k| e.* = self.byteLeaf(leaf.pos + 1 + @as(u32, @intCast(k)), 1, b);
                 slot.* = try self.base.newNode(.array, elems, .{ .start = leaf.pos, .end = leafEnd(self.base.source, leaf) });
             },
             .list => for (@constCast(slot.items())) |*child| try self.bytesAt(child, lits, at),
@@ -6370,16 +6357,32 @@ pub const Parser = struct {
         return @enumFromInt(HiddenName.first_stage + (n - 1) * 3);
     }
 
+    /// A leaf for a name no source text holds, at `pos` inside the `for`
+    /// keyword (which holds no leaf); its `id` tells `leafText` which
+    /// name. Like every leaf the wrapper makes, it has a leaf id of its
+    /// own (`parser.BaseParser.newLeaf`), so a fact about it is about it
+    /// alone.
+    fn hiddenLeaf(self: *Parser, pos: u32, name: HiddenName) Sexp {
+        return .{ .src = self.base.newLeaf(pos, 1, hidden_id_base + @intFromEnum(name)) };
+    }
+
+    /// The integer leaf of byte `value`, which spans `len` bytes at `pos`
+    /// (a string literal where a `U8` goes, or one byte of one where a
+    /// `[N]U8` goes) and reads as its decimal value.
+    fn byteLeaf(self: *Parser, pos: u32, len: u16, value: u8) Sexp {
+        return .{ .src = self.base.newLeaf(pos, len, byte_id_base + value) };
+    }
+
     /// A leaf of hidden name `name` at a position past the source's end,
     /// which `span` reads as `home`.
     fn synthLeaf(self: *Parser, home: u32, name: HiddenName) std.mem.Allocator.Error!Sexp {
-        return hiddenLeaf(try self.hiddenPos(home), name);
+        return self.hiddenLeaf(try self.hiddenPos(home), name);
     }
 
     /// A leaf whose text is `text`, at a position past the source's end
     /// that `span` reads as `home` (`named_id_base`).
     pub fn namedLeaf(self: *Parser, home: u32, text: []const u8) std.mem.Allocator.Error!Sexp {
-        return .{ .src = .{ .pos = try self.hiddenPos(home), .len = 1, .id = try namedId(text) } };
+        return .{ .src = self.base.newLeaf(try self.hiddenPos(home), 1, try namedId(text)) };
     }
 
     /// Where a position past the source's end belongs (`hiddenPos`): its
@@ -6845,11 +6848,11 @@ pub const Parser = struct {
             // its `for`, so the loop does not enclose its declaration:
             // what it holds stays in force through every iteration
             // (`ownership.Checker.liveFrom`).
-            hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, hiddenLeaf(key - 1, .iterator), .nil, value }, at);
-            iter = hiddenLeaf(key + 2, .iterator);
+            hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, self.hiddenLeaf(key - 1, .iterator), .nil, value }, at);
+            iter = self.hiddenLeaf(key + 2, .iterator);
         }
         const view = try self.base.newNode(.write, &.{iter}, at);
-        const member = try self.base.newNode(.member, &.{ view, hiddenLeaf(key, .next) }, at);
+        const member = try self.base.newNode(.member, &.{ view, self.hiddenLeaf(key, .next) }, at);
         const call = try self.base.newNode(.call, &.{ .nil, member }, at);
         const bound = try self.base.newNode(.as, &.{ call, binding }, .{ .start = self.span(binding).start, .end = at.end });
         const out = try self.allocator().alloc(Sexp, 5);
@@ -6867,7 +6870,7 @@ pub const Parser = struct {
         const slot = ir.slot(.@"for", .@"var");
         if (items[slot] != .nil) return;
         const at = self.span(loop).start;
-        items[slot] = hiddenLeaf(at, .discard);
+        items[slot] = self.hiddenLeaf(at, .discard);
     }
 
     /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.
@@ -7321,13 +7324,13 @@ test "hidden leaves take the positions past the source's end, up to `last_hidden
     defer p.deinit();
     const first = try p.hiddenPos(3);
     try testing.expectEqual(@as(u32, source.len + 1), first);
-    try testing.expectEqual(parser.Span{ .start = 3, .end = 3 }, p.span(hiddenLeaf(first, .discard)));
+    try testing.expectEqual(parser.Span{ .start = 3, .end = 3 }, p.span(p.hiddenLeaf(first, .discard)));
     // As many as fit past a source of the most bytes a module holds;
     // the last ends with no overflow, and one more is out of room.
     p.padded = last_hidden_pos - 1 - source.len;
     const last = try p.hiddenPos(5);
     try testing.expectEqual(last_hidden_pos, last);
-    try testing.expectEqual(last_hidden_pos + 1, leafEnd(source, hiddenLeaf(last, .discard).src));
+    try testing.expectEqual(last_hidden_pos + 1, leafEnd(source, p.hiddenLeaf(last, .discard).src));
     try testing.expectError(error.OutOfMemory, p.hiddenPos(5));
 }
 
@@ -7553,6 +7556,52 @@ test "parser: a self sigil moves onto the place before the method" {
     var head = stmts[8];
     while (!head.isKind(.write)) head = if (head.isKind(.call)) ir.Call.callee(head) else ir.get(head, .object);
     try testing.expect(p.marked(.self_sigil, head) and ir.Write.operand(head) == .src);
+}
+
+/// Each leaf of `node` in `seen`, by leaf id: a leaf with none, or one
+/// whose id another leaf holds, fails.
+fn expectOwnLeafIds(seen: *std.AutoHashMapUnmanaged(parser.LeafId, parser.Src), node: Sexp) !void {
+    switch (node) {
+        .src => |leaf| {
+            try testing.expect(leaf.leaf != 0);
+            const got = try seen.getOrPut(testing.allocator, leaf.leaf);
+            if (got.found_existing) try testing.expect(got.value_ptr.pos == leaf.pos and got.value_ptr.len == leaf.len and got.value_ptr.id == leaf.id);
+            got.value_ptr.* = leaf;
+        },
+        .list => for (node.items()) |child| try expectOwnLeafIds(seen, child),
+        else => {},
+    }
+}
+
+test "parser: every leaf the wrapper makes has a leaf id no other leaf holds" {
+    // A bare `for`'s `_`, `loop`'s `true`, a chain's hidden names, a
+    // byte literal, a captured path, and a closure padded to its type.
+    const source =
+        \\sub main()
+        \\  xs = [1, 2]
+        \\  for xs
+        \\    print(1)
+        \\  loop
+        \\    break
+        \\  print(xs.map(|x| x + 1).count())
+        \\  b: U8 = "a"
+        \\  p = P(a: 1)
+        \\  g = |?p.a| p.a
+        \\  f = |a| a
+        \\
+    ;
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    const body = ir.Sub.body(ir.Module.decls(tree)[0]).items();
+    const lambda = ir.Set.value(body[body.len - 1]);
+    try p.padLambda(lambda, 3);
+    try testing.expectEqual(@as(usize, 3), ir.Lambda.params(lambda).items().len);
+    var seen: std.AutoHashMapUnmanaged(parser.LeafId, parser.Src) = .empty;
+    defer seen.deinit(testing.allocator);
+    try expectOwnLeafIds(&seen, tree);
+    var it = seen.keyIterator();
+    while (it.next()) |id| try testing.expect(id.* <= p.base.leafCount());
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {
