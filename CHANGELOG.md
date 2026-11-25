@@ -664,6 +664,11 @@ serve no HTTP.
 
 ### Compiler
 
+- **A `for` over a chain may not bind a name that hides a local,** as any
+  `for` may not: `x = 1` then `for x in xs.filter(f)` is rejected with
+  "`for` binding `x` shadows the local `x`; use a different name". A
+  program 0.3.0 accepted with such a loop is rejected; rename the loop's
+  binding.
 - **Each body is lowered to LIR, in shadow** (docs/internals/INTERNALS.md,
   "LIR"): a self-checking build lowers every function, `sub`, test, and
   `drop` body to a structured lowered IR, with its bindings, its hidden

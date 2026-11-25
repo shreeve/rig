@@ -1074,8 +1074,10 @@ const SymbolResolver = struct {
             },
             .shadow => {
                 try self.checkCapturedRoot(target);
-                // A name a `for` over a chain binds is a loop binding.
+                // A name a `for` over a chain binds is a loop binding,
+                // which may not hide a local, as any `for`'s may not.
                 const loop_name = if (self.ctx.parser) |p| p.isLoopName(target) else false;
+                if (loop_name) try self.checkShadowing(target, "`for` binding");
                 _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda), .pattern_bound = loop_name });
             },
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
