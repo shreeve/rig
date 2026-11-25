@@ -1757,8 +1757,9 @@ pub fn strongest(apis: Apis) Apis {
 pub const SymbolRef = packed struct(u64) { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
 
 /// The built-ins' module: a built-in is named in module 0, which no
-/// file is; every module registers the built-ins first, at the same ids,
-/// and reads a module-0 symbol from its own table.
+/// file is. Its context registers them once for the program
+/// (`program.Types.base`); every module's table starts with its symbols,
+/// at the same ids, so a module reads a module-0 symbol from its own.
 pub const builtin_module: u32 = 0;
 
 /// The built-in types and enums, each by its `SymbolRef` in module 0
@@ -4198,11 +4199,12 @@ pub const SemContext = struct {
     /// build.
     sealed: std.StaticBitSet(n_columns) = .empty,
 
-    /// The built-in types, by their names in module 0 (`Builtins`).
-    builtins: Builtins = .{},
-    /// The symbols below this id are the built-ins, which every module
-    /// registers first, at the same ids (`ref`); every symbol is, while
-    /// they are registered.
+    /// The built-in types, by their names in module 0: the program's
+    /// (`program.Types.builtins`).
+    builtins: *const Builtins,
+    /// The symbols below this id are the built-ins, module 0's, which
+    /// every module's table starts with, at the same ids (`ref`); every
+    /// symbol is, while they are registered.
     builtin_end: SymbolId = std.math.maxInt(SymbolId),
     /// The module makes a task (`f(x)&`): the program's root declares
     /// `__rig_tasks`, which runs it on the scheduler.
@@ -4601,6 +4603,7 @@ pub const SemContext = struct {
             .program_types = types,
             .owns_types = shared == null,
             .types_start = if (types.ready) @intCast(types.store.items.items.len) else 0,
+            .builtins = &types.builtins,
             .type_memo = undefined,
         };
         // The types every store starts with are every module's.
@@ -6144,7 +6147,7 @@ pub const SemContext = struct {
     }
 
     /// Record that this module interned `id` (`interned`).
-    fn noteInterned(self: *SemContext, id: TypeId) std.mem.Allocator.Error!void {
+    pub fn noteInterned(self: *SemContext, id: TypeId) std.mem.Allocator.Error!void {
         if (id >= self.interned_set.bit_length) try self.interned_set.resize(self.allocator, @max(id + 1, self.interned_set.bit_length * 2), false);
         if (self.interned_set.isSet(id)) return;
         self.interned_set.set(id);
@@ -6340,7 +6343,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
 
     const scope = try ctx.pushScopeKind(scope_invalid, .module);
     std.debug.assert(scope == module_scope);
-    try resolve.registerBuiltins(&ctx, module_scope);
+    try resolve.seedBuiltins(&ctx);
     try resolve.resolveSymbols(&ctx, tree, module_scope);
     try resolve.resolveDeclarations(&ctx, tree, module_scope);
     const order = try computeContents(&ctx);

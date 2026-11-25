@@ -1189,7 +1189,12 @@ its contents, which it has from the start.
 id, and whether it is the root) and returns a `SemContext`, which every
 later pass reads. It runs these steps in order:
 
-1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `List[T]`,
+1. **builtins** (`resolve.seedBuiltins`): module 0, the program's own
+   context (`program.Types.base`), registers them once
+   (`resolve.registerBuiltins`), and every module's table starts with
+   its symbols, at the same ids, and its scope with their names, so a
+   built-in is `ctx.builtins.list`, a ref in module 0, in every module
+   (`program.Types.builtins`). `Cell[T]`, `List[T]`,
    `^T`, and `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
    and substitution as user generics, and `Endian`, `Arch`, `Os`, and
@@ -3105,7 +3110,7 @@ against a scan byte by byte.
 registered by `resolve.registerBuiltins`, after `Simd`, with an `Int`
 parameter `n`, and neither name is reserved: a module's own declaration
 hides the built-in one, as its `Order` does. A table is a generic
-instance, `parameterized_nominal` of `table_sym_id` over `[T, n]`; its
+instance, `parameterized_nominal` of `builtins.table` over `[T, n]`; its
 one member is `push(!@, T) -> Slot[n]`, and typing knows `len`, `t[s]`
 (`Checker.tableIndex`), `for`, and `Table()`
 (`Checker.checkTableConstruction`). A slot is a type of its own kind,
@@ -6074,9 +6079,7 @@ across modules, and only std.prelude's scope names them.
   of a Rig declaration of its signature with no `from` or `keeps`
   (`sema.signatureOrigins`): a reader's result views only the table, a
   writer stores the keys and values it takes, and nothing keeps a
-  closure. They are the same in every module, so the first module to
-  register a table works them out and the rest read them
-  (`resolve.TableOrigins`). `update` and `retain` pass their own entries to the closure as views
+  closure. `update` and `retain` pass their own entries to the closure as views
   (`Field.views_entries`), which makes the requirement a Rig body that
   did so would (`PlainRequirement.callable`). `ensure_with` calls
   `make` in the prelude (`add_made`), whose result held as a `V` makes

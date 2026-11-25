@@ -676,7 +676,7 @@ pub const Emitter = struct {
         try self.emitTestTable();
         if (self.uses_module) try self.w.writeAll("\nconst __rig_module = @This();\n");
         if (self.uses_names) try self.emitNamesTable();
-        for ([_]SymbolId{ self.facts.endian_sym_id.sym, self.facts.arch_sym_id.sym, self.facts.os_sym_id.sym, self.facts.feature_sym_id.sym, self.facts.order_sym_id.sym }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
+        for ([_]SymbolId{ self.facts.builtins.endian.sym, self.facts.builtins.arch.sym, self.facts.builtins.os.sym, self.facts.builtins.feature.sym, self.facts.builtins.order.sym }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
         if (self.uses_symbols) try self.w.print("\nconst __rig_sym = @import(\"{s}\");\n", .{symbols_filename});
         if (self.cut_exports.items.len > 0) {
             try self.w.writeAll("\ncomptime {\n    if (" ++ rt(.split) ++ ".on) {\n        @setEvalBranchQuota(" ++ rt(.eval_quota) ++ ");\n");
@@ -8562,7 +8562,7 @@ pub const Emitter = struct {
             if (t == .any_error) try self.w.writeAll(rt(.ErrorValue)) else try self.emitBuiltinTy(t);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, t)});
         }
-        for ([_]SymbolId{ ctx.endian_sym_id.sym, ctx.arch_sym_id.sym, ctx.os_sym_id.sym, ctx.feature_sym_id.sym, ctx.order_sym_id.sym, ctx.printer_sym_id.sym, ctx.hasher_sym_id.sym }) |sym| {
+        for ([_]SymbolId{ ctx.builtins.endian.sym, ctx.builtins.arch.sym, ctx.builtins.os.sym, ctx.builtins.feature.sym, ctx.builtins.order.sym, ctx.builtins.printer.sym, ctx.builtins.hasher.sym }) |sym| {
             try self.w.writeAll("        .{ ");
             try self.writeNominalName(sym);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, .{ .nominal = ctx.refOf(sym) })});
@@ -8571,13 +8571,13 @@ pub const Emitter = struct {
         for (0..ctx.symbols.items.len) |i| {
             const sym: SymbolId = @intCast(i);
             // A box is named as a handle is, from its shape (`rig.typeName`).
-            if (!ctx.isBuiltinGeneric(sym) or ctx.refOf(sym) == ctx.box_sym_id) continue;
+            if (!ctx.isBuiltinGeneric(sym) or ctx.refOf(sym) == ctx.builtins.box) continue;
             try self.w.writeAll("        .{ ");
             try self.writeNominalName(sym);
             try self.w.writeAll(", ");
             try self.writeSpelling(try ctx.formatGenericSelfMarked(a, sym), .parts, sym);
             try self.w.writeAll(" },\n");
-            if (ctx.refOf(sym) == ctx.list_sym_id) {
+            if (ctx.refOf(sym) == ctx.builtins.list) {
                 try self.w.writeAll("        .{ " ++ rt(.InlineList) ++ ", ");
                 try self.writeSpelling(try ctx.formatInlineListMarked(a), .parts, sym);
                 try self.w.writeAll(" },\n");
@@ -9538,8 +9538,8 @@ pub const Emitter = struct {
             if (self.facts.isNumeric(t)) return self.emitConversion(sexp);
             if (self.facts.types.get(t) == .parameterized_nominal) {
                 const g = self.facts.types.get(t).parameterized_nominal.sym;
-                if (g == self.facts.list_sym_id) return self.emitListConstruction(sexp);
-                if (g == self.facts.signal_sym_id) {
+                if (g == self.facts.builtins.list) return self.emitListConstruction(sexp);
+                if (g == self.facts.builtins.signal) {
                     try self.emitTypeTy(t);
                     return self.emitSignalConstruction(sexp);
                 }
@@ -9564,9 +9564,9 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             };
             if (self.facts.symbolOf(callee)) |sym_id| {
-                if (self.facts.refOf(sym_id) == self.facts.list_sym_id) return self.emitListConstruction(sexp);
-                if (self.facts.refOf(sym_id) == self.facts.table_sym_id) return self.emitTableConstruction(sexp);
-                if (self.facts.refOf(sym_id) == self.facts.signal_sym_id) return self.emitSignalConstruction(sexp);
+                if (self.facts.refOf(sym_id) == self.facts.builtins.list) return self.emitListConstruction(sexp);
+                if (self.facts.refOf(sym_id) == self.facts.builtins.table) return self.emitTableConstruction(sexp);
+                if (self.facts.refOf(sym_id) == self.facts.builtins.signal) return self.emitSignalConstruction(sexp);
                 if (self.isTypeSym(sym_id)) return self.emitConstructor(sexp, sym_id);
             }
         }
@@ -9769,14 +9769,14 @@ pub const Emitter = struct {
         // of their own: a deadline is the task's (`time.within`).
         // Each wait, a task's or a set's, takes the slot (`waitInto`,
         // `wait_allInto`, ...).
-        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.tasks_sym_id)) {
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.builtins.tasks)) {
             if (rig.isWaitMember(callee)) {
                 const out = self.slotOf(sexp);
                 try self.emitMemberNamed(callee, "wait_all");
                 return self.w.print("Into({s})", .{out});
             }
         };
-        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.task_sym_id)) {
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.builtins.task)) {
             const out = self.slotOf(sexp);
             try self.emitExpr(callee);
             return self.w.print("Into({s})", .{out});
@@ -10646,7 +10646,7 @@ pub const Emitter = struct {
         if (!e.isKind(.call) or self.facts.calleeOf(e) != .src) return false;
         if (self.localOf(self.facts.calleeOf(e))) |local| if (local.stack_closure) return false;
         const sym_id = self.facts.symbolOf(self.facts.calleeOf(e)) orelse return false;
-        return self.facts.refOf(sym_id) != self.facts.list_sym_id and self.facts.refOf(sym_id) != self.facts.signal_sym_id and self.facts.refOf(sym_id) != self.facts.box_sym_id and self.isTypeSym(sym_id);
+        return self.facts.refOf(sym_id) != self.facts.builtins.list and self.facts.refOf(sym_id) != self.facts.builtins.signal and self.facts.refOf(sym_id) != self.facts.builtins.box and self.isTypeSym(sym_id);
     }
 
     /// Constructor call `Name(field: v, ...)`: a struct literal typed by
@@ -11527,7 +11527,7 @@ pub const Emitter = struct {
             .parameterized_nominal => |pn| {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("__rig_Self");
                 // `^{Shape}`: `rig.ApiBox(__rig_table_Shape)`.
-                if (pn.sym == ctx.box_sym_id) if (ctx.objectBox(ty)) |o| {
+                if (pn.sym == ctx.builtins.box) if (ctx.objectBox(ty)) |o| {
                     try self.w.writeAll(rt(.ApiBox) ++ "(");
                     try self.writeTableName(o.api);
                     try self.w.writeAll(", ");
@@ -11632,9 +11632,9 @@ pub const Emitter = struct {
             }
             return self.w.writeAll(" })");
         }
-        if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym) or self.facts.refOf(sym) == self.facts.printer_sym_id or self.facts.refOf(sym) == self.facts.hasher_sym_id) {
+        if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym) or self.facts.refOf(sym) == self.facts.builtins.printer or self.facts.refOf(sym) == self.facts.builtins.hasher) {
             // The runtime's `Box(T)` is `^T`.
-            if (self.facts.refOf(sym) == self.facts.box_sym_id) return self.w.writeAll(rt(.Box));
+            if (self.facts.refOf(sym) == self.facts.builtins.box) return self.w.writeAll(rt(.Box));
             return self.w.print("rig.{s}", .{s.name});
         }
         try self.writeModuleName(s.name);
@@ -11760,14 +11760,14 @@ pub const Emitter = struct {
     /// A Cell holding a List, reached by value, view, or shared handle.
     fn isCellListTy(self: *Emitter, ty: TypeId) bool {
         const cell = switch (self.facts.types.get(self.facts.unwrapReadAccess(ty))) {
-            .parameterized_nominal => |pn| if (pn.sym == self.facts.cell_sym_id and pn.args.len == 1) pn.args[0] else return false,
+            .parameterized_nominal => |pn| if (pn.sym == self.facts.builtins.cell and pn.args.len == 1) pn.args[0] else return false,
             else => return false,
         };
         return self.isListTy(cell);
     }
 
     fn isListTy(self: *Emitter, ty: TypeId) bool {
-        return self.isBuiltinInstance(ty, self.facts.list_sym_id);
+        return self.isBuiltinInstance(ty, self.facts.builtins.list);
     }
 
     /// Whether a value of `ty` is a shared handle, or a view of one: a
