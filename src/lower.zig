@@ -45,6 +45,8 @@ pub const Module = struct {
     arena: std.heap.ArenaAllocator,
     /// Every body of the module, in the order the tree holds them.
     owners: std.ArrayList(Owner) = .empty,
+    /// The body `check` found a problem in.
+    bad: ?*const lir.Func = null,
 
     pub const Owner = struct {
         root: Sexp,
@@ -108,7 +110,15 @@ pub fn shadow(ctx: *const SemContext, tree: Sexp) !void {
     defer m.deinit();
     if (try check(ctx, &m, tree, &cov)) |p| {
         const at = diag.lineCol(ctx.source, ctx.startOf(p.node));
-        std.debug.panic("{d}:{d}: internal error: lir: {s}", .{ at.line, at.col, p.what });
+        // The body the problem is in, as text, before the report.
+        if (m.bad) |f| {
+            var buffer: [4096]u8 = undefined;
+            const w = std.debug.lockStderr(&buffer);
+            defer std.debug.unlockStderr();
+            lir.write(f, ctx, &w.file_writer.interface) catch {};
+            w.file_writer.interface.flush() catch {};
+        }
+        std.debug.panic("{s}:{d}:{d}: internal error: lir: {s}", .{ ctx.name, at.line, at.col, p.what });
     }
 }
 
@@ -127,6 +137,7 @@ pub fn writeModule(gpa: std.mem.Allocator, ctx: *const SemContext, tree: Sexp, w
     var cov: Coverage = .{};
     if (try check(ctx, &m, tree, &cov)) |p| {
         const at = diag.lineCol(ctx.source, ctx.startOf(p.node));
+        if (m.bad) |f| try lir.write(f, ctx, w);
         try w.print("lir: {d}:{d}: {s}\n", .{ at.line, at.col, p.what });
     }
     try w.print("lowered {d} of {d} bodies; {d} of {d} vars checked\n", .{ cov.lowered, cov.bodies, cov.checked, cov.vars });
@@ -163,6 +174,7 @@ pub fn check(ctx: *const SemContext, m: *Module, root: Sexp, cov: *Coverage) !?l
     cov.vars += @intCast(rows.len);
     for (m.owners.items, 0..) |o, oi| {
         const f = o.func orelse continue;
+        m.bad = f;
         cov.lowered += 1;
         if (try lir.verify(gpa, f)) |p| return p;
         var row: usize = 0;
@@ -188,6 +200,7 @@ pub fn check(ctx: *const SemContext, m: *Module, root: Sexp, cov: *Coverage) !?l
         while (row < rows.len and row_owner[row] != @as(u32, @intCast(oi))) row += 1;
         if (row < rows.len) return .{ .node = row_node[row], .what = try std.fmt.allocPrint(a, "the plan made a `{s}` var lowering did not", .{@tagName(row_kind[row])}) };
     }
+    m.bad = null;
     return null;
 }
 
@@ -261,6 +274,12 @@ const Lowerer = struct {
     hidden: std.AutoHashMapUnmanaged(storage.Vars.Key, VarId) = .empty,
     bindings: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
     call_blocks: std.AutoHashMapUnmanaged(u64, RegionId) = .empty,
+    /// The headers that make temporaries, each lowered in a region of its
+    /// own that ends them (`sema.firstStmtTemp`), and that region.
+    headers: std.AutoHashMapUnmanaged(u64, ?RegionId) = .empty,
+    /// The region that declares the bindings an `as` names: the body
+    /// its condition guards.
+    guarded: RegionId = 0,
     /// The bindings a use may move out (`storage.Binding.flag`).
     flags: std.DynamicBitSetUnmanaged = .{},
     skip: ?Module.Skip = null,
@@ -349,6 +368,7 @@ const Lowerer = struct {
         l.hidden.clearRetainingCapacity();
         l.bindings.clearRetainingCapacity();
         l.call_blocks.clearRetainingCapacity();
+        l.headers.clearRetainingCapacity();
         l.temps.clearRetainingCapacity();
         f.body = try f.addRegion(l.a, decl, .body);
         l.block = f.body;
@@ -358,7 +378,7 @@ const Lowerer = struct {
             if (storage.fnType(l.ctx, storage.typeOf(l.ctx, ir.get(decl, .name)))) |ft| l.results = sema.resultsOf(l.ctx, ft.returns);
         }
         try l.consumed(decl);
-        const params = ir.get(decl, .params);
+        const params: Sexp = if (decl.isKind(.@"test")) .nil else ir.get(decl, .params);
         if (params == .list) for (params.items()) |par| {
             const name = sema.paramNameNode(par) orelse continue;
             _ = try l.bindingVar(name, f.body);
@@ -424,7 +444,8 @@ const Lowerer = struct {
     /// The last statement of a body, whose value the body yields.
     fn valueStmt(l: *Lowerer, s: Sexp) Error!ExprId {
         const o = try l.openStmt(s);
-        l.region(o.region).value = try l.expr(s);
+        const value_1 = try l.expr(s);
+        l.region(o.region).value = value_1;
         try l.checkTemps(s, o.temps);
         l.stmt_region = o.stmt;
         l.temps.shrinkRetainingCapacity(o.temps);
@@ -495,7 +516,21 @@ const Lowerer = struct {
                 } else try l.stmt(body, b);
                 try l.step(r, .{ .region = b });
             },
-            .@"if", .@"while", .@"for", .match, .labeled => return l.uncovered(s, "control flow"),
+            .@"if" => {
+                const g = try l.guard(s, false);
+                try l.step(g.scope, .{ .@"if" = .{ .node = s, .cond = g.cond, .then = g.then, .@"else" = g.@"else" } });
+                try l.step(r, .{ .region = g.scope });
+            },
+            .@"while" => try l.whileLoop(s, r),
+            .labeled => {
+                _ = try l.expr(ir.Labeled.label(s));
+                const inner = ir.Labeled.stmt(s);
+                try l.consumed(inner);
+                if (!inner.isKind(.@"while")) return l.uncovered(inner, "loops");
+                try l.whileLoop(inner, r);
+            },
+            .@"for" => return l.uncovered(s, "loops"),
+            .match => return l.uncovered(s, "match"),
             else => try l.step(r, .{ .eval = try l.expr(s) }),
         }
     }
@@ -675,10 +710,24 @@ const Lowerer = struct {
             .list => {},
             else => return l.addExpr(.{ .leaf = e }),
         }
+        if (l.headers.get(sema.decisionKeyOf(e).?)) |h| if (h == null) return l.header(e, sema.decisionKeyOf(e).?);
         try l.consumed(e);
         const head = e.kind() orelse return l.op(e);
         switch (head) {
-            .@"if", .@"while", .@"for", .match, .labeled, .as, .as_results, .as_match, .matches => return l.uncovered(e, "control flow"),
+            .@"if" => {
+                const g = try l.guard(e, true);
+                const value_2 = try l.addExpr(.{ .branch = .{ .node = e, .cond = g.cond, .then = g.then, .@"else" = g.@"else" } });
+                l.region(g.scope).value = value_2;
+                const id = try l.addExpr(.{ .block = g.scope });
+                try l.note(e, id);
+                try l.temp(e);
+                try l.viewRules(e, id);
+                try l.conditionRules(e, g.scope);
+                return id;
+            },
+            .as, .as_results => return l.asExpr(e),
+            .@"for" => return l.uncovered(e, "loops"),
+            .match, .as_match, .matches => return l.uncovered(e, "match"),
             .lambda => return l.uncovered(e, "closures"),
             .call => {
                 if (ir.get(e, .task) != .nil) return l.uncovered(e, "tasks");
@@ -691,7 +740,8 @@ const Lowerer = struct {
                 l.block = b;
                 defer l.block = saved;
                 try l.blockTasks(e);
-                l.region(b).value = try l.stmts(e, b, true);
+                const value_3 = try l.stmts(e, b, true);
+                l.region(b).value = value_3;
                 const id = try l.addExpr(.{ .block = b });
                 try l.note(e, id);
                 try l.viewRules(e, id);
@@ -702,12 +752,13 @@ const Lowerer = struct {
                 const saved = l.block;
                 l.block = b;
                 defer l.block = saved;
-                l.region(b).value = try l.expr(ir.RawBlock.body(e));
+                const value_4 = try l.expr(ir.RawBlock.body(e));
+                l.region(b).value = value_4;
                 const id = try l.addExpr(.{ .block = b });
                 try l.note(e, id);
                 return id;
             },
-            .@"return", .@"break", .@"continue", .set, .destructure, .drop, .@"defer", .@"errdefer" => {
+            .@"return", .@"break", .@"continue", .set, .destructure, .drop, .@"defer", .@"errdefer", .@"while", .labeled => {
                 // A statement where a value goes: its temporaries are the
                 // statement's around it.
                 const r = try l.f.addRegion(l.a, e, .value);
@@ -719,6 +770,21 @@ const Lowerer = struct {
             .@"catch" => return l.catchExpr(e),
             else => return l.op(e),
         }
+    }
+
+    /// Header `e`, which makes temporaries, in a region of its own that
+    /// ends them and yields its value.
+    fn header(l: *Lowerer, e: Sexp, key: u64) Error!ExprId {
+        const h = try l.f.addRegion(l.a, e, .header);
+        try l.headers.put(l.a, key, h);
+        const o: Open = .{ .region = h, .stmt = l.stmt_region, .temps = l.temps.items.len };
+        l.stmt_region = h;
+        const value_5 = try l.expr(e);
+        l.region(h).value = value_5;
+        try l.checkTemps(e, o.temps);
+        l.stmt_region = o.stmt;
+        l.temps.shrinkRetainingCapacity(o.temps);
+        return l.addExpr(.{ .block = h });
     }
 
     /// The operation of `e` over its children, then the vars it makes.
@@ -789,7 +855,8 @@ const Lowerer = struct {
             l.block = h;
             if (name != .nil) _ = try l.bindingVar(name, h);
             const handler = ir.Catch.handler(e);
-            l.region(h).value = if (handler.isKind(.block)) try l.stmts(handler, h, true) else try l.expr(handler);
+            const handled = if (handler.isKind(.block)) try l.stmts(handler, h, true) else try l.expr(handler);
+            l.region(h).value = handled;
         }
         const args = try l.a.dupe(ExprId, &.{ value, try l.addExpr(.{ .block = h }) });
         const id = try l.addExpr(.{ .op = .{ .node = e, .args = args } });
@@ -800,6 +867,165 @@ const Lowerer = struct {
             _ = try l.hiddenVar(e, .error_value, .owned, .handler, null, h);
         };
         return id;
+    }
+
+    // -------------------------------------------------------------------------
+    // Conditions
+    // -------------------------------------------------------------------------
+
+    const Guard = struct { scope: RegionId, cond: ExprId, then: RegionId, @"else": ?RegionId };
+
+    /// The condition and branches of `if` node `e`; each branch yields a
+    /// value when `value`.
+    fn guard(l: *Lowerer, e: Sexp, value: bool) Error!Guard {
+        const scope = try l.f.addRegion(l.a, e, .guard);
+        const then_r = try l.f.addRegion(l.a, ir.If.then(e), .block);
+        const cond = try l.condition(ir.If.cond(e), scope);
+        try l.branch(ir.If.then(e), then_r, value);
+        var else_r: ?RegionId = null;
+        if (ir.If.@"else"(e) != .nil) {
+            else_r = try l.f.addRegion(l.a, ir.If.@"else"(e), .block);
+            try l.branch(ir.If.@"else"(e), else_r.?, value);
+        }
+        if (!value) try l.conditionRules(e, scope);
+        return .{ .scope = scope, .cond = cond, .then = then_r, .@"else" = else_r };
+    }
+
+    fn branch(l: *Lowerer, body: Sexp, r: RegionId, value: bool) Error!void {
+        const saved = l.block;
+        defer l.block = saved;
+        l.block = r;
+        try l.blockTasks(body);
+        const value_6 = try l.stmts(body, r, value);
+        l.region(r).value = value_6;
+    }
+
+    /// Condition `cond`, whose `as` parts bind names in region `body`:
+    /// each guard part that makes temporaries ends them in a region of
+    /// its own (`sema.isHeaderOf`).
+    fn condition(l: *Lowerer, cond: Sexp, body: RegionId) Error!ExprId {
+        const Parts = struct {
+            l: *Lowerer,
+            pub fn part(p: @This(), c: Sexp) Error!void {
+                if (c.isKind(.as_match)) return p.l.uncovered(c, "match");
+                const h = if (c.isKind(.as) or c.isKind(.as_results)) ir.get(c, .value) else c;
+                if (sema.firstStmtTemp(p.l.ctx, h) != null) try p.l.headers.put(p.l.a, sema.decisionKeyOf(h).?, null);
+            }
+        };
+        try rig.eachGuardPart(cond, Parts{ .l = l });
+        const saved = l.guarded;
+        defer l.guarded = saved;
+        l.guarded = body;
+        return l.expr(cond);
+    }
+
+    /// `v as name`, or `f() as a, b`: the names are bindings of the body
+    /// the condition guards.
+    fn asExpr(l: *Lowerer, e: Sexp) Error!ExprId {
+        const value = try l.expr(ir.get(e, .value));
+        const names: []const Sexp = if (e.isKind(.as)) &.{ir.As.name(e)} else ir.AsResults.names(e).items();
+        const args = try l.a.alloc(ExprId, 1 + names.len);
+        args[0] = value;
+        for (names, args[1..]) |n, *x| x.* = if (try l.bindingVar(n, l.guarded)) |v| try l.addExpr(.{ .@"var" = v }) else try l.expr(n);
+        const id = try l.addExpr(.{ .op = .{ .node = e, .args = args } });
+        try l.note(e, id);
+        try l.temp(e);
+        try l.viewRules(e, id);
+        return id;
+    }
+
+    /// The vars the guard parts of `if` or `while` node `e` make
+    /// (`storage.Planner.condition`), once its operands are lowered.
+    fn conditionRules(l: *Lowerer, e: Sexp, body: RegionId) Error!void {
+        const Parts = struct {
+            l: *Lowerer,
+            body: RegionId,
+            pub fn part(p: @This(), c: Sexp) Error!void {
+                const ll = p.l;
+                if (c.isKind(.as)) return ll.optional(c, p.body);
+                if (c.isKind(.as_results)) {
+                    try ll.subjectHeader(ir.AsResults.value(c));
+                    _ = try ll.hiddenVar(c, .results, .owned, .body, null, p.body);
+                    return;
+                }
+                try ll.headerVar(c);
+            }
+        };
+        try rig.eachGuardPart(ir.get(e, .cond), Parts{ .l = l, .body = body });
+    }
+
+    /// The var a header that makes temporaries yields: its value.
+    fn headerVar(l: *Lowerer, e: Sexp) Error!void {
+        try l.headerVarBy(e, .copy);
+    }
+
+    fn headerVarBy(l: *Lowerer, e: Sexp, by: StorageBy) Error!void {
+        if (e == .nil or sema.firstStmtTemp(l.ctx, e) == null) return;
+        const v = (try l.hiddenVar(e, .header_value, by, .header, null, l.stmt_region)) orelse return;
+        const h = (l.headers.get(sema.decisionKeyOf(e).?) orelse return) orelse return;
+        l.region(h).label = v;
+    }
+
+    /// A construct's subject `e` that makes temporaries: the region that
+    /// ends them yields the address of the place `e` reaches
+    /// (`storage.headerPoints`), or its value.
+    fn subjectHeader(l: *Lowerer, e: Sexp) Error!void {
+        if (e == .nil or sema.firstStmtTemp(l.ctx, e) == null) return;
+        const points = storage.headerPoints(l.ctx, e);
+        try l.headerVarBy(e, if (points) .pointer else .copy);
+        if (points and sema.handsOver(l.ctx, e).kind == .branches and !storage.isPtrViewExpr(l.ctx, e)) try l.leaf(e);
+    }
+
+    /// `if … as` or `while … as` (`storage.Planner.optional`).
+    fn optional(l: *Lowerer, cond: Sexp, body: RegionId) Error!void {
+        const ctx = l.ctx;
+        const value = ir.As.value(cond);
+        const name = ir.As.name(cond);
+        const used = if (name == .src) (if (ctx.symbolOf(name)) |s| ctx.isUsed(s) else false) else false;
+        if (ctx.headerOf(cond)) |how| {
+            if (how == .held) _ = try l.hiddenVar(cond, .held, .owned, .construct, if (ctx.heldBaseOf(cond)) |b| storage.dropOf(ctx, b) else null, l.stmt_region);
+            try l.subjectHeader(value);
+            if (used) _ = try l.hiddenVar(cond, .as_value, .pointer, .body, null, body);
+            return;
+        }
+        if (storage.viewsOptionalValue(ctx, value)) {
+            const generic = if (storage.typeOf(ctx, value)) |t| storage.genericReadView(ctx, t) != null else false;
+            const copy = !generic and ctx.copiesHeader(cond);
+            try l.subjectHeader(value);
+            if (used) {
+                _ = try l.hiddenVar(cond, .as_value, if (copy) .copy else .pointer, .body, null, body);
+                if (copy) _ = try l.hiddenVar(cond, .as_copy, .copy, .body, null, body);
+            }
+            return;
+        }
+        if (value.isKind(.move)) try l.headerVar(value) else try l.subjectHeader(value);
+        const sym = ctx.symbolOf(name);
+        const ty: ?TypeId = if (sym) |s| storage.known(ctx, ctx.symbols.items[s].ty) else if (storage.typeOf(ctx, value)) |t| switch (ctx.types.get(sema.unwrapViews(ctx, t))) {
+            .optional => |inner| inner,
+            else => null,
+        } else null;
+        if (ty != null and storage.owns(ctx, ty.?)) _ = try l.hiddenVar(cond, .as_value, .owned, .body, null, body);
+        if (used and storage.bindsStringBytes(ctx, cond)) _ = try l.hiddenVar(cond, .as_value, .pointer, .body, null, body);
+    }
+
+    /// `while cond: step` and its body.
+    fn whileLoop(l: *Lowerer, w: Sexp, r: RegionId) Error!void {
+        const scope = try l.f.addRegion(l.a, w, .guard);
+        const body_r = try l.f.addRegion(l.a, ir.While.body(w), .block);
+        const cond = try l.condition(ir.While.cond(w), scope);
+        var step_r: ?RegionId = null;
+        const st = ir.While.step(w);
+        if (st != .nil) {
+            step_r = try l.f.addRegion(l.a, st, .block);
+            const saved = l.block;
+            defer l.block = saved;
+            l.block = step_r.?;
+            try l.stmt(st, step_r.?);
+        }
+        try l.branch(ir.While.body(w), body_r, false);
+        try l.conditionRules(w, scope);
+        try l.step(scope, .{ .loop = .{ .node = w, .cond = cond, .body = body_r, .step = step_r } });
+        try l.step(r, .{ .region = scope });
     }
 
     // -------------------------------------------------------------------------

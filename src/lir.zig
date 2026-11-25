@@ -63,6 +63,8 @@ pub const Expr = union(enum) {
     hold: struct { v: VarId, value: ExprId },
     /// A region that yields a value.
     block: RegionId,
+    /// `if cond, then, else` where a value goes: each branch yields one.
+    branch: struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId },
 
     pub const Op = struct { node: Sexp, args: []const ExprId };
 };
@@ -83,6 +85,9 @@ pub const Step = union(enum) {
     region: RegionId,
     /// `if cond, then, else`.
     @"if": struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId },
+    /// `while cond: step`, running `body` while `cond` holds, then
+    /// `step`.
+    loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId },
 };
 
 /// A stretch of a function that declares vars, which live until it ends.
@@ -109,6 +114,9 @@ pub const Region = struct {
         header,
         /// Parts evaluated first, then the value they make.
         value,
+        /// An `if` or a `while` and the bindings its condition names,
+        /// which the condition's later parts and its body see.
+        guard,
     };
 };
 
@@ -230,6 +238,11 @@ const Verifier = struct {
                 try v.region(gpa, i.then);
                 if (i.@"else") |e| try v.region(gpa, e);
             },
+            .loop => |lp| {
+                try v.expr(gpa, lp.cond);
+                try v.region(gpa, lp.body);
+                if (lp.step) |st| try v.region(gpa, st);
+            },
         };
         if (r.value) |e| try v.expr(gpa, e);
         for (r.decls.items) |x| v.open.unset(x);
@@ -253,6 +266,11 @@ const Verifier = struct {
                 try v.expr(gpa, h.value);
             },
             .block => |r| try v.region(gpa, r),
+            .branch => |b| {
+                try v.expr(gpa, b.cond);
+                try v.region(gpa, b.then);
+                if (b.@"else") |e| try v.region(gpa, e);
+            },
         }
     }
 };
@@ -329,15 +347,16 @@ const Printer = struct {
                     }
                 },
                 .region => |sub| try p.region(sub, depth + 1),
-                .@"if" => |i| {
-                    try p.w.writeAll("if ");
-                    try p.expr(i.cond, depth + 1);
-                    try p.w.writeAll(" then ");
-                    try p.region(i.then, depth + 1);
-                    if (i.@"else") |e| {
-                        try p.w.writeAll(" else ");
-                        try p.region(e, depth + 1);
+                .@"if" => |i| try p.branch(i.cond, i.then, i.@"else", depth + 1),
+                .loop => |lp| {
+                    try p.w.writeAll("while ");
+                    try p.expr(lp.cond, depth + 1);
+                    if (lp.step) |st| {
+                        try p.w.writeAll(" step ");
+                        try p.region(st, depth + 1);
                     }
+                    try p.w.writeAll(" do ");
+                    try p.region(lp.body, depth + 1);
                 },
             }
             try p.w.writeAll("\n");
@@ -373,6 +392,18 @@ const Printer = struct {
                 try p.expr(h.value, depth);
             },
             .block => |r| try p.region(r, depth),
+            .branch => |b| try p.branch(b.cond, b.then, b.@"else", depth),
+        }
+    }
+
+    fn branch(p: *Printer, cond: ExprId, then: RegionId, @"else": ?RegionId, depth: usize) std.Io.Writer.Error!void {
+        try p.w.writeAll("if ");
+        try p.expr(cond, depth);
+        try p.w.writeAll(" then ");
+        try p.region(then, depth);
+        if (@"else") |e| {
+            try p.w.writeAll(" else ");
+            try p.region(e, depth);
         }
     }
 };
