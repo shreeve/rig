@@ -1270,7 +1270,7 @@ pub fn checkMatchSubject(self: *Checker, node: Sexp) Error!Checker.MatchSubject 
     scrutinee = try PatternCheck.setParamAsError(self, scrutinee);
     const matchable = CompatCheck.isText(self.ctx, scrutinee) or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee))) {
         .int, .int_literal, .bool, .symbol, .invalid, .unknown, .any_error => true,
-        .nominal, .parameterized_nominal, .imported_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null or sema.isErrorUnion(self.ctx, sema.unwrapViews(self.ctx, scrutinee)),
+        .nominal, .parameterized_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null or sema.isErrorUnion(self.ctx, sema.unwrapViews(self.ctx, scrutinee)),
         else => false,
     };
     return .{ .mode = mode, .scrutinee = scrutinee, .hands = subject_hands, .pos = scrut_pos, .matchable = matchable };
