@@ -17763,6 +17763,9 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     );
     defer r.deinit();
     const ctx = &r.ctx;
+    // The test writes the module check's columns after the check sealed
+    // them.
+    ctx.sealed = .empty;
     const a = r.at("a", 1);
     const b = r.at("b", 0);
     const plus = findNode(r.tree, .@"+").?;
