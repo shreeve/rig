@@ -124,8 +124,17 @@ pub fn operandCount(e: Expr) usize {
 /// `body`, indexed; null when the body was not lowered.
 pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
     const m = &(self.sema.lowered orelse return null);
-    const i = m.roots.get(sema.decisionKeyOf(root) orelse return null) orelse return null;
-    const f = m.owners[i].func orelse return null;
+    const f = blk: {
+        const i = m.roots.get(sema.decisionKeyOf(root) orelse break :blk null) orelse break :blk null;
+        break :blk m.owners[i].func;
+    } orelse {
+        // The checkers' lowering lowers every body they walk.
+        if (self_check) {
+            const at = diag.lineCol(self.source, self.sema.startOf(root));
+            std.debug.panic("{s}:{d}:{d}: internal error: the ownership checker walks a `{s}` with no LIR", .{ self.sema.name, at.line, at.col, @tagName(root.kind() orelse .module) });
+        }
+        return null;
+    };
     const a = self.arena();
     const out = try a.create(Body);
     out.* = .{ .f = f };

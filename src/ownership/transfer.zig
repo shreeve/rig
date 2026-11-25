@@ -84,6 +84,11 @@ pub fn refOfTypeSexp(t: Sexp) Ref {
 pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
     switch (sexp.kind() orelse return) {
         .module => {
+            // What no function holds (the module's constants, and what
+            // its types declare by value) is one compile-time body.
+            const saved_lir = self.lir_body;
+            defer self.lir_body = saved_lir;
+            self.lir_body = try lowered.enter(self, sexp, sexp);
             for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try walkDecl(self, c);
             for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try walkDecl(self, c);
         },
