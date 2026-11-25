@@ -1,4 +1,6 @@
-//! Typecheck's built-ins: `$`-calls and constant patterns.
+//! Typecheck's built-ins and named members: error names and sets,
+//! constant and qualified patterns, enum literals and variants with
+//! fields, list construction, and `$`-calls.
 
 const std = @import("std");
 const parser = @import("../parser.zig");
