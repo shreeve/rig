@@ -1,0 +1,5 @@
+#!/bin/bash
+# zigtime: a ZIG= wrapper for rig: runs zig with the same arguments and appends "start end rc argv" to $ZIGTIME_LOG.
+now() { perl -MTime::HiRes=time -e 'printf "%.3f", time'; }
+s=$(now); "${ZIGTIME_REAL:-zig}" "$@"; rc=$?; e=$(now)
+echo "$s $e rc=$rc $*" >> "${ZIGTIME_LOG:-/dev/null}"; exit $rc

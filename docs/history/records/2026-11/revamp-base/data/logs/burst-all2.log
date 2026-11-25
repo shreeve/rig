@@ -1,0 +1,7 @@
+# 02:39:54 build
+# 02:39:54 swarm all -w 64
+building rig and rig-oracle (zig build)...
+rig.rip: built rig and rig-oracle in 15 s
+rig.rip: 53 packs to compile, as jobs
+109.36 secs for 12783 jobs by 64 workers @ 116.89 jobs/sec
+# 02:42:00 swarm rc=0 wall_s=126 done=12783 died=0
