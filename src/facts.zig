@@ -43,6 +43,7 @@ const SemContext = sema.SemContext;
 
 pub const TypeId = sema.TypeId;
 pub const SymbolId = sema.SymbolId;
+pub const SymbolRef = sema.SymbolRef;
 pub const MemberCompares = sema.MemberCompares;
 
 pub const ThroughWrite = storage.ThroughWrite;
@@ -139,23 +140,23 @@ pub const Facts = struct {
     zig_file: []const u8,
     /// The program's root module.
     is_root: bool,
-    cell_sym_id: SymbolId,
-    list_sym_id: SymbolId,
-    table_sym_id: SymbolId,
-    signal_sym_id: SymbolId,
-    actor_sym_id: SymbolId,
-    chan_sym_id: SymbolId,
-    frozen_sym_id: SymbolId,
-    task_sym_id: SymbolId,
-    tasks_sym_id: SymbolId,
-    box_sym_id: SymbolId,
-    endian_sym_id: SymbolId,
-    order_sym_id: SymbolId,
-    printer_sym_id: SymbolId,
-    hasher_sym_id: SymbolId,
-    arch_sym_id: SymbolId,
-    os_sym_id: SymbolId,
-    feature_sym_id: SymbolId,
+    cell_sym_id: sema.SymbolRef,
+    list_sym_id: sema.SymbolRef,
+    table_sym_id: sema.SymbolRef,
+    signal_sym_id: sema.SymbolRef,
+    actor_sym_id: sema.SymbolRef,
+    chan_sym_id: sema.SymbolRef,
+    frozen_sym_id: sema.SymbolRef,
+    task_sym_id: sema.SymbolRef,
+    tasks_sym_id: sema.SymbolRef,
+    box_sym_id: sema.SymbolRef,
+    endian_sym_id: sema.SymbolRef,
+    order_sym_id: sema.SymbolRef,
+    printer_sym_id: sema.SymbolRef,
+    hasher_sym_id: sema.SymbolRef,
+    arch_sym_id: sema.SymbolRef,
+    os_sym_id: sema.SymbolRef,
+    feature_sym_id: sema.SymbolRef,
 
     pub fn of(ctx: *const SemContext) Facts {
         return .{
@@ -166,28 +167,37 @@ pub const Facts = struct {
             .name = ctx.name,
             .zig_file = ctx.zig_file,
             .is_root = ctx.is_root,
-            .cell_sym_id = ctx.builtins.cell.sym,
-            .list_sym_id = ctx.builtins.list.sym,
-            .table_sym_id = ctx.builtins.table.sym,
-            .signal_sym_id = ctx.builtins.signal.sym,
-            .actor_sym_id = ctx.builtins.actor.sym,
-            .chan_sym_id = ctx.builtins.chan.sym,
-            .frozen_sym_id = ctx.builtins.frozen.sym,
-            .task_sym_id = ctx.builtins.task.sym,
-            .tasks_sym_id = ctx.builtins.tasks.sym,
-            .box_sym_id = ctx.builtins.box.sym,
-            .endian_sym_id = ctx.builtins.endian.sym,
-            .order_sym_id = ctx.builtins.order.sym,
-            .printer_sym_id = ctx.builtins.printer.sym,
-            .hasher_sym_id = ctx.builtins.hasher.sym,
-            .arch_sym_id = ctx.builtins.arch.sym,
-            .os_sym_id = ctx.builtins.os.sym,
-            .feature_sym_id = ctx.builtins.feature.sym,
+            .cell_sym_id = ctx.builtins.cell,
+            .list_sym_id = ctx.builtins.list,
+            .table_sym_id = ctx.builtins.table,
+            .signal_sym_id = ctx.builtins.signal,
+            .actor_sym_id = ctx.builtins.actor,
+            .chan_sym_id = ctx.builtins.chan,
+            .frozen_sym_id = ctx.builtins.frozen,
+            .task_sym_id = ctx.builtins.task,
+            .tasks_sym_id = ctx.builtins.tasks,
+            .box_sym_id = ctx.builtins.box,
+            .endian_sym_id = ctx.builtins.endian,
+            .order_sym_id = ctx.builtins.order,
+            .printer_sym_id = ctx.builtins.printer,
+            .hasher_sym_id = ctx.builtins.hasher,
+            .arch_sym_id = ctx.builtins.arch,
+            .os_sym_id = ctx.builtins.os,
+            .feature_sym_id = ctx.builtins.feature,
         };
     }
 
     fn c(f: Facts) *const SemContext {
         return @ptrCast(@alignCast(f.sema_context));
+    }
+
+    /// The program-wide name of this module's symbol `sym` (`SemContext.ref`).
+    pub fn refOf(f: Facts, sym: SymbolId) sema.SymbolRef {
+        return f.c().ref(sym);
+    }
+    /// Whether `r` names a symbol of this module's table (`SemContext.owns`).
+    pub fn owns(f: Facts, r: sema.SymbolRef) bool {
+        return f.c().owns(r);
     }
 
     /// Whether `ty` is a bare API object, `{Shape}`, which only a type
@@ -1164,7 +1174,7 @@ pub const Facts = struct {
     pub fn wordAlignedField(f: Facts, ty: TypeId) bool {
         const d = sema.nominalDecl(f.c(), ty) orelse return false;
         return switch (f.c().types.get(ty)) {
-            .nominal, .imported_nominal => d.ctx.decides(.word_held, d.sym) and sema.wordBitsOfSym(d.ctx, d.sym) == 64,
+            .nominal => d.ctx.decides(.word_held, d.sym) and sema.wordBitsOfSym(d.ctx, d.sym) == 64,
             else => false,
         };
     }

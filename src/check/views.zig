@@ -1002,7 +1002,7 @@ pub fn meetsNeeds(self: *Checker, m: Field, owner_sym: SymbolId, args: []const T
 /// (`SemContext.recordEmbedRecord`). False after a diagnostic.
 pub fn readsRecords(self: *Checker, method: []const u8, elem: TypeId, pos: u32, bytes: ?Sexp) Error!bool {
     if (self.ctx.types.get(elem) == .type_var) {
-        try ExprCheck.require(self, self.ctx.types.get(elem).type_var, .records, pos, method);
+        try ExprCheck.require(self, self.ctx.localSym(self.ctx.types.get(elem).type_var), .records, pos, method);
         return true;
     }
     const shown = try self.tyName(elem);
@@ -1344,7 +1344,7 @@ pub fn instantiate(self: *Checker, sym_id: SymbolId, args: []const TypeId, pos: 
     if (self.ctx.ref(sym_id) == self.ctx.builtins.simd) return resolve.simdInstance(self.ctx, args, pos);
     if (self.ctx.ref(sym_id) == self.ctx.builtins.slot) return resolve.slotInstance(self.ctx, args, pos);
     if (try resolve.builtinElementError(self.ctx, sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
-    const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
+    const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(sym_id), .args = try self.ctx.dupeIds(args) } });
     if (!sema.containsTypeVar(self.ctx, ty)) {
         const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
         if (!gop.found_existing) {
@@ -1540,9 +1540,9 @@ pub fn markNote(self: *Checker, recv: Sexp) []const u8 {
     const held = sema.unwrapAccess(self.ctx, ty);
     if (sema.chanValue(self.ctx, held) != null) return ": a channel changes as it sends and receives, and a change through a shared handle is marked with `!`";
     return switch (self.ctx.types.get(held)) {
-        .parameterized_nominal => |pn| if (self.ctx.ref(pn.sym) == self.ctx.builtins.cell)
+        .parameterized_nominal => |pn| if (pn.sym == self.ctx.builtins.cell)
             ": changing a shared Cell is marked with `!`"
-        else if (self.ctx.ref(pn.sym) == self.ctx.builtins.signal)
+        else if (pn.sym == self.ctx.builtins.signal)
             ": changing a shared Signal is marked with `!`"
         else
             ": changing a Cell it holds is marked with `!`",
@@ -1759,8 +1759,8 @@ pub fn checkActual(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Er
             if (try PatternCheck.payloadViewTaken(self, e, "move")) return;
             // A bounded `T` copies only where its bounds name `Copy`.
             switch (self.ctx.types.get(inner)) {
-                .type_var => |param| if (sema.checkedByBounds(self.ctx.symbols.items[param]))
-                    return GenericCheck.reportUnbounded(self.ctx, self.startOf(e), param, .Copy, "a copy"),
+                .type_var => |param| if (sema.checkedByBounds(self.ctx.symbols.items[self.ctx.localSym(param)]))
+                    return GenericCheck.reportUnbounded(self.ctx, self.startOf(e), self.ctx.localSym(param), .Copy, "a copy"),
                 else => {},
             }
             const name = try self.tyName(inner);
@@ -2138,8 +2138,8 @@ pub fn erasable(self: *Checker, e: Sexp, viewed: Sexp, actual: TypeId, reached: 
     const witness = (try sema.witnessFor(self.ctx, reached, object.api)) orelse {
         if (self.ctx.types.get(reached) == .type_var) {
             const param = self.ctx.types.get(reached).type_var;
-            const pname = self.ctx.symbols.items[param].name;
-            if (self.ctx.symbols.items[param].user_apis.len == 0) {
+            const pname = self.ctx.symbols.items[self.ctx.localSym(param)].name;
+            if (self.ctx.symbols.items[self.ctx.localSym(param)].user_apis.len == 0) {
                 try self.errAt(e, "`{s}` is a `{s}` with no bound, so it is no `{s}`: write `[{s}: {s}]`", .{ CallCheck.sourceText(self, viewed), pname, shown_view, pname, api_name });
             } else try self.errAt(e, "`{s}` is a `{s}`, whose bounds do not name `{s}`, so it is no `{s}`: write `[{s}: {s}]`", .{ CallCheck.sourceText(self, viewed), pname, api_name, shown_view, pname, api_name });
             return null;
@@ -2218,7 +2218,7 @@ pub fn crossingLack(self: *Checker, reached: TypeId, shown_view: []const u8, how
     const b = sema.crossingBound(how);
     const blocker = (try sema.crossingBlocker(self.ctx, reached, how)) orelse reached;
     if (self.ctx.types.get(blocker) == .type_var) {
-        const sym = self.ctx.symbols.items[self.ctx.types.get(blocker).type_var];
+        const sym = sema.symbolAt(self.ctx, self.ctx.types.get(blocker).type_var).*;
         return a.print("`{s}` is erased to `{s}`, but `{s}` is not bounded by `{s}`: write `[{s}: {s}]`", .{ try self.tyName(reached), shown_view, sym.name, @tagName(b), sym.name, try sema.formatBounds(self.ctx, a, sym, b) });
     }
     const goes = if (how == .moves) "goes to other tasks" else "several tasks read";
@@ -2721,7 +2721,7 @@ pub fn contextualCall(self: *Checker, e: Sexp, expected: TypeId, target: TypeId)
     const tt = self.ctx.types.get(target);
     if (callee != .src or tt != .parameterized_nominal) return null;
     const id = CallCheck.lookupQuiet(self, callee) orelse return null;
-    if (id != tt.parameterized_nominal.sym) return null;
+    if (self.ctx.ref(id) != tt.parameterized_nominal.sym) return null;
     // `Frozen(x)` and `Actor(x)` take their types from `x`
     // (`frozenMake`, `actorMake`).
     if (self.ctx.ref(id) == self.ctx.builtins.frozen or self.ctx.ref(id) == self.ctx.builtins.actor) return null;

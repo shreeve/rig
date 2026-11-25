@@ -844,7 +844,7 @@ pub const Checker = struct {
     /// limits an owner, goes to any task, and drops without running a
     /// `drop` body (CORE, "A failure moves its error").
     pub fn checkErrorFields(self: *Checker, sym: SymbolId, fields: []const sema.Field) Error!void {
-        const self_ty = try self.ctx.intern(.{ .nominal = sym });
+        const self_ty = try self.ctx.intern(.{ .nominal = self.ctx.ref(sym) });
         for (fields) |f| {
             if (!f.is_variant) continue;
             // Whether the member's fields compare and hash, which the
@@ -885,7 +885,7 @@ pub const Checker = struct {
     pub fn checkErrorJoin(self: *Checker, node: Sexp) Error!void {
         const name = ir.ErrorJoin.name(node);
         const sym = self.ctx.symbolOf(name) orelse return;
-        const self_ty = try self.ctx.intern(.{ .nominal = sym });
+        const self_ty = try self.ctx.intern(.{ .nominal = self.ctx.ref(sym) });
         for (ir.ErrorJoin.members(node)) |m| {
             const shown = if (m == .src) self.text(m) else try ViewCheck.plainText(self, m);
             try self.errAt(m, "a union of error sets lists no members of its own; declare a set for `{s}` and join it", .{shown});
@@ -1012,7 +1012,7 @@ pub const Checker = struct {
         const params = sym.type_params orelse return;
         const prev = self.nominal;
         // `Item` names the API's associated type, as in its signatures.
-        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = params[0] }), .type_params = params[1..] };
+        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = self.ctx.ref(params[0]) }), .type_params = params[1..] };
         defer self.nominal = prev;
         const prev_scope = self.enter(node);
         defer self.scope = prev_scope;
@@ -1113,10 +1113,9 @@ pub const Checker = struct {
     pub fn groupType(self: *Checker, ty: TypeId) Error!?GroupType {
         const a = self.ctx.arena.allocator();
         const sym: sema.Symbol, const module: ?u32, const id: SymbolId, const foreign: ?*SemContext = switch (self.ctx.types.get(ty)) {
-            .nominal => |id| .{ self.ctx.symbols.items[id], null, id, null },
-            .imported_nominal => |n| blk: {
-                const fc = self.ctx.foreign_semas.get(n.module_id) orelse return null;
-                break :blk .{ fc.symbols.items[n.sym_id], n.module_id, n.sym_id, fc };
+            .nominal => |r| if (self.ctx.owns(r)) .{ self.ctx.symbols.items[r.sym], null, r.sym, null } else blk: {
+                const fc = self.ctx.foreign_semas.get(r.module_id) orelse return null;
+                break :blk .{ fc.symbols.items[r.sym], r.module_id, r.sym, fc };
             },
             else => return null,
         };
@@ -1174,7 +1173,7 @@ pub const Checker = struct {
             else => return self.groupType(result),
         };
         const a = self.ctx.arena.allocator();
-        const subst: TypeSubst = .{ .params = self.ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args };
+        const subst: TypeSubst = .{ .params = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].type_params orelse &.{}, .args = pn.args };
         var data: std.ArrayList(Field) = .empty;
         var tys: std.ArrayList(TypeId) = .empty;
         for (fields) |f| {
@@ -1182,7 +1181,7 @@ pub const Checker = struct {
             try data.append(a, f);
             try tys.append(a, try sema.substituteType(self.ctx, f.ty, subst));
         }
-        return .{ .name = self.ctx.symbols.items[pn.sym].name, .fields = data.items, .tys = tys.items, .module = null, .sym = pn.sym };
+        return .{ .name = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].name, .fields = data.items, .tys = tys.items, .module = null, .sym = self.ctx.localSym(pn.sym) };
     }
 
     /// Where field `f` of `gt` is declared, as a note.

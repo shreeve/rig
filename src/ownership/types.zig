@@ -146,7 +146,7 @@ pub fn isString(self: *const Checker, ty: ?TypeId) bool {
 pub fn isList(self: *const Checker, ty: TypeId) bool {
     const ctx = self.sema;
     const t = ctx.types.get(ty);
-    return t == .parameterized_nominal and ctx.ref(t.parameterized_nominal.sym) == ctx.builtins.list;
+    return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.builtins.list;
 }
 
 /// A `List[T]` or a `Table[T, n]`: elements held behind it, in memory
@@ -177,7 +177,7 @@ pub fn kindLabel(self: *const Checker, t: TypeId) Owning {
     var inner = t;
     while (ctx.types.get(inner) == .optional) inner = ctx.types.get(inner).optional;
     const name = switch (ctx.types.get(inner)) {
-        .parameterized_nominal => |pn| ctx.symbols.items[pn.sym].name,
+        .parameterized_nominal => |pn| ctx.symbols.items[ctx.localSym(pn.sym)].name,
         else => if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value",
     };
     if (!sema.typeHasDropGlue(ctx, t) and sema.isUnique(ctx, t)) {
@@ -189,7 +189,7 @@ pub fn kindLabel(self: *const Checker, t: TypeId) Owning {
             else => unreachable,
         };
         return .{ .unique = switch (ctx.types.get(elem)) {
-            .parameterized_nominal => |pn| ctx.symbols.items[pn.sym].name,
+            .parameterized_nominal => |pn| ctx.symbols.items[ctx.localSym(pn.sym)].name,
             else => if (sema.nominalDecl(ctx, elem)) |d| d.symbol().name else "value",
         } };
     }
@@ -197,7 +197,7 @@ pub fn kindLabel(self: *const Checker, t: TypeId) Owning {
         .shared => .shared,
         .weak => .weak,
         .string => .text,
-        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.list) .list else if (ctx.ref(pn.sym) == ctx.builtins.box) .box else .{ .drop_glue = name },
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.list) .list else if (pn.sym == ctx.builtins.box) .box else .{ .drop_glue = name },
         else => .{ .drop_glue = name },
     };
 }
@@ -271,7 +271,7 @@ pub fn selfMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.SelfMode {
     if (f != .function or f.function.params.len == 0) return .read;
     return switch (typeData(self, f.function.params[0])) {
         .write_view => .write,
-        .nominal, .parameterized_nominal, .imported_nominal => .value,
+        .nominal, .parameterized_nominal => .value,
         else => .read,
     };
 }
@@ -321,10 +321,10 @@ pub fn builtinName(self: *const Checker, ty: ?TypeId) ?[]const u8 {
     while (true) switch (ctx.types.get(t)) {
         .read_view, .write_view, .shared => |i| t = i,
         .parameterized_nominal => |pn| {
-            if (ctx.ref(pn.sym) == ctx.builtins.cell) return "Cell";
-            if (ctx.ref(pn.sym) == ctx.builtins.signal) return "Signal";
-            if (ctx.ref(pn.sym) == ctx.builtins.list) return "List";
-            if (ctx.ref(pn.sym) == ctx.builtins.chan) return "Chan";
+            if (pn.sym == ctx.builtins.cell) return "Cell";
+            if (pn.sym == ctx.builtins.signal) return "Signal";
+            if (pn.sym == ctx.builtins.list) return "List";
+            if (pn.sym == ctx.builtins.chan) return "Chan";
             return null;
         },
         else => return null,

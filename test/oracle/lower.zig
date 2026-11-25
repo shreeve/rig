@@ -1708,7 +1708,7 @@ const Lowerer = struct {
         return switch (self.ctx.types.get(ty)) {
             .array => |arr| arr.elem,
             .slice => |sl| sl.elem,
-            .parameterized_nominal => |pn| if (self.ctx.ref(pn.sym) == self.ctx.builtins.list and pn.args.len == 1) pn.args[0] else null,
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.builtins.list and pn.args.len == 1) pn.args[0] else null,
             else => null,
         };
     }
@@ -1890,7 +1890,7 @@ const Lowerer = struct {
         const of = if (args[0].isKind(.builtin) and ir.Builtin.args(args[0]).len == 1) ir.Builtin.args(args[0])[0] else args[0];
         const ty = self.ctx.typeOf(of) orelse return null;
         return switch (self.ctx.types.get(ty)) {
-            .type_var => |sym| sym,
+            .type_var => |sym| self.ctx.localSym(sym),
             else => null,
         };
     }
@@ -2901,8 +2901,8 @@ const Lowerer = struct {
     fn holderOf(self: *Lowerer, ty: TypeId) Place.Holder {
         if (sema.boxedType(self.ctx, ty) != null) return .box;
         switch (self.ctx.types.get(ty)) {
-            .nominal, .imported_nominal => {},
-            .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(self.ctx, pn.sym)) return .other,
+            .nominal => {},
+            .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(self.ctx, self.ctx.localSym(pn.sym))) return .other,
             else => return .other,
         }
         const decl = sema.nominalDecl(self.ctx, ty) orelse return .other;
@@ -4327,7 +4327,7 @@ const Lowerer = struct {
     /// Whether `ty` is a List, or a view of one.
     fn isList(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
-            .parameterized_nominal => |pn| self.ctx.ref(pn.sym) == self.ctx.builtins.list,
+            .parameterized_nominal => |pn| pn.sym == self.ctx.builtins.list,
             else => false,
         };
     }
@@ -4340,12 +4340,12 @@ const Lowerer = struct {
             .parameterized_nominal => |pn| pn,
             else => return params,
         };
-        if (!sema.isBuiltinGeneric(self.ctx, pn.sym)) return params;
-        const tps = self.ctx.symbols.items[pn.sym].type_params orelse return params;
+        if (!sema.isBuiltinGeneric(self.ctx, self.ctx.localSym(pn.sym))) return params;
+        const tps = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].type_params orelse return params;
         const out = try self.a.dupe(TypeId, params);
         for (out) |*p| switch (self.ctx.types.get(p.*)) {
             .type_var => |sym| for (tps, 0..) |tp, i| {
-                if (tp == sym and i < pn.args.len) p.* = pn.args[i];
+                if (self.ctx.ref(tp) == sym and i < pn.args.len) p.* = pn.args[i];
             },
             else => {},
         };
@@ -4466,7 +4466,7 @@ const Lowerer = struct {
             .fallible => |inner| return self.plainInstance(inner.ok),
             .results => |rs| for (rs) |r| try self.plainInstance(r),
             .parameterized_nominal => |pn| {
-                if (sema.isBuiltinGeneric(self.ctx, pn.sym) or rigBuiltin(self.ctx, pn.sym)) {
+                if (sema.isBuiltinGeneric(self.ctx, self.ctx.localSym(pn.sym)) or rigBuiltin(self.ctx, self.ctx.localSym(pn.sym))) {
                     for (pn.args) |a| try self.plainInstance(a);
                     return;
                 }
@@ -4474,7 +4474,7 @@ const Lowerer = struct {
                 for (pn.args) |a| {
                     if (try self.ownerArg(a)) owners = true else try self.plainInstanceArg(a);
                 }
-                if (owners and !try self.typeCopiesNoT(pn.sym)) return abstain("a generic type at an owner whose methods copy a `T`");
+                if (owners and !try self.typeCopiesNoT(self.ctx.localSym(pn.sym))) return abstain("a generic type at an owner whose methods copy a `T`");
             },
             else => {},
         }
@@ -4587,8 +4587,8 @@ const Lowerer = struct {
             else => return,
         };
         for (type_args, 0..) |base, i| {
-            if (i >= f.ct_syms.len or f.ct_syms[i] == sema.symbol_invalid) continue;
-            for (cctx.symbols.items[f.ct_syms[i]].assoc) |assoc| {
+            if (i >= f.ct_syms.len or f.ct_syms[i].sym == sema.symbol_invalid) continue;
+            for (sema.symbolAt(cctx, f.ct_syms[i]).assoc) |assoc| {
                 const finding = switch (try itemFinding(self.a, callee, assoc)) {
                     .clean, .pending => continue,
                     .unknown => return abstain("an instance of a body that passes its iterator on, or one the oracle does not lower"),
@@ -4653,9 +4653,9 @@ const Lowerer = struct {
             else => return,
         };
         for (type_args, 0..) |t, i| {
-            if (i >= f.ct_syms.len or f.ct_syms[i] == sema.symbol_invalid) continue;
+            if (i >= f.ct_syms.len or f.ct_syms[i].sym == sema.symbol_invalid) continue;
             if (t == sema.type_invalid or self.ctx.typeInfo(t).has_type_var) continue;
-            const bounds = sema.implied(self.ctx.symbols.items[f.ct_syms[i]].apis);
+            const bounds = sema.implied(sema.symbolAt(self.ctx, f.ct_syms[i]).apis);
             if (bounds.count() == 0) continue;
             const info = try self.kinds.of(t);
             if (info.unsupported != null) return abstain("a bound at an unusual type");
@@ -4725,7 +4725,7 @@ const Lowerer = struct {
     fn isCell(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(ty)) {
             .read_view, .write_view, .shared => |inner| self.isCell(inner),
-            .parameterized_nominal => |pn| self.ctx.ref(pn.sym) == self.ctx.builtins.cell or self.ctx.ref(pn.sym) == self.ctx.builtins.signal,
+            .parameterized_nominal => |pn| pn.sym == self.ctx.builtins.cell or pn.sym == self.ctx.builtins.signal,
             else => false,
         };
     }
@@ -4762,8 +4762,8 @@ const Lowerer = struct {
             .parameterized_nominal => |pn| pn,
             else => return,
         };
-        if (!rigBuiltin(self.ctx, pn.sym)) return;
-        const sym = self.ctx.symbols.items[pn.sym];
+        if (!rigBuiltin(self.ctx, self.ctx.localSym(pn.sym))) return;
+        const sym = self.ctx.symbols.items[self.ctx.localSym(pn.sym)];
         if (!std.mem.eql(u8, sym.name, "Map") and !std.mem.eql(u8, sym.name, "HashMap")) return;
         const name = leafText(ir.Member.name(callee), self.src);
         const views = std.mem.eql(u8, name, "update") or std.mem.eql(u8, name, "retain");
@@ -4778,7 +4778,7 @@ const Lowerer = struct {
             var reach: kinds.Reach = .{ .a = self.a };
             const keeps = if (views) f.params.len > 1 and try reach.storesAt(fp.ctx, f.params, 0, tps, self.ctx, pn.args) else switch (fp.ctx.types.get(f.returns)) {
                 .type_var => |v| for (tps, 0..) |tp, i| {
-                    if (tp == v and i < pn.args.len) break (try self.kinds.of(pn.args[i])).holds_views;
+                    if (self.ctx.ref(tp) == v and i < pn.args.len) break (try self.kinds.of(pn.args[i])).holds_views;
                 } else false,
                 else => false,
             };
@@ -4891,7 +4891,7 @@ const Lowerer = struct {
         // A `Cell[List[T]]` answers its List's members, each marked as the
         // List's own are (SPEC "Cell").
         switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
-            .parameterized_nominal => |pn| if (self.ctx.ref(pn.sym) == self.ctx.builtins.cell and pn.args.len == 1) {
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.builtins.cell and pn.args.len == 1) {
                 if (sema.nominalDecl(self.ctx, pn.args[0])) |held| if (self.ctx.ref(held.sym) == self.ctx.builtins.list) {
                     if (try self.methodOf(held, mname)) |found_method| return found_method;
                 };

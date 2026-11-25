@@ -995,7 +995,7 @@ pub fn checkCompound(self: *Checker, kind: rig.BindingKind, target_ty: TypeId, r
     };
     if (sema.simdOf(self.ctx, target_ty) != null) return StdFormCheck.simdCompound(self, op, spelled, sema.unwrapViews(self.ctx, target_ty), rhs, pos);
     const tv: ?SymbolId = switch (self.ctx.types.get(target_ty)) {
-        .type_var => |tv| tv,
+        .type_var => |tv| self.ctx.localSym(tv),
         else => null,
     };
     if (tv) |param| {

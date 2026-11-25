@@ -80,9 +80,9 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+        const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
         // A box holds an API object through its allocation, `^{Shape}`.
-        if (ctx.ref(pn.sym) == ctx.builtins.box and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) continue;
+        if (pn.sym == ctx.builtins.box and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) continue;
         if (try misplacedArgs(ctx, pn.args, entry.value_ptr.*)) continue;
         const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
         if (!try sema.checkBounds(ctx, params, pn.args, entry.value_ptr.*, of)) continue;
@@ -736,11 +736,11 @@ pub fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []co
     }
     if (of == .type) {
         const sym = ctx.types.get(of.type).parameterized_nominal.sym;
-        if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| {
+        if (try sema.oversizedByItself(ctx, of.type, ctx.localSym(sym), subst)) |bytes| {
             try sema.reportOversized(ctx, at, of.type, bytes);
             return;
         }
-        if (try sema.tooDeepByItself(ctx, of.type, sym, subst)) |depth| {
+        if (try sema.tooDeepByItself(ctx, of.type, ctx.localSym(sym), subst)) |depth| {
             try sema.reportTooDeep(ctx, at, of.type, depth);
             return;
         }
@@ -800,9 +800,9 @@ pub fn crossingReason(ctx: *SemContext, blocker: TypeId, shared: bool, verb: ?[]
             if (named.contains(.Syncs)) break :blk "an API object whose braces and API name no `Sends`, so what it hides may not go to another task";
             break :blk "an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task";
         },
-        .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.task and shared)
+        .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.task and shared)
             "a task, which only the one that holds it may wait for"
-        else if (ctx.ref(pn.sym) == ctx.builtins.tasks)
+        else if (pn.sym == ctx.builtins.tasks)
             "a set of tasks, which stays with the task that made it"
         else
             "a value that changes through handles that stay on this core",
@@ -953,7 +953,7 @@ pub fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_para
 /// a known type, so none is reached through a type parameter.
 pub fn declaredType(ctx: *const SemContext, ty: TypeId) bool {
     switch (ctx.types.get(ty)) {
-        .nominal, .imported_nominal, .parameterized_nominal => {},
+        .nominal, .parameterized_nominal => {},
         else => return false,
     }
     const decl = sema.nominalDecl(ctx, ty) orelse return false;
@@ -1130,7 +1130,7 @@ pub fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeI
             try out.append(a, ']');
             break :blk out.items;
         },
-        .type => |t| try sema.formatType(ctx, if (ctx.types.get(t) == .parameterized_nominal) (try sema.makeNominalContext(ctx, ctx.types.get(t).parameterized_nominal.sym)).self_type else t),
+        .type => |t| try sema.formatType(ctx, if (ctx.types.get(t) == .parameterized_nominal) (try sema.makeNominalContext(ctx, ctx.localSym(ctx.types.get(t).parameterized_nominal.sym))).self_type else t),
     };
     try ctx.err(at, "`{s}` has no method `{s}`: `{s}` gives `{s}` no bound; write `[{s}: {s}]`, which declares `{s}`", .{ pname, c.method, generic, pname, pname, try sema.apiName(ctx, api), c.method });
     try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
@@ -1248,7 +1248,7 @@ pub fn checkStatedForwards(ctx: *SemContext) Error!void {
                 .parameterized_nominal => |pn| pn,
                 else => continue,
             };
-            const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+            const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
             for (params, pn.args) |p, arg| if (p == g.param) try printedNeeds(Gone, ctx, a, &gone, arg, at, &printed);
         };
     }
@@ -1365,7 +1365,7 @@ pub fn fixedSignature(api: sema.Api) []const u8 {
 
 /// Whether `ty` is a write view of the built-in `Hasher`.
 pub fn isHasherView(ctx: *SemContext, ty: TypeId) Error!bool {
-    return ty == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.builtins.hasher.sym }) });
+    return ty == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.builtins.hasher }) });
 }
 
 /// The method `m` of `sym`, by which it gives `api` its own meaning, has
@@ -1433,13 +1433,13 @@ pub fn apiMethodMismatch(ctx: *SemContext, api: sema.Api, m: Field) Error!?[]con
         const ok = switch (api) {
             .Eq, .Ord => p == self_view,
             .Hash => try isHasherView(ctx, p),
-            .Print => p == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.builtins.printer.sym }) }),
+            .Print => p == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.builtins.printer }) }),
             else => true,
         };
         if (!ok) break :blk try a.print("takes `{s}` as `{s}`", .{ if (names.len > 1) names[1] else "?", try sema.formatType(ctx, p) });
         const want: TypeId = switch (api) {
             .Eq => ctx.types.bool_id,
-            .Ord => try ctx.intern(.{ .nominal = ctx.builtins.order.sym }),
+            .Ord => try ctx.intern(.{ .nominal = ctx.builtins.order }),
             else => ctx.types.void_id,
         };
         if (f.returns != want) break :blk if (f.returns == ctx.types.void_id) "gives nothing" else try a.print("gives `{s}`", .{try sema.formatType(ctx, f.returns)});

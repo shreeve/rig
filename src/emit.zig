@@ -689,7 +689,7 @@ pub const Emitter = struct {
         try self.emitTestTable();
         if (self.uses_module) try self.w.writeAll("\nconst __rig_module = @This();\n");
         if (self.uses_names) try self.emitNamesTable();
-        for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id, self.facts.os_sym_id, self.facts.feature_sym_id, self.facts.order_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
+        for ([_]SymbolId{ self.facts.endian_sym_id.sym, self.facts.arch_sym_id.sym, self.facts.os_sym_id.sym, self.facts.feature_sym_id.sym, self.facts.order_sym_id.sym }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
         if (self.uses_symbols) try self.w.print("\nconst __rig_sym = @import(\"{s}\");\n", .{symbols_filename});
         if (self.cut_exports.items.len > 0) {
             try self.w.writeAll("\ncomptime {\n    if (" ++ rt(.split) ++ ".on) {\n        @setEvalBranchQuota(" ++ rt(.eval_quota) ++ ");\n");
@@ -1711,7 +1711,7 @@ pub const Emitter = struct {
     fn witnessTypeParams(self: *Emitter, conf: facts.Conformance) []const SymbolId {
         if (conf.kind == .add) return conf.params;
         return switch (self.facts.types.get(conf.ty)) {
-            .parameterized_nominal => |pn| self.facts.symbols.items[pn.sym].type_params orelse &.{},
+            .parameterized_nominal => |pn| self.facts.symbols.items[pn.sym.sym].type_params orelse &.{},
             else => &.{},
         };
     }
@@ -1871,7 +1871,7 @@ pub const Emitter = struct {
         const spelling = if (self.facts.symbols.items[sym].type_params != null)
             try self.facts.formatGenericSelfMarked(a, sym)
         else
-            try self.facts.formatTypeValue(a, .{ .nominal = sym });
+            try self.facts.formatTypeValue(a, .{ .nominal = self.facts.refOf(sym) });
         try self.writeIndent(depth);
         try self.w.print("pub const __rig_name = .{{ .module = \"{s}\", .name = ", .{nameModule(self.facts)});
         try self.writeSpelling(spelling, .parts, null);
@@ -8623,22 +8623,22 @@ pub const Emitter = struct {
             if (t == .any_error) try self.w.writeAll(rt(.ErrorValue)) else try self.emitBuiltinTy(t);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, t)});
         }
-        for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id, ctx.os_sym_id, ctx.feature_sym_id, ctx.order_sym_id, ctx.printer_sym_id, ctx.hasher_sym_id }) |sym| {
+        for ([_]SymbolId{ ctx.endian_sym_id.sym, ctx.arch_sym_id.sym, ctx.os_sym_id.sym, ctx.feature_sym_id.sym, ctx.order_sym_id.sym, ctx.printer_sym_id.sym, ctx.hasher_sym_id.sym }) |sym| {
             try self.w.writeAll("        .{ ");
             try self.writeNominalName(sym);
-            try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, .{ .nominal = sym })});
+            try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, .{ .nominal = ctx.refOf(sym) })});
         }
         try self.w.writeAll("    },\n    .generics = .{\n");
         for (0..ctx.symbols.items.len) |i| {
             const sym: SymbolId = @intCast(i);
             // A box is named as a handle is, from its shape (`rig.typeName`).
-            if (!ctx.isBuiltinGeneric(sym) or sym == ctx.box_sym_id) continue;
+            if (!ctx.isBuiltinGeneric(sym) or ctx.refOf(sym) == ctx.box_sym_id) continue;
             try self.w.writeAll("        .{ ");
             try self.writeNominalName(sym);
             try self.w.writeAll(", ");
             try self.writeSpelling(try ctx.formatGenericSelfMarked(a, sym), .parts, sym);
             try self.w.writeAll(" },\n");
-            if (sym == ctx.list_sym_id) {
+            if (ctx.refOf(sym) == ctx.list_sym_id) {
                 try self.w.writeAll("        .{ " ++ rt(.InlineList) ++ ", ");
                 try self.writeSpelling(try ctx.formatInlineListMarked(a), .parts, sym);
                 try self.w.writeAll(" },\n");
@@ -9625,9 +9625,9 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             };
             if (self.facts.symbolOf(callee)) |sym_id| {
-                if (sym_id == self.facts.list_sym_id) return self.emitListConstruction(sexp);
-                if (sym_id == self.facts.table_sym_id) return self.emitTableConstruction(sexp);
-                if (sym_id == self.facts.signal_sym_id) return self.emitSignalConstruction(sexp);
+                if (self.facts.refOf(sym_id) == self.facts.list_sym_id) return self.emitListConstruction(sexp);
+                if (self.facts.refOf(sym_id) == self.facts.table_sym_id) return self.emitTableConstruction(sexp);
+                if (self.facts.refOf(sym_id) == self.facts.signal_sym_id) return self.emitSignalConstruction(sexp);
                 if (self.isTypeSym(sym_id)) return self.emitConstructor(sexp, sym_id);
             }
         }
@@ -9642,7 +9642,7 @@ pub const Emitter = struct {
                 try self.emitVariantPayload(sexp, t, vname);
                 return self.w.writeAll(")");
             }
-            if (self.facts.types.get(t) == .imported_nominal) {
+            if (switch (self.facts.types.get(t)) { .nominal => |r| !self.facts.owns(r), else => false }) {
                 try self.emitMember(callee);
                 return self.emitFieldInit(args, self.declFields(t));
             }
@@ -10709,7 +10709,7 @@ pub const Emitter = struct {
         if (!e.isKind(.call) or self.facts.calleeOf(e) != .src) return false;
         if (self.localOf(self.facts.calleeOf(e))) |local| if (local.stack_closure) return false;
         const sym_id = self.facts.symbolOf(self.facts.calleeOf(e)) orelse return false;
-        return sym_id != self.facts.list_sym_id and sym_id != self.facts.signal_sym_id and sym_id != self.facts.box_sym_id and self.isTypeSym(sym_id);
+        return self.facts.refOf(sym_id) != self.facts.list_sym_id and self.facts.refOf(sym_id) != self.facts.signal_sym_id and self.facts.refOf(sym_id) != self.facts.box_sym_id and self.isTypeSym(sym_id);
     }
 
     /// Constructor call `Name(field: v, ...)`: a struct literal typed by
@@ -11582,12 +11582,11 @@ pub const Emitter = struct {
             },
             // An array length or a generic type's value argument.
             .ct_value => |v| try self.w.print("{d}", .{v.int}),
-            .ct_param => |sym_id| try self.writeTypeParam(sym_id),
-            .nominal => |sym_id| try self.writeNominalName(sym_id),
-            .imported_nominal => |in| {
+            .ct_param => |sym_id| try self.writeTypeParam(sym_id.sym),
+            .nominal => |in| if (ctx.owns(in)) try self.writeNominalName(in.sym) else {
                 const foreign = ctx.foreign(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
                 try self.writeModuleRef(in.module_id);
-                try self.w.print(".{f}", .{ident(foreign.symbols.items[in.sym_id].name)});
+                try self.w.print(".{f}", .{ident(foreign.symbols.items[in.sym].name)});
             },
             .parameterized_nominal => |pn| {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("__rig_Self");
@@ -11605,14 +11604,14 @@ pub const Emitter = struct {
                     try self.emitTypeList(pn.args);
                     return self.w.print(", {d})", .{pn.inline_len});
                 }
-                try self.writeNominalName(pn.sym);
+                try self.writeNominalName(pn.sym.sym);
                 try self.w.writeAll("(");
-                try self.emitTypeArgs(ty, pn.sym, pn.args);
+                try self.emitTypeArgs(ty, pn.sym.sym, pn.args);
                 try self.w.writeAll(")");
             },
             // A generic function's type parameter is its `comptime`
             // parameter; a generic type's, its function's.
-            .type_var => |sym_id| try self.writeTypeParam(sym_id),
+            .type_var => |sym_id| try self.writeTypeParam(sym_id.sym),
             .function => |f| {
                 try self.w.writeAll("*const fn (");
                 try self.emitTypeList(f.params);
@@ -11694,9 +11693,9 @@ pub const Emitter = struct {
             }
             return self.w.writeAll(" })");
         }
-        if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym) or sym == self.facts.printer_sym_id or sym == self.facts.hasher_sym_id) {
+        if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym) or self.facts.refOf(sym) == self.facts.printer_sym_id or self.facts.refOf(sym) == self.facts.hasher_sym_id) {
             // The runtime's `Box(T)` is `^T`.
-            if (sym == self.facts.box_sym_id) return self.w.writeAll(rt(.Box));
+            if (self.facts.refOf(sym) == self.facts.box_sym_id) return self.w.writeAll(rt(.Box));
             return self.w.print("rig.{s}", .{s.name});
         }
         if (facts.syntax.isProxy(s)) {
@@ -11722,11 +11721,11 @@ pub const Emitter = struct {
     /// `__rig_Self` inside its body.
     fn isSelfInstance(self: *Emitter, pn: facts.ParamNominal) bool {
         const n = self.nominal orelse return false;
-        if (pn.sym != n.sym) return false;
+        if (pn.sym != self.facts.refOf(n.sym)) return false;
         const params = self.facts.symbols.items[n.sym].type_params orelse return false;
         if (params.len != pn.args.len) return false;
         for (params, pn.args) |p, a| switch (self.facts.types.get(a)) {
-            .type_var, .ct_param => |v| if (v != p) return false,
+            .type_var, .ct_param => |v| if (v != self.facts.refOf(p)) return false,
             else => return false,
         };
         return true;
@@ -11761,7 +11760,7 @@ pub const Emitter = struct {
             else => return null,
         };
         return switch (self.facts.types.get(ok)) {
-            .nominal => |sym| if (self.facts.symbols.items[sym].flags.select_result) ok else null,
+            .nominal => |sym| if (self.facts.owns(sym) and self.facts.symbols.items[sym.sym].flags.select_result) ok else null,
             else => null,
         };
     }
@@ -11817,7 +11816,7 @@ pub const Emitter = struct {
         return self.varOf(node, kind) orelse self.unsupported(node, "hidden storage no body's lowering made");
     }
 
-    fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {
+    fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: facts.SymbolRef) bool {
         return switch (self.facts.types.get(self.peelViews(ty))) {
             .parameterized_nominal => |pn| pn.sym == sym_id,
             else => false,
@@ -11873,7 +11872,7 @@ pub const Emitter = struct {
 
     fn isStructLike(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(self.peelViews(ty))) {
-            .nominal, .parameterized_nominal, .imported_nominal => true,
+            .nominal, .parameterized_nominal => true,
             else => false,
         };
     }
@@ -11975,7 +11974,7 @@ pub const Emitter = struct {
     fn isScalarTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(ty)) {
             .int, .float, .bool, .symbol, .int_literal, .float_literal, .any_error, .slot => true,
-            .nominal, .imported_nominal => self.facts.isPlainEnum(ty) or self.facts.isErrorSet(ty),
+            .nominal => self.facts.isPlainEnum(ty) or self.facts.isErrorSet(ty),
             else => false,
         };
     }
@@ -12013,7 +12012,7 @@ pub const Emitter = struct {
                     values = true;
                 },
                 // A frozen value's handle orders by what it reaches.
-                .type_var, .nominal, .imported_nominal, .parameterized_nominal, .bool, .string, .optional, .array, .shared => values = true,
+                .type_var, .nominal, .parameterized_nominal, .bool, .string, .optional, .array, .shared => values = true,
                 else => {},
             }
         }

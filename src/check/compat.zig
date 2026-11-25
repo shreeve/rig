@@ -164,7 +164,7 @@ pub fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
             else => {},
         },
         // A union holds an error of each set it joins.
-        .nominal, .imported_nominal => if (sema.isErrorUnion(ctx, expected) and sema.isErrorSet(ctx, actual) and sema.errorSubset(ctx, actual, expected)) return true,
+        .nominal => if (sema.isErrorUnion(ctx, expected) and sema.isErrorSet(ctx, actual) and sema.errorSubset(ctx, actual, expected)) return true,
         else => {},
     }
     return switch (a) {
@@ -186,9 +186,8 @@ pub fn classifySelfType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
             // or through the read view it holds.
             if (c.ref(sym) != c.builtins.box) if (sema.boxedType(c, id)) |inner| return f(c, sema.unwrapViews(c, inner), sym);
             return switch (c.types.get(id)) {
-                .nominal => |s| s == sym,
-                .parameterized_nominal => |pn| pn.sym == sym,
-                .imported_nominal => sym == sema.symbol_invalid,
+                .nominal => |s| if (c.owns(s)) s.sym == sym else sym == sema.symbol_invalid,
+                .parameterized_nominal => |pn| pn.sym == c.ref(sym),
                 else => false,
             };
         }
@@ -223,7 +222,7 @@ pub fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    if (ctx.ref(pn.sym) != ctx.builtins.cell or pn.args.len != 1) return null;
+    if (pn.sym != ctx.builtins.cell or pn.args.len != 1) return null;
     return pn.args[0];
 }
 
@@ -271,7 +270,7 @@ pub fn listElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    if (ctx.ref(pn.sym) != ctx.builtins.list or pn.args.len != 1) return null;
+    if (pn.sym != ctx.builtins.list or pn.args.len != 1) return null;
     return pn.args[0];
 }
 

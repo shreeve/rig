@@ -422,7 +422,7 @@ pub fn listFromElems(self: *Checker, arg: Sexp, want: ?TypeId) Error!TypeId {
         }
         return self.t().invalid_id;
     }
-    return want orelse try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.list.sym, .args = try self.ctx.dupeIds(&.{elem}) } });
+    return want orelse try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.list, .args = try self.ctx.dupeIds(&.{elem}) } });
 }
 
 /// Best-effort common type of two branches; reports on mismatch.
@@ -573,8 +573,8 @@ pub fn plainTest(self: *Checker, node: Sexp, args: []const Sexp, pos: u32) Error
     if (!operand) return self.t().bool_id;
     const regions = &self.ctx.plain_regions;
     const after = self.ctx.span(node).end;
-    if (after < cond.end) try regions.append(self.ctx.allocator, .{ .start = after, .end = cond.end, .param = param });
-    for (cond.guarded) |g| if (g.start < g.end) try regions.append(self.ctx.allocator, .{ .start = g.start, .end = g.end, .param = param });
+    if (after < cond.end) try regions.append(self.ctx.allocator, .{ .start = after, .end = cond.end, .param = self.ctx.localSym(param) });
+    for (cond.guarded) |g| if (g.start < g.end) try regions.append(self.ctx.allocator, .{ .start = g.start, .end = g.end, .param = self.ctx.localSym(param) });
     return self.t().bool_id;
 }
 
@@ -630,7 +630,7 @@ pub fn variantsOf(self: *Checker, args: []const Sexp, pos: u32) Error!TypeId {
     const ty = self.ctx.typeOf(args[0]) orelse return self.t().invalid_id;
     if (self.isPoison(ty)) return ty;
     const direct = switch (self.ctx.types.get(ty)) {
-        .nominal, .imported_nominal => true,
+        .nominal => true,
         else => false,
     };
     if (!direct) {

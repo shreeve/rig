@@ -780,8 +780,8 @@ pub fn extendsPath(self: *const Checker, e: Sexp, at_root: bool, self_root: bool
     };
     while (sema.boxedType(ctx, t)) |inner| t = inner;
     switch (ctx.types.get(t)) {
-        .nominal, .imported_nominal => {},
-        .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(ctx, pn.sym)) return false,
+        .nominal => {},
+        .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(ctx, ctx.localSym(pn.sym))) return false,
         else => return false,
     }
     return sema.lookupDataFieldConst(ctx, t, types.text(self, ir.Member.name(e))) != null;
@@ -894,9 +894,9 @@ pub fn staysInRoot(self: *const Checker, e: Sexp) bool {
 pub fn holdsInline(self: *const Checker, ty: TypeId) bool {
     const ctx = self.sema;
     return switch (ctx.types.get(ty)) {
-        .array, .nominal, .imported_nominal => true,
+        .array, .nominal => true,
         .parameterized_nominal => |pn| blk: {
-            const sym = ctx.symbols.items[pn.sym];
+            const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
             break :blk sym.kind == .generic_type and sym.decl_pos < sema.imported_decl_pos;
         },
         else => false,
@@ -3143,7 +3143,7 @@ pub fn inCellList(self: *const Checker, target: Sexp) bool {
         if (!e.isKind(.index)) continue;
         const ty = types.exprType(self, ir.Index.object(e)) orelse continue;
         switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
-            .parameterized_nominal => |pn| if (ctx.ref(pn.sym) == ctx.builtins.cell) return true,
+            .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.cell) return true,
             else => {},
         }
     }

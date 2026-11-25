@@ -366,7 +366,7 @@ const Pass = struct {
     fn paramsBound(self: *Pass, c: *const SemContext, ty: sema.TypeId) !bool {
         if (!c.typeInfo(ty).has_type_var) return true;
         switch (c.types.get(ty)) {
-            .type_var, .ct_param => |sym| return self.bound.contains(originOf(c, sym)),
+            .type_var, .ct_param => |sym| return self.bound.contains(originOf(c, sym.sym)),
             else => {},
         }
         var it = sema.typeChildren(c, ty);
@@ -379,7 +379,7 @@ const Pass = struct {
     fn bind(self: *Pass, c: *const SemContext) !void {
         var it = c.instantiation_sites.keyIterator();
         while (it.next()) |ty| switch (c.types.get(ty.*)) {
-            .parameterized_nominal => |pn| for (c.symbols.items[pn.sym].type_params orelse &.{}) |p| try self.bound.put(self.a, originOf(c, p), {}),
+            .parameterized_nominal => |pn| for (c.symbols.items[c.localSym(pn.sym)].type_params orelse &.{}) |p| try self.bound.put(self.a, originOf(c, p), {}),
             else => {},
         };
         for (c.fn_instances.items) |f| for (f.inst.params) |p| try self.bound.put(self.a, originOf(c, p), {});

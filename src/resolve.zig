@@ -1648,10 +1648,10 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const tparams = ctx.symbols.items[pn.sym].type_params orelse continue;
+        const tparams = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
         for (pn.args, 0..) |arg, i| switch (ctx.types.get(arg)) {
             .ct_param => |p| if (i < tparams.len) {
-                ctx.symbols.items[p].ty = ctx.symbols.items[tparams[i]].ty;
+                ctx.symbols.items[ctx.localSym(p)].ty = ctx.symbols.items[tparams[i]].ty;
             },
             else => {},
         };
@@ -1682,8 +1682,7 @@ fn fillGroupFields(ctx: *SemContext, groups_in: ?[]?sema.GroupParam, names_in: ?
         const g = &slot.*.?;
         if (g.whole or i >= names.len) continue;
         const found: ?struct { fields: []const Field, source: []const u8 } = switch (ctx.types.get(g.ty)) {
-            .nominal => |id| .{ .fields = ctx.symbols.items[id].fields orelse &.{}, .source = ctx.source },
-            .imported_nominal => |n| if (ctx.foreign_semas.get(n.module_id)) |fc| .{ .fields = fc.symbols.items[n.sym_id].fields orelse &.{}, .source = fc.source } else null,
+            .nominal => |r| if (ctx.owns(r)) .{ .fields = ctx.symbols.items[r.sym].fields orelse &.{}, .source = ctx.source } else if (ctx.foreign_semas.get(r.module_id)) |fc| .{ .fields = fc.symbols.items[r.sym].fields orelse &.{}, .source = fc.source } else null,
             else => null,
         };
         const at = found orelse continue;
@@ -2262,7 +2261,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             const pn = ctx.types.get(c.ty).parameterized_nominal;
             const widened = try sema.rewiden(ctx, c.widened);
             defer sema.restoreOwnerBounds(ctx, widened);
-            if (ctx.symbols.items[pn.sym].type_params) |tps| _ = try sema.checkBounds(ctx, tps, pn.args, c.pos, .{ .type = c.ty });
+            if (ctx.symbols.items[ctx.localSym(pn.sym)].type_params) |tps| _ = try sema.checkBounds(ctx, tps, pn.args, c.pos, .{ .type = c.ty });
         },
         .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
             const shown = try sema.formatType(ctx, c.ty);
@@ -2455,7 +2454,7 @@ pub const TypeResolver = struct {
                 // Zig gives it a value of a type both sides spell alike.
                 const plain = switch (self.ctx.types.get(ty)) {
                     .bool, .int => true,
-                    .nominal => |sym| sema.isBuiltinEnum(self.ctx, sym),
+                    .nominal => |r| self.ctx.owns(r) and sema.isBuiltinEnum(self.ctx, r.sym),
                     else => false,
                 };
                 if (!plain and !self.isPoison(ty)) {
@@ -2481,7 +2480,7 @@ pub const TypeResolver = struct {
         const prev = self.nominal;
         // Its methods name its associated types bare, `Item`, as a type's
         // methods name its parameters.
-        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = params[0] }), .type_params = params[1..] };
+        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = self.ctx.ref(params[0]) }), .type_params = params[1..] };
         defer self.nominal = prev;
         var fields: std.ArrayList(Field) = .empty;
         defer fields.deinit(self.ctx.allocator);
@@ -2658,7 +2657,7 @@ pub const TypeResolver = struct {
             if (value and pid != null and self.ctx.symbols.items[pid.?].kind == .param and self.ctx.symbols.items[pid.?].flags.comptime_known and !arg.isKind(.kwarg)) {
                 self.ctx.symbols.items[pid.?].ty = self.ctx.symbols.items[tparams[i]].ty;
                 try params.append(self.ctx.allocator, pid.?);
-                try tys.append(self.ctx.allocator, try self.ctx.intern(.{ .ct_param = pid.? }));
+                try tys.append(self.ctx.allocator, try self.ctx.intern(.{ .ct_param = self.ctx.ref(pid.?) }));
                 continue;
             }
             if (pid == null or value or self.ctx.symbols.items[pid.?].kind != .generic_param) {
@@ -2671,7 +2670,7 @@ pub const TypeResolver = struct {
                 return null;
             }
             try params.append(self.ctx.allocator, pid.?);
-            try tys.append(self.ctx.allocator, try self.ctx.intern(.{ .type_var = pid.? }));
+            try tys.append(self.ctx.allocator, try self.ctx.intern(.{ .type_var = self.ctx.ref(pid.?) }));
         }
         if (args.len != tparams.len) {
             try self.ctx.errAt(tnode, "`{s}` takes {d} compile-time parameter{s}, and `add` names {d}", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), tparams.len, if (tparams.len == 1) "" else "s", args.len });
@@ -2679,7 +2678,7 @@ pub const TypeResolver = struct {
         }
         // `Slot[n]` is a number below `n`, a type of its own kind.
         if (self.ctx.ref(gid) == self.ctx.builtins.slot) return try self.ctx.intern(.{ .slot = tys.items[0] });
-        return try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = gid, .args = tys.items } });
+        return try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(gid), .args = tys.items } });
     }
 
     /// Whether `node`, the named type inside a view, handle, or other
@@ -2774,7 +2773,7 @@ pub const TypeResolver = struct {
             .returns = return_ty,
             .is_sub = is_sub,
             .ct_params = try self.ctx.dupeIds(ct_types.items),
-            .ct_syms = try self.ctx.arena.allocator().dupe(SymbolId, ct_syms.items),
+            .ct_syms = try self.ctx.refs(ct_syms.items),
         } });
         try self.ctx.recordType(name, fn_ty);
         try self.recordFrom(node, params, returns);
@@ -2811,7 +2810,7 @@ pub const TypeResolver = struct {
         // `[T: {Shape}]` was reported; `T` stands for a type.
         if (SymbolResolver.objectBound(self.ctx.source, p)) {
             const id = self.ctx.symbolOf(sema.paramNameNode(p) orelse return self.ctx.types.invalid_id) orelse return self.ctx.types.invalid_id;
-            return self.ctx.intern(.{ .type_var = id });
+            return self.ctx.intern(.{ .type_var = self.ctx.ref(id) });
         }
         if (p != .src) {
             const ty = try self.resolveParamType(p);
@@ -2836,7 +2835,7 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(p, "generic parameter `{s}` has the name of a built-in type; use a different name, such as `T`", .{name});
             return self.ctx.types.invalid_id;
         }
-        return self.ctx.intern(.{ .type_var = id });
+        return self.ctx.intern(.{ .type_var = self.ctx.ref(id) });
     }
 
     /// The default value of each parameter, or null when none has one. A
@@ -2938,9 +2937,9 @@ pub const TypeResolver = struct {
         const group = try self.resolveType(ir.FieldOf.type(node));
         const name = identAt(self.ctx.source, ir.FieldOf.name(node)) orelse return self.ctx.types.invalid_id;
         return switch (self.ctx.types.get(group)) {
-            .imported_nominal => |n| blk: {
+            .nominal => |n| if (self.ctx.owns(n)) self.ctx.types.invalid_id else blk: {
                 const foreign = self.ctx.foreign_semas.get(n.module_id) orelse break :blk self.ctx.types.invalid_id;
-                for (foreign.symbols.items[n.sym_id].fields orelse &.{}) |f| {
+                for (foreign.symbols.items[n.sym].fields orelse &.{}) |f| {
                     if (f.is_method or f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
                     break :blk try sema.importType(self.ctx, foreign, f.ty, n.module_id);
                 }
@@ -3006,7 +3005,7 @@ pub const TypeResolver = struct {
         if (ty == self.ctx.types.invalid_id) return ty;
         // A set parameter: each instance must bind it to an error set.
         if (sema.isSetParam(self.ctx, ty)) {
-            const param = self.ctx.types.get(ty).type_var;
+            const param = self.ctx.localSym(self.ctx.types.get(ty).type_var);
             for (self.ctx.generic_requirements.items) |r| {
                 if (r.param == param and r.req == .error_set) return ty;
             }
@@ -3048,7 +3047,7 @@ pub const TypeResolver = struct {
             }
             // Each instance must give `T` a type that is not an error.
             if (self.ctx.types.get(inner) == .type_var) {
-                try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = self.ctx.types.get(inner).type_var, .req = .not_error, .pos = self.ctx.startOf(node), .op = "`!`" });
+                try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = self.ctx.localSym(self.ctx.types.get(inner).type_var), .req = .not_error, .pos = self.ctx.startOf(node), .op = "`!`" });
             }
             const set = try self.resolveFailSet(ir.ErrorUnion.set(node));
             if (set == self.ctx.types.invalid_id) return set;
@@ -4279,7 +4278,8 @@ pub const TypeResolver = struct {
         return switch (self.ctx.types.get(first)) {
             .read_view => .read,
             .write_view => .write,
-            .nominal, .parameterized_nominal => .value,
+            .nominal => |r| if (self.ctx.owns(r) or first == self.nominal.self_type) .value else .none,
+            .parameterized_nominal => .value,
             // `add String`'s `?@`: a `?String` is a view of text.
             .string_view => if (self.nominal.self_type == self.ctx.types.string_id) .read else .none,
             // An API's or an addition's `<@`: its `Self`.
@@ -4317,7 +4317,7 @@ pub const TypeResolver = struct {
         const pty = self.ctx.types.get(ptys[0]);
         const ok = pty == .write_view and blk: {
             break :blk switch (self.ctx.types.get(pty.write_view)) {
-                .nominal => |s| s == nominal_sym,
+                .nominal => |s| s == self.ctx.ref(nominal_sym),
                 else => false,
             };
         };
@@ -4428,7 +4428,7 @@ pub const TypeResolver = struct {
                                 try self.ctx.err(s.pos, "`{s}` is a compile-time value, not a type", .{name});
                                 return t.invalid_id;
                             }
-                            return self.ctx.intern(.{ .type_var = tp });
+                            return self.ctx.intern(.{ .type_var = self.ctx.ref(tp) });
                         }
                     }
                 }
@@ -4437,7 +4437,7 @@ pub const TypeResolver = struct {
                     switch (sym.kind) {
                         .nominal_type => {
                             try self.ctx.recordName(sexp, id);
-                            return self.ctx.intern(.{ .nominal = id });
+                            return self.ctx.intern(.{ .nominal = self.ctx.ref(id) });
                         },
                         .type_alias => {
                             try self.ctx.recordName(sexp, id);
@@ -4451,7 +4451,7 @@ pub const TypeResolver = struct {
                         // A function's own type parameter (`T` in `fun max[T]`).
                         .generic_param => {
                             try self.ctx.recordName(sexp, id);
-                            return self.ctx.intern(.{ .type_var = id });
+                            return self.ctx.intern(.{ .type_var = self.ctx.ref(id) });
                         },
                         .api => {
                             try self.ctx.err(s.pos, api_not_type, .{ name, name, name });
@@ -4659,14 +4659,14 @@ pub const TypeResolver = struct {
                 },
             },
             .ct_param => |sym| {
-                const ty = self.ctx.symbols.items[sym].ty;
+                const ty = self.ctx.symbols.items[self.ctx.localSym(sym)].ty;
                 if (use == .arg and !self.isPoison(param_ty) and !self.isPoison(ty) and ty != param_ty) {
                     const got = try sema.formatType(self.ctx, ty);
                     const want = try sema.formatType(self.ctx, param_ty);
-                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, self.ctx.symbols.items[sym].name, an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
+                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, self.ctx.symbols.items[self.ctx.localSym(sym)].name, an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
                     return t.invalid_id;
                 }
-                if (use == .array_len) try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = sym, .req = .array_len, .pos = self.ctx.startOf(node), .op = "an array length" });
+                if (use == .array_len) try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = self.ctx.localSym(sym), .req = .array_len, .pos = self.ctx.startOf(node), .op = "an array length" });
             },
             else => {},
         }
@@ -4833,13 +4833,13 @@ pub const TypeResolver = struct {
         for (self.nominal.type_params) |tp| {
             if (!std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) continue;
             if (self.ctx.symbols.items[tp].kind != .param) return null;
-            return try self.ctx.intern(.{ .ct_param = tp });
+            return try self.ctx.intern(.{ .ct_param = self.ctx.ref(tp) });
         }
         const id = self.ctx.lookupBefore(self.scope, name, leaf.src.pos) orelse return null;
         if (self.ctx.ct_locals.get(id)) |ct| return ct;
         const sym = self.ctx.symbols.items[id];
         if (sym.kind != .param or !sym.flags.comptime_known or self.ctx.types.get(sym.ty) != .int) return null;
-        return try self.ctx.intern(.{ .ct_param = id });
+        return try self.ctx.intern(.{ .ct_param = self.ctx.ref(id) });
     }
 
     /// Record the symbol each name in a compile-time integer names.
@@ -4947,7 +4947,7 @@ pub const TypeResolver = struct {
         const base: SymbolId = base: {
             if (!self.nominal.isEmpty()) {
                 if (std.mem.eql(u8, oname, "Self")) switch (self.ctx.types.get(self.nominal.self_type)) {
-                    .type_var => |p| break :base p,
+                    .type_var => |p| break :base self.ctx.localSym(p),
                     else => return null,
                 };
                 for (self.nominal.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, oname)) {
@@ -4962,7 +4962,7 @@ pub const TypeResolver = struct {
         try self.ctx.recordName(obj, base);
         const bsym = self.ctx.symbols.items[base];
         switch (try sema.assocApiOf(self.ctx, base, name)) {
-            .one => |api| return try self.ctx.intern(.{ .type_var = try sema.assocParam(self.ctx, base, api, name) }),
+            .one => |api| return try self.ctx.intern(.{ .type_var = self.ctx.ref(try sema.assocParam(self.ctx, base, api, name)) }),
             .ambiguous => try self.ctx.errAt(sexp, "`{s}.{s}` could name the associated type of two APIs among the bounds of `{s}`, `{s}`", .{ oname, name, oname, try sema.formatBounds(self.ctx, self.ctx.arena.allocator(), bsym, null) }),
             .none => if (sema.hasBounds(bsym))
                 try self.ctx.errAt(sexp, "`{s}` has no associated type `{s}`: its bounds, `{s}`, declare none; `Iter` gives `Item`, and an API gives what it declares with `type {s}`", .{ oname, name, try sema.formatBounds(self.ctx, self.ctx.arena.allocator(), bsym, null), name })
@@ -4994,7 +4994,7 @@ pub const TypeResolver = struct {
         }
         if (!try self.checkPublic(d)) return t.invalid_id;
         if (d.sym.kind == .type_alias) return sema.importType(self.ctx, d.foreign, d.sym.ty, d.origin);
-        return self.ctx.intern(.{ .imported_nominal = .{ .module_id = d.origin, .sym_id = d.id } });
+        return self.ctx.intern(.{ .nominal = .{ .module_id = d.origin, .sym = d.id } });
     }
 
     /// `module.Wrap` in `module.Wrap[Int]`: the proxy of a public generic
@@ -5103,7 +5103,7 @@ pub const TypeResolver = struct {
         if (any_bad) return t.invalid_id;
         const inst = try self.instanceOf(sym_id, args.items, pos);
         if (inline_len == 0 or self.isPoison(inst)) return inst;
-        return self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args.items, .inline_len = inline_len } });
+        return self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(sym_id), .args = args.items, .inline_len = inline_len } });
     }
 
     /// The most elements a List keeps inline: they live in its value, on
@@ -5140,7 +5140,7 @@ pub const TypeResolver = struct {
 
     /// `^T`: the built-in box of `T`, spelled at `pos`.
     pub fn boxOf(self: *TypeResolver, inner: TypeId, pos: u32) Error!TypeId {
-        return self.instanceOf(self.ctx.builtins.box.sym, &.{inner}, pos);
+        return self.instanceOf(self.ctx.localSym(self.ctx.builtins.box), &.{inner}, pos);
     }
 
     /// The instance of generic `sym_id` at `args`, spelled at `pos`.
@@ -5148,7 +5148,7 @@ pub const TypeResolver = struct {
         if (self.ctx.ref(sym_id) == self.ctx.builtins.simd) return simdInstance(self.ctx, args_in, pos);
         if (self.ctx.ref(sym_id) == self.ctx.builtins.slot) return slotInstance(self.ctx, args_in, pos);
         const sym = self.ctx.symbols.items[sym_id];
-        const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args_in } });
+        const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(sym_id), .args = args_in } });
         const inst = self.ctx.types.get(ty).parameterized_nominal;
         if (sym.decl_pos == sema.builtin_decl_pos) {
             try self.checkWhenResolved(.{ .builtin = .{ .pos = pos, .sym = sym_id, .args = inst.args } });
@@ -5196,10 +5196,10 @@ pub const TypeResolver = struct {
                 .type_var => |p| p,
                 else => continue,
             };
-            if (std.mem.findScalar(SymbolId, self.implying, p) == null) continue;
+            if (std.mem.findScalar(SymbolId, self.implying, self.ctx.localSym(p)) == null) continue;
             const from = self.ctx.symbols.items[tparams[i]];
-            self.ctx.symbols.items[p].implied.setUnion(from.apis.unionWith(from.implied));
-            try self.ctx.implications.append(self.ctx.allocator, .{ .param = p, .generic = generic, .index = @intCast(i) });
+            self.ctx.symbols.items[self.ctx.localSym(p)].implied.setUnion(from.apis.unionWith(from.implied));
+            try self.ctx.implications.append(self.ctx.allocator, .{ .param = self.ctx.localSym(p), .generic = generic, .index = @intCast(i) });
         }
     }
 };
@@ -5223,7 +5223,7 @@ pub fn simdInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!Type
             try ctx.err(pos, "a lane count is a power of two from 2 to 64; got {d}", .{v.int});
             return t.invalid_id;
         },
-        .ct_param => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .lane_count, .pos = pos, .op = "a lane count" }),
+        .ct_param => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = ctx.localSym(param), .req = .lane_count, .pos = pos, .op = "a lane count" }),
         else => return t.invalid_id,
     }
     return ctx.intern(.{ .simd = .{ .elem = elem, .len = len } });
@@ -5241,7 +5241,7 @@ pub fn slotInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!Type
             try ctx.err(pos, "a `Slot` names one of `n` slots; `n` is at least 1 and at most {d}; got {d}", .{ sema.max_slot_count, v.int });
             return ctx.types.invalid_id;
         },
-        .ct_param => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .slot_count, .pos = pos, .op = "a slot count" }),
+        .ct_param => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = ctx.localSym(param), .req = .slot_count, .pos = pos, .op = "a slot count" }),
         else => return ctx.types.invalid_id,
     }
     return ctx.intern(.{ .slot = args[0] });
@@ -5623,7 +5623,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
         try ctx.addToScope(module_scope, sym);
         ctx.builtins.order = ctx.ref(sym);
-        const self_ty = try ctx.intern(.{ .nominal = sym });
+        const self_ty = try ctx.intern(.{ .nominal = ctx.ref(sym) });
         try setFields(ctx, sym, &.{
             .{ .name = "less", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
             .{ .name = "equal", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
@@ -5646,7 +5646,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
         try ctx.addToScope(module_scope, sym);
         ctx.builtins.printer = ctx.ref(sym);
-        const self_ty = try ctx.intern(.{ .nominal = sym });
+        const self_ty = try ctx.intern(.{ .nominal = ctx.ref(sym) });
         try setFields(ctx, sym, &.{
             try method(ctx, "text", .write, &.{ try ctx.intern(.{ .write_view = self_ty }), ctx.types.string_view_id }, ctx.types.void_id, null),
         });
@@ -5749,8 +5749,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const n = ctx.symbols.items[g.sym].type_params.?[1];
         ctx.symbols.items[n].kind = .param;
         ctx.symbols.items[n].ty = ctx.types.int_id;
-        const n_ty = try ctx.intern(.{ .ct_param = n });
-        const self_ty = try ctx.intern(.{ .parameterized_nominal = .{ .sym = g.sym, .args = try ctx.dupeIds(&.{ g.params[0], n_ty }) } });
+        const n_ty = try ctx.intern(.{ .ct_param = ctx.ref(n) });
+        const self_ty = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(g.sym), .args = try ctx.dupeIds(&.{ g.params[0], n_ty }) } });
         const write_self = try ctx.intern(.{ .write_view = self_ty });
         const slot = try ctx.intern(.{ .slot = n_ty });
         try setFields(ctx, g.sym, &.{
@@ -5805,7 +5805,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         ctx.builtins.tasks = ctx.ref(s.sym);
         ctx.symbols.items[s.sym].flags.unique = true;
         const st = s.params[0];
-        const task_of = try ctx.intern(.{ .parameterized_nominal = .{ .sym = g.sym, .args = try ctx.dupeIds(&.{st}) } });
+        const task_of = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(g.sym), .args = try ctx.dupeIds(&.{st}) } });
         try setFields(ctx, s.sym, &.{
             try method(ctx, "add", .write, &.{ try ctx.intern(.{ .write_view = s.self_ty }), task_of }, ctx.types.void_id, null),
             try method(ctx, "wait_first", .value, &.{s.self_ty}, st, null),
@@ -5838,7 +5838,7 @@ fn registerPrelude(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .nominal_type => try ctx.addSymbol(.{
                 .name = fsym.name,
                 .kind = .type_alias,
-                .ty = try ctx.intern(.{ .imported_nominal = .{ .module_id = imp.module_id, .sym_id = fid } }),
+                .ty = try ctx.intern(.{ .nominal = .{ .module_id = imp.module_id, .sym = fid } }),
                 .decl_pos = sema.imported_decl_pos,
                 .scope = scope,
                 .flags = .{ .is_public = true },
@@ -5891,10 +5891,10 @@ fn addGeneric(ctx: *SemContext, named_in: ?ScopeId, module_scope: ScopeId, name:
             .decl_pos = builtin_pos,
             .scope = module_scope,
         });
-        param_tys[i] = try ctx.intern(.{ .type_var = param_syms[i] });
+        param_tys[i] = try ctx.intern(.{ .type_var = ctx.ref(param_syms[i]) });
     }
     ctx.symbols.items[sym].type_params = param_syms;
-    const self_ty = try ctx.intern(.{ .parameterized_nominal = .{ .sym = sym, .args = param_tys } });
+    const self_ty = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(sym), .args = param_tys } });
     return .{ .sym = sym, .params = param_tys, .self_ty = self_ty };
 }
 
@@ -6119,7 +6119,7 @@ test "builtins: registered with methods" {
     const scope = try ctx.pushScopeKind(sema.scope_invalid, .module);
     try registerBuiltins(&ctx, scope);
     const list = ctx.lookup(scope, "List").?;
-    try std.testing.expectEqual(ctx.builtins.list.sym, list);
+    try std.testing.expectEqual(ctx.builtins.list, ctx.ref(list));
     try std.testing.expectEqual(@as(usize, 14), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
