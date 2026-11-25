@@ -72,12 +72,11 @@ pub fn checkInstantiations(self: *Checker) Error!void {
     for (ctx.fn_instances.items) |f| {
         if (try sema.checkedBefore(ctx, try key.ofFn(ctx, f.inst)) != null) continue;
         const shown = try sema.formatFnInstanceIn(ctx, self.arena(), f.inst);
-        for (f.inst.ownParams(), f.inst.ownArgs()) |param_ref, arg| {
-            const param = ctx.localSym(param_ref);
+        for (f.inst.ownParams(), f.inst.ownArgs()) |param, arg| {
             if (types.carriesWriteView(self, arg)) {
                 // The call's instance of the API's method reports it.
                 if (f.through_api) continue;
-                const pname = ctx.symbols.items[param].name;
+                const pname = sema.symbolAt(ctx, param).name;
                 try notes.err(self, f.site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value; take `!{s}` in its signature instead", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname });
                 continue;
             }
@@ -101,14 +100,14 @@ pub fn checkInstantiations(self: *Checker) Error!void {
         };
         const base = sema.symbolAt(ctx, pn.sym).*;
         if (base.decl_pos == sema.builtin_decl_pos) continue;
-        const params = base.type_params orelse continue;
+        if (base.type_params == null) continue;
         if (try sema.checkedBefore(ctx, try key.ofType(ctx, entry.key_ptr.*)) != null) continue;
         const site = entry.value_ptr.*;
         const shown = try sema.formatTypeIn(ctx, self.arena(), entry.key_ptr.*);
-        for (params, 0..) |param, i| {
+        for (sema.paramRefs(ctx, pn.sym), 0..) |param, i| {
             if (i >= pn.args.len) break;
             const arg = pn.args[i];
-            const pname = ctx.symbols.items[param].name;
+            const pname = sema.symbolAt(ctx, param).name;
             const aname = try sema.formatTypeIn(ctx, self.arena(), arg);
             if (types.carriesWriteView(self, arg)) {
                 try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value", .{ shown, pname, aname });
@@ -128,18 +127,20 @@ pub fn checkInstantiations(self: *Checker) Error!void {
 /// (`SemContext.item_views`), where a generic body holds a value of
 /// that associated type past a change of the `param` it came from
 /// (`PlainRequirement.item`). Whether it was reported.
-pub fn checkItems(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst) Error!bool {
+pub fn checkItems(self: *Checker, site: u32, shown: []const u8, param: SymbolRef, arg: TypeId, subst: sema.TypeSubst) Error!bool {
     const ctx = self.sema;
-    for (self.plain_reqs.items) |r| {
-        if (r.param != param or r.item.len == 0) continue;
+    const on = reqsOf(self, param);
+    for (on.list) |r0| {
+        const r = on.on(ctx, r0, param) orelse continue;
+        if (r.item.len == 0) continue;
         if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
-        const assoc = for (ctx.symbols.items[param].assoc) |a| {
-            const of = ctx.symbols.items[a].assoc_of orelse continue;
+        const assoc = for (on.home.symbols.items[param.sym].assoc) |a| {
+            const of = on.home.symbols.items[a].assoc_of orelse continue;
             if (std.mem.eql(u8, of.name, r.item)) break a;
         } else continue;
-        const item = ctx.item_views.get(.{ .assoc = assoc, .base = arg }) orelse continue;
-        const aname = ctx.symbols.items[assoc].name;
-        const pname = ctx.symbols.items[param].name;
+        const item = ctx.item_views.get(.{ .assoc = on.home.ref(assoc), .base = arg }) orelse continue;
+        const aname = on.home.symbols.items[assoc].name;
+        const pname = on.home.symbols.items[param.sym].name;
         const iname = try sema.formatTypeIn(ctx, self.arena(), item);
         const bname = try sema.formatTypeIn(ctx, self.arena(), arg);
         try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, and the generic body holds an `{s}` past a change of the `{s}` it came from; use `{s}` itself, or give items that own what they hold", .{ shown, aname, iname, iname, bname, aname, pname, bname });
@@ -152,12 +153,14 @@ pub fn checkItems(self: *Checker, site: u32, shown: []const u8, param: SymbolId,
 /// An instance whose argument for `param` holds a view, or a `?String`,
 /// which may view a String, where a generic body stores a `param`
 /// where no loan is tracked.
-pub fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst) Error!void {
+pub fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolRef, arg: TypeId, subst: sema.TypeSubst) Error!void {
     const ctx = self.sema;
     if (!types.mayCarryLoan(self, arg)) return;
-    const pname = ctx.symbols.items[param].name;
-    for (self.plain_reqs.items) |r| {
-        if (r.param != param or !r.view) continue;
+    const pname = sema.symbolAt(ctx, param).name;
+    const on = reqsOf(self, param);
+    for (on.list) |r0| {
+        const r = on.on(ctx, r0, param) orelse continue;
+        if (!r.view) continue;
         if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
         const why = (try sema.objectLoanReason(ctx, self.arena(), arg)) orelse if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views read-only" else "a `?String` may view a String (a `Static` holds no view)";
         try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: the generic body {s}, which holds no view, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), try r.home.doing(self.arena(), pname), why });
@@ -173,13 +176,15 @@ pub fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolId,
 /// type, at the instance, may keep the view there. At a type's
 /// instance (`at_type`), a requirement a method's body makes is left
 /// to each call of the method (`checkMethodCalls`).
-pub fn checkCallables(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst, at_type: bool) Error!void {
+pub fn checkCallables(self: *Checker, site: u32, shown: []const u8, param: SymbolRef, arg: TypeId, subst: sema.TypeSubst, at_type: bool) Error!void {
     if (!types.mayCarryLoan(self, arg)) return;
-    for (self.plain_reqs.items) |r| {
-        if (r.param != param or r.callable == null) continue;
+    const on = reqsOf(self, param);
+    for (on.list) |r0| {
+        const r = on.on(self.sema, r0, param) orelse continue;
+        if (r.callable == null) continue;
         if (at_type and r.method != null) continue;
         if (try callableRefuses(self, r, subst)) |inst| {
-            try reportCallable(self, site, shown, r, arg, inst);
+            try reportCallable(self, on.home, site, shown, r, arg, inst);
             return;
         }
     }
@@ -214,10 +219,10 @@ pub fn callableRefuses(self: *Checker, r: PlainRequirement, subst: sema.TypeSubs
 /// `shown` cannot use `param = arg` (requirement `r`): at `site`, with
 /// a note at the body's call. `inst` is the function value's type
 /// there.
-pub fn reportCallable(self: *Checker, site: u32, shown: []const u8, r: PlainRequirement, arg: TypeId, inst: TypeId) Error!void {
+pub fn reportCallable(self: *Checker, home: *const sema.SemContext, site: u32, shown: []const u8, r: PlainRequirement, arg: TypeId, inst: TypeId) Error!void {
     const ctx = self.sema;
     const a = self.arena();
-    const pname = ctx.symbols.items[r.param].name;
+    const pname = home.symbols.items[r.param].name;
     const aname = try sema.formatTypeIn(ctx, a, arg);
     const fname = try sema.formatTypeIn(ctx, a, inst);
     if (r.in_result) {
@@ -281,17 +286,17 @@ pub fn checkMethodCalls(self: *Checker) Error!void {
         while (ci < self.method_calls.items.len) : (ci += 1) {
             const mc = self.method_calls.items[ci];
             const subst: sema.TypeSubst = .{ .params = mc.params, .args = mc.args };
-            const own_len = self.plain_reqs.items.len;
-            const total = own_len + ctx.plain_reqs.items.len;
+            // Another module's method's requirements are its module's.
+            const home: *const sema.SemContext = if (mc.target.module == ctx.module_id) ctx else ctx.foreign_semas.get(mc.target.module) orelse continue;
             var ri: usize = 0;
-            while (ri < total) : (ri += 1) {
-                const r = if (ri < own_len) self.plain_reqs.items[ri] else ctx.plain_reqs.items[ri - own_len];
-                if (ri >= own_len and r.module_id == 0) continue;
+            while (ri < (if (home == ctx) self.plain_reqs.items.len else home.plain_reqs.items.len)) : (ri += 1) {
+                var r = if (home == ctx) self.plain_reqs.items[ri] else home.plain_reqs.items[ri];
+                if (home != ctx and r.module_id == 0) r.module_id = home.module_id;
                 const m = r.method orelse continue;
                 const callable = r.callable orelse continue;
                 const module = if (r.module_id == 0) ctx.module_id else r.module_id;
                 if (m != mc.target.pos or module != mc.target.module) continue;
-                const arg = subst.lookup(ctx.ref(r.param)) orelse continue;
+                const arg = subst.lookup(home.ref(r.param)) orelse continue;
                 if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
                 const interner = self.interner;
                 const inst = try sema.substituteType(interner, callable, subst);
@@ -313,7 +318,7 @@ pub fn checkMethodCalls(self: *Checker) Error!void {
                 if (reported.contains(mc.pos)) continue;
                 if (try callableRefuses(self, r, subst)) |at| {
                     try reported.put(self.gpa, mc.pos, {});
-                    try reportCallable(self, mc.pos, try sema.formatTypeIn(ctx, self.arena(), mc.recv), r, arg, at);
+                    try reportCallable(self, home, mc.pos, try sema.formatTypeIn(ctx, self.arena(), mc.recv), r, arg, at);
                 }
             }
         }
@@ -321,14 +326,39 @@ pub fn checkMethodCalls(self: *Checker) Error!void {
     if (changed) try notes.tooComplex(self, changed_at, "call");
 }
 
+/// The requirements generic bodies make of a parameter, in the module
+/// that declares it: this one's as the checker holds them, another's as
+/// its check recorded them (`SemContext.plain_reqs`).
+const Reqs = struct {
+    list: []const PlainRequirement,
+    home: *const sema.SemContext,
+
+    /// `r` when it is on `param`, with its module named as `ctx` names it.
+    fn on(self: Reqs, ctx: *const sema.SemContext, r: PlainRequirement, param: SymbolRef) ?PlainRequirement {
+        if (self.home.ref(r.param) != param) return null;
+        var out = r;
+        if (self.home != ctx and out.module_id == 0) out.module_id = self.home.module_id;
+        return out;
+    }
+};
+
+fn reqsOf(self: *const Checker, param: SymbolRef) Reqs {
+    const ctx = self.sema;
+    if (ctx.owns(param)) return .{ .list = self.plain_reqs.items, .home = ctx };
+    const home = sema.homeOf(ctx, param);
+    return .{ .list = home.plain_reqs.items, .home = home };
+}
+
 /// An instance whose argument for `param` owns a resource, where a
 /// generic body copies a `param`.
-pub fn checkCopies(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst) Error!void {
+pub fn checkCopies(self: *Checker, site: u32, shown: []const u8, param: SymbolRef, arg: TypeId, subst: sema.TypeSubst) Error!void {
     const ctx = self.sema;
     if (sema.moves(ctx, arg) != .yes) return;
-    const pname = ctx.symbols.items[param].name;
-    for (self.plain_reqs.items) |r| {
-        if (r.param != param or r.view or r.item.len > 0 or r.callable != null) continue;
+    const pname = sema.symbolAt(ctx, param).name;
+    const on = reqsOf(self, param);
+    for (on.list) |r0| {
+        const r = on.on(ctx, r0, param) orelse continue;
+        if (r.view or r.item.len > 0 or r.callable != null) continue;
         if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
         if (sema.typeHasDropGlue(ctx, arg)) {
             try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
@@ -608,7 +638,7 @@ pub fn calledValueType(self: *Checker, node: Sexp, callee: Sexp, field_call: boo
         // A named function: generic, at the body's own parameters.
         const gc = ctx.genericCallOf(node) orelse return null;
         const interner = self.interner;
-        const ty = try sema.substituteType(interner, ctx.symbols.items[id].ty, .{ .params = try sema.refsIn(ctx, self.arena(), gc.params), .args = gc.type_args });
+        const ty = try sema.substituteType(interner, ctx.symbols.items[id].ty, .{ .params = gc.params, .args = gc.type_args });
         if (!ctx.typeInfo(ty).has_type_var or sema.calledFn(ctx, ty) == null) return null;
         return ty;
     };

@@ -139,23 +139,8 @@ pub const Facts = struct {
     zig_file: []const u8,
     /// The program's root module.
     is_root: bool,
-    cell_sym_id: sema.SymbolRef,
-    list_sym_id: sema.SymbolRef,
-    table_sym_id: sema.SymbolRef,
-    signal_sym_id: sema.SymbolRef,
-    actor_sym_id: sema.SymbolRef,
-    chan_sym_id: sema.SymbolRef,
-    frozen_sym_id: sema.SymbolRef,
-    task_sym_id: sema.SymbolRef,
-    tasks_sym_id: sema.SymbolRef,
-    box_sym_id: sema.SymbolRef,
-    endian_sym_id: sema.SymbolRef,
-    order_sym_id: sema.SymbolRef,
-    printer_sym_id: sema.SymbolRef,
-    hasher_sym_id: sema.SymbolRef,
-    arch_sym_id: sema.SymbolRef,
-    os_sym_id: sema.SymbolRef,
-    feature_sym_id: sema.SymbolRef,
+    /// The built-in types and enums, by their refs in module 0.
+    builtins: *const sema.Builtins,
 
     pub fn of(ctx: *const SemContext) Facts {
         return .{
@@ -166,23 +151,7 @@ pub const Facts = struct {
             .name = ctx.name,
             .zig_file = ctx.zig_file,
             .is_root = ctx.is_root,
-            .cell_sym_id = ctx.builtins.cell,
-            .list_sym_id = ctx.builtins.list,
-            .table_sym_id = ctx.builtins.table,
-            .signal_sym_id = ctx.builtins.signal,
-            .actor_sym_id = ctx.builtins.actor,
-            .chan_sym_id = ctx.builtins.chan,
-            .frozen_sym_id = ctx.builtins.frozen,
-            .task_sym_id = ctx.builtins.task,
-            .tasks_sym_id = ctx.builtins.tasks,
-            .box_sym_id = ctx.builtins.box,
-            .endian_sym_id = ctx.builtins.endian,
-            .order_sym_id = ctx.builtins.order,
-            .printer_sym_id = ctx.builtins.printer,
-            .hasher_sym_id = ctx.builtins.hasher,
-            .arch_sym_id = ctx.builtins.arch,
-            .os_sym_id = ctx.builtins.os,
-            .feature_sym_id = ctx.builtins.feature,
+            .builtins = ctx.builtins,
         };
     }
 
@@ -1092,7 +1061,6 @@ pub const syntax = struct {
     pub const paramName = sema.paramName;
     pub const paramNameNode = sema.paramNameNode;
     pub const tparamsOf = sema.tparamsOf;
-    pub const isProxy = sema.isProxy;
     pub const ownApiMethod = sema.ownApiMethod;
     pub const isIntLiteralText = sema.isIntLiteralText;
     pub const isFloatLiteralText = sema.isFloatLiteralText;
