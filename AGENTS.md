@@ -356,11 +356,14 @@ Machine-specific practice (the owner's machines):
   `<x` becomes `(drop x)`; `!x.v.push(1)` becomes `(!x.v).push(1)`; a
   `for` source sigil moves into the loop's mode unless it makes a view of a method
   call's self (`for x in !b.drain()`); `pub` on a member is
-  stripped and recorded; a module-level `x = v` is a constant. A `for`
-  over an iterator becomes a `while` where typecheck finds it, checked
-  in place; a byte literal, a chain, an option group, or a spread is
-  rewritten after the module's first check, so a module with one is
-  checked twice. Use `rig parse` and `rig normalize` to see both trees.
+  stripped and recorded; a module-level `x = v` is a constant. Typecheck
+  rewrites what only types decide where it finds it, and checks the
+  rewrite in place: a `for` over an iterator becomes a `while`; a byte
+  literal, a chain, and a spread are rewritten with the statement or
+  declaration that holds them, which is rolled back and checked again;
+  a group becomes its fields' parameters before any body is checked.
+  `sema.check` runs once per module. Use `rig parse` and `rig
+  normalize` to see both trees.
 - **Hidden leaves.** A bare `for` and a closure padded to its type get
   synthetic `_` leaves whose span lies outside the source. Read a leaf
   through `rig.leafText` (which gives `_`) and slice source only through

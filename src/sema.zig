@@ -1162,7 +1162,7 @@ pub const SymbolFlags = packed struct(u64) {
 pub const SelfMode = enum { none, read, write, value };
 
 /// A parameter that belongs to a group (docs/design/options.md, section
-/// 2): the group as written, `..net: Net`, which the first check sees, or
+/// 2): the group as written, `..net: Net`, one the checks refused, or
 /// one of its fields, a name-only option, once the Parser wrapper has made
 /// each field a parameter.
 pub const GroupParam = struct {
@@ -2192,6 +2192,9 @@ pub const FactTrail = struct {
     open: u32 = 0,
 
     const Entry = struct { column: u16, key: [16]u8, old: u32 };
+    /// The `column` of an entry that holds a symbol as it was
+    /// (`SemContext.symbolMut`), keyed by its id.
+    const symbol_column: u16 = Column.count;
     /// The `old` of an entry whose key had no value.
     const absent = std.math.maxInt(u32);
 
@@ -4597,25 +4600,14 @@ pub const SemContext = struct {
     /// The parameters each function and method calls at most once, those
     /// written `f: once ?fun() -> T`, by where its name is declared.
     declared_once: FastMap(u32, ParamMask) = .empty,
-    /// The string literals typecheck found where a `U8` or a `[N]U8` goes,
-    /// each to be written as the byte or the array of bytes it is there
-    /// (`rig.ByteLiteral`); a module with any is checked again on the
-    /// rewritten tree, so no pass sees one.
-    byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
     /// Every `$embed` of the module (`EmbedSite`), recorded once each.
     embed_sites: std.ArrayList(EmbedSite) = .empty,
     /// The embedded files calls make records from (`EmbedRecord`).
     embed_records: std.ArrayList(EmbedRecord) = .empty,
-    /// The iterator chains typecheck found (`rig.Chain`), each to be
-    /// rewritten into the loop it means; checked again, as for
-    /// `byte_literals`.
-    chains: std.ArrayList(rig.Chain) = .empty,
-    /// The groups typecheck found (`rig.GroupSite`), each to be made the
-    /// parameters it means, and the uses of each in its function's body,
-    /// by the position of the group's name; the spreads (`rig.SpreadSite`),
-    /// each to be made the keyword arguments it means. Checked again, as
-    /// for `byte_literals`.
-    groups: std.ArrayList(rig.GroupSite) = .empty,
+    /// Each group made parameters before any body is checked
+    /// (`typecheck.flattenGroups`), by the position of its name: its uses
+    /// in the body are rewritten where typecheck finds them.
+    flat_groups: std.AutoHashMapUnmanaged(u32, rig.Parser.Flattened) = .empty,
     /// The group each parameter that is a group's field belongs to, by
     /// name (`GroupParam`), for the message that the body reads it through
     /// its group.
@@ -4625,8 +4617,6 @@ pub const SemContext = struct {
     /// parameter belongs to none, by where its name is declared: kept
     /// apart, so no other symbol or field carries room for them.
     group_params: std.AutoHashMapUnmanaged(u32, []?GroupParam) = .empty,
-    group_uses: std.ArrayList(rig.GroupUse) = .empty,
-    spreads: std.ArrayList(rig.SpreadSite) = .empty,
     /// Every node that writes a binding, and how (`recordWrite`). Kept
     /// beside the facts table, not in `check --facts=sema`.
     write_sites: FastMap(NodeKey, WriteSite) = .empty,
@@ -4710,13 +4700,9 @@ pub const SemContext = struct {
         self.declared_origins.deinit(self.allocator);
         self.declared_keeps.deinit(self.allocator);
         self.declared_once.deinit(self.allocator);
-        self.chains.deinit(self.allocator);
-        self.groups.deinit(self.allocator);
+        self.flat_groups.deinit(self.allocator);
         self.group_fields.deinit(self.allocator);
         self.group_params.deinit(self.allocator);
-        self.group_uses.deinit(self.allocator);
-        self.spreads.deinit(self.allocator);
-        self.byte_literals.deinit(self.allocator);
         self.embed_sites.deinit(self.allocator);
         self.embed_records.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
@@ -5232,6 +5218,13 @@ pub const SemContext = struct {
         try map.put(self.allocator, key, value);
     }
 
+    /// Symbol `id`, to be written through: what it was goes on the trail
+    /// while a mark is open, so a rollback gives it back.
+    pub fn symbolMut(self: *SemContext, id: SymbolId) std.mem.Allocator.Error!*Symbol {
+        if (self.trail.open > 0) try self.trail.log(self.allocator, FactTrail.symbol_column, id, @as(?Symbol, self.symbols.items[id]));
+        return &self.symbols.items[id];
+    }
+
     /// Remove `key` from column `c`, on the trail while a mark is open.
     pub fn removeIn(self: *SemContext, comptime c: Column, key: MapKey(c.Map())) std.mem.Allocator.Error!void {
         const map = self.columnMap(c);
@@ -5244,6 +5237,10 @@ pub const SemContext = struct {
 
     fn undo(self: *SemContext, e: FactTrail.Entry) std.mem.Allocator.Error!void {
         switch (e.column) {
+            FactTrail.symbol_column => {
+                const id = FactTrail.keyOf(SymbolId, e.key);
+                self.symbols.items[id] = std.mem.bytesToValue(Symbol, self.trail.olds.items[e.old..][0..@sizeOf(Symbol)]);
+            },
             inline 0...Column.count - 1 => |i| {
                 const map = self.columnMap(comptime Column.of(i));
                 const M = @TypeOf(map.*);
@@ -5261,13 +5258,6 @@ pub const SemContext = struct {
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
         if (node != .src or sym == symbol_invalid) return;
         try self.putIn(.{ .facts = .names }, node.src.pos, sym);
-    }
-
-    /// A string literal at `pos` that holds `bytes` where a `U8` goes, or
-    /// a `[N]U8` (`array`); recorded once.
-    pub fn recordByteLiteral(self: *SemContext, pos: u32, bytes: []const u8, array: bool) !void {
-        for (self.byte_literals.items) |l| if (l.pos == pos) return;
-        try self.byte_literals.append(self.allocator, .{ .pos = pos, .bytes = bytes, .array = array });
     }
 
     /// A `$embed` whose path's literal at `arg` holds `path`; recorded
@@ -5524,7 +5514,7 @@ pub const SemContext = struct {
     /// flags alone.
     pub fn recordWrite(self: *SemContext, node: Sexp, sym: SymbolId, kind: WriteKind) !void {
         try self.putIn(.{ .ctx = .write_sites }, recordKey(node), .{ .sym = sym, .kind = kind });
-        const flags = &self.symbols.items[sym].flags;
+        const flags = &(try self.symbolMut(sym)).flags;
         switch (kind) {
             .assign, .compound => flags.reassigned = true,
             .write_viewed, .elem_store, .take, .capture => flags.written = true,
@@ -6661,6 +6651,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try resolve.resolveSymbols(&ctx, tree, module_scope);
     try resolve.resolveDeclarations(&ctx, tree, module_scope);
     const order = try computeContents(&ctx);
+    try typecheck.flattenGroups(&ctx, tree);
     try checkInfiniteTypes(&ctx);
     try checkOptionalLoops(&ctx);
     try checkTypeSizes(&ctx, order);
@@ -14278,9 +14269,9 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
                 continue;
             };
             if (i >= f.params.len) continue;
-            // A group as written, in a module's first check, which the
-            // check after its rewrite checks as its fields
-            // (`groupFieldsNamed`).
+            // A group as written, one the checks refused, whose own
+            // errors say why; one made parameters is checked as its
+            // fields (`groupFieldsNamed`).
             if (d.params.items()[i].isKind(.group_param)) continue;
             if (named & paramBit(i) != 0) {
                 try ctx.errAt(n, "`keeps {s}`: `{s}` is named twice", .{ text, text });
@@ -17805,9 +17796,7 @@ pub fn captureList(captures: Sexp) []const Sexp {
 
 /// Whether literal text `text` is a string's, double- or single-quoted,
 /// or a piece of a template's text (`rig.isTemplateText`).
-pub fn isStringLiteralText(text: []const u8) bool {
-    return text.len > 0 and (text[0] == '"' or text[0] == '\'' or rig.isTemplateText(text));
-}
+pub const isStringLiteralText = rig.isStringText;
 
 /// The bytes a single-quoted string holds, one at a time: its body as
 /// written, each `''` one `'`. The checker and emit both read a
@@ -18003,7 +17992,7 @@ fn findNodes(node: Sexp, tag: Tag, out: *std.ArrayList(Sexp)) !void {
     for (node.items()) |c| try findNodes(c, tag, out);
 }
 
-test "trail: a rollback gives each fact the value it had at the mark" {
+test "trail: a rollback gives each fact and symbol the value it had at the mark" {
     var r = try factsRun(
         \\fun f(a: Int) -> Int
         \\  b = a + 1
@@ -18020,6 +18009,8 @@ test "trail: a rollback gives each fact the value it had at the mark" {
     const names = ctx.facts.names.count();
     const plus_use = ctx.useOf(plus);
     const diagnostics = ctx.diagnostics.items.len;
+    const b_sym = ctx.symbolAt(b).?;
+    const b_was = ctx.symbols.items[b_sym];
 
     const m = ctx.mark();
     // Changed, added, and removed facts, of a leaf and of a list node.
@@ -18028,6 +18019,10 @@ test "trail: a rollback gives each fact the value it had at the mark" {
     try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, 1);
     try ctx.removeIn(.{ .facts = .names }, b);
     try ctx.err(0, "a diagnostic the rollback drops", .{});
+    // A symbol written through `symbolMut`.
+    const s = try ctx.symbolMut(b_sym);
+    s.ty = ctx.types.bool_id;
+    s.flags.comptime_known = !b_was.flags.comptime_known;
     // A nested mark kept is taken back with the one around it.
     const inner = ctx.mark();
     try ctx.recordImplicitView(plus);
@@ -18042,6 +18037,8 @@ test "trail: a rollback gives each fact the value it had at the mark" {
     try std.testing.expect(ctx.symbolAt(b + 1000) == null);
     try std.testing.expectEqual(plus_use, ctx.useOf(plus));
     try std.testing.expectEqual(diagnostics, ctx.diagnostics.items.len);
+    try std.testing.expectEqual(b_was.ty, ctx.symbols.items[b_sym].ty);
+    try std.testing.expectEqual(b_was.flags, ctx.symbols.items[b_sym].flags);
     // With no mark open, nothing is on the trail.
     try std.testing.expectEqual(@as(usize, 0), ctx.trail.entries.items.len);
     try ctx.recordType(plus, ctx.types.bool_id);

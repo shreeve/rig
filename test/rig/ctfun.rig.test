@@ -51,6 +51,25 @@ test "ctfun module constants", ''', whole: true
     i = 3
     print(TABLE[i])
 
+test "ctfun bytes in a table a module constant holds", "true false true", whole: true
+  # A string literal a compile-time function's body matches as a byte is
+  # written as the byte with its statement; only a module constant's
+  # rewrite folds the module's constants again, which would call the
+  # function while it is checked.
+  fun spaces[n: Int] -> [n]Bool
+    t = [n of false]
+    for i in 0..n
+      b: U8 = U8(i)
+      t[i] = match b
+        ' ', "\t" => true
+        _ => false
+    t
+
+  SPACES = spaces[40]
+
+  sub main()
+    print(SPACES[32], SPACES[33], SPACES[9])
+
 test "ctfun generic type argument", '''
   3 7 7
 '''
