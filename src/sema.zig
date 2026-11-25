@@ -4295,12 +4295,8 @@ pub const SemContext = struct {
     /// is a constant `Float` (`Checker.floatConst`), for the checks of a
     /// duration's value.
     const_floats: FastMap(SymbolId, f64) = .empty,
-    /// The bindings a use may move, drop, or give away (`consumes`,
-    /// recorded by `storage.plan`): emit arms such a binding's drop
-    /// behind an alive flag, and the ownership checker moves no other.
-    consumed: FastMap(SymbolId, void) = .empty,
-    /// The fields a use may move out of a binding (`fieldMoves`,
-    /// recorded by `storage.plan` with `consumed`, under its contract):
+    /// The fields a use may move out of a binding (`fieldMoves`, recorded
+    /// by `storage.plan` with `storage.Binding.flag`, under its contract):
     /// each a path of field names below the binding, `a.b` for `<p.a.b`.
     /// Emit gives each a drop flag, and the ownership checker moves no
     /// other field out (Core §5, "A field of an owned object moves like
@@ -4662,7 +4658,6 @@ pub const SemContext = struct {
         self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
         self.const_floats.deinit(self.allocator);
-        self.consumed.deinit(self.allocator);
         var fm = self.field_moves.valueIterator();
         while (fm.next()) |paths| {
             for (paths.items) |path| self.allocator.free(path);
@@ -5473,11 +5468,6 @@ pub const SemContext = struct {
     /// value, not the subject itself.
     pub fn recordHeaderCopy(self: *SemContext, node: Sexp) !void {
         try self.facts.header_copies.put(self.allocator, recordKey(node), {});
-    }
-
-    /// Whether a use may move binding `sym` out (`consumed`).
-    pub fn consumes(self: *const SemContext, sym: SymbolId) bool {
-        return self.consumed.contains(sym);
     }
 
     /// The field paths a use may move out of binding `sym`

@@ -3496,7 +3496,7 @@ branches, arms, a `catch` handler, `??`) is the name
 emit takes; when the value is consumed, the checker moves it there, as
 `<x` would, before the scopes the value leaves run their defers (a name
 the value declares itself, or one the function returns). Which bindings
-a use may move is one fact, `SemContext.consumed` (`storage.plan`): the
+a use may move is one fact, `storage.Binding.flag` (`storage.plan`): the
 name of `<x`, as a move or a drop, a `for x in <v` source, a `|<x|` capture, and a
 tail name of `return`, `break`, a function's or closure's last value,
 and every value that yields through its parts. Emit arms the drop of

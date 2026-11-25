@@ -4676,7 +4676,7 @@ pub const Checker = struct {
         // (`storage.Binding.flag`), so no other may move.
         const ctx = self.sema;
         if (ctx.symbolAt(v.decl)) |sym| if (!ctx.vars.binding(sym).flag) {
-            try self.err(pos, "internal error: `{s}` moves here, but the consumed fact does not record it", .{v.name});
+            try self.err(pos, "internal error: `{s}` moves here, but the var table does not flag it", .{v.name});
             return .{};
         };
         // `<x` ends `x`, whatever its type: a Copy value or a view is
