@@ -278,23 +278,23 @@ pub const Facts = struct {
     /// Whether the function or method whose name leaf is `name` is
     /// emitted `inline` (`inlining.decide`).
     pub fn isInlined(f: Facts, name: Sexp) bool {
-        return f.c().inlined.contains(f.c().startOf(name));
+        return f.c().decides(.inlined, f.c().startOf(name));
     }
     /// Whether the function or method whose name leaf is `name` never
     /// returns, which Zig's result `noreturn` says (`returns.decide`).
     pub fn neverReturns(f: Facts, name: Sexp) bool {
-        return f.c().never_returns.contains(f.c().startOf(name));
+        return f.c().decides(.never_returns, f.c().startOf(name));
     }
     /// In a split build, the unit that owns the function or method whose
     /// name leaf is `name`, when it is cut (`units.decide`).
     pub fn splitUnitOf(f: Facts, name: Sexp) ?u16 {
-        return f.c().split_units.get(f.c().startOf(name));
+        return f.c().decisionOf(.split_units, f.c().startOf(name));
     }
     /// Whether the function or method whose name leaf is `name` checks
     /// for work left waiting at its entry: one of a set every cycle of
     /// calls passes through (`inlining.decide`).
     pub fn hasEntryCheck(f: Facts, name: Sexp) bool {
-        return f.c().entry_checks.contains(f.c().startOf(name));
+        return f.c().decides(.entry_checks, f.c().startOf(name));
     }
     /// Whether the function or method whose name leaf is `name` has a
     /// large frame, emitted `noinline` (`sema.SemContext.large_frames`).
@@ -309,7 +309,7 @@ pub const Facts = struct {
     /// Whether the call may reach a function emitted `inline`, whose
     /// result Zig could know at compile time.
     pub fn callsInlined(f: Facts, call: Sexp) bool {
-        return call == .list and f.c().inlined_calls.contains(call.list.id);
+        return call == .list and f.c().decides(.inlined_calls, call.list.id);
     }
     pub fn calleeOf(f: Facts, call: Sexp) Sexp {
         return f.c().calleeOf(call);
@@ -582,17 +582,17 @@ pub const Facts = struct {
         return f.c().isOnceCapture(sym);
     }
     /// Whether a task that makes this call first may take a dense stack
-    /// (`SemContext.dense_calls`).
+    /// (`program.Table.dense_calls`).
     pub fn isDenseCall(f: Facts, call: Sexp) bool {
-        return call == .list and f.c().dense_calls.contains(call.list.id);
+        return call == .list and f.c().decides(.dense_calls, call.list.id);
     }
 
     /// The most stack this call may take, in bytes, when every function
     /// it can reach is known and fits a dense stack; null when no bound
-    /// is known (`SemContext.dense_calls`).
+    /// is known (`program.Table.dense_calls`).
     pub fn callDepth(f: Facts, call: Sexp) ?u64 {
         if (call != .list) return null;
-        return f.c().dense_calls.get(call.list.id);
+        return f.c().decisionOf(.dense_calls, call.list.id);
     }
 
     pub fn isLocalTask(f: Facts, call: Sexp) bool {
@@ -673,7 +673,7 @@ pub const Facts = struct {
     /// Whether the program calls `from_text` on plain enum `sym` of this
     /// module, which then emits its table of names.
     pub fn hasTextTable(f: Facts, sym: SymbolId) bool {
-        return f.c().hasTextTable(sym);
+        return f.c().decides(.text_tables, sym);
     }
     pub fn headerOf(f: Facts, node: Sexp) ?Header {
         return f.c().headerOf(node);
@@ -1175,9 +1175,9 @@ pub const Facts = struct {
         return sema.wordBitsOfSym(f.c(), sym);
     }
     /// The bits of the object `sym` declares here when it is held as one
-    /// word, a Zig `packed struct` (`storage.decideWords`).
+    /// word, a Zig `packed struct` (`program.decideWords`).
     pub fn wordHeldBitsOfSym(f: Facts, sym: SymbolId) ?u8 {
-        if (!f.c().word_held.contains(sym)) return null;
+        if (!f.c().decides(.word_held, sym)) return null;
         return sema.wordBitsOfSym(f.c(), sym);
     }
     /// Whether the object `sym` declares here is a word-Cell object
@@ -1192,9 +1192,9 @@ pub const Facts = struct {
         return f.c().symbols.items[sym].flags.exact;
     }
     /// The bytes of the tag type of the plain enum `sym` declares here,
-    /// when an `exact` object holds it (`storage.decideExactEnums`).
+    /// when an `exact` object holds it (`program.decideExactEnums`).
     pub fn exactEnumBytes(f: Facts, sym: SymbolId) ?u8 {
-        return f.c().exact_enums.get(sym);
+        return f.c().decisionOf(.exact_enums, sym);
     }
     /// Whether a field of type `ty` inside a plain object is held at
     /// four-byte alignment (`align(4)`): a 64-bit word-held object, which
@@ -1203,7 +1203,7 @@ pub const Facts = struct {
     pub fn wordAlignedField(f: Facts, ty: TypeId) bool {
         const d = sema.nominalDecl(f.c(), ty) orelse return false;
         return switch (f.c().types.get(ty)) {
-            .nominal, .imported_nominal => d.ctx.word_held.contains(d.sym) and sema.wordBitsOfSym(d.ctx, d.sym) == 64,
+            .nominal, .imported_nominal => d.ctx.decides(.word_held, d.sym) and sema.wordBitsOfSym(d.ctx, d.sym) == 64,
             else => false,
         };
     }
@@ -1272,8 +1272,9 @@ test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
     // Emit imports no file that holds a classifier: sema.zig, storage.zig,
     // and resolve.zig are reached only through this one. nametable.zig
-    // builds the data of a table of names, and decides nothing.
-    const allowed = [_][]const u8{ "std", "parser.zig", "rig.zig", "facts.zig", "diag.zig", "nametable.zig" };
+    // builds the data of a table of names, and names.zig lists the
+    // runtime's names; neither decides anything.
+    const allowed = [_][]const u8{ "std", "parser.zig", "rig.zig", "facts.zig", "diag.zig", "nametable.zig", "names.zig" };
     // Read as Zig reads it, so no spelling of an import slips past.
     var tokens = std.zig.Tokenizer.init(emit_source);
     var imports: usize = 0;
@@ -1326,7 +1327,7 @@ test "emit names hidden storage only through hiddenStorage" {
     // Spellings of a base that name no storage: a table entry's result
     // parameter, a parameter a function owns or holds the header of, and
     // a loop's index counter.
-    const others = [_][]const u8{ "rig.someOut({s}{s}), __rig_res);\\n", ", __rig_res: *rig.Payload(", "__rig_arg_{d}", "__rig_viewed_{s}", "__rig_viewed_{d}", "__rig_i_{d}" };
+    const others = [_][]const u8{ "({s}{s}), __rig_res);\\n", ", __rig_res: *", "__rig_arg_{d}", "__rig_viewed_{s}", "__rig_viewed_{d}", "__rig_i_{d}" };
     var pass: enum { bases, uses } = .bases;
     while (true) : (pass = .uses) {
         var tokens = std.zig.Tokenizer.init(emit_source);

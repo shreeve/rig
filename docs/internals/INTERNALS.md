@@ -35,12 +35,15 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │    typecheck src/typecheck.zig   every expression's type and facts
   │    cteval    src/cteval.zig      compile-time functions, run in the checker
   │  storage     src/storage.zig   the hidden storage emit makes
+  │  lower       src/lower.zig     each body's LIR (src/lir.zig), in shadow
   │  ownership   src/ownership.zig moves, loans, drops, aliasing
   │  proofs      src/proofs.zig    the tests known to pass
   ▼
-inlining         src/inlining.zig  which small functions Zig inlines, program-wide
-returns          src/returns.zig   which functions never return, program-wide
-units            src/units.zig     in a split build, which unit owns each function
+decide           src/program.zig   the program table: the program-wide decisions,
+                                   word-held objects, exact enums' tags, text tables
+  │  inlining    src/inlining.zig  which small functions Zig inlines
+  │  returns     src/returns.zig   which functions never return
+  │  units       src/units.zig     in a split build, which unit owns each function
 symbols          src/symbols.zig   the program's symbols, numbered
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime.zig   written next to them as rig/runtime.zig,
@@ -62,8 +65,9 @@ prints the root module's IR as flat facts ([Syntax facts](#syntax-facts)),
 (`sema.Facts`), `check --facts=storage` the hidden storage emit makes
 for them ([Storage facts](#storage-facts)), one per line, keyed by node
 kind and span with no compiler ids, so two compilers' dumps of a program
-diff cleanly, and `check --facts=proofs` the tests known to pass
-([Proven checks](#proven-checks)).
+diff cleanly, `check --facts=proofs` the tests known to pass
+([Proven checks](#proven-checks)), and `check --facts=lir` each body's
+lowered IR ([LIR](#lir)).
 A module whose sema reports an error (other than a local that is never
 read, a lint on well-typed code) is not ownership-checked: ownership
 reads the types sema settled, as Rust's checker waits for its
@@ -226,6 +230,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
 | `src/storage.zig` | the storage facts: the var table of the hidden storage emit makes and how bindings hold their values, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
+| `src/program.zig` | the program table: every decision made once for the whole program after every module is checked (inlined functions and calls, entry checks, dense calls, functions that never return, split units, word-held objects, exact enums' tags, text tables), keyed by module and place, which the graph owns (`ModuleGraph.table`), every module's context points at, and `Facts` reads; `ModuleGraph.decide` runs the deciders in order, and the word-held and exact-enum deciders live here |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/returns.zig` | which functions never return, emitted with the Zig result `noreturn`, decided once for the whole program after every module is checked (Emit, "Functions that never return") |
 | `src/units.zig` | a split build: how many units a program is built as, and which unit owns each function it cuts, decided once for the whole program ([Split builds](#split-builds)) |
@@ -964,10 +969,10 @@ them, in declaration order with no padding, the diagnostic naming the
 field and the bytes a padding field would take. Emit writes an `extern
 struct`, which keeps the declared order; an `exact` object is never held
 as one word (`wordBitsOfSym`). An `extern struct` holds no enum of an
-inferred tag, so `storage.decideExactEnums`, for the whole program,
+inferred tag, so `program.decideExactEnums`, for the whole program,
 gives each plain enum an `exact` object holds its tag type (`enum(u8)`,
-`u16`, or `u32`, by `sema.enumBytes`), recorded on the enum's module
-(`SemContext.exact_enums`). `bytesRecord` admits only `exact` objects,
+`u16`, or `u32`, by `sema.enumBytes`), recorded by the enum's module in
+the program table (`program.Table.exact_enums`). `bytesRecord` admits only `exact` objects,
 so every record is flat and copies with one `memcpy`.
 
 **Mapped runs.** In a Linux or macOS build that takes the release
@@ -1669,7 +1674,7 @@ instead of re-deriving it by name:
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
 | `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
-| `isEnumText(node)`, `hasTextTable(sym)` | whether a `member` `e.text` is the name of plain enum value `e`'s variant, which emit writes as `rig.enumText(e)`, and the place checks block every write and write view of; and whether the program calls `from_text` on plain enum `sym` of this module, which then holds the table of its names (`rig.NameTable`, built by `src/nametable.zig`). A call on another module's enum is marked there once every module is checked (`ModuleGraph.markTextTables`); a built-in enum's table is the calling module's own |
+| `isEnumText(node)`, `decides(.text_tables, sym)` | whether a `member` `e.text` is the name of plain enum value `e`'s variant, which emit writes as `rig.enumText(e)`, and the place checks block every write and write view of; and whether the program calls `from_text` on plain enum `sym` of this module, which then holds the table of its names (`rig.NameTable`, built by `src/nametable.zig`). Each call is recorded where it is checked (`recordTextTable`) and marked in the program table by the enum's module once every module is checked (`ModuleGraph.decide`); a built-in enum's table is the calling module's own |
 | `isMemberTest(node)` | whether `x == K.name` or `x == .name` tests which variant or member `x` holds, so emit tests the tag alone and needs no `==` on the payloads |
 | `isFrozenMake(call)`, `isLocalTask(call)` | whether a call is `Frozen(x)` under `*`, which emit writes as `rig.frozen(x)`; and whether the task a call makes is local, pinned to one thread ([What crosses to a task](#what-crosses-to-a-task)) |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
@@ -2075,9 +2080,9 @@ generic `?T`.
 Emit holds a word-sized object as one word, a Zig `packed struct(uN)`,
 unless some view takes the address of one of its fields. A word has no
 field addresses; Zig gives a bit pointer instead. Views in one module
-reach types another declares, so `storage.decideWords` decides it once
+reach types another declares, so `program.decideWords` decides it once
 for the whole program, after every module is checked and before
-inlining (`SemContext.word_held`, on the declaring module).
+inlining (`program.Table.word_held`, by the declaring module).
 
 It walks every `(write …)` view's chain of member and index steps. It
 keeps a type plain when a step takes a field of it, or takes a 64-bit
@@ -2137,6 +2142,41 @@ a read match's
 payload view of a copy lives for its arm (`arm_view`); a `payload` copy only copies
 fields out, and an `error_value` is the failure's own error, which the
 handler's binding takes as it starts: the checker walks the binding.
+
+### LIR
+
+Each body (a function, a `sub`, a test, a `drop` body, a closure) has
+a lowered IR, LIR (`src/lir.zig`), which `src/lower.zig` builds from
+the typed tree and the recorded facts. A body's LIR holds its vars, one
+for each binding and each piece of hidden storage ([Storage
+facts](#storage-facts): a var's kind is the table's kind), and its
+regions and steps in the order they run. Control flow stays
+structured, as Zig needs it. A region declares vars that live until it
+ends. It nests in a step, or in an expression where a value goes: a
+call whose parts are held first, a header that ends its temporaries, a
+value `if` or `match`. `lir.verify` checks that a body is well formed:
+each region and expression is reached once, from the body; each var is
+declared by one region; and each var is used only inside the region
+that declares it. `rig check --facts=lir` prints the root module's LIR,
+and lists each body not lowered with the construct that stopped it.
+
+LIR runs in shadow, and nothing reads it yet. In a self-checking build,
+`sema.check` lowers each module after `storage.plan`, and `lower.shadow`
+asserts, for each body, that:
+
+- its hidden vars are the var table's rows for nodes in that body, in
+  the table's order, each held the same way (`by`, `life`, `drop`,
+  `parts`);
+- each statement's and header's temporaries are `sema.stmtTemps`', in
+  its order;
+- each binding's `drop` and `flag` are its row's.
+
+Lowering asks the questions the plan asks. A node's vars are numbered
+after its operands' (the plan's order), and its steps are placed in the
+order they run. A body that uses a construct lowering does not yet
+cover is not lowered. The back track of docs/internals/architecture.md
+makes emit a printer of LIR, and dissolves the storage plan into
+lowering.
 
 ### Proven checks
 
@@ -5289,7 +5329,7 @@ and a query that decides more than that is a recorded fact.
   `returns.decide` decides it once for the whole program, after every
   module is checked, by the least fixed point (a function that only
   calls itself, or a cycle of them, is not marked), and records it in the
-  declaring module's `never_returns`, keyed as `inlined` is; emit reads it
+  program table's `never_returns`, keyed as `inlined` is; emit reads it
   as `Facts.neverReturns`. A call counts by the target typecheck recorded
   (`callTargetOf`), never through an actor's handle, a witness, or an API
   object, where the Zig callee is the runtime's or a type parameter's; a

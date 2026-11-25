@@ -669,6 +669,14 @@ serve no HTTP.
   "`for` binding `x` shadows the local `x`; use a different name". A
   program 0.3.0 accepted with such a loop is rejected; rename the loop's
   binding.
+- **Each body is lowered to LIR, in shadow** (docs/internals/INTERNALS.md,
+  "LIR"): a self-checking build lowers every function, `sub`, test, and
+  `drop` body to a structured lowered IR, with its bindings, its hidden
+  storage, and its steps in the order they run, and checks that its
+  hidden vars and their order are the var table's, its temporaries
+  `sema.stmtTemps`', and its bindings' drops their rows'. `rig check
+  --facts=lir` prints it. Nothing reads it yet; release builds do not
+  lower, and the emitted Zig is the same.
 - **A `for` over an iterator is checked once, as the `while` it means,
   where it stands:** typecheck rewrites it where it learns the source's
   type, rolling back what checking the source recorded (the trail), and a

@@ -12,11 +12,10 @@ const build_options = @import("build_options");
 const parser = @import("parser.zig");
 const ir = parser.ir;
 const rig = @import("rig.zig");
+const rt = @import("names.zig").rt;
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const symbols = @import("symbols.zig");
-const inlining = @import("inlining.zig");
-const returns = @import("returns.zig");
 const units = @import("units.zig");
 const bolt = @import("bolt.zig");
 const pgo = @import("pgo.zig");
@@ -25,6 +24,7 @@ const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
 const storage = @import("storage.zig");
+const lower = @import("lower.zig");
 const proofs = @import("proofs.zig");
 const lsp = @import("lsp.zig");
 const frames = @import("frames.zig");
@@ -80,6 +80,9 @@ const usage =
     \\                         root module instead (check)
     \\  --facts=proofs         Print the tests of the root module that are
     \\                         known to pass, which emit omits (check)
+    \\  --facts=lir            Print the root module's lowered IR: each
+    \\                         body's vars and steps, and the bodies not
+    \\                         yet lowered (check)
     \\  --facts=frames         Print each frame owner of the root module
     \\                         (a function, closure, test, or drop body)
     \\                         with its account: the bytes of values it
@@ -264,7 +267,7 @@ const Mode = enum {
 /// What `check --facts` prints: the IR's syntax facts, sema's, the
 /// hidden storage emit makes, the tests known to pass, or each frame's
 /// counted bytes.
-const Facts = enum { none, syntax, sema, storage, proofs, frames };
+const Facts = enum { none, syntax, sema, storage, proofs, frames, lir };
 
 const Options = struct {
     command: Command,
@@ -434,6 +437,13 @@ pub fn main(init: std.process.Init) !void {
                     }
                     try writer.interface.flush();
                 },
+                .lir => {
+                    const m = graph.root();
+                    var buffer: [4096]u8 = undefined;
+                    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
+                    try lower.writeModule(allocator, m.sema, m.ir, &writer.interface);
+                    try writer.interface.flush();
+                },
                 .sema, .storage, .proofs => {
                     const m = graph.root();
                     var buffer: [4096]u8 = undefined;
@@ -518,6 +528,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .proofs;
         } else if (eql(arg, "--facts=frames")) {
             facts = .frames;
+        } else if (eql(arg, "--facts=lir")) {
+            facts = .lir;
         } else if (eql(arg, "--time")) {
             time = true;
         } else if (eql(arg, "--bolt")) {
@@ -944,31 +956,7 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
-    // Inlining is decided for a program with no errors, and reports a
-    // cycle of marked `inline` functions, which Zig cannot inline.
-    if (!graph.hasErrors()) {
-        const t1 = timing.start(times);
-        // Which word-sized objects are held as one word: the whole
-        // program's views decide it, before emit reads it.
-        {
-            const n = graph.modules.items.len;
-            const ctxs = try allocator.alloc(*sema.SemContext, n);
-            defer allocator.free(ctxs);
-            const trees = try allocator.alloc(parser.Sexp, n);
-            defer allocator.free(trees);
-            for (graph.modules.items, ctxs, trees) |*m, *c, *t| {
-                c.* = m.sema;
-                t.* = m.ir;
-            }
-            try storage.decideWords(ctxs, trees);
-            // The tag type of each enum an `exact` object holds.
-            try storage.decideExactEnums(ctxs);
-        }
-        try inlining.decide(allocator, &graph, inlining.max_size);
-        try returns.decide(allocator, &graph);
-        timing.stop(times, .inlining, t1);
-        try graph.markTextTables();
-    }
+    if (!graph.hasErrors()) try graph.decide();
     try graph.writeAllDiagnostics(&writer.interface);
     try writer.interface.flush();
     const failed = graph.hasErrors();
@@ -2363,8 +2351,8 @@ fn splitFiles(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
         if (k < n) {
             try unit_root.writer.writeAll("comptime {\n");
             for (graph.modules.items) |*m| try unit_root.writer.print("    _ = @import(\"{s}\");\n", .{m.out_basename});
-            try unit_root.writer.writeAll("    rig.split.exportUnit(@import(\"__rig_errseed.zig\").All);\n}\n");
-        } else try unit_root.writer.writeAll("pub fn main(init: std.process.Init.Minimal) u8 {\n    return rig.split.start(init);\n}\n");
+            try unit_root.writer.writeAll("    " ++ rt(.split) ++ ".exportUnit(@import(\"__rig_errseed.zig\").All);\n}\n");
+        } else try unit_root.writer.writeAll("pub fn main(init: std.process.Init.Minimal) u8 {\n    return " ++ rt(.split) ++ ".start(init);\n}\n");
         try files.append(allocator, .{ .path = if (k < n) try allocator.print("__rig_unit_{d}.zig", .{k}) else "__rig_entry.zig", .contents = unit_root.written() });
     }
 }
@@ -3247,9 +3235,10 @@ test {
     _ = frames;
     _ = pgo;
     _ = bolt;
-    _ = inlining;
+    _ = @import("inlining.zig");
     _ = map_trace;
     _ = @import("ownership.zig");
+    _ = @import("lir.zig");
     _ = @import("runtime.zig");
     _ = @import("nametable.zig");
     _ = @import("symbols.zig");
