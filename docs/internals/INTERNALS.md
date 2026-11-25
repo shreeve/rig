@@ -1688,7 +1688,7 @@ instead of re-deriving it by name:
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?String]` binds a `?String`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `storage.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
-| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary viewed for reading or to write. The ownership checker holds it in a hidden var named by its source, that what reads it views (to write, under `!`: `writeViewTemp`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
+| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary viewed for reading or to write. The ownership checker holds it in a hidden var named by its source, that what reads it views (to write, under `!`: `writeViewTemp`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, or, for a temporary lowering found made before anything its statement does can act (`lower.Module.isFlat`: every part before it only reads, and its value changes nothing they read), `slot = value; flag = true;` ahead of the statement, which reads `slot`; and it drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
 | `writesTemp(node)` | whether the node is a temporary viewed for writing, or the value a part viewed for writing starts from (`!mk()`, `!(a if c else b).f`, recorded by `checkWriteView`): its statement's slot is written, so emit reaches it there at every site that views it (`emitMemberBase`), never through a copy |
 | `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or view sigil that is one. Kept beside the table, not in `check --facts=sema` |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
@@ -2207,6 +2207,15 @@ takes:
 - each hidden var it names, and each binding's drop and flag;
 - whether a call holds its parts, and which parts it holds;
 - a statement's slots, and whether a node is a temporary;
+- which temporaries are made before anything their statement does can
+  act (`Module.isFlat`), which emit writes into their slots ahead of
+  the statement rather than with `rig.keep` where they stand. Lowering
+  walks the statement's parts in the order they run while each only
+  reads (a literal, a constant, a var, a field or view of one); a
+  temporary reached so whose value neither writes nor moves a var read
+  before it is flattened. A part that acts, or runs only on a condition
+  (the right side of `and`, `or`, `??`; a branch; a block), ends the
+  walk;
 - whether a header makes temporaries, and whether it yields a pointer;
 - how a match holds its subject;
 - whether a `for` consumes its source.

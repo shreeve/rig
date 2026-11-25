@@ -9869,7 +9869,8 @@ pub const TextBuf = struct {
         return slot;
     }
 
-    noinline fn fill(self: *TextBuf, pieces: anytype) void {
+    /// Write `pieces` into the buffer.
+    pub noinline fn fill(self: *TextBuf, pieces: anytype) void {
         var out: Spill = .init(&self.stack);
         writeArgs(&out.writer, pieces) catch unreachable;
         self.len = out.writer.end;
