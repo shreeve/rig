@@ -316,20 +316,12 @@ pub fn textLiteralBytes(a: std.mem.Allocator, lit: []const u8) ?[]const u8 {
 
 pub fn numericBits(t: sema.Type) ?u16 {
     return switch (t) {
-        .int => |i| intBounds(i).bits,
+        .int => |i| i.width(),
         .float => |f| if (f.bits == 0) 64 else f.bits,
         else => null,
     };
 }
 
-pub const IntBounds = struct { min: Wide, max: Wide, bits: u8 };
-
-/// The width and value range of an integer type.
-pub fn intBounds(info: sema.IntInfo) IntBounds {
-    const bits: u8 = if (info.bits == 0) 64 else info.bits;
-    const half = @as(Wide, 1) << @intCast(bits - 1);
-    return if (info.signed) .{ .min = -half, .max = half - 1, .bits = bits } else .{ .min = 0, .max = 2 * half - 1, .bits = bits };
-}
 
 /// The first division of whole-number literals (`7 / 2`, `9 % 4`) that
 /// a literal context reaches in `e`: through negation, a ternary's
@@ -370,7 +362,7 @@ pub fn wholeLiterals(source: []const u8, e: Sexp) bool {
 pub fn holdsInt(ctx: *const SemContext, ty: TypeId, v: Wide) bool {
     return switch (ctx.types.get(ty)) {
         .slot => |n| if (sema.slotCount(ctx, n)) |c| v >= 0 and v < c else false,
-        .int => |info| v >= intBounds(info).min and v <= intBounds(info).max,
+        .int => |info| sema.intInfoFits(info, v),
         .float => |f| blk: {
             const mantissa: u8 = if (f.bits == 32) 24 else 53;
             const a = @abs(v);

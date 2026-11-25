@@ -889,7 +889,7 @@ pub fn pushWide(self: *Checker, callee: Sexp, b: Sexp, pos: u32, args: []const S
     }
     var one_byte = false;
     switch (self.ctx.types.get(num)) {
-        .int => |info| one_byte = CompatCheck.intBounds(info).bits == 8,
+        .int => |info| one_byte = info.width() == 8,
         // A type parameter: each instance must be an integer.
         .type_var => |param| try ExprCheck.require(self, self.ctx.localSym(param), .integer, self.startOf(given[0]), "push"),
         else => {
@@ -920,7 +920,7 @@ pub fn pushWide(self: *Checker, callee: Sexp, b: Sexp, pos: u32, args: []const S
     }
     try ViewCheck.checkExpr(self, args[0], num);
     if (keep) |k| try checkKeep(self, ir.Kwarg.value(k), switch (self.ctx.types.get(num)) {
-        .int => |info| CompatCheck.intBounds(info).bits / 8,
+        .int => |info| info.width() / 8,
         else => null,
     });
     try self.ctx.record(.string_nums, callee, num);
@@ -972,7 +972,7 @@ pub fn pushVector(self: *Checker, callee: Sexp, pos: u32, args: []const Sexp) Er
     const vec = sema.unwrapViews(self.ctx, ty);
     const simd = sema.simdOf(self.ctx, vec);
     const bytes = if (simd) |v| switch (self.ctx.types.get(v.elem)) {
-        .int => |info| if (CompatCheck.intBounds(info).bits == 8 and !info.signed) sema.simdLen(self.ctx, v) else null,
+        .int => |info| if (info.width() == 8 and !info.signed) sema.simdLen(self.ctx, v) else null,
         else => null,
     } else null;
     if (bytes == null) {
@@ -3642,7 +3642,7 @@ pub fn bytesCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: 
     const lanes = if (sema.simdOf(self.ctx, num)) |v| v.elem else null;
     var one_byte = false;
     switch (self.ctx.types.get(lanes orelse num)) {
-        .int => |info| one_byte = CompatCheck.intBounds(info).bits == 8,
+        .int => |info| one_byte = info.width() == 8,
         .float => {},
         // A type parameter: each instance must be a number.
         .type_var => |param| try ExprCheck.require(self, self.ctx.localSym(param), .bytes, self.startOf(given[0]), method),

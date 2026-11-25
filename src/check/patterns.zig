@@ -679,7 +679,7 @@ pub fn coversAll(self: *Checker, cov: *Checker.MatchCoverage, scrutinee: TypeId)
     switch (self.ctx.types.get(ty)) {
         .bool => return cov.bools[0] and cov.bools[1],
         .int, .int_literal => {
-            const bounds = CompatCheck.intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
+            const bounds = sema.intRange(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
             var next = bounds.min;
             const max = bounds.max;
             for (cov.ints.items) |iv| {
@@ -725,7 +725,7 @@ pub fn notExhaustive(self: *Checker, cov: *const Checker.MatchCoverage, scrutine
         .int, .int_literal => {
             // The least value missed that is not negative, else the
             // greatest negative one.
-            const bounds = CompatCheck.intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
+            const bounds = sema.intRange(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
             var next: Wide = @max(bounds.min, 0);
             for (cov.ints.items) |iv| {
                 if (iv[0] > next) break;
@@ -921,7 +921,7 @@ pub fn checkRangePattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: 
         return coverInts(self, cov, lo.?, hi.?, pos);
     }
     if (st == .int) {
-        const b = CompatCheck.intBounds(st.int);
+        const b = sema.intRange(st.int);
         if (hi.? > b.max + 1 or hi.? <= b.min) {
             try self.errAt(hi_node, "the end of range `{d}..{d}` does not fit `{s}`; it may be at most {d}, one past the largest value", .{ lo.?, hi.?, try self.tyName(scrutinee), b.max + 1 });
             return;

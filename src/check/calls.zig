@@ -1625,7 +1625,7 @@ pub fn variantValue(self: *Checker, e: Sexp) Error!?Wide {
 /// part must fit.
 pub fn checkFloatFits(self: *Checker, arg: Sexp, target: TypeId) Error!void {
     const f = CompatCheck.constFloatOf(self.ctx.source, arg) orelse return;
-    const b = CompatCheck.intBounds(self.ctx.types.get(target).int);
+    const b = sema.intRange(self.ctx.types.get(target).int);
     const whole = @trunc(f);
     if (whole >= sema.cteval.wideToFloat(f64, b.min) and whole < sema.cteval.wideToFloat(f64, b.max) + 1) return;
     if (@abs(f) < 1e18) {

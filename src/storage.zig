@@ -261,11 +261,8 @@ pub fn isTypeCallee(ctx: *const SemContext, obj: Sexp) bool {
 /// The symbol `module.name` names in that module; null when `obj` is
 /// not a module's member.
 pub fn moduleMemberSym(ctx: *const SemContext, obj: Sexp) ?sema.Symbol {
-    const id = ctx.symbolOf(ir.Member.object(obj)) orelse return null;
-    if (ctx.symbols.items[id].kind != .module) return null;
-    const foreign = ctx.foreign_semas.get(ctx.module_refs.get(id) orelse return null) orelse return null;
-    const fid = foreign.moduleMember(srcText(ctx, ir.Member.name(obj))) orelse return null;
-    return foreign.symbols.items[fid];
+    const f = ctx.foreignMember(ctx.symbolOf(ir.Member.object(obj)) orelse return null, ir.Member.name(obj)) orelse return null;
+    return f.ctx.symbols.items[f.id];
 }
 
 /// An object, enum, or generic type: calling it constructs a value.

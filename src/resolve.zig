@@ -2299,11 +2299,9 @@ pub const ConstNames = struct {
         const obj = ir.Member.object(e);
         if (obj != .src) return null;
         const id = self.ctx.lookupAt(self.scope, identAt(self.ctx.source, obj) orelse return null, obj.src.pos) orelse return null;
-        if (self.ctx.symbols.items[id].kind != .module) return null;
-        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
-        const fid = foreign.moduleMember(identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
-        if (!foreign.symbols.items[fid].flags.is_public) return null;
-        const c = foreign.const_ints.get(fid) orelse return null;
+        const f = self.ctx.foreignMember(id, ir.Member.name(e)) orelse return null;
+        if (!f.ctx.symbols.items[f.id].flags.is_public) return null;
+        const c = f.ctx.const_ints.get(f.id) orelse return null;
         return .{ .v = c.value, .int = c.int };
     }
 

@@ -725,7 +725,7 @@ pub fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .float => ctx.types.get(ty) == .float,
         .fits => |v| sema.isNumeric(ctx, ty) and CompatCheck.holdsInt(ctx, ty, v),
         .shift => |v| switch (ctx.types.get(ty)) {
-            .int => |info| v < CompatCheck.intBounds(info).bits,
+            .int => |info| v < info.width(),
             else => false,
         },
         .copies => sema.copies(ctx, ty) != .no,

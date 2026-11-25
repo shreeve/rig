@@ -798,7 +798,7 @@ pub fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []con
     }
     const v = constInt(self, amount) orelse return true;
     const width: ?Wide = switch (self.ctx.types.get(shifted)) {
-        .int => |info| CompatCheck.intBounds(info).bits,
+        .int => |info| info.width(),
         .type_var => |tv| blk: {
             if (v >= 0) try require(self, self.ctx.localSym(tv), .{ .shift = v }, self.startOf(amount), op);
             break :blk null;
