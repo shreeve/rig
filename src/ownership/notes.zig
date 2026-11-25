@@ -665,7 +665,7 @@ pub fn reportArmView(self: *Checker, l: Loan) Error!void {
     while (end < self.source.len and (std.ascii.isAlphanumeric(self.source[end]) or self.source[end] == '_')) end += 1;
     const name = diag.textBetween(self.source, l.pos, end);
     const root = self.vars.items[l.root];
-    const clones = if (self.sema.symbolAt(l.pos)) |sym| sema.cloneable(self.sema, self.sema.symbols.items[sym].ty) != .no else false;
+    const clones = if (bindingNamed(self, name)) |sym| sema.cloneable(self.sema, self.sema.symbols.items[sym].ty) != .no else false;
     const a = self.arena();
     const take = if (root.arm_take.len > 0) try std.fmt.allocPrint(a, "take the subject with `match <{s}` and move it with `<{s}`", .{ root.arm_take, name }) else "";
     const hint = if (clones and take.len > 0)
@@ -677,6 +677,18 @@ pub fn reportArmView(self: *Checker, l: Loan) Error!void {
     else
         "use it in the arm";
     try err(self, l.pos, "a view of `{s}` does not outlive the `match` that reads `{s}`: {s}", .{ name, root.arm_of, hint });
+}
+
+/// The symbol of the latest binding named `name`, the one a view of
+/// that name made.
+fn bindingNamed(self: *const Checker, name: []const u8) ?SymbolId {
+    var i = self.vars.items.len;
+    while (i > 0) {
+        i -= 1;
+        const v = self.vars.items[i];
+        if (v.kind != .hidden and std.mem.eql(u8, v.name, name)) return v.sym;
+    }
+    return null;
 }
 
 /// The owner's name a read match on `scrut` (`x` or `?x`) could take

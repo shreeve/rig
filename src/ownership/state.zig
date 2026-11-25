@@ -195,6 +195,9 @@ pub const Via = enum { owned, viewed, shared };
 pub const Var = struct {
     name: []const u8,
     decl: u32,
+    /// The leaf that declares a binding (`SemContext.symbolAt`); 0 for
+    /// a hidden var.
+    leaf: parser.LeafId = 0,
     /// For a binding of a match that reads a place, the place as
     /// written: taking it with `<` would give the binding its field to
     /// move (`reportAlias`).
@@ -902,7 +905,7 @@ pub const Checker = struct {
         var v = var_;
         const ctx = self.sema;
         if (v.kind != .hidden) {
-            v.sym = ctx.symbolAt(v.decl);
+            v.sym = ctx.symbolAt(v.leaf);
         }
         // Emit holds a binding as lowering made its var
         // (`storage.bindingDrop`): the checker treats as owning exactly

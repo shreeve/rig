@@ -703,7 +703,7 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
     } else if (!is_decl) (try self.ctx.symbolMut(sym_id)).flags.rebound = true;
     // Assigning a binding writes it without reading it; writing
     // through a `!T` binding reaches the viewed value.
-    if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.putIn(.check, .writes, target.src.pos, {});
+    if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.putIn(.check, .writes, target.src.leaf, {});
     // The binding must be one that may change.
     if (!is_decl and !try requireAccess(self, placeOf(self, target), .assign, target)) {
         if (kind.operator() == null) try ViewCheck.checkExpr(self, rhs, if (writes_through) sema.unwrapViews(self.ctx, sym.ty) else sym.ty) else _ = try PatternCheck.synthExpr(self, rhs);
