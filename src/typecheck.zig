@@ -2456,7 +2456,7 @@ const Checker = struct {
         } else if (!is_decl) self.ctx.symbols.items[sym_id].flags.rebound = true;
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the viewed value.
-        if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
+        if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.putIn(.{ .facts = .writes }, target.src.pos, {});
         // The binding must be one that may change.
         if (!is_decl and !try self.requireAccess(self.placeOf(target), .assign, target)) {
             if (kind.operator() == null) try self.checkExpr(rhs, if (writes_through) sema.unwrapViews(self.ctx, sym.ty) else sym.ty) else _ = try self.synthExpr(rhs);
@@ -5078,7 +5078,7 @@ const Checker = struct {
     fn releaseHeld(self: *Checker) Error!void {
         const base = self.held_base;
         self.held_base = .nil;
-        self.ctx.forgetUse(base);
+        try self.ctx.forgetUse(base);
         try self.readLeaf(base);
     }
 

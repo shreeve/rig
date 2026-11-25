@@ -664,6 +664,12 @@ serve no HTTP.
 
 ### Compiler
 
+- **A check can be taken back:** every fact sema records goes through
+  one write path (`SemContext.putIn`), and while a mark is open each
+  write goes on a trail with the value it replaced, so a rollback gives
+  the facts table, the diagnostics, and the decisions what they held at
+  the mark (docs/internals/INTERNALS.md, "The trail"). Nothing uses it
+  yet but its test; the emitted Zig is the same.
 - **The storage plan keeps one var table** (docs/internals/INTERNALS.md,
   "Storage facts"): each hidden var emit makes, in the order the plan
   makes it, with how it holds its value, how long, and how it drops it,
