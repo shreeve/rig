@@ -2750,9 +2750,7 @@ pub const Emitter = struct {
     /// on their own, or in its headers, which are their own statements:
     /// `openHeader`) that has none yet, inline before the statement.
     fn emitTempSlots(self: *Emitter, stmt: Sexp) Error!void {
-        var temps: std.ArrayList(Sexp) = .empty;
-        try self.facts.stmtTemps(self.arena.allocator(), stmt, &temps);
-        for (temps.items) |temp| {
+        for (self.lowered.?.tempsOf(stmt)) |temp| {
             if (self.tempSlot(temp) != null) continue;
             // A template's temporary is a buffer of its text.
             const buffer = if (self.varOf(temp, .temp)) |st| st.by == .buffer else false;
@@ -2764,6 +2762,12 @@ pub const Emitter = struct {
             try self.w.print("defer if ({s}_live) " ++ rt(.drop) ++ "(&{s}); ", .{ name, name });
             try self.temp_slots.append(self.allocator, .{ .node = temp.list.id, .name = name });
         }
+    }
+
+    /// Whether `e` is an owning temporary its statement drops: lowering
+    /// made it a `temp` var.
+    fn dropsTemp(self: *Emitter, e: Sexp) bool {
+        return self.varOf(e, .temp) != null;
     }
 
     fn tempSlot(self: *Emitter, node: Sexp) ?TempSlot {
@@ -6166,7 +6170,7 @@ pub const Emitter = struct {
         if (!sameNode(sexp, self.viewing) and self.hoistedOf(sexp) == null) if (self.facts.viewOf(sexp)) |made| if (made.implicit) return self.emitView(sexp, made, tail, want_ptr);
         // (An argument hoisted before its call was kept there: its name
         // holds the kept value.)
-        if (self.facts.dropsTemp(sexp) and !sameNode(sexp, self.keeping) and self.hoistedOf(sexp) == null) {
+        if (self.dropsTemp(sexp) and !sameNode(sexp, self.keeping) and self.hoistedOf(sexp) == null) {
             const slot = self.tempSlot(sexp) orelse return self.unsupported(sexp, "a temporary outside a statement");
             const saved = self.keeping;
             const saved_ptr = self.ptr_tail;
@@ -8118,7 +8122,7 @@ pub const Emitter = struct {
         // (`sema.writesTemp`) or not, is reached in the slot (below),
         // which has that type, never in a copy: a change through it is
         // the temporary's own, which its drop sees.
-        if (!self.facts.writesTemp(o) and !self.facts.dropsTemp(o)) if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (o_ty) |t| {
+        if (!self.facts.writesTemp(o) and !self.dropsTemp(o)) if (o.isKind(.@"if") or o.isKind(.match) or o.isKind(.@"??") or o.isKind(.@"catch")) if (o_ty) |t| {
             if (self.hoistedOf(o)) |h| if (h.flag.len == 0) {
                 try self.w.writeAll(h.name);
                 return self.derefToHandle(t);
@@ -8252,7 +8256,7 @@ pub const Emitter = struct {
             },
             .made => {
                 // A value kept in its statement's slot is reached there.
-                if (self.facts.dropsTemp(e)) {
+                if (self.dropsTemp(e)) {
                     try self.w.writeAll("&(");
                     try self.emitBare(e);
                     return self.w.writeAll(")");
@@ -8364,7 +8368,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(").*");
             },
             // The payload is captured by address where Zig holds it.
-            .made => if (!self.facts.dropsTemp(e)) {
+            .made => if (!self.dropsTemp(e)) {
                 try self.zigTemporary(e);
             },
             // A view of an optional or fallible value whose payload is read
@@ -10625,7 +10629,7 @@ pub const Emitter = struct {
         defer self.read_place = saved;
         self.read_place = true;
         try self.w.writeAll("&(");
-        if (self.facts.dropsTemp(e)) try self.emitBare(e) else try self.emitPlace(e);
+        if (self.dropsTemp(e)) try self.emitBare(e) else try self.emitPlace(e);
         try self.w.writeAll(")");
     }
 

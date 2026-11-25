@@ -614,9 +614,6 @@ pub const Facts = struct {
     pub fn writesTemp(f: Facts, node: Sexp) bool {
         return f.c().writesTemp(node);
     }
-    pub fn dropsTemp(f: Facts, node: Sexp) bool {
-        return f.c().dropsTemp(node);
-    }
     pub fn useOf(f: Facts, node: Sexp) ?Use {
         return f.c().useOf(node);
     }
@@ -869,11 +866,6 @@ pub const Facts = struct {
     /// Whether a local `k =! n` stands for a compile-time parameter.
     pub fn isCtLocal(f: Facts, sym: SymbolId) bool {
         return f.c().ct_locals.contains(sym);
-    }
-    /// The statement temporaries `stmt` makes, in the order they are made
-    /// (the recorded `dropsTemp` facts).
-    pub fn stmtTemps(f: Facts, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-        return sema.stmtTemps(f.c(), a, stmt, out);
     }
     pub fn stmtErasedCopies(f: Facts, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
         return sema.stmtErasedCopies(f.c(), a, stmt, out);
@@ -1357,7 +1349,7 @@ test "a Facts method about a node reads what a checker recorded" {
     // helper of storage or sema, each by the node's shape over recorded
     // symbols, types, and constants; the list only shrinks.
     const readers = [_][]const u8{
-        "callsRigFunction", "patternConst", "stmtTemps",       "stmtErasedCopies", "firstStmtTemp",
+        "callsRigFunction", "patternConst", "stmtErasedCopies", "firstStmtTemp",
         "constIntOf",       "intLimit",     "stringCall",      "isPrintCall",      "printCall",
         "isNoneLeaf",       "isTypeCallee", "moduleMemberSym", "selfOf",           "heldFirst",
         "selfWrites",       "argParams",    "lambdaYields",    "matchedType",
@@ -1450,14 +1442,16 @@ test "Facts answers as the context it was made from" {
     var nodes: std.ArrayList(Sexp) = .empty;
     defer nodes.deinit(a);
     try collect(a, tree, &nodes);
+    var lowered = try f.lower(a, tree);
+    defer lowered.deinit();
     var temps: usize = 0;
     for (nodes.items) |n| {
         try std.testing.expectEqual(ctx.symbolOf(n), f.symbolOf(n));
         try std.testing.expectEqual(ctx.typeOf(n), f.typeOf(n));
-        try std.testing.expectEqual(ctx.dropsTemp(n), f.dropsTemp(n));
         try std.testing.expectEqual(ctx.useOf(n), f.useOf(n));
-        for (std.enums.values(StorageKind)) |k| try std.testing.expectEqual(ctx.varOf(n, k), f.varOf(n, k));
-        if (f.dropsTemp(n)) temps += 1;
+        // Its LIR holds a var where the plan made one.
+        for (std.enums.values(StorageKind)) |k| try std.testing.expectEqual(ctx.varOf(n, k) != null, lowered.varOf(n, k) != null);
+        if (lowered.varOf(n, .temp) != null) temps += 1;
     }
     // `mk(2)` is a temporary its statement drops.
     try std.testing.expectEqual(1, temps);
@@ -1487,6 +1481,8 @@ test "Facts reads the leaf walk the storage plan decided" {
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
     const f = Facts.of(&ctx);
+    var lowered = try f.lower(a, tree);
+    defer lowered.deinit();
     var nodes: std.ArrayList(Sexp) = .empty;
     defer nodes.deinit(a);
     try collect(a, tree, &nodes);
@@ -1500,8 +1496,8 @@ test "Facts reads the leaf walk the storage plan decided" {
         }
         if (f.leafStep(n)) |step| if (step == .made) {
             made += 1;
-            // Reached where Zig holds it: a fact names it.
-            try std.testing.expectEqual(StorageBy.owned, (f.varOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
+            // Reached where Zig holds it: its LIR has a var for it.
+            try std.testing.expectEqual(StorageBy.owned, (lowered.varOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
         };
     }
     // `r if k else mkr(5)`, with `mkr(5)` made there.

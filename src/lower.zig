@@ -55,6 +55,9 @@ pub const Module = struct {
     /// The calls and array literals that hold their parts (a `call`
     /// region).
     holders: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The owning temporaries of each statement and header that makes
+    /// any, by its key, in the order they are made.
+    temps: std.AutoHashMapUnmanaged(u64, []const Sexp) = .empty,
 
     pub const Owner = struct {
         root: Sexp,
@@ -81,6 +84,13 @@ pub const Module = struct {
     /// evaluated first.
     pub fn holdsParts(m: *const Module, node: Sexp) bool {
         return m.holders.contains(sema.decisionKeyOf(node) orelse return false);
+    }
+
+    /// The owning temporaries statement or header `node` makes, in the
+    /// order they are made: not those of the blocks, closures, or headers
+    /// it holds, which are their own.
+    pub fn tempsOf(m: *const Module, node: Sexp) []const Sexp {
+        return m.temps.get(sema.decisionKeyOf(node) orelse return &.{}) orelse &.{};
     }
 
     /// The var of binding `sym`.
@@ -514,12 +524,19 @@ const Lowerer = struct {
         try l.step(into, .{ .region = o.region });
     }
 
-    /// The temporaries statement `s` made, from `first` in `temps`, are
-    /// those `sema.stmtTemps` lists, in its order.
+    /// Record the temporaries statement `s` made, from `first` in
+    /// `temps`. A self-checking build asks that they are those
+    /// `sema.stmtTemps` lists, in its order.
     fn checkTemps(l: *Lowerer, s: Sexp, first: usize) Error!void {
+        const have = l.temps.items[first..];
+        if (have.len > 0) {
+            const nodes = try l.a.alloc(Sexp, have.len);
+            for (have, nodes) |v, *n| n.* = l.f.vars.items[v].node;
+            try l.module.temps.put(l.a, sema.decisionKeyOf(s).?, nodes);
+        }
+        if (!enabled) return;
         var want: std.ArrayList(Sexp) = .empty;
         try sema.stmtTemps(l.ctx, l.a, s, &want);
-        const have = l.temps.items[first..];
         var ok = want.items.len == have.len;
         if (ok) for (want.items, have) |w, v| {
             if (sema.decisionKeyOf(w) != sema.decisionKeyOf(l.f.vars.items[v].node)) ok = false;
