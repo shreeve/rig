@@ -459,3 +459,39 @@ const Printer = struct {
         }
     }
 };
+
+test "verify accepts a var used in its region, and finds one used outside it" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var f: Func = .{ .root = .nil };
+    f.body = try f.addRegion(a, .nil, .body);
+    const inner = try f.addRegion(a, .nil, .stmt);
+    const v = try f.addVar(a, .{ .node = .nil, .name = .{ .hidden = .temp } });
+    try f.region(inner).decls.append(a, v);
+    try f.region(inner).steps.append(a, .{ .bind = .{ .v = v, .value = try f.addExpr(a, .{ .leaf = .nil }) } });
+    try f.region(f.body).steps.append(a, .{ .region = inner });
+    try std.testing.expect(try verify(std.testing.allocator, &f) == null);
+    // Read after the region that declares it ends.
+    try f.region(f.body).steps.append(a, .{ .eval = try f.addExpr(a, .{ .@"var" = v }) });
+    const p = (try verify(std.testing.allocator, &f)).?;
+    try std.testing.expectEqualStrings("a var used outside the region that declares it", p.what);
+}
+
+test "verify finds an expression reached twice and a var declared twice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var f: Func = .{ .root = .nil };
+    f.body = try f.addRegion(a, .nil, .body);
+    const e = try f.addExpr(a, .{ .leaf = .nil });
+    try f.region(f.body).steps.append(a, .{ .eval = e });
+    try f.region(f.body).steps.append(a, .{ .eval = e });
+    try std.testing.expectEqualStrings("an expression reached twice", (try verify(std.testing.allocator, &f)).?.what);
+    var g: Func = .{ .root = .nil };
+    g.body = try g.addRegion(a, .nil, .body);
+    const v = try g.addVar(a, .{ .node = .nil, .name = .{ .hidden = .temp } });
+    try g.region(g.body).decls.append(a, v);
+    try g.region(g.body).decls.append(a, v);
+    try std.testing.expectEqualStrings("a var declared twice", (try verify(std.testing.allocator, &g)).?.what);
+}

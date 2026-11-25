@@ -3263,6 +3263,7 @@ test {
     _ = inlining;
     _ = map_trace;
     _ = @import("ownership.zig");
+    _ = @import("lir.zig");
     _ = @import("runtime.zig");
     _ = @import("nametable.zig");
     _ = @import("symbols.zig");
