@@ -16,7 +16,8 @@ file's path), so each file's text has its emit directory replaced by OUT
 before it is compared. Prints `identical`, or each file that differs with its lines
 added and removed (a runtime file once, for every program that carries
 it) and the directory holding both emits; a program whose emit fails on
-both sides is named as not compared. Exits 0 when identical, 1 when not
+both sides, or a Trig that is there but whose generated modules cannot
+be made, is named as not compared. Exits 0 when identical, 1 when not
 or when a program was not compared, 2 on a usage error or a failed
 baseline build.
 """
@@ -57,37 +58,44 @@ def programs(work, base_sha, base_rig):
     with open(os.path.join(std_dir, "all.rig"), "w") as f:
         f.write("".join("use std.%s\n" % m for m in mods) + "\nsub main()\n  print(%d)\n" % len(mods))
     out.append(("std (%d modules)" % len(mods), std_dir, "all.rig"))
+    # Trig, when TRIG names it or the default checkout exists. A Trig that
+    # is there but cannot be emitted is not compared, which fails the run.
+    skipped = []
     trig = os.environ.get("TRIG", os.path.expanduser("~/Data/Code/trig"))
     main = os.path.join(trig, "tools", "trig", "main.rig")
     if os.path.isfile(main) and os.path.isdir(os.path.join(trig, "src")):
         trig_dir = os.path.join(work, "trig")
         shutil.copytree(os.path.join(trig, "src"), trig_dir)
         shutil.copy(main, os.path.join(trig_dir, "main.rig"))
-        if trig_modules(trig, trig_dir, base_sha, base_rig, work):
+        why = trig_modules(trig, trig_dir, base_sha, base_rig, work)
+        if why:
+            skipped.append("trig: %s" % why)
+        else:
             out.append(("trig", trig_dir, "main.rig"))
+    elif "TRIG" in os.environ or os.path.isdir(trig):
+        skipped.append("trig: %s has no src/ and tools/trig/main.rig" % trig)
     else:
         print("emit-diff: no Trig at %s (set TRIG); skipped" % trig, file=sys.stderr)
-    return out
+    return out, skipped
 
 
 def trig_modules(trig, trig_dir, base_sha, base_rig, work):
     """Make Trig's generated modules in the copy trig_dir, as Trig's build
     makes them (tools/trig/gen-libtrees), with the rig built at BASE. The
     rig is named rig-SHA, the name from which Trig's tools/rig-env reads a
-    rig's commit. False, saying why, when they cannot be made."""
+    rig's commit. None when they are made, else why they were not."""
     gen = os.path.join(trig, "tools", "trig", "gen-libtrees")
     if not os.access(gen, os.X_OK):
-        print("emit-diff: Trig at %s has no tools/trig/gen-libtrees; Trig skipped" % trig, file=sys.stderr)
-        return False
+        return "%s has no tools/trig/gen-libtrees, so its generated modules cannot be made" % trig
     named = os.path.join(work, "rig-" + base_sha)
     os.symlink(base_rig, named)
     env = {k: v for k, v in os.environ.items() if k not in ("RIG_STD", "RIG_BUILD_STORE")}
     env.update(RIG=named, TRIG_RIG_OVERRIDE="1", RIG_NO_CRASH_REPORT="1")
     p = subprocess.run([gen, trig_dir], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if p.returncode != 0:
-        print("emit-diff: Trig's generated modules could not be made; Trig skipped:\n" + p.stdout.strip()[-800:], file=sys.stderr)
-        return False
-    return True
+        last = [l for l in p.stdout.strip().splitlines() if l.strip()][-1:] or ["no output"]
+        return "its generated modules could not be made (tools/trig/gen-libtrees exited %d: %s)" % (p.returncode, last[0].strip())
+    return None
 
 
 def slug(label):
@@ -150,7 +158,7 @@ def main():
     base_rig = b.stdout.strip()
 
     work = tempfile.mkdtemp(prefix="rig-emit-diff.")
-    progs = programs(work, sha, base_rig)
+    progs, skipped = programs(work, sha, base_rig)
     sides = {"base": base_rig, "cur": a.rig}
     status = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
@@ -164,7 +172,7 @@ def main():
             status[(side, label)] = (code, err)
 
     differ = []  # (shown path, added, removed)
-    uncompared = []  # programs whose emit fails on both sides
+    uncompared = list(skipped)  # programs not emitted, or whose emit fails on both sides
     programs_differ = set()
     runtime = {}  # runtime path -> {(base hash, cur hash): [labels]}
     total = 0
@@ -208,7 +216,7 @@ def main():
     for line in uncompared:
         print("emit-diff: not compared, %s" % line)
     if not differ and uncompared:
-        print("emit-diff: identical where compared: %d of %d programs, %d files, %s" % (len(progs) - len(uncompared), len(progs), total, names))
+        print("emit-diff: identical where compared: %d of %d programs, %d files, %s" % (len(progs) + len(skipped) - len(uncompared), len(progs) + len(skipped), total, names))
         if not a.keep:
             shutil.rmtree(work, ignore_errors=True)
         return 1
@@ -219,7 +227,7 @@ def main():
         else:
             shutil.rmtree(work, ignore_errors=True)
         return 0
-    print("emit-diff: differs in %d of %d programs, %s:" % (len(programs_differ), len(progs), names))
+    print("emit-diff: differs in %d of %d programs, %s:" % (len(programs_differ), len(progs) + len(skipped), names))
     width = max([len(d[0]) for d in differ if d[1] or d[2]] or [0])
     for shown, added, removed in differ:
         print("  %-*s  +%d -%d" % (width, shown, added, removed) if added or removed else "  " + shown)
