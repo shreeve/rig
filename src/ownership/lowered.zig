@@ -41,7 +41,8 @@ pub const Body = struct {
     dense_lo: u32 = 0,
     leaves: bool = false,
     /// The region made for each block, by its node's key: the body's
-    /// by the key of the function's block, a `defer`'s by its body's.
+    /// by the key of the function's block, a `defer`'s by its body's, a
+    /// `catch`'s by its handler's.
     regions: sema.FastMap(u64, lir.RegionId) = .empty,
     /// The region of each statement, which holds its temporaries, by
     /// its node's key.
@@ -200,8 +201,12 @@ fn index(b: *Body, a: std.mem.Allocator, r: lir.RegionId) Error!void {
     const reg = &b.f.regions.items[r];
     if (sema.decisionKeyOf(reg.node)) |key| switch (reg.kind) {
         .block => {
-            // A `defer`'s region is its body's.
-            const body = if (reg.node.isKind(.@"defer") or reg.node.isKind(.@"errdefer")) ir.get(reg.node, .body) else reg.node;
+            // A `defer`'s region is its body's, a `catch`'s its handler's.
+            const body = switch (reg.node.kind() orelse .module) {
+                .@"defer", .@"errdefer" => ir.get(reg.node, .body),
+                .@"catch" => ir.Catch.handler(reg.node),
+                else => reg.node,
+            };
             const gop = try b.regions.getOrPut(a, sema.decisionKeyOf(body) orelse key);
             if (!gop.found_existing) gop.value_ptr.* = r;
         },
