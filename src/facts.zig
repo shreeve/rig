@@ -729,10 +729,6 @@ pub const Facts = struct {
     pub fn matchBlock(f: Facts, match: Sexp) ?bool {
         return storage.decided(f.c(), match, .match_block);
     }
-    /// How `__rig_subject` holds the subject (null inside: not at all).
-    pub fn subjectHold(f: Facts, match: Sexp) ??StorageBy {
-        return storage.decided(f.c(), match, .subject_hold);
-    }
     pub fn holdsView(f: Facts, match: Sexp) ?bool {
         return storage.decided(f.c(), match, .holds_view);
     }
@@ -1532,7 +1528,7 @@ test "Facts reads every match decision the plan made" {
         try std.testing.expect(f.matchesInPlace(n).?);
         try std.testing.expect(f.matchBlock(n).?);
         try std.testing.expect(!f.holdsView(n).?);
-        try std.testing.expect(f.matchRereads(n) != null and f.subjectHold(n) != null);
+        try std.testing.expect(f.matchRereads(n) != null);
         for (ir.Match.arms(n)) |arm| {
             const pattern = ir.Arm.pattern(arm);
             if (pattern == .src) try std.testing.expect(f.catchAllCaptured(pattern) != null);

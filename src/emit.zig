@@ -4903,14 +4903,15 @@ pub const Emitter = struct {
         }
     }
 
-    /// Evaluate the subject once, into `info.reread`: a field path as
-    /// it is, an element by its address, a value no binding holds (a
-    /// call's result, or what `match <` takes from one) into a local.
+    /// Evaluate the subject once, into `info.reread`, as its `subject`
+    /// var holds it: a field path as it is, an element by its address, a
+    /// value no binding holds (a call's result, or what `match <` takes
+    /// from one) into a local.
     fn evalSubject(self: *Emitter, info: *MatchInfo) Error!void {
-        const by = (try self.need(self.facts.subjectHold(info.match), info.match)) orelse {
+        const by = (self.varOf(info.match, .subject) orelse {
             info.reread = try self.placeText(info.*);
             return;
-        };
+        }).by;
         const name = try self.hiddenStorage(info.match, .subject, by, .next);
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
         if ((try self.hasStorage(value)) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
