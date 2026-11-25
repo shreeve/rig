@@ -1,0 +1,22 @@
+tools/mac-claim: waiting 1 min for the Mac to go quiet (179% of a core in use, under 150% wanted). Busiest:
+  PID 74248 at 57.8%: /private/var/run/com.apple.security.cryptexd/mnt/com.apple.iPhoneOS.SimulatorRuntime-v24.1.434.0.fye9KC/Librar
+  PID 407 at 20.3%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 74191 at 15.6%: /Users/shreeve/Data/Code/worktrees/rip/check-import-delivery/node_modules/@typescript/typescript-darwin-arm64/
+tools/mac-claim: waiting 3 min for the Mac to go quiet (149% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 27.5%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 75540 at 25.6%: /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/158.0.8127.37/H
+  PID 29373 at 15.2%: /Users/shreeve/Library/Application Support/Claude/claude-code/2.1.330/4262a1273231/claude.app/Contents/MacOS/c
+tools/mac-claim: waiting 5 min for the Mac to go quiet (97% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 19.0%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 94436 at 11.1%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 87958 at 9.7%: /usr/libexec/sysmond
+tools/mac-claim: waiting 7 min for the Mac to go quiet (384% of a core in use, under 150% wanted). Busiest:
+  PID 82156 at 37.0%: (tsc)
+  PID 89936 at 33.0%: /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/158.0.8127.37/H
+  PID 82151 at 27.8%: (bun.exe)
+tools/mac-claim: waiting 9 min for the Mac to go quiet (229% of a core in use, under 150% wanted). Busiest:
+  PID 83935 at 147.4%: bun bin/rip check --strict packages/tui/test/input.rip
+  PID 83939 at 61.2%: /Users/shreeve/Data/Code/worktrees/rip/check-import-delivery/node_modules/@typescript/typescript-darwin-arm64/
+  PID 407 at 20.3%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+# Darwin arm64 pop rig rig 0.3.0 zig 0.17.0 load: 3.83 7.92 7.56
+build 1 rc=0 total_s=549.3 zig_s=543.1 zig_calls=3 trig_bytes=29709424

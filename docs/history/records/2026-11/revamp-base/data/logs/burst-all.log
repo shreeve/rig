@@ -1,0 +1,11 @@
+# 02:32:15 build
+# 02:32:15 swarm all -w 64
+building rig and rig-oracle (zig build)...
+rig.rip: built rig and rig-oracle in 214 s
+rig.rip: 53 packs to compile, as jobs
+200.00 secs for 12783 jobs by 64 workers @ 63.91 jobs/sec
+[31m3 died:[0m
+  cli.no_crash_report: test/cli/no_crash_report.sh:1 script "no_crash_report": FAIL: the core limit without RIG_NO_CRASH_REPORT: expected [0 unlimited], got [1 1]
+  std-misc.033: std-misc.rig.test:2206 test "no crash report unset": output differs at line 1: expected "unset", got "1"
+  std-misc.033r: std-misc.rig.test:2206 test "no crash report unset": output differs (release) at line 1: expected "unset", got "1"
+# 02:39:10 swarm rc=1 wall_s=415 done=12780 died=3
