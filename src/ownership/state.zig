@@ -1632,7 +1632,6 @@ pub const Checker = struct {
     pub const hands = types.hands;
     pub const erasesCopy = types.erasesCopy;
     pub const viewsBy = types.viewsBy;
-    pub const isPrint = types.isPrint;
 
     pub const err = notes.err;
     pub const errAt = notes.errAt;

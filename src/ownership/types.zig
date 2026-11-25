@@ -351,11 +351,3 @@ pub fn viewsBy(self: *const Checker, e: Sexp, step: sema.ViewStep) bool {
     const view = self.viewOf(e) orelse return false;
     return view.has(step);
 }
-
-/// `print` or `warn`, the built-ins that only read their values.
-pub fn isPrint(self: *Checker, callee: Sexp) bool {
-    if (callee != .src) return false;
-    const name = self.text(callee);
-    if (!std.mem.eql(u8, name, "print") and !std.mem.eql(u8, name, "warn")) return false;
-    return self.sema.symbolOf(callee) == null;
-}

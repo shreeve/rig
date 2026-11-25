@@ -61,10 +61,6 @@ pub fn isLambda(s: Sexp) bool {
     return s.isKind(.lambda);
 }
 
-pub fn isIdentStart(c: u8) bool {
-    return std.ascii.isAlphabetic(c) or c == '_';
-}
-
 pub fn hasLoanOn(loans: []const Loan, root: VarId) bool {
     for (loans) |l| if (l.root == root) return true;
     return false;
@@ -2372,7 +2368,7 @@ pub fn walkCallBody(self: *Checker, node: Sexp) Error!Value {
     // arguments, and hold none of them past the call: a String keeps
     // their text, not them.
     const text_op = self.sema.stringCallOf(node) orelse self.sema.stringCallOf(callee);
-    if (self.isPrint(callee) or text_op != null) {
+    if (storage.isPrintCall(self.sema, node) or text_op != null) {
         try self.walkReadArgs(args);
         if (recv_root) |id| if (recv_loan == .write) {
             const reserved = self.temps.orderedRemove(reservation);
@@ -3733,7 +3729,7 @@ pub fn bindPattern(self: *Checker, pattern: Sexp, info: Scrutinee, scrut_value: 
             if (std.mem.eql(u8, name, "_")) return true;
             // Literal patterns match one value; an identifier binds the
             // whole scrutinee and matches everything.
-            if (!isIdentStart(name[0]) or std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) return false;
+            if (!rig.isIdentStart(name[0]) or std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) return false;
             // A module constant's name compares with its value.
             const ctx = self.sema;
             if (sema.patternConst(ctx, pattern) != null) return false;
