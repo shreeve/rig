@@ -13,7 +13,7 @@
 //! | `split_units`: the unit that owns it in a split build | name | `units.decide` |
 //! | `word_held`: the object is held as one word, a `packed struct` | symbol | `decideWords` |
 //! | `exact_enums`: the plain enum's tag bytes, where an `exact` object holds it | symbol | `decideExactEnums` |
-//! | `text_tables`: the plain enum emits its table of names for `from_text` | symbol | `ModuleGraph.markTextTables` |
+//! | `text_tables`: the plain enum emits its table of names for `from_text` | symbol | `ModuleGraph.decide` |
 //!
 //! The graph owns the table (`ModuleGraph.table`); every module's
 //! context points at it (`SemContext.program`), which `Facts` reads.

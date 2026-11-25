@@ -221,14 +221,6 @@ pub const ModuleGraph = struct {
         try inlining.decide(self.allocator, self, inlining.max_size);
         try returns.decide(self.allocator, self);
         timing.stop(self.timing, .inlining, t1);
-        try self.markTextTables();
-    }
-
-    /// Marks each plain enum some module calls `from_text` on, which its
-    /// module emits a table of names for (`sema.SemContext.recordTextTable`).
-    /// Run once every module is checked.
-    pub fn markTextTables(self: *ModuleGraph) Error!void {
-        const t = try self.table();
         for (self.modules.items) |m| for (m.sema.text_tables.items) |ref| try t.put(.text_tables, ref.module_id, ref.sym, {});
     }
 
