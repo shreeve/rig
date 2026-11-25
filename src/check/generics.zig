@@ -97,7 +97,8 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     // An instance made by one whose bounds failed is not checked: the
     // failure written at the call is the error, and the generics that
     // instance calls would only repeat it (`sort.sort[F32]` and each of
-    // the bounded helpers it reaches).
+    // the bounded helpers it reaches). In a later module, so is one made
+    // by an instance whose check failed in an earlier one.
     var failed: std.HashMapUnmanaged(sema.FnInstance, void, sema.FnInstance.Context, 80) = .empty;
     defer failed.deinit(ctx.allocator);
     var i: usize = 0;
@@ -106,14 +107,11 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         if (f.via) |via| if (via == .func and failed.contains(via.func)) continue;
         const k = try key.ofFn(ctx, f.inst);
         if (try checkedBefore(ctx, k)) |before| {
-            if (before.bounds_failed) try failed.put(ctx.allocator, f.inst, {});
+            if (before.failed) try failed.put(ctx.allocator, f.inst, {});
             continue;
         }
         const mark = ctx.diagnostics.items.len;
-        if (!try checkFnInstance(ctx, &reqs, f)) {
-            try failed.put(ctx.allocator, f.inst, {});
-            sema.noteBoundsFailed(ctx, k);
-        }
+        if (!try checkFnInstance(ctx, &reqs, f)) try failed.put(ctx.allocator, f.inst, {});
         sema.noteInstanceChecked(ctx, k, mark);
     }
     try checkReaches(ctx);

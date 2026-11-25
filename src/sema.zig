@@ -9498,12 +9498,11 @@ fn assocViewsBase(ctx: *SemContext, params: []const SymbolId, args: []const Type
 }
 
 /// What the first module to check a generic instance found
-/// (`program.Types.checked`): which module it was, whether the
-/// instance's bounds failed there, so the instances it makes go
-/// unchecked in every module, as in that one, and whether its check
-/// reported an error, which a later module that makes it leaves its
-/// expressions typed `invalid` for (`SemContext.failed_elsewhere`).
-pub const Checked = struct { module: u32, bounds_failed: bool = false, failed: bool = false };
+/// (`program.Types.checked`): which module it was, and whether the check
+/// reported an error, so the instances it makes go unchecked in a later
+/// module too, and the expressions that module types `invalid` for it
+/// have their error (`SemContext.failed_elsewhere`).
+pub const Checked = struct { module: u32, failed: bool = false };
 
 /// What an earlier module found checking the generic instance `key`
 /// names (`InstanceKey`), or null when this module checks it: the first
@@ -9518,12 +9517,6 @@ pub fn checkedBefore(ctx: *const SemContext, key: []const u8) std.mem.Allocator.
     gop.key_ptr.* = try t.keys.allocator().dupe(u8, key);
     gop.value_ptr.* = .{ .module = ctx.module_id };
     return null;
-}
-
-/// Record that the bounds of the instance `key` names failed here
-/// (`Checked.bounds_failed`).
-pub fn noteBoundsFailed(ctx: *const SemContext, key: []const u8) void {
-    if (ctx.program_types.checked.getPtr(key)) |c| c.bounds_failed = true;
 }
 
 /// Record whether checking the instance `key` names, which began when the
