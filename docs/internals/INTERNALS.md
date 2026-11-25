@@ -1165,9 +1165,17 @@ positions there and that module's id, and the uses, arrays, and frames
 that mention it, each list entry once (`imported_entries`). From there
 the per-instance machinery runs unchanged, on the importer's own
 tables: an instance made here, and every instance its bodies reach,
-even in a module this one does not import, is expanded, checked against
-the requirements, sized, and ownership-checked here, and a note about
-the body points into the declaring module's file. Import cycles are
+even in a module this one does not import, is expanded here, and
+checked against the requirements, sized, and ownership-checked here
+unless an earlier module made it, and a note about the body points
+into the declaring module's file. An instance is checked once for the
+program (`sema.checkedBefore`): `program.Types.checked` keeps each
+instance a module has checked, by a key that names each symbol by its
+declaration (`sema.InstanceKey`, so a proxy is the declaration it stands
+for), with whether its bounds failed, so the instances it makes stay
+unchecked everywhere, and whether its check reported an error, which
+leaves a later module's expressions typed `invalid` with the error in
+the first module (`SemContext.failed_elsewhere`). Import cycles are
 rejected, so a chain of proxies always ends. A proxy is recorded before
 its members and parameters are imported, which may make more; past 64
 nested imports a proxy is filled in later, by the outermost import

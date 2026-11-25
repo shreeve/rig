@@ -4104,6 +4104,10 @@ pub const SemContext = struct {
     /// The context made `program_types` itself, outside a graph, and
     /// frees it.
     owns_types: bool = false,
+    /// An instance this module makes failed its check in an earlier
+    /// module (`checkedBefore`), whose error explains the expressions
+    /// here typed `invalid` (`checkTypedClean`).
+    failed_elsewhere: bool = false,
     /// The first type this module may have interned: the facts of every
     /// type before it are an earlier module's, and final.
     types_start: TypeId = 0,
@@ -6378,9 +6382,10 @@ fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// that rejects reports why, so an `invalid` with no error is a verdict
 /// whose diagnostic was dropped (a quiet check's, kept and reused), and
 /// emit would write what nothing checked. Reported at the first such
-/// expression. Debug and test builds only.
+/// expression, unless an instance's check in an earlier module reported
+/// the error (`failed_elsewhere`). Debug and test builds only.
 fn checkTypedClean(ctx: *SemContext, tree: Sexp) std.mem.Allocator.Error!void {
-    if (ctx.hasErrors()) return;
+    if (ctx.hasErrors() or ctx.failed_elsewhere) return;
     if (typedInvalid(ctx, tree)) |e| try ctx.errAt(e, "internal error: `{s}` is typed `invalid`, and no error says why", .{diag.textOf(ctx.source, ctx.span(e))});
 }
 
@@ -9491,6 +9496,155 @@ fn assocViewsBase(ctx: *SemContext, params: []const SymbolId, args: []const Type
     defer scratch.deinit();
     return if (try viewReach(ctx, scratch.allocator(), base_ty, item) == .owned) base_ty else null;
 }
+
+/// What the first module to check a generic instance found
+/// (`program.Types.checked`): which module it was, whether the
+/// instance's bounds failed there, so the instances it makes go
+/// unchecked in every module, as in that one, and whether its check
+/// reported an error, which a later module that makes it leaves its
+/// expressions typed `invalid` for (`SemContext.failed_elsewhere`).
+pub const Checked = struct { module: u32, bounds_failed: bool = false, failed: bool = false };
+
+/// What an earlier module found checking the generic instance `key`
+/// names (`InstanceKey`), or null when this module checks it: the first
+/// module to make an instance checks it, in each of its passes, and a
+/// later one leaves it, since one instance gives one answer wherever it
+/// is made. A diagnostic about an instance is written once, at the site
+/// of the first module that makes it.
+pub fn checkedBefore(ctx: *const SemContext, key: []const u8) std.mem.Allocator.Error!?Checked {
+    const t = ctx.program_types;
+    const gop = try t.checked.getOrPut(t.keys.allocator(), key);
+    if (gop.found_existing) return if (gop.value_ptr.module == ctx.module_id) null else gop.value_ptr.*;
+    gop.key_ptr.* = try t.keys.allocator().dupe(u8, key);
+    gop.value_ptr.* = .{ .module = ctx.module_id };
+    return null;
+}
+
+/// Record that the bounds of the instance `key` names failed here
+/// (`Checked.bounds_failed`).
+pub fn noteBoundsFailed(ctx: *const SemContext, key: []const u8) void {
+    if (ctx.program_types.checked.getPtr(key)) |c| c.bounds_failed = true;
+}
+
+/// Record whether checking the instance `key` names, which began when the
+/// module had `mark` diagnostics, reported an error (`Checked.failed`).
+pub fn noteInstanceChecked(ctx: *const SemContext, key: []const u8, mark: usize) void {
+    if (!diag.hasErrorsIn(ctx.diagnostics.items[mark..])) return;
+    if (ctx.program_types.checked.getPtr(key)) |c| c.failed = true;
+}
+
+/// The declaration `r` names, as every module names it: a proxy's
+/// origin, and a built-in's ref in module 0.
+pub fn declRef(ctx: *const SemContext, r: SymbolRef) SymbolRef {
+    const sym = symbolAt(ctx, r);
+    if (sym.decl_pos == builtin_decl_pos) return .{ .module_id = builtin_module, .sym = r.sym };
+    if (isProxy(sym.*)) return sym.from;
+    return r;
+}
+
+/// A generic instance as every module of the program names it, its
+/// symbols by their declarations (`declRef`), so one instance made in two
+/// modules has one key (`checkedBefore`). The bytes are reused from key
+/// to key.
+pub const InstanceKey = struct {
+    bytes: std.ArrayList(u8) = .empty,
+
+    pub fn deinit(k: *InstanceKey, a: std.mem.Allocator) void {
+        k.bytes.deinit(a);
+    }
+
+    /// A generic type's instance.
+    pub fn ofType(k: *InstanceKey, ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error![]const u8 {
+        k.bytes.clearRetainingCapacity();
+        try k.tag(ctx, 't');
+        try k.typ(ctx, ty);
+        return k.bytes.items;
+    }
+
+    /// A generic function's instance.
+    pub fn ofFn(k: *InstanceKey, ctx: *const SemContext, inst: FnInstance) std.mem.Allocator.Error![]const u8 {
+        k.bytes.clearRetainingCapacity();
+        try k.tag(ctx, 'f');
+        try k.word(ctx, inst.own);
+        try k.params(ctx, inst.params);
+        try k.types(ctx, inst.args);
+        return k.bytes.items;
+    }
+
+    /// A method reached on a generic type's instance (`BodyReach`).
+    pub fn ofReach(k: *InstanceKey, ctx: *const SemContext, r: BodyReach) std.mem.Allocator.Error![]const u8 {
+        k.bytes.clearRetainingCapacity();
+        try k.tag(ctx, 'r');
+        try k.word(ctx, r.fun.module);
+        try k.word(ctx, r.fun.pos);
+        try k.params(ctx, r.params);
+        try k.types(ctx, r.args);
+        return k.bytes.items;
+    }
+
+    fn tag(k: *InstanceKey, ctx: *const SemContext, t: u8) std.mem.Allocator.Error!void {
+        try k.bytes.append(ctx.allocator, t);
+    }
+
+    fn word(k: *InstanceKey, ctx: *const SemContext, w: usize) std.mem.Allocator.Error!void {
+        const v: u32 = @intCast(w);
+        try k.bytes.appendSlice(ctx.allocator, std.mem.asBytes(&v));
+    }
+
+    fn ref(k: *InstanceKey, ctx: *const SemContext, t: u8, r: SymbolRef) std.mem.Allocator.Error!void {
+        const d = declRef(ctx, r);
+        try k.tag(ctx, t);
+        try k.word(ctx, d.module_id);
+        try k.word(ctx, d.sym);
+    }
+
+    fn params(k: *InstanceKey, ctx: *const SemContext, ps: []const SymbolId) std.mem.Allocator.Error!void {
+        try k.word(ctx, ps.len);
+        for (ps) |p| try k.ref(ctx, 'p', ctx.ref(p));
+    }
+
+    fn types(k: *InstanceKey, ctx: *const SemContext, tys: []const TypeId) std.mem.Allocator.Error!void {
+        try k.word(ctx, tys.len);
+        for (tys) |t| try k.typ(ctx, t);
+    }
+
+    /// A type with no symbol in it is its id in the program's one store;
+    /// one that names a symbol is written part by part.
+    fn typ(k: *InstanceKey, ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error!void {
+        const t = ctx.types.get(ty);
+        switch (t) {
+            .nominal => |r| try k.ref(ctx, 'N', r),
+            .type_var => |r| try k.ref(ctx, 'V', r),
+            .ct_param => |r| try k.ref(ctx, 'C', r),
+            .parameterized_nominal => |pn| {
+                try k.ref(ctx, 'P', pn.sym);
+                try k.types(ctx, pn.args);
+            },
+            .function => |f| {
+                try k.tag(ctx, if (f.is_sub) 's' else 'F');
+                try k.types(ctx, f.params);
+                try k.typ(ctx, f.returns);
+                try k.types(ctx, f.ct_params);
+                try k.word(ctx, f.ct_syms.len);
+                for (f.ct_syms) |r| try k.ref(ctx, 'S', r);
+            },
+            else => {
+                var parts: TypeChildren = .{ .ty = t };
+                var n: usize = 0;
+                while (parts.next()) |_| n += 1;
+                if (n == 0) {
+                    try k.tag(ctx, 'T');
+                    return k.word(ctx, ty);
+                }
+                try k.tag(ctx, 'K');
+                try k.tag(ctx, @intFromEnum(std.meta.activeTag(t)));
+                try k.word(ctx, n);
+                parts = .{ .ty = t };
+                while (parts.next()) |part| try k.typ(ctx, part);
+            },
+        }
+    }
+};
 
 /// Each argument of the instance `of`, made at `at`, provides what its
 /// parameter's bounds name: a built-in API (`lacks`) or one of the
