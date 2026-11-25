@@ -2180,7 +2180,7 @@ pub const Facts = struct {
 /// `check` is the module's check: the resolver and the type checker,
 /// which since rewrites are elaborated where they are found run
 /// interleaved (a rewrite's new nodes are resolved inside the check).
-pub const Pass = enum { check, storage, modules, ownership, proofs };
+pub const Pass = enum { check, lower, modules, ownership, proofs };
 
 /// How a column is keyed: by a list node's id (`recordKey`), by an
 /// expression (`exprKey`: a leaf's position or a list node's id), or by
@@ -2193,7 +2193,7 @@ pub const KeyKind = enum { node, expr, raw };
 pub const ColumnSpec = struct { writer: Pass = .check, key: ?KeyKind = null, kept: bool = false };
 
 /// The maps of `SemContext` outside `Facts` that are columns too.
-const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards", "call_targets", "inline_calls", "once_captures", "const_ints", "const_floats", "ct_locals", "unit_of", "unit_roots", "proven", "proven_if", "flags", "result_bounds", "kept_reported", "closures_reported", "closures_in_error", "uncaptured_reported" };
+const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards", "call_targets", "inline_calls", "once_captures", "const_ints", "const_floats", "ct_locals", "proven", "proven_if", "flags", "result_bounds", "kept_reported", "closures_reported", "closures_in_error", "uncaptured_reported" };
 
 /// Every column of the recorder: each map of `Facts`, then each of
 /// `ctx_columns`. A column has one writer pass (`specs`), and every write
@@ -2238,8 +2238,6 @@ pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .const_ints = .{ .key = .raw },
     .const_floats = .{ .key = .raw },
     .ct_locals = .{ .key = .raw },
-    .unit_of = .{ .writer = .storage },
-    .unit_roots = .{ .writer = .storage },
     .proven = .{ .writer = .proofs },
     .proven_if = .{ .writer = .proofs },
     .flags = .{ .writer = .proofs },
@@ -2378,21 +2376,6 @@ pub const WriteKind = enum {
 };
 
 pub const WriteSite = struct { sym: SymbolId, kind: WriteKind };
-
-/// A step of a walk over a body's units (`rig.eachUnit`), as emit writes
-/// them and as the proof pass walks them: the unit-order test compares
-/// the two (`proofs.checkUnitOrder`).
-pub const UnitEvent = union(enum) {
-    enter: NodeKey,
-    exit: NodeKey,
-    /// Emit stops writing a unit's code to write other units' (a
-    /// statement `match`'s arms), and takes it up again: the same
-    /// occurrence of the unit.
-    pause: NodeKey,
-    @"resume": NodeKey,
-    /// A `break` or `continue`, and the point of its target it goes to.
-    jump: struct { node: NodeKey, to: JumpDest.To },
-};
 
 /// Which of a node's tests are known to pass (docs/internals/INTERNALS.md, "Proven
 /// checks"): recorded by `src/proofs.zig` alone, on an index, a `read` or
@@ -4544,13 +4527,6 @@ pub const SemContext = struct {
     /// (`ResultBound`), by where its name is declared: written only by
     /// `src/proofs.zig`, with the tests above.
     result_bounds: FastMap(u32, ResultBound) = .empty,
-    /// Each node of a body -> the root of the innermost unit holding it
-    /// (`rig.eachUnit`), recorded in self-checking builds
-    /// (`storage.planUnits`).
-    /// Kept beside the facts table, not in `check --facts=sema`.
-    unit_of: FastMap(NodeKey, NodeKey) = .empty,
-    /// The root of each unit -> its kind.
-    unit_roots: FastMap(NodeKey, rig.UnitKind) = .empty,
     /// The members of each declaration with many fields, by name and
     /// kind, keyed by where its fields are (`indexMembers`), so that
     /// finding one walks no others. Lives in the arena.
@@ -4720,8 +4696,6 @@ pub const SemContext = struct {
         self.proven_if.deinit(self.allocator);
         self.flags.deinit(self.allocator);
         self.result_bounds.deinit(self.allocator);
-        self.unit_of.deinit(self.allocator);
-        self.unit_roots.deinit(self.allocator);
         self.ct.deinit(self.allocator);
         self.type_memo.deinit(self.allocator);
         self.allocator.destroy(self.type_memo);
@@ -5406,6 +5380,15 @@ pub const SemContext = struct {
         return self.facts.error_members.contains(nodeKey(node) orelse return false);
     }
 
+    /// Whether `e` names an error member, `E.name` or `E.name(fields)`,
+    /// which a function fails with itself.
+    pub fn namesErrorMember(self: *const SemContext, e: Sexp) bool {
+        if (e.isKind(.enum_lit) or self.isErrorMember(e)) return true;
+        if (!e.isKind(.call)) return false;
+        const callee = ir.Call.callee(e);
+        return callee.isKind(.member) and self.typeOf(callee) == null;
+    }
+
     pub fn isEnumText(self: *const SemContext, node: Sexp) bool {
         return self.facts.enum_texts.contains(nodeKey(node) orelse return false);
     }
@@ -5457,34 +5440,6 @@ pub const SemContext = struct {
     /// The binding `node` writes, and how; null for a node that writes none.
     pub fn writeSiteOf(self: *const SemContext, node: Sexp) ?WriteSite {
         return self.write_sites.get(nodeKey(node) orelse return null);
-    }
-
-    /// `root` is a unit of kind `kind`, and the one holding each node of
-    /// `parts` outside the blocks in them (`rig.eachUnit`).
-    pub fn recordUnit(self: *SemContext, root: Sexp, kind: rig.UnitKind, parts: []const Sexp) !void {
-        const key = recordKey(root);
-        try self.putIn(.storage, .unit_roots, key, kind);
-        try self.putIn(.storage, .unit_of, key, key);
-        for (parts) |p| try self.markUnit(p, key);
-    }
-
-    /// Mark `e` and what it holds as `unit`'s, up to the blocks in it,
-    /// which hold units of their own and the statements that order them.
-    fn markUnit(self: *SemContext, e: Sexp, unit: NodeKey) !void {
-        if (e != .list or e.isKind(.block)) return;
-        if (nodeKey(e)) |k| try self.putIn(.storage, .unit_of, k, unit);
-        for (e.items()) |c| try self.markUnit(c, unit);
-    }
-
-    /// The root of the innermost unit holding `node`; null for a node of
-    /// no body's unit (a structured statement, a module-level value).
-    pub fn unitOf(self: *const SemContext, node: Sexp) ?NodeKey {
-        return self.unit_of.get(nodeKey(node) orelse return null);
-    }
-
-    /// The kind of the unit `node` is the root of; null for any other node.
-    pub fn unitRootKind(self: *const SemContext, node: Sexp) ?rig.UnitKind {
-        return self.unit_roots.get(nodeKey(node) orelse return null);
     }
 
     /// The tests `node` is known to pass: none unless the proof pass
@@ -6343,11 +6298,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     timing.stop(opts.timing, .typecheck, t0);
     t0 = timing.start(opts.timing);
     try lowering.lowerChecked(&ctx, tree);
-    // Only a self-checking build asks that emit writes each node inside
-    // the unit that holds it (`Emitter.inUnit`), and the proofs' tests
-    // that it writes them in the walk's order.
-    if (lowering.enabled or @import("builtin").is_test) try storage.planUnits(&ctx, tree);
-    ctx.seal(.storage);
+    ctx.seal(.lower);
     timing.stop(opts.timing, .lower, t0);
     try indexAllMembers(&ctx);
     if (!ctx.hasErrors()) try recordTypeWitnesses(&ctx);

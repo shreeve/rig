@@ -1565,27 +1565,6 @@ pub fn containsKind(e: Sexp, kind: Tag) bool {
     return false;
 }
 
-/// Record the unit that holds each node of each body of module `tree`
-/// (`rig.eachUnit`, `SemContext.unitOf`).
-pub fn planUnits(ctx: *SemContext, tree: Sexp) !void {
-    try rig.eachBody(tree, ctx, bodyUnits);
-}
-
-fn bodyUnits(ctx: *SemContext, owner: Sexp, body: Sexp) !void {
-    _ = owner;
-    const Units = struct {
-        ctx: *SemContext,
-        pub fn enter(u: @This(), root: Sexp, kind: rig.UnitKind) std.mem.Allocator.Error!void {
-            var arena = std.heap.ArenaAllocator.init(u.ctx.allocator);
-            defer arena.deinit();
-            const parts: []const Sexp = if (kind == .selection) try rig.selectionParts(arena.allocator(), root) else &.{root};
-            try u.ctx.recordUnit(root, kind, parts);
-        }
-        pub fn exit(_: @This(), _: Sexp) std.mem.Allocator.Error!void {}
-    };
-    try rig.eachUnit(body, Units{ .ctx = ctx });
-}
-
 /// Whether closure literal `lambda` yields a value: a `fun` whose body
 /// has a result.
 pub fn lambdaYields(ctx: *const SemContext, lambda: Sexp) bool {

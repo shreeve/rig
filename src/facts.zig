@@ -66,18 +66,12 @@ pub const BuiltinCall = sema.BuiltinCall;
 pub const Proven = sema.Proven;
 pub const ProvenIf = sema.ProvenIf;
 pub const FlagTest = sema.FlagTest;
-pub const UnitKind = rig.UnitKind;
 pub const NodeKey = sema.NodeKey;
 
 /// Whether this build of the compiler runs its own consistency checks
 /// (`zig build -Dself-check`; on in every debug build).
 pub const self_check = @import("build_options").self_check;
 
-/// Emit asserts that it writes each node inside the unit that holds it
-/// (`Emitter.inUnit`) in every self-checking build.
-pub const check_units = self_check;
-
-pub const UnitEvent = sema.UnitEvent;
 pub const CtVal = sema.cteval.CtVal;
 pub const CtResult = sema.cteval.Result;
 pub const CtHidden = sema.cteval.Hidden;
@@ -416,15 +410,6 @@ pub const Facts = struct {
     pub fn durationOf(f: Facts, node: Sexp) ?sema.Duration {
         return f.c().durationOf(node);
     }
-    /// The root of the innermost unit holding `node` (`rig.eachUnit`),
-    /// which emit asserts it writes the node inside.
-    pub fn unitOf(f: Facts, node: Sexp) ?sema.NodeKey {
-        return f.c().unitOf(node);
-    }
-    /// The kind of the unit `node` is the root of, or null.
-    pub fn unitRootKind(f: Facts, node: Sexp) ?UnitKind {
-        return f.c().unitRootKind(node);
-    }
     /// Which of the node's tests are known to pass (`src/proofs.zig`):
     /// emit omits those, and a debug build makes them as assertions.
     pub fn provenOf(f: Facts, node: Sexp) Proven {
@@ -666,6 +651,9 @@ pub const Facts = struct {
     }
     pub fn isErrorMember(f: Facts, node: Sexp) bool {
         return f.c().isErrorMember(node);
+    }
+    pub fn namesErrorMember(f: Facts, node: Sexp) bool {
+        return f.c().namesErrorMember(node);
     }
     /// Whether a table's slot `t[s]` is written, so reached to write
     /// (`slot`), not read-only (`constSlot`).

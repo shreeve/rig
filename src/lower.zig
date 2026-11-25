@@ -1010,7 +1010,7 @@ const Lowerer = struct {
             list[n] = .{ .erase = er };
             n += 1;
         };
-        if (ctx.isFailingLeaf(e) and !namesErrorMember(ctx, e) and holdsErrorValue(ctx, e)) {
+        if (ctx.isFailingLeaf(e) and !ctx.namesErrorMember(e) and holdsErrorValue(ctx, e)) {
             list[n] = .fail;
             n += 1;
         }
@@ -1699,15 +1699,6 @@ fn readCoercion(held: Lowerer.Held, c: lir.Coercion) bool {
         .splat, .erase, .fail, .widen => true,
         .duration, .view, .deref => false,
     };
-}
-
-/// Whether `e` names an error member, `E.name` or `E.name(fields)`, which
-/// is what the function fails with itself.
-fn namesErrorMember(ctx: *const SemContext, e: Sexp) bool {
-    if (e.isKind(.enum_lit) or ctx.isErrorMember(e)) return true;
-    if (!e.isKind(.call)) return false;
-    const callee = ir.Call.callee(e);
-    return callee.isKind(.member) and ctx.typeOf(callee) == null;
 }
 
 /// Whether `e` is an error that may carry fields, a `rig.ErrorValue`.
