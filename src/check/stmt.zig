@@ -811,8 +811,8 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
     } else if (is_decl and s.kind == .local and s.scope != self.module_scope and !s.flags.reassigned and !s.flags.written) {
         if (CallCheck.constVariant(self, rhs)) |v| try self.fixed_variants.put(self.ctx.arena.allocator(), sym_id, v);
     }
-    // So does one of a `Float`, here and at module level (`floatConst`).
-    if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and ExprCheck.canonical(self, s.ty) == self.t().float_id) switch (StdFormCheck.floatConst(self, rhs)) {
+    // So does one of a `Float`, here and at module level (`cteval.foldFloat`).
+    if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and ExprCheck.canonical(self, s.ty) == self.t().float_id) switch (sema.cteval.foldFloat(f64, self.ctx, rhs, true)) {
         .value => |v| try self.ctx.putIn(.check, .const_floats, sym_id, v),
         else => {},
     };

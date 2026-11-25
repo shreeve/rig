@@ -834,7 +834,7 @@ records it on a module constant whose initializer names a flagged
 constant, in the order constants are folded (`foldModuleConsts`), and
 the checker on a `=!` local; `sema.perTargetLeaf` finds the flagged
 name in an expression. No fold gives such a constant a value
-(`ctFoldBy` folds a ternary only on an integer condition), so every
+(`cteval.fold` folds a ternary only on a condition it folds), so every
 place that needs one (an array length, a lane count, a compile-time
 integer argument, `lag`, a range pattern's bounds, an enum's value)
 rejects it, naming the flagged name, and a module constant's integer
@@ -2513,17 +2513,22 @@ interning makes `[LIMIT]Int` and `[4]Int` one type, and inference
 binds a `ct_param` exactly to the value the argument's type holds.
 `TypeResolver.resolveCtInt` reads an array size or a value argument:
 it folds integers, constants, and arithmetic on them with
-`sema.ctFoldBy` (in `sema.Wide`, an `i256`, which holds every `U128` and
+`cteval.foldInt` (in `sema.Wide`, an `i256`, which holds every `U128` and
 `I128` value and the checked results of operations on them, and wraps
-`+%`, `-%`, `*%` exactly). That one evaluator folds module and local
-constants, array lengths, compile-time arguments, and enum values; it
+`+%`, `-%`, `*%` exactly). That one evaluator, `cteval.fold`, folds
+module and local constants, array lengths, compile-time arguments, enum
+values, and constant conditions, integers and `Bool`s alike; it
 reads the program only through a names provider: `resolve.ConstNames`
 looks names up from a scope, and reads each constant's value and type
 from `const_ints` (module constants are folded into it once, in
 dependency order, before any type is resolved, their literals taking
 the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
-other module's, if it is public), and `sema.constInt` reads the facts
-of checked code. A compile-time parameter,
+other module's, if it is public), `cteval.constInt` reads the facts
+of checked code (`CheckedNames`), and inlining's guards read one
+instance of a generic function (`InstanceNames`, below). Float
+constants fold in their own type, each literal and each operation
+rounded to it (`cteval.foldFloat`), for the float overflow and range
+checks and a constant `Float`'s value (`const_floats`). A compile-time parameter,
 or a `k =! n` binding of one (`ct_locals`), becomes its `ct_param`. A
 `ct_param` used as a length records the `array_len` requirement, so
 each instance's value is checked to be from 0 to 2^32 - 1. A generic
@@ -2845,7 +2850,7 @@ signature and one for its body (`cteval.CtFun`), so a signature that
 needs its own value is rejected rather than followed forever.
 
 A call is computed where it is first needed (`cteval.callAt`): where a
-type, a constant, or an enum value is resolved, `ctFoldBy` asks
+type, a constant, or an enum value is resolved, `cteval.foldInt` asks
 `ConstNames.ctCall`, which computes it; in a body, typecheck computes it
 (`Checker.synthCtCall`) and records it (`Facts.ct_calls`), which
 `CheckedNames.ctCall`, emit, and the oracle read. Either way its
@@ -2860,7 +2865,7 @@ each call's outcome, failures too (`State.memo`), for the same call
 again. `Eval` runs on a thread with a 512 MiB stack, and counts what it
 nests (`max_nest`) so that stack always holds it; it walks the checked
 IR of the body, reading each node's type from the checker, with the one
-arithmetic core of constant folding (`sema.ctArith`). Arrays are
+arithmetic of constant folding (`cteval.ctArith`). Arrays are
 values, stored as their types store them: one buffer of packed scalars
 per array, nested arrays row-major, an element of one a view of its row
 (`cteval.Arr`). Each buffer is owned by one binding, element, or result

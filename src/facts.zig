@@ -100,7 +100,7 @@ pub const Clone = sema.Clone;
 pub const SelfMode = sema.SelfMode;
 pub const Upgrade = sema.Upgrade;
 pub const Lift = sema.Lift;
-pub const TypedInt = sema.TypedInt;
+pub const TypedInt = sema.cteval.TypedInt;
 pub const ArgSlot = sema.ArgSlot;
 pub const DurationParts = sema.DurationParts;
 pub const DurationHow = sema.DurationHow;
@@ -740,11 +740,11 @@ pub const Facts = struct {
     }
     /// The value of an integer constant expression.
     pub fn constIntOf(f: Facts, e: Sexp) ?Wide {
-        return sema.constIntOf(f.c(), e);
+        return sema.cteval.constIntOf(f.c(), e);
     }
     /// `Int.max` and the like.
     pub fn intLimit(f: Facts, e: Sexp) ?TypedInt {
-        return sema.intLimit(f.c(), e);
+        return sema.cteval.intLimit(f.c(), e);
     }
     /// The built-in String operation `call` is.
     pub fn stringCall(f: Facts, call: Sexp) ?StringCall {

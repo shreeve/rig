@@ -751,7 +751,7 @@ pub const Checker = struct {
     }
 
     /// A module constant's integer arithmetic is checked here, when Rig
-    /// computes it (`sema.ctFoldBy`): Zig would compute it again when it
+    /// computes it (`sema.cteval.foldInt`): Zig would compute it again when it
     /// compiles, and stop at an overflow or a division by zero. So each
     /// operand is a value Rig knows; one the target sets, or a constant
     /// branching on something Rig does not compute, is rejected.
@@ -763,7 +763,7 @@ pub const Checker = struct {
         }
         const ty = self.ctx.typeOf(e) orelse return;
         if (!sema.isInteger(self.ctx, ty) and ty != self.t().int_literal_id) return;
-        if (sema.constInt(self.ctx, e) != .not_constant) return;
+        if (sema.cteval.constInt(self.ctx, e) != .not_constant) return;
         const operand = self.unknownOperand(e) orelse return;
         if (try self.perTarget(operand, "the operands of a module constant's arithmetic")) return;
         try self.errAt(operand, "the operands of a module constant's arithmetic must be values Rig computes when it checks the program, and it does not compute `{s}`; branch on integers, or write each branch's value", .{CallCheck.sourceText(self, operand)});
@@ -778,7 +778,7 @@ pub const Checker = struct {
             if (o == .nil) continue;
             if (CompatCheck.isArithmetic(o)) {
                 if (self.unknownOperand(o)) |x| return x;
-            } else if (sema.constInt(self.ctx, o) == .not_constant) return o;
+            } else if (sema.cteval.constInt(self.ctx, o) == .not_constant) return o;
         }
         return null;
     }

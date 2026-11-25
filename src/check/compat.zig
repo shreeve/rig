@@ -331,96 +331,6 @@ pub fn intBounds(info: sema.IntInfo) IntBounds {
     return if (info.signed) .{ .min = -half, .max = half - 1, .bits = bits } else .{ .min = 0, .max = 2 * half - 1, .bits = bits };
 }
 
-/// The value of a float literal (`inf` when it is out of `F64`'s range).
-pub fn floatLiteralValue(lit: []const u8) f64 {
-    return floatLiteralAs(f64, lit);
-}
-
-pub fn floatLiteralAs(comptime F: type, lit: []const u8) F {
-    return std.fmt.parseFloat(F, lit) catch 0;
-}
-
-/// The value of a constant expression of number literals computed in
-/// float type `F` as the program computes it: each literal and each
-/// operation rounded to `F`. Null when `e` is not one, or when an
-/// operation in it overflows.
-pub fn floatConstIn(comptime F: type, source: []const u8, e: Sexp) ?F {
-    switch (e) {
-        .src => {
-            const t = identAt(source, e) orelse return null;
-            if (sema.isFloatLiteralText(t)) {
-                const v = floatLiteralAs(F, t);
-                return if (std.math.isFinite(v)) v else null;
-            }
-            if (!sema.isIntLiteralText(t)) return null;
-            return wideToFloat(F, std.fmt.parseInt(Wide, t, 0) catch return null);
-        },
-        .list => {
-            const h = e.kind() orelse return null;
-            if (h == .member) return floatLimit(F, source, e);
-            if (h == .neg) return -(floatConstIn(F, source, ir.Neg.operand(e)) orelse return null);
-            switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%" => {},
-                else => return null,
-            }
-            const a = floatConstIn(F, source, ir.get(e, .left)) orelse return null;
-            const b = floatConstIn(F, source, ir.get(e, .right)) orelse return null;
-            return if (floatOverflows(F, h, a, b)) null else floatOp(F, h, a, b);
-        },
-        else => return null,
-    }
-}
-
-/// `F32.max`, `Float.min`: a float type's limit, in `F`; null for any
-/// other member.
-pub fn floatLimit(comptime F: type, source: []const u8, e: Sexp) ?F {
-    const obj = ir.Member.object(e);
-    const name = identAt(source, obj) orelse return null;
-    const max: f64 = if (std.mem.eql(u8, name, "F32"))
-        std.math.floatMax(f32)
-    else if (std.mem.eql(u8, name, "F64") or std.mem.eql(u8, name, "Float"))
-        std.math.floatMax(f64)
-    else
-        return null;
-    const field = identAt(source, ir.Member.name(e)) orelse return null;
-    const v: F = @floatCast(if (std.mem.eql(u8, field, "max")) max else if (std.mem.eql(u8, field, "min")) -max else return null);
-    return if (std.math.isFinite(v)) v else null;
-}
-
-/// Whether the arithmetic node `e`, whose operands are constants in `F`,
-/// overflows `F`.
-pub fn floatOpOverflows(comptime F: type, source: []const u8, e: Sexp) bool {
-    const a = floatConstIn(F, source, ir.get(e, .left)) orelse return false;
-    const b = floatConstIn(F, source, ir.get(e, .right)) orelse return false;
-    return floatOverflows(F, e.kind().?, a, b);
-}
-
-/// An operation on finite values whose result is infinite. Division by
-/// zero gives an infinity or NaN instead.
-pub fn floatOverflows(comptime F: type, h: Tag, a: F, b: F) bool {
-    if (b == 0 and (h == .@"/" or h == .@"%")) return false;
-    return std.math.isFinite(a) and std.math.isFinite(b) and !std.math.isFinite(floatOp(F, h, a, b));
-}
-
-pub fn floatOp(comptime F: type, h: Tag, a: F, b: F) F {
-    return switch (h) {
-        .@"+" => a + b,
-        .@"-" => a - b,
-        .@"*" => a * b,
-        .@"/" => a / b,
-        else => if (b == 0) std.math.nan(F) else @rem(a, b),
-    };
-}
-
-/// `v` as a float, rounded. (LLVM has no conversion from an integer as
-/// wide as `Wide`, so it goes through two 128-bit halves.)
-pub fn wideToFloat(comptime F: type, v: Wide) F {
-    if (std.math.cast(i128, v)) |n| return @floatFromInt(n);
-    const lo: u128 = @truncate(@as(u256, @bitCast(v)));
-    const hi: i128 = @truncate(v >> 128);
-    return @floatCast(@as(f64, @floatFromInt(hi)) * 0x1p128 + @as(f64, @floatFromInt(lo)));
-}
-
 /// The first division of whole-number literals (`7 / 2`, `9 % 4`) that
 /// a literal context reaches in `e`: through negation, a ternary's
 /// branches, `+`, `-`, `*`, a comparison of literals, and a division
@@ -693,21 +603,7 @@ pub fn constIntText(source: []const u8, e: Sexp) ?i64 {
     return std.fmt.parseInt(i64, t, 0) catch null;
 }
 
-/// `Float.inf()` or `Float.nan()`, possibly negated, of any float type.
-pub fn isNotFinite(source: []const u8, e: Sexp) bool {
-    if (e.isKind(.neg)) return isNotFinite(source, ir.Neg.operand(e));
-    if (!e.isKind(.call) or ir.Call.args(e).len != 0 or !ir.Call.callee(e).isKind(.member)) return false;
-    const name = identAt(source, ir.Member.name(ir.Call.callee(e))) orelse return false;
-    const owner = identAt(source, ir.Member.object(ir.Call.callee(e))) orelse return false;
-    const float = std.mem.eql(u8, owner, "Float") or std.mem.eql(u8, owner, "F64") or std.mem.eql(u8, owner, "F32");
-    return float and (std.mem.eql(u8, name, "inf") or std.mem.eql(u8, name, "nan"));
-}
-
 /// The value of a float literal, possibly negated: `2.5`, `-1e3`.
-/// What `Checker.floatConst` knows of a `Float`: its value as Rig
-/// computes it, that it is a constant with no finite value, or nothing.
-pub const FloatConst = union(enum) { value: f64, not_finite, unknown };
-
 pub fn constFloatOf(source: []const u8, e: Sexp) ?f64 {
     if (e.isKind(.neg)) return -(constFloatOf(source, ir.Neg.operand(e)) orelse return null);
     const t = identAt(source, e) orelse return null;
