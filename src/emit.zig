@@ -4410,8 +4410,9 @@ pub const Emitter = struct {
         const src_ty = if (through) walked else held_ty;
         const is_list = src_ty != null and (self.isListTy(src_ty.?) or self.facts.tableElem(self.peelViews(src_ty.?)) != null);
         // A List or an array of values that move, which the loop takes or
-        // its source makes, hands its elements over one at a time.
-        if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_list);
+        // its source makes, hands its elements over one at a time, each
+        // taken from its `iterator` var.
+        if (self.varOf(sexp, .iterator) != null) return self.emitConsumingFor(sexp, lp, !is_list);
         if (try self.need(self.facts.fold(sexp), sexp)) |how| return self.emitFold(sexp, lp, how, is_list);
         const elem_sym = self.facts.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;

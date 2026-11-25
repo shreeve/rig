@@ -842,10 +842,6 @@ pub const Facts = struct {
     pub fn fold(f: Facts, loop: Sexp) ??Fold {
         return storage.decided(f.c(), loop, .fold);
     }
-    /// Whether a `for` consumes its source (`storage.forConsumes`).
-    pub fn forConsumes(f: Facts, loop: Sexp) ?bool {
-        return storage.decided(f.c(), loop, .for_consumes);
-    }
     /// Whether a binding is an integer constant the module folds.
     pub fn isConstInt(f: Facts, sym: SymbolId) bool {
         return f.c().const_ints.contains(sym);
