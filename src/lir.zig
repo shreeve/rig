@@ -1,0 +1,374 @@
+//! LIR: a function lowered once, in the order it runs.
+//!
+//! The lowered IR holds what the typed tree leaves implicit: the order
+//! a function's parts are evaluated in, the hidden vars that hold its
+//! values (each of the var table's kinds, `storage.StorageKind`), the
+//! bindings and how each drops, and which region declares each var, so
+//! how long it lives. Control flow stays structured, as Zig needs it:
+//! regions nest, and a region yields a value where an expression needs
+//! one (docs/internals/architecture.md, "The one idea";
+//! docs/internals/INTERNALS.md, "LIR").
+//!
+//! `src/lower.zig` builds it from the typed tree and the recorded
+//! facts. This file holds the data, its verifier, and its text form.
+
+const std = @import("std");
+const parser = @import("parser.zig");
+const storage = @import("storage.zig");
+const sema = @import("sema.zig");
+const diag = @import("diag.zig");
+const rig = @import("rig.zig");
+
+const Sexp = parser.Sexp;
+
+pub const VarId = u32;
+pub const ExprId = u32;
+pub const RegionId = u32;
+
+/// A var of a function: a binding (a parameter, local, or capture), or
+/// hidden storage the function makes for a value no name holds.
+pub const Var = struct {
+    /// The node it is made for: a binding's declaring name, or the
+    /// expression or construct a hidden var holds.
+    node: Sexp,
+    name: Name,
+    /// How a hidden var holds its value, and for how long.
+    by: storage.StorageBy = .owned,
+    life: storage.StorageLife = .block,
+    /// How it drops the value it holds, or null when it owns nothing to
+    /// drop.
+    drop: ?sema.ResourceKind = null,
+    /// How each of several results it holds drops.
+    parts: []const ?sema.ResourceKind = &.{},
+    /// A binding a use may move out: its drop is armed behind a flag.
+    flag: bool = false,
+
+    pub const Name = union(enum) {
+        binding: sema.SymbolId,
+        hidden: storage.StorageKind,
+    };
+};
+
+/// A value, evaluated left to right: each operand before the operation.
+pub const Expr = union(enum) {
+    /// A var's value.
+    @"var": VarId,
+    /// A leaf read as written: a literal, or a name no var of the
+    /// function holds (a constant, a function, a type, a module).
+    leaf: Sexp,
+    /// The operation of tree node `node`, over its operands in order.
+    op: Op,
+    /// `value`, held in `v`, which it then reads: storage made where the
+    /// value stands, such as a statement's temporary.
+    hold: struct { v: VarId, value: ExprId },
+    /// A region that yields a value.
+    block: RegionId,
+
+    pub const Op = struct { node: Sexp, args: []const ExprId };
+};
+
+/// A step of a region, run in order.
+pub const Step = union(enum) {
+    /// Evaluate `value` into `v`.
+    bind: struct { v: VarId, value: ExprId },
+    /// Store `value` in the place `target`: the assignment `node`.
+    store: struct { node: Sexp, target: ExprId, value: ExprId },
+    /// Evaluate `value` for what it does.
+    eval: ExprId,
+    /// Drop what `v` holds.
+    drop: VarId,
+    /// Leave: the `return`, `break`, or `continue` `node`.
+    jump: struct { node: Sexp, value: ?ExprId },
+    /// A region run in place.
+    region: RegionId,
+    /// `if cond, then, else`.
+    @"if": struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId },
+};
+
+/// A stretch of a function that declares vars, which live until it ends.
+pub const Region = struct {
+    node: Sexp,
+    kind: Kind,
+    /// The vars it declares, in the order it declares them.
+    decls: std.ArrayList(VarId) = .empty,
+    steps: std.ArrayList(Step) = .empty,
+    /// What it yields, for a region that is a value.
+    value: ?ExprId = null,
+    /// The var that is its value, for a header that ends its
+    /// temporaries (`header_value`).
+    label: ?VarId = null,
+
+    pub const Kind = enum {
+        /// A function's body.
+        body,
+        /// A block of statements.
+        block,
+        /// One statement, which holds its temporaries.
+        stmt,
+        /// A header that ends its temporaries, yielding its value.
+        header,
+        /// Parts evaluated first, then the value they make.
+        value,
+    };
+};
+
+/// A function, a closure, a test, or a `drop` body, lowered.
+pub const Func = struct {
+    /// The `fun`, `sub`, `lambda`, `test`, or `drop_decl` node.
+    root: Sexp,
+    vars: std.ArrayList(Var) = .empty,
+    exprs: std.ArrayList(Expr) = .empty,
+    regions: std.ArrayList(Region) = .empty,
+    body: RegionId = 0,
+
+    pub fn addVar(f: *Func, a: std.mem.Allocator, v: Var) !VarId {
+        try f.vars.append(a, v);
+        return @intCast(f.vars.items.len - 1);
+    }
+
+    pub fn addExpr(f: *Func, a: std.mem.Allocator, e: Expr) !ExprId {
+        try f.exprs.append(a, e);
+        return @intCast(f.exprs.items.len - 1);
+    }
+
+    pub fn addRegion(f: *Func, a: std.mem.Allocator, node: Sexp, kind: Region.Kind) !RegionId {
+        try f.regions.append(a, .{ .node = node, .kind = kind });
+        return @intCast(f.regions.items.len - 1);
+    }
+
+    pub fn region(f: *Func, r: RegionId) *Region {
+        return &f.regions.items[r];
+    }
+
+    /// Hold the value of expression `e` in `v` where it stands: `e`
+    /// becomes `hold(v, e)`, so a reader of `e` reads the var.
+    pub fn holdIn(f: *Func, a: std.mem.Allocator, e: ExprId, v: VarId) !void {
+        const inner = try f.addExpr(a, f.exprs.items[e]);
+        f.exprs.items[e] = .{ .hold = .{ .v = v, .value = inner } };
+    }
+};
+
+// =============================================================================
+// The verifier
+// =============================================================================
+
+pub const Problem = struct {
+    node: Sexp,
+    what: []const u8,
+};
+
+/// Check that `f` is well formed: each expression and region is reached
+/// once, from the body, as a tree; each var is declared by exactly one
+/// region; and each var is read and written only inside the region that
+/// declares it. Returns the first problem found.
+pub fn verify(gpa: std.mem.Allocator, f: *const Func) !?Problem {
+    var v: Verifier = .{ .f = f };
+    defer v.deinit(gpa);
+    v.declared = try gpa.alloc(?RegionId, f.vars.items.len);
+    @memset(v.declared, null);
+    v.seen_exprs = try std.DynamicBitSetUnmanaged.initEmpty(gpa, f.exprs.items.len);
+    v.seen_regions = try std.DynamicBitSetUnmanaged.initEmpty(gpa, f.regions.items.len);
+    v.open = try std.DynamicBitSetUnmanaged.initEmpty(gpa, f.vars.items.len);
+    v.region(gpa, f.body) catch |e| switch (e) {
+        error.Invalid => return v.problem,
+        else => |o| return o,
+    };
+    for (v.declared, 0..) |d, i| if (d == null) return .{ .node = f.vars.items[i].node, .what = "a var no region declares" };
+    return null;
+}
+
+const Verifier = struct {
+    f: *const Func,
+    declared: []?RegionId = &.{},
+    seen_exprs: std.DynamicBitSetUnmanaged = .{},
+    seen_regions: std.DynamicBitSetUnmanaged = .{},
+    /// The vars of the regions open around the step being checked.
+    open: std.DynamicBitSetUnmanaged = .{},
+    problem: ?Problem = null,
+
+    const Error = error{ Invalid, OutOfMemory };
+
+    fn deinit(v: *Verifier, gpa: std.mem.Allocator) void {
+        gpa.free(v.declared);
+        v.seen_exprs.deinit(gpa);
+        v.seen_regions.deinit(gpa);
+        v.open.deinit(gpa);
+    }
+
+    fn fail(v: *Verifier, node: Sexp, what: []const u8) Error {
+        v.problem = .{ .node = node, .what = what };
+        return error.Invalid;
+    }
+
+    fn region(v: *Verifier, gpa: std.mem.Allocator, id: RegionId) Error!void {
+        if (id >= v.f.regions.items.len) return v.fail(v.f.root, "a region out of range");
+        const r = &v.f.regions.items[id];
+        if (v.seen_regions.isSet(id)) return v.fail(r.node, "a region reached twice");
+        v.seen_regions.set(id);
+        for (r.decls.items) |x| {
+            if (x >= v.f.vars.items.len) return v.fail(r.node, "a var out of range");
+            if (v.declared[x] != null) return v.fail(v.f.vars.items[x].node, "a var declared twice");
+            v.declared[x] = id;
+            v.open.set(x);
+        }
+        if (r.label) |l| try v.use(l, r.node);
+        for (r.steps.items) |s| switch (s) {
+            .bind => |b| {
+                try v.use(b.v, r.node);
+                try v.expr(gpa, b.value);
+            },
+            .store => |st| {
+                try v.expr(gpa, st.target);
+                try v.expr(gpa, st.value);
+            },
+            .eval => |e| try v.expr(gpa, e),
+            .drop => |x| try v.use(x, r.node),
+            .jump => |j| if (j.value) |e| try v.expr(gpa, e),
+            .region => |sub| try v.region(gpa, sub),
+            .@"if" => |i| {
+                try v.expr(gpa, i.cond);
+                try v.region(gpa, i.then);
+                if (i.@"else") |e| try v.region(gpa, e);
+            },
+        };
+        if (r.value) |e| try v.expr(gpa, e);
+        for (r.decls.items) |x| v.open.unset(x);
+    }
+
+    fn use(v: *Verifier, x: VarId, at: Sexp) Error!void {
+        if (x >= v.f.vars.items.len) return v.fail(at, "a var out of range");
+        if (!v.open.isSet(x)) return v.fail(v.f.vars.items[x].node, "a var used outside the region that declares it");
+    }
+
+    fn expr(v: *Verifier, gpa: std.mem.Allocator, id: ExprId) Error!void {
+        if (id >= v.f.exprs.items.len) return v.fail(v.f.root, "an expression out of range");
+        if (v.seen_exprs.isSet(id)) return v.fail(v.f.root, "an expression reached twice");
+        v.seen_exprs.set(id);
+        switch (v.f.exprs.items[id]) {
+            .@"var" => |x| try v.use(x, v.f.root),
+            .leaf => {},
+            .op => |o| for (o.args) |a| try v.expr(gpa, a),
+            .hold => |h| {
+                try v.use(h.v, v.f.root);
+                try v.expr(gpa, h.value);
+            },
+            .block => |r| try v.region(gpa, r),
+        }
+    }
+};
+
+// =============================================================================
+// The text form
+// =============================================================================
+
+/// Write `f` as text, for `rig check --facts=lir`: its vars, one per
+/// line, then its body, a region per brace.
+pub fn write(f: *const Func, ctx: *const sema.SemContext, w: *std.Io.Writer) !void {
+    const at = diag.lineCol(ctx.source, ctx.startOf(f.root));
+    try w.print("{s} {d}:{d}\n", .{ @tagName(f.root.kind() orelse .module), at.line, at.col });
+    for (f.vars.items, 0..) |v, i| {
+        try w.print("  %{d} ", .{i});
+        try writeVar(ctx, v, w);
+        try w.writeAll("\n");
+    }
+    var p: Printer = .{ .f = f, .ctx = ctx, .w = w };
+    try p.region(f.body, 1);
+    try w.writeAll("\n");
+}
+
+pub fn writeVar(ctx: *const sema.SemContext, v: Var, w: *std.Io.Writer) !void {
+    const at = diag.lineCol(ctx.source, ctx.startOf(v.node));
+    switch (v.name) {
+        .binding => |s| try w.print("{s} binding", .{ctx.symbols.items[s].name}),
+        .hidden => |k| try w.print("{s} {s} {s}", .{ @tagName(k), @tagName(v.by), @tagName(v.life) }),
+    }
+    if (v.drop) |d| try w.print(" drop={s}", .{@tagName(d)});
+    for (v.parts) |p| try w.print(" part={s}", .{if (p) |d| @tagName(d) else "none"});
+    if (v.flag) try w.writeAll(" flag");
+    try w.print(" @{d}:{d}", .{ at.line, at.col });
+}
+
+const Printer = struct {
+    f: *const Func,
+    ctx: *const sema.SemContext,
+    w: *std.Io.Writer,
+
+    fn indent(p: *Printer, depth: usize) !void {
+        for (0..depth) |_| try p.w.writeAll("  ");
+    }
+
+    fn region(p: *Printer, id: RegionId, depth: usize) std.Io.Writer.Error!void {
+        const r = &p.f.regions.items[id];
+        try p.w.print("{s}", .{@tagName(r.kind)});
+        if (r.label) |l| try p.w.print(" %{d}", .{l});
+        if (r.decls.items.len > 0) {
+            try p.w.writeAll(" [");
+            for (r.decls.items, 0..) |x, i| try p.w.print("{s}%{d}", .{ if (i > 0) " " else "", x });
+            try p.w.writeAll("]");
+        }
+        try p.w.writeAll(" {\n");
+        for (r.steps.items) |s| {
+            try p.indent(depth + 1);
+            switch (s) {
+                .bind => |b| {
+                    try p.w.print("%{d} = ", .{b.v});
+                    try p.expr(b.value, depth + 1);
+                },
+                .store => |st| {
+                    try p.expr(st.target, depth + 1);
+                    try p.w.writeAll(" := ");
+                    try p.expr(st.value, depth + 1);
+                },
+                .eval => |e| try p.expr(e, depth + 1),
+                .drop => |x| try p.w.print("drop %{d}", .{x}),
+                .jump => |j| {
+                    try p.w.writeAll(@tagName(j.node.kind() orelse .module));
+                    if (j.value) |e| {
+                        try p.w.writeAll(" ");
+                        try p.expr(e, depth + 1);
+                    }
+                },
+                .region => |sub| try p.region(sub, depth + 1),
+                .@"if" => |i| {
+                    try p.w.writeAll("if ");
+                    try p.expr(i.cond, depth + 1);
+                    try p.w.writeAll(" then ");
+                    try p.region(i.then, depth + 1);
+                    if (i.@"else") |e| {
+                        try p.w.writeAll(" else ");
+                        try p.region(e, depth + 1);
+                    }
+                },
+            }
+            try p.w.writeAll("\n");
+        }
+        if (r.value) |e| {
+            try p.indent(depth + 1);
+            try p.w.writeAll("yield ");
+            try p.expr(e, depth + 1);
+            try p.w.writeAll("\n");
+        }
+        try p.indent(depth);
+        try p.w.writeAll("}");
+    }
+
+    fn expr(p: *Printer, id: ExprId, depth: usize) std.Io.Writer.Error!void {
+        switch (p.f.exprs.items[id]) {
+            .@"var" => |x| try p.w.print("%{d}", .{x}),
+            .leaf => |l| try p.w.writeAll(if (l == .src) rig.leafText(p.ctx.source, l.src) else @tagName(l.kind() orelse .module)),
+            .op => |o| {
+                try p.w.print("{s}(", .{@tagName(o.node.kind() orelse .module)});
+                for (o.args, 0..) |a, i| {
+                    if (i > 0) try p.w.writeAll(", ");
+                    try p.expr(a, depth);
+                }
+                try p.w.writeAll(")");
+            },
+            .hold => |h| {
+                try p.w.print("hold %{d} ", .{h.v});
+                try p.expr(h.value, depth);
+            },
+            .block => |r| try p.region(r, depth),
+        }
+    }
+};
