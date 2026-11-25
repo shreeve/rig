@@ -1839,8 +1839,14 @@ const Checker = struct {
     /// (docs/internals/INTERNALS.md, "Strings as bytes", "Chains"). Only a
     /// statement the parser found may hold one (`rig.Parser.rewrite_stmts`)
     /// is checked under a mark.
-    fn checkRewritten(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
+    inline fn checkRewritten(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
         if (!self.mayRewrite(slot.*)) return @call(.auto, check, .{ self, slot.* } ++ args);
+        return self.checkUnderMark(slot, check, args);
+    }
+
+    /// `checkRewritten` of a statement that may be rewritten: under a
+    /// mark, checked again as long as the check finds a rewrite.
+    fn checkUnderMark(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
         self.rewrites_open += 1;
         defer self.rewrites_open -= 1;
         // A group's uses and a spread are rewritten with the module's
@@ -1928,7 +1934,7 @@ const Checker = struct {
     fn mayRewrite(self: *Checker, s: Sexp) bool {
         return switch (s) {
             .src => sema.isStringLiteralText(self.text(s)),
-            .list => |l| if (self.ctx.parser) |p| p.rewrite_stmts.contains(l.id) else false,
+            .list => |l| if (self.ctx.parser) |p| p.mayRewrite(l.id) else false,
             else => false,
         };
     }

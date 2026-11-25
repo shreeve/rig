@@ -559,6 +559,17 @@ pub fn slotValue(s: Sexp) Sexp {
     return if (s.isKind(.show)) ir.Show.value(s) else s;
 }
 
+/// Whether source leaf `leaf` is a string literal's, as `isStringText`
+/// tells from its text, read from its first byte.
+fn isStringLeaf(source: []const u8, leaf: parser.Src) bool {
+    if (leaf.pos >= source.len or leaf.id >= byte_id_base) return false;
+    return switch (source[leaf.pos]) {
+        '"', '\'' => true,
+        '`', '}' => leaf.len >= 2,
+        else => false,
+    };
+}
+
 /// Whether `text` is a string literal's: quoted, or a template's piece.
 pub fn isStringText(text: []const u8) bool {
     return text.len > 0 and (text[0] == '"' or text[0] == '\'' or isTemplateText(text));
@@ -3236,9 +3247,15 @@ fn mayBeChain(source: []const u8, node: Sexp) bool {
     if (!node.isKind(.call) or !ir.Call.callee(node).isKind(.member)) return false;
     const name = ir.Member.name(ir.Call.callee(node));
     if (name != .src) return false;
-    const text = leafText(source, name.src);
-    return isChainStage(text) or isChainConsumer(text);
+    return chain_names.has(leafText(source, name.src));
 }
+
+/// The names a chain's stages and consumers have (`mayBeChain`).
+const chain_names = std.StaticStringMap(void).initComptime(blk: {
+    var kvs: [chain_stages.len + chain_consumers.len]struct { []const u8 } = undefined;
+    for (chain_stages ++ chain_consumers, 0..) |n, i| kvs[i] = .{n};
+    break :blk kvs;
+});
 
 /// A string literal typecheck found where a `U8` or a `[N]U8` goes
 /// (`Parser.byteLiterals`): the position of its leaf and its bytes.
@@ -3280,7 +3297,7 @@ pub const Parser = struct {
     /// as a chain's stage or consumer, which may be a chain: the statement
     /// is then checked again in the form it is rewritten into
     /// (`Checker.checkRewritten`).
-    rewrite_stmts: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    rewrite_stmts: std.DynamicBitSetUnmanaged = .{},
     /// How many string literals and calls that may be chains the walk has
     /// met (`rewrite`).
     rewritable: u32 = 0,
@@ -4290,9 +4307,20 @@ pub const Parser = struct {
     // `captures` node and self sigil get their own (`newNode`).
     // -------------------------------------------------------------------------
 
+    /// Flag statement `id` as one typecheck may rewrite (`rewrite_stmts`).
+    fn flagRewrite(self: *Parser, id: parser.NodeId) std.mem.Allocator.Error!void {
+        if (id >= self.rewrite_stmts.bit_length) try self.rewrite_stmts.resize(self.allocator(), @max(id + 1, 2 * self.rewrite_stmts.bit_length), false);
+        self.rewrite_stmts.set(id);
+    }
+
+    /// Whether statement `id` is one typecheck may rewrite.
+    pub fn mayRewrite(self: *const Parser, id: parser.NodeId) bool {
+        return id < self.rewrite_stmts.bit_length and self.rewrite_stmts.isSet(id);
+    }
+
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
         if (sexp != .list) {
-            if (sexp == .src and isStringText(leafText(self.base.source, sexp.src))) self.rewritable += 1;
+            if (sexp == .src and isStringLeaf(self.base.source, sexp.src)) self.rewritable += 1;
             return sexp;
         }
         var items = sexp.items();
@@ -4315,7 +4343,7 @@ pub const Parser = struct {
             const options = self.options;
             walked[i] = try self.rewrite(child);
             const flags = self.rewritable > before or (is_module and self.options > options);
-            if (holds_stmts and flags and walked[i] == .list) try self.rewrite_stmts.put(self.allocator(), walked[i].list.id, {});
+            if (holds_stmts and flags and walked[i] == .list) try self.flagRewrite(walked[i].list.id);
         }
         if (holds_stmts) self.rewritable = rewritable;
         if (mayBeChain(self.base.source, sexp)) self.rewritable += 1;
