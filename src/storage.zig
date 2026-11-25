@@ -1229,7 +1229,7 @@ pub const SetStep = struct {
 /// (`.member`) and an element (`.index`) continue the path to their
 /// object, and anything else is its base. A target that is a name has no
 /// steps; a name as a base is one, which evaluates nothing (`baseStays`).
-/// Emit, the storage plan, and the ownership checker all take an
+/// Emit, lowering, and the ownership checker all take an
 /// assignment's steps from here.
 pub fn eachSetStep(set: Sexp, visitor: anytype) !void {
     try visitor.step(.{ .node = ir.Set.value(set), .role = .value });

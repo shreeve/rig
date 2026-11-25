@@ -664,6 +664,7 @@ serve no HTTP.
 
 ### Compiler
 
+- **Each module is lowered once it is checked, and the storage plan is gone.** `rig check` lowers each body to its LIR after the expressions are checked, in place of `storage.plan` and its var table: the ownership checker reads the storage a call holds from the LIR, and which bindings a use may move from one walk of the module (`SemContext.moved`). Compile-time functions' bodies are lowered too, since the ownership checker walks them. Each module's LIR is freed once its checks finish, and emit lowers it again as it writes it, asking its questions of every node then. `rig check --time` names the pass `lower`. The emitted Zig is the same.
 - **Every fact is recorded through one recorder.** Each column of the facts table declares the one pass that writes it (the module check, storage, the module graph, the ownership checker, or the proofs). A write by another pass fails to compile, and a self-checking build stops at a write after the pass ended. The writes that bypassed the trail (a call's target, a binding's constant, a compile-time call's symbol type, the proofs' and ownership's records) go through it, and no fact is keyed by an address. The emitted Zig is the same.
 - **`sema` checks each module once:** the module loop that checked a
   module again after rewriting its byte literals, chains, groups, and

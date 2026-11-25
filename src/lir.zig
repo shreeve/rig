@@ -2,7 +2,7 @@
 //!
 //! The lowered IR holds what the typed tree leaves implicit: the order
 //! a function's parts are evaluated in, the hidden vars that hold its
-//! values (each of the var table's kinds, `storage.StorageKind`), the
+//! values (each a kind of `storage.StorageKind`), the
 //! bindings and how each drops, and which region declares each var, so
 //! how long it lives. Control flow stays structured, as Zig needs it:
 //! regions nest, and a region yields a value where an expression needs

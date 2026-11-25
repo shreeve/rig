@@ -3085,7 +3085,9 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
             return std.mem.order(u8, x.text, y.text) == .lt;
         }
     };
-    const lowered = &(ctx.lowered orelse return);
+    var module = try lowering.lowerModule(ctx.allocator, @constCast(ctx), root, .{});
+    defer module.deinit();
+    const lowered = &module;
     var out: std.ArrayList(Line) = .empty;
     var lines: diag.Lines = .{ .source = ctx.source };
     var stack: std.ArrayList(Sexp) = .empty;
@@ -4262,7 +4264,7 @@ pub const SemContext = struct {
     /// duration's value.
     const_floats: FastMap(SymbolId, f64) = .empty,
     /// The fields a use may move out of a binding (`fieldMoves`, recorded
-    /// by `storage.plan` with `storage.Binding.flag`, under its contract):
+    /// by `lower.markMoved` with `moved`, under its contract):
     /// each a path of field names below the binding, `a.b` for `<p.a.b`.
     /// Emit gives each a drop flag, and the ownership checker moves no
     /// other field out (Core §5, "A field of an owned object moves like
@@ -4385,8 +4387,9 @@ pub const SemContext = struct {
     /// The method calls generic bodies make on type parameters.
     generic_methods: std.ArrayList(GenericMethodCall) = .empty,
     /// The module's bodies lowered (`src/lower.zig`), after the
-    /// expressions are checked: the storage emit makes and how each
-    /// binding holds its value. Null for a module with an error.
+    /// expressions are checked, for the checks that follow: the storage
+    /// emit makes and how each binding holds its value. Null for a
+    /// module with an error, and once its checks finish.
     lowered: ?lowering.Module = null,
     /// The symbols a name reads after its declaration, or a closure
     /// captures (`lower.lowerChecked`, `isUsed`): emit discards a binding none
@@ -4487,7 +4490,8 @@ pub const SemContext = struct {
     /// `src/proofs.zig`, with the tests above.
     result_bounds: FastMap(u32, ResultBound) = .empty,
     /// Each node of a body -> the root of the innermost unit holding it
-    /// (`rig.eachUnit`), recorded by the storage plan (`storage.plan`).
+    /// (`rig.eachUnit`), recorded in self-checking builds
+    /// (`storage.planUnits`).
     /// Kept beside the facts table, not in `check --facts=sema`.
     unit_of: FastMap(NodeKey, NodeKey) = .empty,
     /// The root of each unit -> its kind.
@@ -6204,7 +6208,9 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     timing.stop(opts.timing, .typecheck, t0);
     t0 = timing.start(opts.timing);
     try lowering.lowerChecked(&ctx, tree);
-    try storage.planUnits(&ctx, tree);
+    // Only a self-checking build asks that emit writes each node inside
+    // the unit that holds it (`Emitter.inUnit`).
+    if (lowering.enabled) try storage.planUnits(&ctx, tree);
     ctx.seal(.storage);
     timing.stop(opts.timing, .lower, t0);
     try indexAllMembers(&ctx);
@@ -14143,8 +14149,8 @@ pub const ResourceKind = enum {
 /// and payload bindings, and an owned closure environment; the kind
 /// picks its drop call. `rig.drop` releases only what needs cleanup: a
 /// unique value, or a value of a type parameter whose instance needs
-/// none, drops nothing. The storage plan records it in its var table for
-/// each binding and each value emit holds or discards (`storage.Vars`);
+/// none, drops nothing. Lowering records it on the var of each binding
+/// and each value emit holds or discards (`lir.Var`);
 /// emit reads only those records.
 pub fn resourceKind(ctx: *const SemContext, ty: TypeId) ?ResourceKind {
     if (moves(ctx, ty) == .no) return null;
