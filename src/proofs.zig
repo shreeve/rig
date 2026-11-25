@@ -453,8 +453,10 @@ const Pass = struct {
     /// The body being walked, lowered.
     f: *const lir.Func = undefined,
     /// The region of each block inside a unit's expression, by the
-    /// block's key, in every body of the module (`check`).
+    /// block's key, in the bodies listed so far (`blockRegion`), and the
+    /// body listed last.
     block_regions: sema.FastMap(u64, RegionId) = .empty,
+    block_scanned: ?*const lir.Func = null,
     /// Each field path a place names (`Place.path`, from 1), by its
     /// dotted text, and its field names.
     paths: std.StringHashMapUnmanaged(u32) = .empty,
@@ -1158,11 +1160,23 @@ const Pass = struct {
     }
 
     /// The region a block inside a unit's expression was lowered to
-    /// (`check`, `block_regions`). Every such block is lowered: one
+    /// (`block_regions`). Every such block is lowered: one
     /// missed would drop the jumps in it, and a loop's step would keep
     /// facts a `continue` ends.
-    fn blockRegion(p: *const Pass, block: Sexp) RegionId {
-        if (sema.decisionKeyOf(block)) |key| if (p.block_regions.get(key)) |r| return r;
+    fn blockRegion(p: *Pass, block: Sexp) Error!RegionId {
+        const key = sema.decisionKeyOf(block).?;
+        if (p.block_regions.get(key)) |r| return r;
+        // Each body's blocks are listed the first time one is asked for:
+        // a `catch` handler's region is the `catch`'s.
+        if (p.block_scanned != p.f) {
+            p.block_scanned = p.f;
+            for (p.f.regions.items, 0..) |r, i| {
+                if (r.kind != .block) continue;
+                const node = if (r.node.isKind(.@"catch")) ir.Catch.handler(r.node) else r.node;
+                if (node.isKind(.block)) try p.block_regions.put(p.a, sema.decisionKeyOf(node).?, @intCast(i));
+            }
+            if (p.block_regions.get(key)) |r| return r;
+        }
         const at = diag.lineCol(p.ctx.source, p.ctx.startOf(block));
         std.debug.panic("{s}:{d}:{d}: internal error: proofs: a block lowering made no region for", .{ p.ctx.name, at.line, at.col });
     }
@@ -1242,6 +1256,10 @@ const Pass = struct {
     /// that orders others steps into a guard or block region, or yields
     /// one as its value; any other is one unit.
     fn shapeOf(p: *const Pass, r: RegionId, stmt: Sexp) Shape {
+        // A statement of a kind that orders nothing lowers to no region
+        // that orders others.
+        const kind = stmt.kind() orelse return .{ .unit = stmt };
+        if (rig.stmtClass(kind) == .unit) return .{ .unit = stmt };
         const x = p.region(r);
         for (x.steps.items) |s| {
             if (s != .region) continue;
@@ -1272,9 +1290,8 @@ const Pass = struct {
                 else => {},
             };
         };
-        const kind = stmt.kind() orelse return .{ .unit = stmt };
         return switch (rig.stmtClass(kind)) {
-            .unit => .{ .unit = stmt },
+            .unit => unreachable,
             .raw, .none => .{ .raw = stmt },
             .structured => {
                 const at = diag.lineCol(p.ctx.source, p.ctx.startOf(stmt));
@@ -1366,7 +1383,7 @@ const Pass = struct {
         switch (kind) {
             .block => {
                 var b = try a_state.clone(p.a);
-                try p.walkBlock(p.blockRegion(e), &b, false);
+                try p.walkBlock(try p.blockRegion(e), &b, false);
                 return;
             },
             .lambda => return p.walkBody(e, ir.Lambda.body(e)),
@@ -1795,13 +1812,6 @@ pub fn check(ctx: *SemContext, root: Sexp) Error!void {
     var sums: Summaries = .{ .ctx = ctx, .a = arena.allocator() };
     try sums.all(root);
     var p: Pass = .{ .ctx = ctx, .a = arena.allocator() };
-    // The region of each block a unit's expression holds: a `catch`
-    // handler's is the region of the `catch`.
-    if (ctx.lowered) |*m| for (m.owners) |o| if (o.func) |f| for (f.regions.items, 0..) |r, i| {
-        if (r.kind != .block) continue;
-        const node = if (r.node.isKind(.@"catch")) ir.Catch.handler(r.node) else r.node;
-        if (node.isKind(.block)) try p.block_regions.put(p.a, sema.decisionKeyOf(node).?, @intCast(i));
-    };
     try rig.eachBody(root, &p, Pass.walkBody);
     var it = p.proven.iterator();
     while (it.next()) |e| if (e.value_ptr.any()) try ctx.putIn(.proofs, .proven, e.key_ptr.*, e.value_ptr.*);
