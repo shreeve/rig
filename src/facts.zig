@@ -15,8 +15,8 @@
 //! is of two kinds:
 //!
 //! - **Node facts**: what the checkers recorded about a node, read from the
-//!   facts table (docs/internals/INTERNALS.md, "The facts table") and the storage
-//!   facts (`storageOf`, "Storage facts"). Each answers for the node it is
+//!   facts table (docs/internals/INTERNALS.md, "The facts table") and the var
+//!   table (`varOf`, "Storage facts"). Each answers for the node it is
 //!   asked about and is decided once, where it is recorded.
 //! - **Types**: the type table, the symbols, and the questions about a type
 //!   whose answer is how values of that type are spelled in Zig (whether a
@@ -25,8 +25,8 @@
 //!
 //! Emit makes no decision of its own with a classifier the checkers also
 //! call: whether a binding or a hidden storage holds a value that moves,
-//! and how it drops it, is recorded by the storage plan (`Symbol.hold`,
-//! `dropKind`, `partDrops`, `SetOrder.drops_old`).
+//! and how it drops it, is recorded by the storage plan in the var table
+//! (`binding`, `varOf`) and `SetOrder.drops_old`.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -82,9 +82,9 @@ pub const PlainBit = sema.PlainBit;
 pub const PlainArg = sema.PlainArg;
 pub const Use = sema.Use;
 pub const Header = sema.Header;
-pub const Storage = sema.Storage;
-pub const StorageKind = sema.StorageKind;
-pub const StorageBy = sema.StorageBy;
+pub const Var = storage.Var;
+pub const StorageKind = storage.StorageKind;
+pub const StorageBy = storage.StorageBy;
 pub const Clone = sema.Clone;
 pub const SelfMode = sema.SelfMode;
 pub const Upgrade = sema.Upgrade;
@@ -602,7 +602,7 @@ pub const Facts = struct {
     /// waited for there, a fork (`storage.taskStaysInFrame`,
     /// `StorageKind.task_record`).
     pub fn taskInFrame(f: Facts, call: Sexp) bool {
-        return f.storageOf(call, .task_record) != null;
+        return f.varOf(call, .task_record) != null;
     }
     pub fn isIsolateCall(f: Facts, call: Sexp) bool {
         return f.c().isIsolateCall(call);
@@ -702,25 +702,14 @@ pub const Facts = struct {
     pub fn copiesHeader(f: Facts, node: Sexp) bool {
         return f.c().copiesHeader(node);
     }
-    pub fn consumes(f: Facts, sym: SymbolId) bool {
-        return f.c().consumes(sym);
-    }
     pub fn fieldMoves(f: Facts, sym: SymbolId) []const []const u8 {
         return f.c().fieldMoves(sym);
     }
-    pub fn storageOf(f: Facts, node: Sexp, kind: StorageKind) ?Storage {
-        return f.c().storageOf(node, kind);
+    pub fn varOf(f: Facts, node: Sexp, kind: StorageKind) ?Var {
+        return f.c().varOf(node, kind);
     }
-    /// How hidden storage holding the value of `node`, or a discard of
-    /// it, drops it (`storage.dropKind`, a recorded decision); null when
-    /// no checker decided it.
-    pub fn dropKind(f: Facts, node: Sexp) ??ResourceKind {
-        return storage.decided(f.c(), node, .drop_kind);
-    }
-    /// How each part of the several results `node` holds is held
-    /// (`SemContext.partDrops`), recorded by the storage plan.
-    pub fn partDrops(f: Facts, node: Sexp) ?[]const ?ResourceKind {
-        return f.c().partDrops(node);
+    pub fn binding(f: Facts, sym: SymbolId) storage.Binding {
+        return f.c().vars.binding(sym);
     }
     /// How the walk that reaches a value by address reaches `e`
     /// (`storage.leafStep`, a recorded decision); null when no checker
@@ -1479,7 +1468,7 @@ test "Facts answers as the context it was made from" {
         try std.testing.expectEqual(ctx.typeOf(n), f.typeOf(n));
         try std.testing.expectEqual(ctx.dropsTemp(n), f.dropsTemp(n));
         try std.testing.expectEqual(ctx.useOf(n), f.useOf(n));
-        for (std.enums.values(StorageKind)) |k| try std.testing.expectEqual(ctx.storageOf(n, k), f.storageOf(n, k));
+        for (std.enums.values(StorageKind)) |k| try std.testing.expectEqual(ctx.varOf(n, k), f.varOf(n, k));
         if (f.dropsTemp(n)) temps += 1;
     }
     // `mk(2)` is a temporary its statement drops.
@@ -1524,7 +1513,7 @@ test "Facts reads the leaf walk the storage plan decided" {
         if (f.leafStep(n)) |step| if (step == .made) {
             made += 1;
             // Reached where Zig holds it: a fact names it.
-            try std.testing.expectEqual(StorageBy.owned, (f.storageOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
+            try std.testing.expectEqual(StorageBy.owned, (f.varOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
         };
     }
     // `r if k else mkr(5)`, with `mkr(5)` made there.
