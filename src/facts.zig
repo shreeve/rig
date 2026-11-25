@@ -407,9 +407,6 @@ pub const Facts = struct {
     pub fn isConstMaker(f: Facts, call: Sexp) bool {
         return f.c().isConstMaker(call);
     }
-    pub fn splatOf(f: Facts, node: Sexp) ?TypeId {
-        return f.c().splatOf(node);
-    }
     /// The unit an argument filling a duration parameter counts.
     pub fn durationOf(f: Facts, node: Sexp) ?sema.Duration {
         return f.c().durationOf(node);
@@ -652,9 +649,6 @@ pub const Facts = struct {
     }
     pub fn memberCompares(f: Facts, member: sema.Field) sema.MemberCompares {
         return f.c().memberCompares(member);
-    }
-    pub fn isCodeWidening(f: Facts, node: Sexp) bool {
-        return f.c().isCodeWidening(node);
     }
     pub fn isTypedLiteral(f: Facts, node: Sexp) bool {
         return f.c().isTypedLiteral(node);

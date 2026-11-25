@@ -350,7 +350,7 @@ const Names = struct {
                             ok.* = false;
                             return;
                         };
-                        if (sym.ty == ctx.types.unknown_id) ctx.symbols.items[id].ty = try ctx.intern(.{ .int = c.int });
+                        if (sym.ty == ctx.types.unknown_id) (try ctx.symbolMut(id)).ty = try ctx.intern(.{ .int = c.int });
                     },
                     .nominal_type => if (plainEnumDecl(ctx, id) == null) {
                         try ctx.errAt(node, "a compile-time function cannot use `{s}`: " ++ plain_rule, .{name});
@@ -1178,7 +1178,7 @@ pub fn recordedInt(ctx: *const SemContext, e: Sexp) sema.CtFold {
 /// The value the checker recorded for the compile-time call `e`.
 pub fn recorded(ctx: *const SemContext, e: Sexp) ?Result {
     if (!e.isKind(.ct_call)) return null;
-    const c = ctx.ctCallOf(e) orelse return null;
+    const c = ctx.get(.ct_calls, e) orelse return null;
     const i = c.result orelse return null;
     return ctx.ct.results.items[i];
 }
@@ -1199,7 +1199,7 @@ pub fn recordCall(ctx: *SemContext, e: Sexp, t: Target, args: []const CtVal, c: 
     }
     const i: u32 = @intCast(ctx.ct.results.items.len);
     try ctx.ct.results.append(ctx.allocator, .{ .value = c.value, .ty = c.ty, .hidden = hidden });
-    try ctx.recordCtCall(e, .{ .result = i });
+    try ctx.record(.ct_calls, e, .{ .result = i });
 }
 
 /// Write value `v` of type `ty` as `print` writes it: `7`, `true`,

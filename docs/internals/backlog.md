@@ -341,7 +341,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   that wants it. Found reviewing #923 (2026-11-04).
 - **`format`'s fact is kept per call, not per instance of a generic
   body.** A call of std.datetime's `format` whose string passes its check
-  is recorded once on its node (`recordConstMaker`), which types it
+  is recorded once on its node (`Facts.const_makers`), which types it
   `String` and has emit unwrap it as a maker of constants. A generic body
   cannot call `format` today: its check refuses a `Static` argument for
   any `?String` parameter. If that is lifted, `show[T](x: T) =

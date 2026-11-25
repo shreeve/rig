@@ -202,7 +202,7 @@ pub fn checkSetPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *C
         }
     }
     if (fresh.items.len == 0) try self.errAt(pattern, "this arm never runs: the arms before it cover every member of `{s}`", .{try self.tyName(set)});
-    try self.ctx.recordSetPatternMembers(pattern, fresh.items);
+    try self.ctx.record(.set_pattern_members, pattern, fresh.items);
 }
 
 /// What a pattern for member `name` of error set `set` covers: the
