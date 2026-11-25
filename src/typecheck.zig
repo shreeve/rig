@@ -1905,8 +1905,10 @@ const Checker = struct {
             }
             // A module constant's value is folded before any body is
             // checked (`resolve.foldModuleConsts`), so one written anew
-            // is folded again, with the constants that name it.
-            if (rig.isModuleConst(slot.*)) try resolve.refoldModuleConsts(self.ctx);
+            // is folded again, with the constants that name it. A body's
+            // assignment is no constant: folding then would run a
+            // compile-time function while it is checked.
+            if (decl and rig.isModuleConst(slot.*)) try resolve.refoldModuleConsts(self.ctx);
         }
     }
 
