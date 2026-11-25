@@ -12,6 +12,7 @@ const ir = parser.ir;
 const Tag = rig.Tag;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const TypeId = sema.TypeId;
 const Field = sema.Field;
 const TypeSubst = sema.TypeSubst;
@@ -85,7 +86,8 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
+        if (sema.symbolAt(ctx, pn.sym).type_params == null) continue;
+        const params = sema.paramRefs(ctx, pn.sym);
         const k = try key.ofType(ctx, entry.key_ptr.*);
         if (try checkedBefore(ctx, k) != null) continue;
         const mark = ctx.diagnostics.items.len;
@@ -128,7 +130,7 @@ fn checkedBefore(ctx: *SemContext, key: []const u8) Error!?sema.Checked {
 
 /// Check the generic type's instance `ty`, over `params`, first made at
 /// `site`.
-fn checkTypeInstance(ctx: *SemContext, reqs: *const Requirements, ty: TypeId, params: []const SymbolId, site: u32) Error!void {
+fn checkTypeInstance(ctx: *SemContext, reqs: *const Requirements, ty: TypeId, params: []const SymbolRef, site: u32) Error!void {
     const pn = ctx.types.get(ty).parameterized_nominal;
     // A box holds an API object through its allocation, `^{Shape}`.
     if (pn.sym == ctx.builtins.box and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) return;
@@ -761,7 +763,7 @@ pub fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, o
 /// The arrays a generic declaration makes, in one instance, and a generic
 /// type's instance itself, must fit `sema.max_value_bytes`; the instance
 /// must also nest at most `sema.max_value_depth` deep.
-pub fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
+pub fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolRef, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
     for (args) |a| if (sema.containsPoison(ctx, a)) return;
     const subst: sema.TypeSubst = .{ .params = params, .args = args };
     var entries: std.ArrayList(u32) = .empty;
@@ -913,15 +915,16 @@ pub fn checkReaches(ctx: *SemContext) Error!void {
 pub const Requirements = std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32));
 
 /// False after a diagnostic.
-pub fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: []const SymbolId, given_args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
+pub fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: []const SymbolRef, given_args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
     var ok = true;
     // The associated types of the parameters too (`I.Item`), at what each
     // argument gives them.
     const all = try sema.withAssoc(ctx, given_params, given_args);
     const params = all.params;
     const args = all.args;
-    for (params, 0..) |param, i| {
+    for (params, 0..) |param_ref, i| {
         if (i >= args.len) break;
+        const param = ctx.localSym(param_ref);
         const arg = args[i];
         // A diagnostic was reported about the argument.
         if (sema.containsPoison(ctx, arg)) continue;
@@ -1016,18 +1019,18 @@ pub fn declaredType(ctx: *const SemContext, ty: TypeId) bool {
 /// they are bound. A type's instance leaves open what its methods' own
 /// parameters bind; a method's instance checks only the calls on its own
 /// parameters or whose types name one. False after a diagnostic.
-pub fn checkMethodCalls(ctx: *SemContext, subst: TypeSubst, own: []const SymbolId, at: u32, of: sema.InstanceRoot) Error!bool {
+pub fn checkMethodCalls(ctx: *SemContext, subst: TypeSubst, own: []const SymbolRef, at: u32, of: sema.InstanceRoot) Error!bool {
     const outer: TypeSubst = .{ .params = subst.params[0 .. subst.params.len - own.len], .args = subst.args[0 .. subst.args.len - own.len] };
     var i: usize = 0;
     while (i < ctx.generic_methods.items.len) : (i += 1) {
         const c = ctx.generic_methods.items[i];
-        if (subst.lookup(c.param) == null) continue;
-        if (std.mem.findScalar(SymbolId, own, c.param) == null) {
+        if (subst.lookup(ctx.ref(c.param)) == null) continue;
+        if (std.mem.findScalar(SymbolRef, own, ctx.ref(c.param)) == null) {
             // On a type's parameter: checked with a method's instance only
             // where it names one of the method's own.
             if (of == .func and !try namesOwn(ctx, c, outer)) continue;
         }
-        const arg = subst.lookup(c.param).?;
+        const arg = subst.lookup(ctx.ref(c.param)).?;
         if (sema.containsPoison(ctx, arg)) continue;
         // A call in code this instance does not compile (`sema.liveAt`).
         if (!try sema.liveAt(ctx, c.module_id, c.pos, subst.params, subst.args)) continue;
@@ -1176,7 +1179,7 @@ pub fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeI
         .func => |f| blk: {
             var out: std.ArrayList(u8) = .empty;
             try out.print(a, "{s}[", .{f.name});
-            for (f.ownParams(), 0..) |p, i| try out.print(a, "{s}{s}", .{ if (i > 0) ", " else "", ctx.symbols.items[p].name });
+            for (f.ownParams(), 0..) |p, i| try out.print(a, "{s}{s}", .{ if (i > 0) ", " else "", sema.symbolAt(ctx, p).name });
             try out.append(a, ']');
             break :blk out.items;
         },
@@ -1279,7 +1282,7 @@ pub fn checkStatedForwards(ctx: *SemContext) Error!void {
     while (i < gone.items.len) : (i += 1) {
         const g = gone.items[i];
         for (ctx.param_calls.items) |c| for (c.params, c.args) |p, arg| {
-            if (p != g.param) continue;
+            if (p != ctx.ref(g.param)) continue;
             switch (g.need) {
                 // A task in a method of a generic type is checked where
                 // the program reaches the method (`sema.BodyReach`).
@@ -1298,7 +1301,7 @@ pub fn checkStatedForwards(ctx: *SemContext) Error!void {
                 .parameterized_nominal => |pn| pn,
                 else => continue,
             };
-            const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
+            const params = sema.symbolAt(ctx, pn.sym).type_params orelse continue;
             for (params, pn.args) |p, arg| if (p == g.param) try printedNeeds(Gone, ctx, a, &gone, arg, at, &printed);
         };
     }

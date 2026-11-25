@@ -14,6 +14,7 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const TypeId = sema.TypeId;
 const Type = sema.Type;
 const Field = sema.Field;
@@ -1759,7 +1760,7 @@ pub fn checkActual(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Er
             if (try PatternCheck.payloadViewTaken(self, e, "move")) return;
             // A bounded `T` copies only where its bounds name `Copy`.
             switch (self.ctx.types.get(inner)) {
-                .type_var => |param| if (sema.checkedByBounds(self.ctx.symbols.items[self.ctx.localSym(param)]))
+                .type_var => |param| if (sema.checkedByBounds(sema.symbolAt(self.ctx, param).*))
                     return GenericCheck.reportUnbounded(self.ctx, self.startOf(e), self.ctx.localSym(param), .Copy, "a copy"),
                 else => {},
             }
@@ -2138,8 +2139,8 @@ pub fn erasable(self: *Checker, e: Sexp, viewed: Sexp, actual: TypeId, reached: 
     const witness = (try sema.witnessFor(self.ctx, reached, object.api)) orelse {
         if (self.ctx.types.get(reached) == .type_var) {
             const param = self.ctx.types.get(reached).type_var;
-            const pname = self.ctx.symbols.items[self.ctx.localSym(param)].name;
-            if (self.ctx.symbols.items[self.ctx.localSym(param)].user_apis.len == 0) {
+            const pname = sema.symbolAt(self.ctx, param).name;
+            if (sema.symbolAt(self.ctx, param).user_apis.len == 0) {
                 try self.errAt(e, "`{s}` is a `{s}` with no bound, so it is no `{s}`: write `[{s}: {s}]`", .{ CallCheck.sourceText(self, viewed), pname, shown_view, pname, api_name });
             } else try self.errAt(e, "`{s}` is a `{s}`, whose bounds do not name `{s}`, so it is no `{s}`: write `[{s}: {s}]`", .{ CallCheck.sourceText(self, viewed), pname, api_name, shown_view, pname, api_name });
             return null;
@@ -2739,8 +2740,7 @@ pub fn contextualCall(self: *Checker, e: Sexp, expected: TypeId, target: TypeId)
     } else if (self.ctx.ref(id) == self.ctx.builtins.table) {
         try StdFormCheck.checkTableConstruction(self, e);
     } else {
-        const sym = self.ctx.symbols.items[id];
-        _ = try CallCheck.construct(self, id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
+        _ = try CallCheck.construct(self, id, ir.Call.args(e), callee.src.pos, .{ .params = sema.paramRefs(self.ctx, self.ctx.ref(id)), .args = tt.parameterized_nominal.args }, null);
     }
     return target;
 }

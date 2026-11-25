@@ -487,7 +487,7 @@ pub const MethodCall = struct {
     pos: u32,
     target: sema.FnRef,
     recv: TypeId,
-    params: []const SymbolId,
+    params: []const sema.SymbolRef,
     args: []const TypeId,
     scope: ?u32,
 };
