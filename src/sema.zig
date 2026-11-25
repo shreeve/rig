@@ -2291,7 +2291,7 @@ pub const FactTrail = struct {
 };
 
 /// A point the trail can be rolled back to (`SemContext.rollback`).
-pub const Mark = struct { entries: u32, olds: u32, diagnostics: u32, decided: u32 };
+pub const Mark = struct { entries: u32, olds: u32, diagnostics: u32 };
 
 fn MapKey(comptime M: type) type {
     return @FieldType(M.KV, "key");
@@ -2482,133 +2482,6 @@ pub const JumpDest = struct {
     };
 };
 
-/// A question about a node whose answer emit, the storage plan, and the
-/// checkers all act on: decided once, the first time a pass asks it, and
-/// recorded (`SemContext.decided`). Every later ask, emit's included,
-/// reads the record, so no two passes act on different answers; the
-/// storage plan asks each again at its end, from the facts as they then
-/// stand, stops at one whose answer changed after it was recorded
-/// (`storage.verifyDecisions`), and seals the record: nothing asked later
-/// is recorded. Emit only reads them (`Facts`).
-pub const Question = enum(u8) {
-    /// How the walk that reaches a value by address reaches this node
-    /// (`storage.LeafStep`).
-    leaf_step,
-    /// Whether this value is reached where its leaves are
-    /// (`storage.reachesLeaf`).
-    reaches_leaf,
-    /// Of a `match`: whether it switches on its subject where it is
-    /// (`storage.matchesInPlace`).
-    matches_in_place,
-    /// Of a `match`: whether it reads, writes, or takes its subject
-    /// (`storage.matchMode`).
-    match_mode,
-    /// Of a `match`: whether it reads its subject again after picking an
-    /// arm (`storage.matchRereads`).
-    match_rereads,
-    /// Of a `match`: whether it evaluates its subject first, in a block
-    /// (`storage.matchBlock`).
-    match_block,
-    /// Of a `match`: how `__rig_subject` holds its subject, if it does
-    /// (`storage.subjectHold`).
-    subject_hold,
-    /// Of a `match`: whether its subject is a view a call returns, held as
-    /// a pointer, which it switches on where it points
-    /// (`storage.holdsView`).
-    holds_view,
-    /// Of a read `match`'s catch-all binding: whether it is captured by
-    /// address where the match switches (`storage.catchAllCaptured`).
-    catch_all_by_address,
-    /// Of a payload binding: whether it points at the field it binds
-    /// (`storage.bindsByAddress`).
-    payload_by_address,
-    /// Of a `for`: whether it consumes its source, handing its elements
-    /// over one at a time (`storage.forConsumes`).
-    for_consumes,
-    /// Of a `print`, `String(...)`, or `add` argument: whether it is read
-    /// by address (`storage.printsByAddress`).
-    print_by_address,
-    /// Of an operand of `==` or `!=` beside `none` or a bare `.variant`:
-    /// whether the test drops it (`storage.dropsWhenTested`).
-    drops_when_tested,
-    /// What an expression hands over (`handsOver`'s kind), which the plan
-    /// decides for every expression (`storage.handsKind`).
-    hands,
-    /// Of a loop's source or a header's subject: what the loans of the
-    /// memory it reads in place name (`livesIn`, `storage.livesIn`).
-    lives_in,
-    /// Of a header's subject: whether its block yields the address of the
-    /// place the subject reaches (`storage.headerPoints`).
-    header_points,
-    /// Of an `as` value: whether the binding views the value inside the
-    /// optional (`storage.viewsOptionalValue`).
-    views_optional_value,
-    /// Of a call or an array literal: whether its arguments or elements
-    /// are evaluated first, into storage (`storage.hoistsArgs`).
-    hoists_args,
-    /// Of a call: how it holds its self while its arguments run, if it
-    /// does (`storage.selfHold`).
-    self_hold,
-    /// Of a call: whether its self is a temporary the method consumes
-    /// (`storage.consumedTemporary`).
-    consumes_self,
-    /// Of a call argument or an array element: how a call or an array
-    /// literal that evaluates its parts first holds it
-    /// (`storage.argumentHold`).
-    argument_hold,
-    /// Of an argument, an assigned value, or an index: whether it is pure,
-    /// so it stays where it is (`storage.isPureArg`).
-    pure_arg,
-    /// Of an arithmetic expression (`+`, `-`, `*`, `-v`) or a compound
-    /// assignment of one: whether it works on the integer lanes of a vector
-    /// and so is made by a checking runtime helper (`storage.laneChecked`).
-    lane_checked,
-    /// Of an assignment: which of its steps are evaluated into storage in
-    /// their turn, and whether the value made first is dropped if a later
-    /// step leaves (`storage.setOrder`).
-    set_order,
-    /// Of a `while`: where its step runs, as the loop's continue
-    /// expression or after the body in the condition's bindings
-    /// (`storage.stepPoint`).
-    step_point,
-    /// Of a box or a binding: whether the fill `[n of x]` it takes is
-    /// built where its value goes (`storage.fillsInPlace`).
-    fills_in_place,
-    /// Of a `match` arm: whether its pattern takes every value, a name
-    /// that binds or `_` (`storage.catchesAll`).
-    catch_all,
-    /// Of a `match`: whether it picks its arm before it runs one
-    /// (`storage.matchSelects`).
-    match_selects,
-    /// Of a read `for` or an `if … as`: whether its binding is the bytes
-    /// of a String it reaches (`storage.bindsStringBytes`).
-    binds_string_bytes,
-    /// Of a `for`: how it combines integers into a local, when it is a
-    /// fold, which emit lowers to `rig.fold` (`storage.fold`).
-    fold,
-    /// Of `return a, b`'s parts: whether they are evaluated into storage
-    /// first (`storage.hoistsResults`).
-    hoists_results,
-    /// Of an `as`: how its read binding of a write view in the optional
-    /// is bound, if it is one (`storage.throughWrite`).
-    through_write,
-    /// Of a compound assignment: the call it lowers to, which assigns the
-    /// call's result, if any (`storage.compoundCall`).
-    compound_call,
-    /// Of an assignment that declares a binding: whether the binding holds
-    /// its value, a pointer, or the address of the place it views
-    /// (`storage.bindHold`).
-    bind_hold,
-    /// Of an assignment `t = f(x)&` in a block: whether the task never
-    /// leaves `t`, so it ends before the block does
-    /// (`storage.taskStaysInFrame`).
-    task_stays,
-};
-
-/// A recorded answer to a `Question`, with the node it is about, and the
-/// next decision about that node (`Decided`: its index + 1, or 0).
-pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8, q: Question, next: u32 = 0 };
-
 /// Facts of a type that are asked often and cost a walk of what it holds,
 /// each worked out on its first ask (through a `*const SemContext`, as
 /// the decisions are) and kept, once declarations are resolved and the
@@ -2640,89 +2513,6 @@ pub const TypeMemo = struct {
             m.deinit(a);
         }
         self.reach.deinit(a);
-    }
-};
-
-/// The `Question`s decided so far. Held behind a pointer, so a pass that
-/// reads the context as constant still records the answer it is first to
-/// reach, as a memo would.
-pub const Decided = struct {
-    /// Every decision, in the order recorded; those about one node are
-    /// chained through `Decision.next`.
-    entries: std.ArrayList(Decision) = .empty,
-    /// The first decision about a list node the parser numbered (index +
-    /// 1, or 0), at its node id.
-    by_list: std.ArrayList(u32) = .empty,
-    /// The first decision about any other node, by `exprKey`.
-    by_key: FastMap(u64, u32) = .empty,
-    /// Set when the storage plan has verified every answer: a question
-    /// asked after that (by a classifier emit still calls, `Pending`) is
-    /// answered but not recorded, so a record always comes from a pass
-    /// the checkers ran.
-    sealed: bool = false,
-
-    fn deinit(self: *Decided, a: std.mem.Allocator) void {
-        self.entries.deinit(a);
-        self.by_list.deinit(a);
-        self.by_key.deinit(a);
-    }
-
-    /// The node id a `exprKey` holds, for a list node the parser
-    /// numbered.
-    fn listId(key: u64) ?u32 {
-        return if (key >> 32 == 1) @truncate(key) else null;
-    }
-
-    fn first(self: *const Decided, key: u64) u32 {
-        if (listId(key)) |id| return if (id < self.by_list.items.len) self.by_list.items[id] else 0;
-        return self.by_key.get(key) orelse 0;
-    }
-
-    /// The decision recorded for `q` about the node of `key`.
-    pub fn get(self: *const Decided, key: u64, q: Question) ?*Decision {
-        var i = self.first(key);
-        while (i != 0) {
-            const d = &self.entries.items[i - 1];
-            if (d.q == q) return d;
-            i = d.next;
-        }
-        return null;
-    }
-
-    /// Record `d` about the node of `key`, in place of any decision of
-    /// its question there.
-    /// Forget the decisions after the first `n`, newest first: each
-    /// key's chain starts again at the decision before.
-    fn truncate(self: *Decided, n: u32) void {
-        var i = self.entries.items.len;
-        while (i > n) {
-            i -= 1;
-            const d = self.entries.items[i];
-            const key = exprKey(d.node).?;
-            if (listId(key)) |id| {
-                self.by_list.items[id] = d.next;
-            } else if (d.next == 0) {
-                _ = self.by_key.remove(key);
-            } else self.by_key.putAssumeCapacity(key, d.next);
-        }
-        self.entries.shrinkRetainingCapacity(n);
-    }
-
-    fn put(self: *Decided, a: std.mem.Allocator, key: u64, d: Decision) std.mem.Allocator.Error!void {
-        if (self.get(key, d.q)) |old| {
-            const next = old.next;
-            old.* = d;
-            old.next = next;
-            return;
-        }
-        var e = d;
-        e.next = self.first(key);
-        try self.entries.append(a, e);
-        const index: u32 = @intCast(self.entries.items.len);
-        if (listId(key)) |id| {
-            if (id >= self.by_list.items.len) try self.by_list.appendNTimes(a, 0, id + 1 - self.by_list.items.len);
-            self.by_list.items[id] = index;
-        } else try self.by_key.put(a, key, index);
     }
 };
 
@@ -4655,8 +4445,6 @@ pub const SemContext = struct {
     /// The plain enums, of any module, that this module calls
     /// `from_text` on (`recordTextTable`).
     text_tables: std.ArrayList(SymbolRef) = .empty,
-    /// The node `Question`s decided so far, each once.
-    decided: *Decided,
     /// Facts of types worked out on their first ask (`TypeMemo`).
     type_memo: *TypeMemo,
     /// The `from` clause of each function and method that writes one
@@ -4725,11 +4513,8 @@ pub const SemContext = struct {
             .source = source,
             .arena = std.heap.ArenaAllocator.init(allocator),
             .types = try TypeStore.init(allocator),
-            .decided = try allocator.create(Decided),
             .type_memo = undefined,
         };
-        ctx.decided.* = .{};
-        errdefer allocator.destroy(ctx.decided);
         ctx.type_memo = try allocator.create(TypeMemo);
         ctx.type_memo.* = .{};
         errdefer allocator.destroy(ctx.type_memo);
@@ -4859,8 +4644,6 @@ pub const SemContext = struct {
         self.unit_of.deinit(self.allocator);
         self.unit_roots.deinit(self.allocator);
         self.ct.deinit(self.allocator);
-        self.decided.deinit(self.allocator);
-        self.allocator.destroy(self.decided);
         self.type_memo.deinit(self.allocator);
         self.allocator.destroy(self.type_memo);
         self.arena.deinit();
@@ -5253,11 +5036,10 @@ pub const SemContext = struct {
     // ---- facts: the trail ----------------------------------------------
 
     /// A point to take the facts back to (`rollback`): every fact a
-    /// column of the trail holds, the diagnostics, and the decisions
-    /// asked since. Marks nest; each is rolled back or kept (`commit`).
+    /// column of the trail holds, and the diagnostics. Marks nest; each is rolled back or kept (`commit`).
     pub fn mark(self: *SemContext) Mark {
         self.trail.open += 1;
-        return .{ .entries = @intCast(self.trail.entries.items.len), .olds = @intCast(self.trail.olds.items.len), .diagnostics = @intCast(self.diagnostics.items.len), .decided = @intCast(self.decided.entries.items.len) };
+        return .{ .entries = @intCast(self.trail.entries.items.len), .olds = @intCast(self.trail.olds.items.len), .diagnostics = @intCast(self.diagnostics.items.len) };
     }
 
     /// Record outside every open mark until `resumeTrail`: what is
@@ -5281,8 +5063,8 @@ pub const SemContext = struct {
     }
 
     /// Close `m` and take back what was recorded since: each fact gets
-    /// the value it had at the mark, or none, and the diagnostics and
-    /// decisions made since are dropped.
+    /// the value it had at the mark, or none, and the diagnostics made
+    /// since are dropped.
     pub fn rollback(self: *SemContext, m: Mark) std.mem.Allocator.Error!void {
         const entries = self.trail.entries.items;
         var i = entries.len;
@@ -5293,7 +5075,6 @@ pub const SemContext = struct {
         self.trail.entries.shrinkRetainingCapacity(m.entries);
         self.trail.olds.shrinkRetainingCapacity(m.olds);
         self.diagnostics.shrinkRetainingCapacity(m.diagnostics);
-        self.decided.truncate(m.decided);
         self.commit(m);
     }
 
@@ -5718,31 +5499,6 @@ pub const SemContext = struct {
     /// null for any other call.
     pub fn swapCallOf(self: *const SemContext, call: Sexp) ?SwapCall {
         return self.facts.swap_calls.get(nodeKey(call) orelse return null);
-    }
-
-    /// The recorded answer to `q` about `node`; null when no pass has
-    /// asked it.
-    pub fn decision(self: *const SemContext, node: Sexp, q: Question) ?u8 {
-        const d = self.decided.get(exprKey(node) orelse return null, q) orelse return null;
-        // Two nodes never share a key: the parser numbers each list node,
-        // and a rewrite that keeps a number replaces the node it took it
-        // from.
-        if (node == .list and d.node.list.items().ptr != node.list.items().ptr)
-            std.debug.panic("internal error: two nodes share the key of a decision ({s})", .{@tagName(q)});
-        return d.answer;
-    }
-
-    /// Record `answer` to `q` about `node` (in the construct `at`, for a
-    /// question that depends on it), the first time it is decided,
-    /// before the plan seals the record. A memo: it changes no fact a pass
-    /// reads but this one, so it is written through a constant context.
-    /// A node no key names is decided again where it is asked. Running out
-    /// of memory here stops the compiler, which keeps the questions
-    /// infallible for their many callers.
-    pub fn recordDecision(self: *const SemContext, node: Sexp, at: Sexp, q: Question, answer: u8) void {
-        if (self.decided.sealed) return;
-        const key = exprKey(node) orelse return;
-        self.decided.put(self.allocator, key, .{ .node = node, .at = at, .answer = answer, .q = q }) catch std.debug.panic("out of memory", .{});
     }
 
     /// Emit holds a value of `node` in hidden var `v` (`storage.plan`). A
@@ -6441,7 +6197,6 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     if (opts.parser) |p| {
         const ids = p.base.nodeCount() + 1;
         try ctx.facts.types.dense.ensureTotalCapacityPrecise(allocator, ids);
-        try ctx.decided.by_list.ensureTotalCapacityPrecise(allocator, ids);
     }
     ctx.module_id = opts.module_id;
     ctx.is_root = opts.is_root;
