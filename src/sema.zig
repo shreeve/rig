@@ -2166,7 +2166,7 @@ pub const KeyKind = enum { node, expr, raw };
 pub const ColumnSpec = struct { writer: Pass = .check, key: ?KeyKind = null };
 
 /// The maps of `SemContext` outside `Facts` that are columns too.
-const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards" };
+const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards", "call_targets", "inline_calls", "once_captures" };
 
 /// Every column of the recorder: each map of `Facts`, then each of
 /// `ctx_columns`. A column has one writer pass (`specs`), and every write
@@ -2192,6 +2192,7 @@ pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .member_compares = .{ .key = .raw },
     .embeds = .{ .writer = .modules },
     .old_nones = .{ .writer = .ownership },
+    .once_captures = .{ .key = .raw },
 };
 
 fn specOf(comptime c: Column) ColumnSpec {
@@ -5152,7 +5153,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordCallTarget(self: *SemContext, call: Sexp, target: CallTarget) !void {
-        try self.call_targets.put(self.allocator, decisionKey(call) orelse return, target);
+        try self.putIn(.check, .call_targets, decisionKey(call) orelse return, target);
     }
 
     /// A call of a marked `inline` function (`inline_calls`); null for any
@@ -5163,7 +5164,7 @@ pub const SemContext = struct {
 
     pub fn recordInlineCall(self: *SemContext, call: Sexp, ic: InlineCall) !void {
         const a = self.arena.allocator();
-        try self.inline_calls.put(self.allocator, decisionKey(call) orelse return, .{ .fun = ic.fun, .subst = .{ .params = try a.dupe(SymbolId, ic.subst.params), .args = try a.dupe(TypeId, ic.subst.args) } });
+        try self.putIn(.check, .inline_calls, decisionKey(call) orelse return, .{ .fun = ic.fun, .subst = .{ .params = try a.dupe(SymbolId, ic.subst.params), .args = try a.dupe(TypeId, ic.subst.args) } });
     }
 
     /// The context of the module that declares `fun`: this one, or one
@@ -6028,7 +6029,7 @@ pub const SemContext = struct {
         for (captureList(ir.Lambda.captures(lambda))) |cap| switch (captureModeOf(cap) orelse continue) {
             .cap_move, .cap_clone, .cap_weak => {
                 const sym = self.symbolOf(captureNameNode(cap) orelse continue) orelse continue;
-                try self.once_captures.put(self.allocator, sym, {});
+                try self.putIn(.check, .once_captures, sym, {});
             },
             .cap_read, .cap_write => {},
         };
