@@ -1446,7 +1446,7 @@ const SymbolResolver = struct {
                         if (got.found_existing) {
                             if (got.value_ptr.*) |id| {
                                 try self.ctx.recordName(b, id);
-                                try self.ctx.putIn(.check, .rebinds, b.src.pos, {});
+                                try self.ctx.putIn(.check, .rebinds, b.src.leaf, {});
                             }
                             continue;
                         }

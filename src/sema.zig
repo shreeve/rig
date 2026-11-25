@@ -1301,6 +1301,9 @@ pub const Symbol = struct {
     kind: SymbolKind,
     ty: TypeId,
     decl_pos: u32,
+    /// The leaf at `decl_pos` that names it, once one is recorded
+    /// (`SemContext.recordName`); 0 before.
+    decl_leaf: parser.LeafId = 0,
     scope: ScopeId,
     flags: SymbolFlags = .{},
     /// Members of a nominal or generic type, and the methods of an API;
@@ -1942,8 +1945,8 @@ fn recordExprKey(node: Sexp) ?u64 {
 pub const LocalTask = struct { pos: u32, call: []const u8, why: []const u8 };
 
 pub const Facts = struct {
-    /// Identifier leaf position -> the symbol it names.
-    names: FastMap(u32, SymbolId) = .empty,
+    /// Identifier leaf (`exprKey`) -> the symbol it names.
+    names: fastmap.DenseMap(SymbolId) = .empty,
     /// Expression (`exprKey`) -> its type.
     types: fastmap.DenseMap(TypeId) = .empty,
     /// Expressions viewed where a view of another type is expected ->
@@ -1986,10 +1989,11 @@ pub const Facts = struct {
     /// `__rig_embed/` and its path from the program's directory, set by
     /// the module graph once it found the file (`EmbedSite`).
     embeds: FastMap(NodeKey, []const u8) = .empty,
-    /// Positions of names assigned to (`x = e`, `x += e` after
-    /// `x` is declared): a use there writes the binding, not reads it.
+    /// Leaves (by leaf id) of names assigned to (`x = e`, `x += e`
+    /// after `x` is declared): a use there writes the binding, not reads
+    /// it.
     writes: FastMap(u32, void) = .empty,
-    /// Positions of a later alternative's leaf of a name the first binds
+    /// Leaves (by leaf id) of a later alternative's name the first binds
     /// (`.a(n), .b(n)`): it binds the name again, and neither reads nor
     /// uses it.
     rebinds: FastMap(u32, void) = .empty,
@@ -2184,7 +2188,7 @@ pub const Facts = struct {
 pub const Pass = enum { check, lower, modules, ownership, proofs };
 
 /// How a column is keyed: by a list node's id (`recordKey`), by an
-/// expression (`exprKey`: a leaf's position or a list node's id), or by
+/// expression (`exprKey`: a leaf's id or a list node's id), or by
 /// something else its writer names (a position, a symbol).
 pub const KeyKind = enum { node, expr, raw };
 
@@ -3042,7 +3046,6 @@ pub const CallParams = struct {
 pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *std.Io.Writer) !void {
     var nodes: FastMap(NodeKey, Sexp) = .empty;
     var leaves: FastMap(u32, Sexp) = .empty;
-    var at_pos: FastMap(u32, Sexp) = .empty;
     var stack: std.ArrayList(Sexp) = .empty;
     try stack.append(a, root);
     while (stack.pop()) |s| switch (s) {
@@ -3050,10 +3053,7 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
             if (l.id != 0) try nodes.put(a, l.id, s);
             try stack.appendSlice(a, l.items());
         },
-        .src => |x| {
-            try leaves.put(a, x.leaf, s);
-            try at_pos.put(a, x.pos, s);
-        },
+        .src => |x| try leaves.put(a, x.leaf, s),
         else => {},
     };
 
@@ -3077,10 +3077,11 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
         var it = @field(ctx.facts, name).iterator();
         while (it.next()) |e| {
             const key = e.key_ptr.*;
-            // `names` and `writes` are keyed by a leaf's position, the
-            // expression facts by `exprKey`, the rest by node id.
-            const node: ?Sexp, const id: u64 = if (comptime std.mem.eql(u8, name, "names") or std.mem.eql(u8, name, "writes"))
-                .{ at_pos.get(key), key }
+            // `writes` and `rebinds` are keyed by a leaf id,
+            // `names` and the expression facts by `exprKey`, the rest by
+            // node id.
+            const node: ?Sexp, const id: u64 = if (comptime std.mem.eql(u8, name, "writes") or std.mem.eql(u8, name, "rebinds"))
+                .{ leaves.get(key), key }
             else if (Key == u64)
                 .{ if (key >> 32 != 0) nodes.get(@truncate(key)) else leaves.get(@truncate(key)), key & 0xffff_ffff }
             else
@@ -4933,7 +4934,7 @@ pub const SemContext = struct {
     }
 
     pub fn symbolOf(self: *const SemContext, node: Sexp) ?SymbolId {
-        return if (node == .src) self.symbolAt(node.src.pos) else null;
+        return if (node == .src) self.symbolAt(node.src.leaf) else null;
     }
 
     /// The program-wide name of this module's symbol `sym`: a built-in's
@@ -4961,9 +4962,9 @@ pub const SemContext = struct {
         return r.sym;
     }
 
-    /// The symbol named by the identifier at source position `pos`.
-    pub fn symbolAt(self: *const SemContext, pos: u32) ?SymbolId {
-        return self.facts.names.get(pos);
+    /// The symbol named by the identifier leaf with leaf id `leaf`.
+    pub fn symbolAt(self: *const SemContext, leaf: parser.LeafId) ?SymbolId {
+        return self.facts.names.get(leaf);
     }
 
     /// Whether a write may go through binding `sym`, or null for one that
@@ -5240,7 +5241,12 @@ pub const SemContext = struct {
 
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
         if (node != .src or sym == symbol_invalid) return;
-        try self.putIn(.check, .names, node.src.pos, sym);
+        const key = recordExprKey(node).?;
+        try self.putIn(.check, .names, key, sym);
+        // Each check of the declaration records the same leaf, so a
+        // rollback has nothing to give back.
+        const s = &self.symbols.items[sym];
+        if (node.src.pos == s.decl_pos) s.decl_leaf = node.src.leaf;
     }
 
     /// A `$embed` whose path's literal at `arg` holds `path`; recorded
@@ -6246,6 +6252,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     if (opts.parser) |p| {
         try ctx.facts.types.nodes.ensureTotalCapacityPrecise(allocator, p.base.nodeCount() + 1);
         try ctx.facts.types.leaves.ensureTotalCapacityPrecise(allocator, p.base.leafCount() + 1);
+        try ctx.facts.names.leaves.ensureTotalCapacityPrecise(allocator, p.base.leafCount() + 1);
     }
     ctx.module_id = opts.module_id;
     ctx.is_root = opts.is_root;
@@ -6364,8 +6371,8 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
     defer read.deinit(ctx.allocator);
     var names = ctx.facts.names.iterator();
     while (names.next()) |e| {
-        const sym = ctx.symbols.items[e.value_ptr.*];
-        if (sym.decl_pos != e.key_ptr.* and !ctx.facts.writes.contains(e.key_ptr.*) and !ctx.facts.rebinds.contains(e.key_ptr.*)) read.set(e.value_ptr.*);
+        const leaf: u32 = @intCast(e.key_ptr.*);
+        if (ctx.symbols.items[e.value_ptr.*].decl_leaf != leaf and !ctx.facts.writes.contains(leaf) and !ctx.facts.rebinds.contains(leaf)) read.set(e.value_ptr.*);
     }
     for (ctx.symbols.items) |sym| {
         var origin = sym.origin;
@@ -17369,7 +17376,7 @@ const FactsRun = struct {
     }
 
     fn sym(self: *const FactsRun, needle: []const u8, nth: usize) ?SymbolId {
-        return self.ctx.symbolAt(self.at(needle, nth));
+        return self.ctx.symbolOf(leafAt(self.tree, self.at(needle, nth)).?);
     }
 
     fn leafType(self: *const FactsRun, needle: []const u8, nth: usize) ?TypeId {
@@ -17428,7 +17435,9 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark,
     const b_ty = r.leafType("b", 0).?;
     const plus_use = ctx.useOf(plus);
     const diagnostics = ctx.diagnostics.items.len;
-    const b_sym = ctx.symbolAt(b).?;
+    const b_leaf = leafAt(r.tree, b).?.src.leaf;
+    const b_sym = ctx.symbolAt(b_leaf).?;
+    const other: Sexp = .{ .src = r.p.base.newLeaf(b + 1000, 1, 0) };
     const b_was = ctx.symbols.items[b_sym];
 
     const m = ctx.mark();
@@ -17439,7 +17448,7 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark,
     try ctx.removeIn(.check, .types, exprKey(leafAt(r.tree, b).?).?);
     try ctx.err(0, "a diagnostic the rollback drops", .{});
     // A name, and a symbol made since the mark, which stay.
-    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0, .leaf = 1000 } }, 1);
+    try ctx.recordName(other, 1);
     const made = try ctx.addSymbol(b_was);
     (try ctx.symbolMut(made)).ty = ctx.types.bool_id;
     // A symbol written through `symbolMut`.
@@ -17457,7 +17466,7 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark,
     try std.testing.expectEqual(plus_ty, ctx.typeOf(plus).?);
     try std.testing.expectEqual(b_ty, r.leafType("b", 0).?);
     try std.testing.expectEqual(null, ctx.typeOf(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0, .leaf = 1000 } }));
-    try std.testing.expectEqual(1, ctx.symbolAt(b + 1000).?);
+    try std.testing.expectEqual(1, ctx.symbolOf(other).?);
     try std.testing.expectEqual(ctx.types.bool_id, ctx.symbols.items[made].ty);
     try std.testing.expectEqual(plus_use, ctx.useOf(plus));
     try std.testing.expectEqual(diagnostics, ctx.diagnostics.items.len);
