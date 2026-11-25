@@ -650,7 +650,7 @@ pub const Emitter = struct {
         try self.w.print("const rig = @import(\"{s}\");\n", .{self.runtime_import});
         if (!sexp.isKind(.module)) return;
         self.lowered = try self.facts.lower(self.allocator, sexp, self.strict_optionals);
-        for (self.lowered.?.owners) |o| if (o.skip) |why| return self.unsupported(why.node, "a body lowering does not cover");
+        for (self.lowered.?.owners) |o| if (o.skip) |why| if (!o.ct) return self.unsupported(why.node, "a body lowering does not cover");
         const decls = ir.Module.decls(sexp);
         try self.collectModule(decls);
         for (decls) |d0| {
@@ -11715,8 +11715,8 @@ pub const Emitter = struct {
         return self.facts.variantPayload(enum_ty, vname);
     }
 
-    /// How binding `sym` holds its value (`Binding.drop`, recorded by the
-    /// storage plan), or null for one that owns nothing to drop. A
+    /// How binding `sym` holds its value (its var's `drop`, which
+    /// lowering makes), or null for one that owns nothing to drop. A
     /// binding that holds one gets `var` storage and a drop guard, owned
     /// `as` and payload bindings, and an owned closure environment; the
     /// kind picks its drop call.

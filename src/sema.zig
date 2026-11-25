@@ -3120,7 +3120,7 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
 }
 
 /// `rig check --facts=storage`: every hidden storage location emit makes
-/// for the root module (`storage.Var`), one per line, in source order:
+/// for the root module (`lir.Var`), one per line, in source order:
 ///
 ///   KIND NODE L:C-L:C "TEXT" BY LIFE
 ///
@@ -3137,6 +3137,9 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
             return std.mem.order(u8, x.text, y.text) == .lt;
         }
     };
+    var module = try lowering.lowerModule(ctx.allocator, @constCast(ctx), root, .{});
+    defer module.deinit();
+    const lowered = &module;
     var out: std.ArrayList(Line) = .empty;
     var lines: diag.Lines = .{ .source = ctx.source };
     var stack: std.ArrayList(Sexp) = .empty;
@@ -3147,7 +3150,12 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
         inline for (@typeInfo(storage.StorageKind).@"enum".field_names) |name| {
             const kind = @field(storage.StorageKind, name);
             if (kind == .discard) continue;
-            if (ctx.varOf(n, kind)) |s| {
+            const s: ?struct { by: storage.StorageBy, life: storage.StorageLife } = switch (kind) {
+                // A `header_copy` is the header's value, no var of its own.
+                .header_copy => if (ctx.copiesHeader(n)) .{ .by = .copy, .life = .construct } else null,
+                else => if (lowered.varOf(n, kind)) |v| .{ .by = v.by, .life = v.life } else null,
+            };
+            if (s) |_| {
                 const span = if (ctx.parser) |p| p.span(n) else rig.leafSpan(ctx.source, n);
                 const from = lines.at(span.start);
                 const to = lines.at(span.end);
@@ -3157,7 +3165,7 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
                 try t.print("{s} {s} {d}:{d}-{d}:{d} \"", .{ @tagName(kind), node_kind, from.line, from.col, to.line, to.col });
                 for (diag.textBetween(ctx.source, span.start, @min(span.end, span.start + 40))) |c|
                     if (c == '\n') try t.writeAll("\\n") else try t.writeByte(c);
-                try t.print("\" {s} {s}", .{ @tagName(s.by), @tagName(s.life) });
+                try t.print("\" {s} {s}", .{ @tagName(s.?.by), @tagName(s.?.life) });
                 try out.append(a, .{ .start = span.start, .end = span.end, .text = text.written() });
             }
         }
@@ -4104,6 +4112,10 @@ pub const SemContext = struct {
     /// The context made `program_types` itself, outside a graph, and
     /// frees it.
     owns_types: bool = false,
+    /// An instance this module makes failed its check in an earlier
+    /// module (`checkedBefore`), whose error explains the expressions
+    /// here typed `invalid` (`checkTypedClean`).
+    failed_elsewhere: bool = false,
     /// The first type this module may have interned: the facts of every
     /// type before it are an earlier module's, and final.
     types_start: TypeId = 0,
@@ -4302,7 +4314,7 @@ pub const SemContext = struct {
     /// duration's value.
     const_floats: FastMap(SymbolId, f64) = .empty,
     /// The fields a use may move out of a binding (`fieldMoves`, recorded
-    /// by `storage.plan` with `storage.Binding.flag`, under its contract):
+    /// by `lower.markMoved` with `moved`, under its contract):
     /// each a path of field names below the binding, `a.b` for `<p.a.b`.
     /// Emit gives each a drop flag, and the ownership checker moves no
     /// other field out (Core §5, "A field of an owned object moves like
@@ -4424,15 +4436,19 @@ pub const SemContext = struct {
     item_views: FastMap(ItemView, TypeId) = .empty,
     /// The method calls generic bodies make on type parameters.
     generic_methods: std.ArrayList(GenericMethodCall) = .empty,
-    /// The hidden storage emit makes and how bindings hold their values:
-    /// the var table, recorded after the expressions are checked
-    /// (`storage.plan`). A `temp` and a `header_copy` are the facts table's
-    /// (`temp_drops`, `header_copies`), which `varOf` reads.
-    vars: storage.Vars = .{},
+    /// The module's bodies lowered (`src/lower.zig`), after the
+    /// expressions are checked, for the checks that follow: the storage
+    /// emit makes and how each binding holds its value. Null for a
+    /// module with an error, and once its checks finish.
+    lowered: ?lowering.Module = null,
     /// The symbols a name reads after its declaration, or a closure
-    /// captures (`storage.plan`, `isUsed`): emit discards a binding none
+    /// captures (`lower.lowerChecked`, `isUsed`): emit discards a binding none
     /// reads, and keeps a `catch`'s error value only for one that does.
     used: std.bit_set.Dynamic = .{},
+    /// The bindings a use may move out (`lower.markMoved`), so each
+    /// drops behind an alive flag the move clears: whether the flag
+    /// exists is this fact; how emit spells and names it is emit's.
+    moved: std.bit_set.Dynamic = .{},
     /// The values expression statements discard (`discardsValue`).
     discards: FastMap(u64, void) = .empty,
     /// The decisions made once for the whole program, after every module
@@ -4524,7 +4540,8 @@ pub const SemContext = struct {
     /// `src/proofs.zig`, with the tests above.
     result_bounds: FastMap(u32, ResultBound) = .empty,
     /// Each node of a body -> the root of the innermost unit holding it
-    /// (`rig.eachUnit`), recorded by the storage plan (`storage.plan`).
+    /// (`rig.eachUnit`), recorded in self-checking builds
+    /// (`storage.planUnits`).
     /// Kept beside the facts table, not in `check --facts=sema`.
     unit_of: FastMap(NodeKey, NodeKey) = .empty,
     /// The root of each unit -> its kind.
@@ -4677,8 +4694,9 @@ pub const SemContext = struct {
         self.generic_fn_uses_guard.deinit(self.allocator);
         self.item_views.deinit(self.allocator);
         self.generic_methods.deinit(self.allocator);
-        self.vars.deinit(self.allocator);
+        if (self.lowered) |*m| m.deinit();
         self.used.deinit(self.allocator);
+        self.moved.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);
         self.inline_decls.deinit(self.allocator);
@@ -4928,6 +4946,11 @@ pub const SemContext = struct {
     /// (`used`).
     pub fn isUsed(self: *const SemContext, sym: SymbolId) bool {
         return sym < self.used.bit_length and self.used.isSet(sym);
+    }
+
+    /// Whether a use may move binding `sym` out (`moved`).
+    pub fn mayMove(self: *const SemContext, sym: SymbolId) bool {
+        return sym < self.moved.bit_length and self.moved.isSet(sym);
     }
 
     pub fn symbolOf(self: *const SemContext, node: Sexp) ?SymbolId {
@@ -5568,26 +5591,6 @@ pub const SemContext = struct {
     pub fn swapCallOf(self: *const SemContext, call: Sexp) ?SwapCall {
         const b = self.builtinOf(call) orelse return null;
         return if (b == .swap) b.swap else null;
-    }
-
-    /// Emit holds a value of `node` in hidden var `v` (`storage.plan`). A
-    /// `temp` is recorded as `Facts.temp_drops`, and a `header_copy` as
-    /// `Facts.header_copies`.
-    pub fn recordVar(self: *SemContext, node: Sexp, v: storage.Var) !void {
-        std.debug.assert(v.kind != .temp and v.kind != .header_copy);
-        try self.vars.put(self.allocator, recordExprKey(node) orelse return, v);
-    }
-
-    /// The hidden var of `kind` emit makes for `node`, if any
-    /// (`storage.Var`).
-    pub fn varOf(self: *const SemContext, node: Sexp, kind: storage.StorageKind) ?storage.Var {
-        return switch (kind) {
-            // A template's temporary is its text, in a buffer (SPEC
-            // "Templates"); any other is the value itself.
-            .temp => if (self.dropsTemp(node)) .{ .kind = .temp, .by = if (node.isKind(.template)) .buffer else .owned, .life = .statement } else null,
-            .header_copy => if (self.copiesHeader(node)) .{ .kind = .header_copy, .by = .copy, .life = .construct } else null,
-            else => (self.vars.get(exprKey(node) orelse return null, kind) orelse return null).*,
-        };
     }
 
     /// `stmt` is an expression statement, whose value nothing uses: the
@@ -6332,12 +6335,13 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     }
     timing.stop(opts.timing, .typecheck, t0);
     t0 = timing.start(opts.timing);
-    try storage.plan(&ctx, tree);
+    try lowering.lowerChecked(&ctx, tree);
+    // Only a self-checking build asks that emit writes each node inside
+    // the unit that holds it (`Emitter.inUnit`), and the proofs' tests
+    // that it writes them in the walk's order.
+    if (lowering.enabled or @import("builtin").is_test) try storage.planUnits(&ctx, tree);
     ctx.seal(.storage);
-    timing.stop(opts.timing, .storage, t0);
-    // A self-checking build lowers each body and checks its LIR against
-    // the var table the plan made.
-    if (lowering.enabled) try lowering.shadow(&ctx, tree);
+    timing.stop(opts.timing, .lower, t0);
     try indexAllMembers(&ctx);
     if (!ctx.hasErrors()) try recordTypeWitnesses(&ctx);
     if (!ctx.hasErrors()) try recordPlainFacts(&ctx);
@@ -6378,9 +6382,10 @@ fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// that rejects reports why, so an `invalid` with no error is a verdict
 /// whose diagnostic was dropped (a quiet check's, kept and reused), and
 /// emit would write what nothing checked. Reported at the first such
-/// expression. Debug and test builds only.
+/// expression, unless an instance's check in an earlier module reported
+/// the error (`failed_elsewhere`). Debug and test builds only.
 fn checkTypedClean(ctx: *SemContext, tree: Sexp) std.mem.Allocator.Error!void {
-    if (ctx.hasErrors()) return;
+    if (ctx.hasErrors() or ctx.failed_elsewhere) return;
     if (typedInvalid(ctx, tree)) |e| try ctx.errAt(e, "internal error: `{s}` is typed `invalid`, and no error says why", .{diag.textOf(ctx.source, ctx.span(e))});
 }
 
@@ -9491,6 +9496,148 @@ fn assocViewsBase(ctx: *SemContext, params: []const SymbolId, args: []const Type
     defer scratch.deinit();
     return if (try viewReach(ctx, scratch.allocator(), base_ty, item) == .owned) base_ty else null;
 }
+
+/// What the first module to check a generic instance found
+/// (`program.Types.checked`): which module it was, and whether the check
+/// reported an error, so the instances it makes go unchecked in a later
+/// module too, and the expressions that module types `invalid` for it
+/// have their error (`SemContext.failed_elsewhere`).
+pub const Checked = struct { module: u32, failed: bool = false };
+
+/// What an earlier module found checking the generic instance `key`
+/// names (`InstanceKey`), or null when this module checks it: the first
+/// module to make an instance checks it, in each of its passes, and a
+/// later one leaves it, since one instance gives one answer wherever it
+/// is made. A diagnostic about an instance is written once, at the site
+/// of the first module that makes it.
+pub fn checkedBefore(ctx: *const SemContext, key: []const u8) std.mem.Allocator.Error!?Checked {
+    const t = ctx.program_types;
+    const gop = try t.checked.getOrPut(t.keys.allocator(), key);
+    if (gop.found_existing) return if (gop.value_ptr.module == ctx.module_id) null else gop.value_ptr.*;
+    gop.key_ptr.* = try t.keys.allocator().dupe(u8, key);
+    gop.value_ptr.* = .{ .module = ctx.module_id };
+    return null;
+}
+
+/// Record whether checking the instance `key` names, which began when the
+/// module had `mark` diagnostics, reported an error (`Checked.failed`).
+pub fn noteInstanceChecked(ctx: *const SemContext, key: []const u8, mark: usize) void {
+    if (!diag.hasErrorsIn(ctx.diagnostics.items[mark..])) return;
+    if (ctx.program_types.checked.getPtr(key)) |c| c.failed = true;
+}
+
+/// The declaration `r` names, as every module names it: a proxy's
+/// origin, and a built-in's ref in module 0.
+pub fn declRef(ctx: *const SemContext, r: SymbolRef) SymbolRef {
+    const sym = symbolAt(ctx, r);
+    if (sym.decl_pos == builtin_decl_pos) return .{ .module_id = builtin_module, .sym = r.sym };
+    if (isProxy(sym.*)) return sym.from;
+    return r;
+}
+
+/// A generic instance as every module of the program names it, its
+/// symbols by their declarations (`declRef`), so one instance made in two
+/// modules has one key (`checkedBefore`). The bytes are reused from key
+/// to key.
+pub const InstanceKey = struct {
+    bytes: std.ArrayList(u8) = .empty,
+
+    pub fn deinit(k: *InstanceKey, a: std.mem.Allocator) void {
+        k.bytes.deinit(a);
+    }
+
+    /// A generic type's instance.
+    pub fn ofType(k: *InstanceKey, ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error![]const u8 {
+        k.bytes.clearRetainingCapacity();
+        try k.tag(ctx, 't');
+        try k.typ(ctx, ty);
+        return k.bytes.items;
+    }
+
+    /// A generic function's instance.
+    pub fn ofFn(k: *InstanceKey, ctx: *const SemContext, inst: FnInstance) std.mem.Allocator.Error![]const u8 {
+        k.bytes.clearRetainingCapacity();
+        try k.tag(ctx, 'f');
+        try k.word(ctx, inst.own);
+        try k.params(ctx, inst.params);
+        try k.types(ctx, inst.args);
+        return k.bytes.items;
+    }
+
+    /// A method reached on a generic type's instance (`BodyReach`).
+    pub fn ofReach(k: *InstanceKey, ctx: *const SemContext, r: BodyReach) std.mem.Allocator.Error![]const u8 {
+        k.bytes.clearRetainingCapacity();
+        try k.tag(ctx, 'r');
+        try k.word(ctx, r.fun.module);
+        try k.word(ctx, r.fun.pos);
+        try k.params(ctx, r.params);
+        try k.types(ctx, r.args);
+        return k.bytes.items;
+    }
+
+    fn tag(k: *InstanceKey, ctx: *const SemContext, t: u8) std.mem.Allocator.Error!void {
+        try k.bytes.append(ctx.allocator, t);
+    }
+
+    fn word(k: *InstanceKey, ctx: *const SemContext, w: usize) std.mem.Allocator.Error!void {
+        const v: u32 = @intCast(w);
+        try k.bytes.appendSlice(ctx.allocator, std.mem.asBytes(&v));
+    }
+
+    fn ref(k: *InstanceKey, ctx: *const SemContext, t: u8, r: SymbolRef) std.mem.Allocator.Error!void {
+        const d = declRef(ctx, r);
+        try k.tag(ctx, t);
+        try k.word(ctx, d.module_id);
+        try k.word(ctx, d.sym);
+    }
+
+    fn params(k: *InstanceKey, ctx: *const SemContext, ps: []const SymbolId) std.mem.Allocator.Error!void {
+        try k.word(ctx, ps.len);
+        for (ps) |p| try k.ref(ctx, 'p', ctx.ref(p));
+    }
+
+    fn types(k: *InstanceKey, ctx: *const SemContext, tys: []const TypeId) std.mem.Allocator.Error!void {
+        try k.word(ctx, tys.len);
+        for (tys) |t| try k.typ(ctx, t);
+    }
+
+    /// A type with no symbol in it is its id in the program's one store;
+    /// one that names a symbol is written part by part.
+    fn typ(k: *InstanceKey, ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error!void {
+        const t = ctx.types.get(ty);
+        switch (t) {
+            .nominal => |r| try k.ref(ctx, 'N', r),
+            .type_var => |r| try k.ref(ctx, 'V', r),
+            .ct_param => |r| try k.ref(ctx, 'C', r),
+            .parameterized_nominal => |pn| {
+                try k.ref(ctx, 'P', pn.sym);
+                try k.types(ctx, pn.args);
+            },
+            .function => |f| {
+                try k.tag(ctx, if (f.is_sub) 's' else 'F');
+                try k.types(ctx, f.params);
+                try k.typ(ctx, f.returns);
+                try k.types(ctx, f.ct_params);
+                try k.word(ctx, f.ct_syms.len);
+                for (f.ct_syms) |r| try k.ref(ctx, 'S', r);
+            },
+            else => {
+                var parts: TypeChildren = .{ .ty = t };
+                var n: usize = 0;
+                while (parts.next()) |_| n += 1;
+                if (n == 0) {
+                    try k.tag(ctx, 'T');
+                    return k.word(ctx, ty);
+                }
+                try k.tag(ctx, 'K');
+                try k.tag(ctx, @intFromEnum(std.meta.activeTag(t)));
+                try k.word(ctx, n);
+                parts = .{ .ty = t };
+                while (parts.next()) |part| try k.typ(ctx, part);
+            },
+        }
+    }
+};
 
 /// Each argument of the instance `of`, made at `at`, provides what its
 /// parameter's bounds name: a built-in API (`lacks`) or one of the
@@ -14283,8 +14430,8 @@ pub const ResourceKind = enum {
 /// and payload bindings, and an owned closure environment; the kind
 /// picks its drop call. `rig.drop` releases only what needs cleanup: a
 /// unique value, or a value of a type parameter whose instance needs
-/// none, drops nothing. The storage plan records it in its var table for
-/// each binding and each value emit holds or discards (`storage.Vars`);
+/// none, drops nothing. Lowering records it on the var of each binding
+/// and each value emit holds or discards (`lir.Var`);
 /// emit reads only those records.
 pub fn resourceKind(ctx: *const SemContext, ty: TypeId) ?ResourceKind {
     if (moves(ctx, ty) == .no) return null;
@@ -16566,9 +16713,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg, .spread => .none,
         // Patterns and arms.
         .arm, .item_type, .item_value, .alt_pattern, .paren_alts, .range_pattern, .variant_pattern, .set_pattern, .some_pattern, .none_pattern, .matches => .none,
-        // `>t`, `f: once T`, `a..=b`, `(e)`'s `paren`, and `loop`, which
-        // the Parser wrapper rewrites or drops first.
-        .wait, .once, .@"..=", .paren, .loop => .none,
+        // `>t`, `f: once T`, `(e)`'s `paren`, and `loop`, which the
+        // Parser wrapper rewrites or drops first.
+        .wait, .once, .paren, .loop => .none,
         // A function's marker.
         .outside => .none,
         // Types.

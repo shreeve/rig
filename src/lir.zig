@@ -2,7 +2,7 @@
 //!
 //! The lowered IR holds what the typed tree leaves implicit: the order
 //! a function's parts are evaluated in, the hidden vars that hold its
-//! values (each of the var table's kinds, `storage.StorageKind`), the
+//! values (each a kind of `storage.StorageKind`), the
 //! bindings and how each drops, and which region declares each var, so
 //! how long it lives. Control flow stays structured, as Zig needs it:
 //! regions nest, and a region yields a value where an expression needs
@@ -70,8 +70,9 @@ pub const Expr = union(enum) {
     /// A closure literal: the body it is (`owner`, a body of the
     /// module), and the values its captures take, made here.
     closure: struct { node: Sexp, owner: u32, captures: []const ExprId },
-    /// `value`, the value of `node`, made the type its context takes.
-    coerce: struct { node: Sexp, how: Coercion, value: ExprId },
+    /// `value`, the value of `node`, made the type its context takes:
+    /// `how`, one of the node's coercions (`lower.Module.Coerced`).
+    coerce: struct { node: Sexp, how: *const Coercion, value: ExprId },
 
     pub const Op = struct { node: Sexp, args: []const ExprId };
 
@@ -488,7 +489,7 @@ const Printer = struct {
                 try p.w.writeAll(")");
             },
             .coerce => |c| {
-                try p.w.print("{s}(", .{@tagName(c.how)});
+                try p.w.print("{s}(", .{@tagName(c.how.*)});
                 try p.expr(c.value, depth);
                 try p.w.writeAll(")");
             },

@@ -62,10 +62,14 @@ pub fn checkBoundedCopies(self: *Checker) Error!void {
 /// view in an argument (a write view is never stored in a value),
 /// and a view only where the body stores no `T` where no loan is
 /// tracked. A method's instance checks its own parameters; its
-/// type's are checked with self's instance.
+/// type's are checked with self's instance. An instance an earlier
+/// module made is checked there (`sema.checkedBefore`).
 pub fn checkInstantiations(self: *Checker) Error!void {
     const ctx = self.sema;
+    var key: sema.InstanceKey = .{};
+    defer key.deinit(ctx.allocator);
     for (ctx.fn_instances.items) |f| {
+        if (try sema.checkedBefore(ctx, try key.ofFn(ctx, f.inst)) != null) continue;
         const shown = try sema.formatFnInstanceIn(ctx, self.arena(), f.inst);
         for (f.inst.ownParams(), f.inst.ownArgs()) |param, arg| {
             if (types.carriesWriteView(self, arg)) {
@@ -96,6 +100,7 @@ pub fn checkInstantiations(self: *Checker) Error!void {
         const base = ctx.symbols.items[ctx.localSym(pn.sym)];
         if (base.decl_pos == sema.builtin_decl_pos) continue;
         const params = base.type_params orelse continue;
+        if (try sema.checkedBefore(ctx, try key.ofType(ctx, entry.key_ptr.*)) != null) continue;
         const site = entry.value_ptr.*;
         const shown = try sema.formatTypeIn(ctx, self.arena(), entry.key_ptr.*);
         for (params, 0..) |param, i| {
