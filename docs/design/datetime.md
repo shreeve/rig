@@ -1667,8 +1667,8 @@ passes is rejected, as on any call that cannot fail.
   `TimeZone.named` with a string literal, `Duration.from_parts`,
   `Instant.from_unix_s`, `from_unix_ms` and `from_unix_us`, and `time.duration` (5.2).
   `parse` is not among them.
-- **A constant** is what Rig already computes as one (`sema.constIntOf`,
-  `Checker.floatConst`, a string literal); the rule never asks a prover.
+- **A constant** is what Rig already computes as one (`cteval.constIntOf`,
+  `cteval.foldFloat`, a string literal); the rule never asks a prover.
 - **The source shows which case applies:** every argument is a literal or a constant.
   The answer never changes between releases. A refactor that turns a literal into a
   variable makes the `!` required, which is where failure becomes possible, and the
@@ -1681,7 +1681,7 @@ passes is rejected, as on any call that cannot fail.
 - **SPEC §13** gains one sentence: a bare call to a fallible function is rejected,
   unless it is a listed std maker whose arguments are all constants that pass its check.
 - Sites: `src/typecheck.zig:12505` `stdArgChecks` (the checks), `9914` (the bare-call
-  error), `src/sema.zig:16910` `constIntOf`, and the hook of 10.2 for `named` and
+  error), `src/cteval.zig` `constIntOf`, and the hook of 10.2 for `named` and
   `fixed`. About 100 to 200 lines.
 - **Without the rule,** the makers keep their `!` with constants (a bad constant is
   still a compile error, and the `!` is never taken), `time.duration` takes only the

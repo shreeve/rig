@@ -211,6 +211,16 @@ test "ctfun enums and Bool", '''
   print(width[.strict], flip[.loose], pick[false])
   print(no[true])
 
+test "ctfun Bool comparison argument", "false 3", whole: true
+  # A comparison of `Bool`s folds as one of integers does.
+  fun no[b: Bool] -> Bool
+    not b
+
+  K = 3 if (2 > 1) == true else 4
+
+  sub main()
+    print(no[(1 < 2) == true], K)
+
 test "ctfun calls and constants", "21 true", whole: true
   LIMIT = 4
 

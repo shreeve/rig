@@ -54,6 +54,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
+const cteval = @import("cteval.zig");
 const modules = @import("modules.zig");
 const program = @import("program.zig");
 const rig = @import("rig.zig");
@@ -212,8 +213,9 @@ const Site = struct { module: usize, id: parser.NodeId, callee: Callee };
 /// instance.
 const Loose = struct { module: usize, node: Sexp, callee: Callee };
 
-/// A compile-time value an instance binds a parameter to.
-const CtVal = union(enum) { boolean: bool, int: sema.Wide };
+/// A compile-time value an instance binds a parameter to: an integer
+/// or a `Bool`.
+const CtVal = cteval.CtVal;
 
 /// The most instances of one function `cutCycles` tells apart; past it
 /// the function is one, as a function of no compile-time values is.
@@ -1197,70 +1199,15 @@ const Pass = struct {
     }
 
     /// The value of the compile-time expression `e` of `c`, at the
-    /// instance `vals` of function `in` around it: a literal, a
-    /// compile-time parameter of `in`, an integer constant, and `not`,
-    /// `and`, `or`, and comparisons of them; null for any other.
+    /// instance `vals` of function `in` around it (`cteval.CheckedNames`'
+    /// partial mode); null when it is not known.
     fn valueOf(self: *const Pass, c: *const SemContext, e: Sexp, in: ?u32, vals: ?[]const CtVal) ?CtVal {
-        switch (e) {
-            .src => {
-                const word = rig.leafText(c.source, e.src);
-                if (std.mem.eql(u8, word, "true")) return .{ .boolean = true };
-                if (std.mem.eql(u8, word, "false")) return .{ .boolean = false };
-                if (sema.isIntLiteralText(word)) return .{ .int = std.fmt.parseInt(sema.Wide, word, 0) catch return null };
-                const id = c.symbolOf(e) orelse return null;
-                if (c.const_ints.get(id)) |k| return .{ .int = k.value };
-                const fun = in orelse return null;
-                const at = vals orelse return null;
-                const pos = c.symbols.items[id].decl_pos;
-                for (sema.tparamsOf(self.fns.items[fun].node).items(), at) |p, v| {
-                    const name = sema.paramNameNode(p) orelse continue;
-                    if (name == .src and name.src.pos == pos) return v;
-                }
-                return null;
-            },
-            .list => {},
-            else => return null,
-        }
-        const kind = e.kind() orelse return null;
-        switch (kind) {
-            .not => {
-                const v = self.valueOf(c, ir.Not.operand(e), in, vals) orelse return null;
-                return if (v == .boolean) .{ .boolean = !v.boolean } else null;
-            },
-            // A side the values decide decides the whole: `x and false` is
-            // false whatever `x` is, and `x or true` true.
-            .@"and", .@"or" => {
-                const want = kind == .@"or";
-                const l = if (kind == .@"and") ir.And.left(e) else ir.Or.left(e);
-                const r = if (kind == .@"and") ir.And.right(e) else ir.Or.right(e);
-                const a = self.valueOf(c, l, in, vals);
-                const b = self.valueOf(c, r, in, vals);
-                for ([_]?CtVal{ a, b }) |side| if (side) |v| if (v == .boolean and v.boolean == want) return v;
-                const x = a orelse return null;
-                const y = b orelse return null;
-                if (x != .boolean or y != .boolean) return null;
-                return .{ .boolean = if (want) x.boolean or y.boolean else x.boolean and y.boolean };
-            },
-            .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
-                const x = self.valueOf(c, ir.get(e, .left), in, vals) orelse return null;
-                const y = self.valueOf(c, ir.get(e, .right), in, vals) orelse return null;
-                if (x == .boolean and y == .boolean) return switch (kind) {
-                    .@"==" => .{ .boolean = x.boolean == y.boolean },
-                    .@"!=" => .{ .boolean = x.boolean != y.boolean },
-                    else => null,
-                };
-                if (x != .int or y != .int) return null;
-                return .{ .boolean = switch (kind) {
-                    .@"==" => x.int == y.int,
-                    .@"!=" => x.int != y.int,
-                    .@"<" => x.int < y.int,
-                    .@">" => x.int > y.int,
-                    .@"<=" => x.int <= y.int,
-                    else => x.int >= y.int,
-                } };
-            },
-            else => return null,
-        }
+        var names: cteval.CheckedNames = .{ .ctx = c, .partial = true };
+        if (in) |fun| if (vals) |at| {
+            names.tparams = sema.tparamsOf(self.fns.items[fun].node).items();
+            names.values = at;
+        };
+        return cteval.foldValue(c, e, names);
     }
 
     /// The nodes of `cutCycles`' graph that function `v`'s node `n`, at

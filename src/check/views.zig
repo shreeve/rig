@@ -3487,7 +3487,7 @@ pub fn defaultIntLiteral(self: *Checker, e: Sexp) Error!void {
 /// Integer-literal arithmetic given integer type `target` is
 /// computed in it: each operation in `e` records the type, so that a
 /// wrapping one wraps there and a shift is folded in its width
-/// (`sema.ctFoldBy`), and the emitter types it so. A constant shift
+/// (`sema.cteval.foldInt`), and the emitter types it so. A constant shift
 /// amount must be below that width.
 pub fn recordLiteralType(self: *Checker, e: Sexp, target: TypeId) Error!void {
     const h = e.kind() orelse return;
@@ -3533,7 +3533,9 @@ pub fn checkWholeDivision(self: *Checker, e: Sexp) Error!void {
     // float's: only its type differs.
     if (div.isKind(.@"%")) return self.errAt(div, "`{s}` is a whole-number remainder; write `{s}` for a Float", .{ CallCheck.sourceText(self, div), fix });
     const whole: []const u8 = if (ExprCheck.constInt(self, div)) |v| try a.print(" ({d})", .{v}) else "";
-    if (CompatCheck.floatConstIn(f64, self.ctx.source, div)) |f| {
+    const folded = sema.cteval.foldFloat(f64, self.ctx, div, false);
+    if (folded == .value) {
+        const f = folded.value;
         const shown = if (f == @trunc(f) and @abs(f) < 1e15) try a.print("{d}.0", .{f}) else try a.print("{d}", .{f});
         return self.errAt(div, "`{s}` divides whole numbers{s}; for {s} write `{s}`", .{ CallCheck.sourceText(self, div), whole, shown, fix });
     }
@@ -3555,7 +3557,7 @@ pub fn checkFloatConstant(self: *Checker, e: Sexp, target: TypeId) Error!void {
         .src => {
             const s = self.text(e);
             if (sema.isFloatLiteralText(s)) {
-                const v = CompatCheck.floatLiteralValue(s);
+                const v = sema.cteval.floatLiteralAs(f64, s);
                 if (bits == 32 and std.math.isFinite(v) and @abs(v) > std.math.floatMax(f32)) {
                     try self.errAt(e, "float literal `{s}` does not fit in `{s}`", .{ s, try self.tyName(target) });
                 }
@@ -3576,9 +3578,9 @@ pub fn checkFloatConstant(self: *Checker, e: Sexp, target: TypeId) Error!void {
                 try checkFloatConstant(self, ir.get(e, .left), target);
                 try checkFloatConstant(self, ir.get(e, .right), target);
                 const overflows = if (bits == 32)
-                    CompatCheck.floatOpOverflows(f32, self.ctx.source, e) and !CompatCheck.floatOpOverflows(f64, self.ctx.source, e)
+                    sema.cteval.floatOverflows(f32, self.ctx, e) and !sema.cteval.floatOverflows(f64, self.ctx, e)
                 else
-                    CompatCheck.floatOpOverflows(f64, self.ctx.source, e);
+                    sema.cteval.floatOverflows(f64, self.ctx, e);
                 if (overflows) try self.errAt(e, "this constant expression overflows `{s}`", .{try self.tyName(target)});
             },
             else => {},

@@ -2178,7 +2178,7 @@ fn foldModuleConst(ctx: *SemContext, set: Sexp) Error!void {
     const ty = ir.Set.type(set);
     const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse return;
     const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .literal = declared orelse .{}, .eval = ctx };
-    const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
+    const t = switch (sema.cteval.foldInt(ctx, ir.Set.value(set), names)) {
         .value => |t| t,
         else => return,
     };
@@ -2265,7 +2265,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
     }
 }
 
-/// What `sema.ctFoldBy` knows where a compile-time integer is declared
+/// What `sema.cteval.foldInt` knows where a compile-time integer is declared
 /// (in a type, a module constant, an enum value): the names visible from
 /// `scope`, a constant binding's and a module constant's value, and
 /// `module.NAME`, each with its type.
@@ -2287,7 +2287,7 @@ pub const ConstNames = struct {
         return self.ctx.symbolOf(e) orelse self.ctx.lookupBefore(self.scope, text, e.src.pos);
     }
 
-    pub fn name(self: ConstNames, e: Sexp) ?sema.TypedInt {
+    pub fn name(self: ConstNames, e: Sexp) ?sema.cteval.TypedInt {
         const id = self.symbol(e) orelse return null;
         const sym = self.ctx.symbols.items[id];
         if (sym.kind != .local or !sym.flags.fixed) return null;
@@ -2295,7 +2295,7 @@ pub const ConstNames = struct {
         return .{ .v = c.value, .int = c.int };
     }
 
-    pub fn member(self: ConstNames, e: Sexp) ?sema.TypedInt {
+    pub fn member(self: ConstNames, e: Sexp) ?sema.cteval.TypedInt {
         const obj = ir.Member.object(e);
         if (obj != .src) return null;
         const id = self.ctx.lookupAt(self.scope, identAt(self.ctx.source, obj) orelse return null, obj.src.pos) orelse return null;
@@ -2315,7 +2315,7 @@ pub const ConstNames = struct {
     /// (`cteval.foldCall`): `cap[8]` in a type, a constant, or an enum
     /// value. Without a context to compute it in, the value the checker
     /// recorded for the call.
-    pub fn ctCall(self: ConstNames, e: Sexp) sema.CtFold {
+    pub fn ctCall(self: ConstNames, e: Sexp) sema.cteval.CtFold {
         const ctx = self.eval orelse return sema.cteval.recordedInt(self.ctx, e);
         return sema.cteval.foldCall(ctx, e, self) catch .failed;
     }
@@ -3657,7 +3657,7 @@ pub const TypeResolver = struct {
         const value_node = ir.NoneValue.value(line);
         var none: sema.NamedNone = .{ .field = f.name, .value = 0 };
         if (self.ctx.types.get(f.ty) == .int) {
-            switch (sema.constIntBy(self.ctx, value_node, self.constNames())) {
+            switch (sema.cteval.constIntBy(self.ctx, value_node, self.constNames())) {
                 .value => |v| {
                     if (!sema.intFits(self.ctx, f.ty, v)) {
                         try self.ctx.errAt(value_node, "`{s}` is a `{s}`, which cannot hold {d}", .{ fname, try sema.formatType(self.ctx, f.ty), v });
@@ -3685,7 +3685,7 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(field_node, "an object names its none by a field that is an integer or a plain enum; `{s}` is a `{s}`", .{ fname, try sema.formatType(self.ctx, f.ty) });
             return;
         }
-        if (f.default) |d| if (sema.constIntBy(self.ctx, d, self.constNames()) == .value and sema.constIntBy(self.ctx, d, self.constNames()).value == none.value) {
+        if (f.default) |d| if (std.meta.eql(sema.cteval.constIntBy(self.ctx, d, self.constNames()), .{ .value = none.value })) {
             try self.ctx.errAt(d, "`{s}`'s default is its none, which no `{s}` holds", .{ fname, name });
             return;
         };
@@ -4098,7 +4098,7 @@ pub const TypeResolver = struct {
     /// are folded; null after a diagnostic.
     fn foldEnumValue(self: *TypeResolver, node: Sexp, name: []const u8) Error!?Wide {
         const what = "an enum value";
-        const fold = sema.ctFoldBy(self.ctx, node, ConstNames{ .ctx = self.ctx, .scope = sema.module_scope, .eval = self.ctx });
+        const fold = sema.cteval.foldInt(self.ctx, node, ConstNames{ .ctx = self.ctx, .scope = sema.module_scope, .eval = self.ctx });
         switch (fold) {
             .value => |t| return t.v,
             .failed => {},
@@ -4677,7 +4677,7 @@ pub const TypeResolver = struct {
     fn ctIntOf(self: *TypeResolver, node: Sexp, what: []const u8) Error!?CtInt {
         if (node == .src) if (try self.ctParamNamed(node)) |ct| return .{ .ty = ct };
         const names = self.constNames();
-        const fold = sema.ctFoldBy(self.ctx, node, names);
+        const fold = sema.cteval.foldInt(self.ctx, node, names);
         switch (fold) {
             .value => |v| return .{ .ty = try sema.ctInt(self.ctx, v.v), .int = v.int },
             .overflow, .mismatch => {
@@ -4748,7 +4748,7 @@ pub const TypeResolver = struct {
 
     /// Report why the compile-time integer `node`, used as `what`, has no
     /// value: `fold` overflows its type, or mixes two.
-    fn reportFold(self: *TypeResolver, node: Sexp, fold: sema.CtFold, what: []const u8) Error!void {
+    fn reportFold(self: *TypeResolver, node: Sexp, fold: sema.cteval.CtFold, what: []const u8) Error!void {
         switch (fold) {
             .overflow => |o| {
                 const at = try self.sourceText(o.node);
@@ -4871,7 +4871,7 @@ pub const TypeResolver = struct {
     fn dividesByZero(self: *TypeResolver, node: Sexp) bool {
         const h = node.kind() orelse return false;
         if (h == .member) return false;
-        if (h == .@"/" or h == .@"%") switch (sema.constIntBy(self.ctx, ir.get(node, .right), self.constNames())) {
+        if (h == .@"/" or h == .@"%") switch (sema.cteval.constIntBy(self.ctx, ir.get(node, .right), self.constNames())) {
             .value => |v| if (v == 0) return true,
             else => {},
         };

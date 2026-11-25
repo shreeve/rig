@@ -1585,7 +1585,7 @@ pub fn checkConversion(self: *Checker, target: TypeId, name: []const u8, args: [
         // own, and only its value, when constant, must fit.
         if (!sema.isInteger(self.ctx, from)) {
             try checkFloatFits(self, arg, target);
-        } else if (from == self.t().int_literal_id or sema.constInt(self.ctx, arg) != .not_constant) try BuiltinCheck.checkLiteralFits(self, arg, target);
+        } else if (from == self.t().int_literal_id or sema.cteval.constInt(self.ctx, arg) != .not_constant) try BuiltinCheck.checkLiteralFits(self, arg, target);
     }
     return target;
 }
@@ -1626,7 +1626,7 @@ pub fn checkFloatFits(self: *Checker, arg: Sexp, target: TypeId) Error!void {
     const f = CompatCheck.constFloatOf(self.ctx.source, arg) orelse return;
     const b = CompatCheck.intBounds(self.ctx.types.get(target).int);
     const whole = @trunc(f);
-    if (whole >= CompatCheck.wideToFloat(f64, b.min) and whole < CompatCheck.wideToFloat(f64, b.max) + 1) return;
+    if (whole >= sema.cteval.wideToFloat(f64, b.min) and whole < sema.cteval.wideToFloat(f64, b.max) + 1) return;
     if (@abs(f) < 1e18) {
         try self.errAt(arg, "`{d}` does not fit in `{s}`", .{ f, try self.tyName(target) });
     } else try self.errAt(arg, "`{e}` does not fit in `{s}`", .{ f, try self.tyName(target) });
@@ -2329,7 +2329,7 @@ pub fn constMakerCall(self: *Checker, home: *const SemContext, maker: sema.Const
                 };
                 nodes[i] = value;
             },
-            .default => |d| values[i] = sema.constIntOf(home, d.expr) orelse return returns,
+            .default => |d| values[i] = sema.cteval.constIntOf(home, d.expr) orelse return returns,
             .parts => return returns,
         }
     }
@@ -3890,7 +3890,7 @@ pub fn checkNoneArg(self: *Checker, args: []const Sexp, fields: []const Field, n
         } else if (data == 1) a else continue;
         const is_none = if (none.variant) |v|
             std.mem.eql(u8, constVariant(self, value) orelse "", v)
-        else switch (sema.constIntBy(self.ctx, value, resolve.ConstNames{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params })) {
+        else switch (sema.cteval.constIntBy(self.ctx, value, resolve.ConstNames{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params })) {
             .value => |v| v == none.value,
             else => false,
         };

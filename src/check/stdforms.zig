@@ -1576,7 +1576,7 @@ pub fn lagCall(self: *Checker, callee: Sexp, vt: TypeId, b: Sexp, pos: u32, args
     try self.checkCtValue(given[0], self.t().int_id, 0, "lag");
     if (self.ctx.diagnostics.items.len == mark) {
         const names: resolve.ConstNames = .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params };
-        const k: ?Wide = switch (sema.constIntBy(self.ctx, given[0], names)) {
+        const k: ?Wide = switch (sema.cteval.constIntBy(self.ctx, given[0], names)) {
             .value => |c| c,
             else => null,
         };
@@ -1808,7 +1808,7 @@ pub fn checkDurationArg(self: *Checker, arg: Sexp, param: TypeId, unit: ?i64, in
             }
             known = @intCast(wide);
         }
-    } else switch (floatConst(self, arg)) {
+    } else switch (sema.cteval.foldFloat(f64, self.ctx, arg, true)) {
         .value => |v| {
             const ns = sema.floatToNs(v, unit_ns).?;
             if (!durationHolds(ns)) {
@@ -1977,49 +1977,6 @@ pub fn negativeWait(self: *Checker, arg: Sexp, shown: []const u8, value: []const
     try self.errAt(arg, "a wait of `{s}` is negative, {s}: a constant wait is zero or more", .{ shown, value });
 }
 
-/// A constant `Float` as Rig computes it (`FloatConst`): number
-/// literals, a float type's limit, `Float.inf()` and `Float.nan()`,
-/// a binding whose value is constant (`const_floats`, `const_ints`),
-/// and the arithmetic of these, each operation in `F64`; as the one
-/// classifier of an integer constant (`sema.constIntOf`) does for an
-/// `Int`.
-pub fn floatConst(self: *Checker, e: Sexp) CompatCheck.FloatConst {
-    if (CompatCheck.isNotFinite(self.ctx.source, e)) return .not_finite;
-    switch (e) {
-        .src => {
-            const lit = identAt(self.ctx.source, e) orelse return .unknown;
-            if (sema.isFloatLiteralText(lit)) {
-                const v = CompatCheck.floatLiteralValue(lit);
-                return if (std.math.isFinite(v)) .{ .value = v } else .not_finite;
-            }
-            if (sema.isIntLiteralText(lit)) return .{ .value = CompatCheck.wideToFloat(f64, std.fmt.parseInt(Wide, lit, 0) catch return .unknown) };
-            const id = self.ctx.symbolOf(e) orelse return .unknown;
-            if (self.ctx.const_floats.get(id)) |v| return .{ .value = v };
-            if (self.ctx.const_ints.get(id)) |c| return .{ .value = CompatCheck.wideToFloat(f64, c.value) };
-            return .unknown;
-        },
-        .list => {
-            const h = e.kind() orelse return .unknown;
-            if (h == .member) return if (CompatCheck.floatLimit(f64, self.ctx.source, e)) |v| .{ .value = v } else .unknown;
-            if (h == .neg) return switch (floatConst(self, ir.Neg.operand(e))) {
-                .value => |v| .{ .value = -v },
-                else => |o| o,
-            };
-            switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%" => {},
-                else => return .unknown,
-            }
-            const a = floatConst(self, ir.get(e, .left));
-            const b = floatConst(self, ir.get(e, .right));
-            if (a == .unknown or b == .unknown) return .unknown;
-            if (a == .not_finite or b == .not_finite) return .not_finite;
-            const v = CompatCheck.floatOp(f64, h, a.value, b.value);
-            return if (std.math.isFinite(v)) .{ .value = v } else .not_finite;
-        },
-        else => return .unknown,
-    }
-}
-
 /// A keyword no parameter of `callee`, which takes a duration, is
 /// named, and no unit nor length of the calendar (`calendarKeyword`):
 /// a spelling of `seconds:`, or neither.
@@ -2180,7 +2137,7 @@ pub fn ctIntArg(self: *Checker, a: Sexp, param: SymbolId, i: usize, callee: []co
     if (self.ctx.diagnostics.items.len != mark) return null;
     if (try ctParamOf(self, a)) |ct| return ct;
     const names: resolve.ConstNames = .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params };
-    switch (sema.constIntBy(self.ctx, a, names)) {
+    switch (sema.cteval.constIntBy(self.ctx, a, names)) {
         .value => |v| {
             if (!sema.intFits(self.ctx, ty, v)) {
                 const name = try self.tyName(ty);
