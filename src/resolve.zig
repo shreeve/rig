@@ -81,7 +81,7 @@ pub fn resolveSymbols(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error
 /// now, after the whole module, a name declared later would be seen.
 pub fn resolveIterWhile(ctx: *SemContext, loop: Sexp, w: rig.Parser.IterWhile) Error!void {
     const scope = ctx.scopeOf(loop).?;
-    try ctx.removeIn(.{ .facts = .scopes }, loop.list.id);
+    try ctx.removeIn(.check, .scopes, loop.list.id);
     const as = ir.While.cond(w.loop);
     try ctx.recordScope(as, scope);
     if (ctx.symbolOf(ir.As.name(as))) |x| ctx.symbols.items[x].flags.as_bound = true;
@@ -89,8 +89,8 @@ pub fn resolveIterWhile(ctx: *SemContext, loop: Sexp, w: rig.Parser.IterWhile) E
     const hold = w.hold orelse {
         // `!it` was marked written by the `for`; it is by the view.
         if (ctx.writeSiteOf(loop)) |site| {
-            try ctx.removeIn(.{ .ctx = .write_sites }, loop.list.id);
-            try ctx.putIn(.{ .ctx = .write_sites }, view.list.id, site);
+            try ctx.removeIn(.check, .write_sites, loop.list.id);
+            try ctx.putIn(.check, .write_sites, view.list.id, site);
         }
         return;
     };
@@ -1454,7 +1454,7 @@ const SymbolResolver = struct {
                         if (got.found_existing) {
                             if (got.value_ptr.*) |id| {
                                 try self.ctx.recordName(b, id);
-                                try self.ctx.putIn(.{ .facts = .rebinds }, b.src.pos, {});
+                                try self.ctx.putIn(.check, .rebinds, b.src.pos, {});
                             }
                             continue;
                         }

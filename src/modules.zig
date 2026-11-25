@@ -1057,7 +1057,7 @@ pub const ModuleGraph = struct {
             };
             site.file = file;
             site.place = try a.print("{s}/{s}", .{ sema.embed_dir, rel });
-            try ctx.putIn(.{ .facts = .embeds }, site.node, site.place);
+            try ctx.putIn(.modules, .embeds, site.node, site.place);
         }
     }
 
