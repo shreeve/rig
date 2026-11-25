@@ -438,6 +438,9 @@ pub const Emitter = struct {
     /// Generated names and other emit-lifetime allocations.
     arena: std.heap.ArenaAllocator,
     facts: Facts,
+    /// The module's bodies lowered (`src/lir.zig`): every var emit writes,
+    /// a binding or hidden storage, is one of theirs.
+    lowered: ?facts.Lowered = null,
 
     scopes: std.ArrayList(Scope) = .empty,
     /// Symbol -> its innermost local in `scopes`.
@@ -647,6 +650,7 @@ pub const Emitter = struct {
         self.flag_names.deinit(self.allocator);
         self.paused.deinit(self.allocator);
         self.line_starts.deinit(self.allocator);
+        if (self.lowered) |*l| l.deinit();
         self.arena.deinit();
     }
 
@@ -654,6 +658,8 @@ pub const Emitter = struct {
         try self.w.writeAll("const std = @import(\"std\");\n");
         try self.w.print("const rig = @import(\"{s}\");\n", .{self.runtime_import});
         if (!sexp.isKind(.module)) return;
+        self.lowered = try self.facts.lower(self.allocator, sexp);
+        for (self.lowered.?.owners) |o| if (o.skip) |why| return self.unsupported(why.node, "a body lowering does not cover");
         const decls = ir.Module.decls(sexp);
         try self.collectModule(decls);
         for (decls) |d0| {
@@ -2136,7 +2142,7 @@ pub const Emitter = struct {
                     try self.fmt("__rig_in_{s}", .{rig_name});
                 local.launder = true;
             }
-            if (self.facts.varOf(name_node, .held_header) != null) {
+            if (self.varOf(name_node, .held_header) != null) {
                 local.held = name_node;
                 if (local.param_name.len == 0) local.param_name = if (isPlainIdent(rig_name)) try self.fmt("__rig_viewed_{s}", .{rig_name}) else try self.fmt("__rig_viewed_{d}", .{self.nextId()});
             }
@@ -2386,15 +2392,15 @@ pub const Emitter = struct {
     };
 
     /// The Zig name of the hidden storage of `kind` emit makes for
-    /// `node`, held `by` (`facts.Var`). Every hidden storage location is
-    /// named here: the var table must record it, held the same way, or
+    /// `node`, held `by` (`lir.Var`). Every hidden storage location is
+    /// named here: lowering must have made its var, held the same way, or
     /// emit would make storage the ownership checker did not walk.
     fn hiddenStorage(self: *Emitter, node: Sexp, kind: facts.StorageKind, by: facts.StorageBy, suffix: StorageSuffix) Error![]const u8 {
         const fact = try self.needVar(node, kind);
         // A statement's slot is declared before it runs; its value is
         // written where the temporary is.
         if (kind != .temp and kind != .held_header) try self.inUnit(node);
-        if (fact.by != by) return self.unsupported(node, "hidden storage held other than its storage fact says");
+        if (fact.by != by) return self.unsupported(node, "hidden storage held other than its var says");
         const base: []const u8 = switch (kind) {
             .temp => "__rig_tmp",
             .header_value => "__rig_hdr",
@@ -2440,10 +2446,10 @@ pub const Emitter = struct {
     }
 
     /// Take the address of `node`, a value Zig holds for its statement in
-    /// no slot: the var table must record it (`zig_temp`), so the checker
+    /// no slot: lowering must have made its var (`zig_temp`), so the checker
     /// knew emit reaches it there.
     fn zigTemporary(self: *Emitter, node: Sexp) Error!void {
-        if ((try self.needVar(node, .zig_temp)).by != .owned) return self.unsupported(node, "a Zig temporary held other than its storage fact says");
+        if ((try self.needVar(node, .zig_temp)).by != .owned) return self.unsupported(node, "a Zig temporary held other than its var says");
     }
 
     /// A decision a pass made before emit (`facts.Question`), which emit
@@ -2573,7 +2579,8 @@ pub const Emitter = struct {
     /// How a resource binding's drop is armed: behind an alive flag when
     /// it may be consumed first.
     fn resourceGuard(self: *Emitter, sym: SymbolId) Guard {
-        return if (self.facts.binding(sym).flag) .flag else .scope;
+        const v = self.lowered.?.bindingOf(sym) orelse return .scope;
+        return if (v.flag) .flag else .scope;
     }
 
     /// `var _h = base`, for a `header` that holds the value it makes of
@@ -2748,7 +2755,7 @@ pub const Emitter = struct {
         for (temps.items) |temp| {
             if (self.tempSlot(temp) != null) continue;
             // A template's temporary is a buffer of its text.
-            const buffer = if (self.facts.varOf(temp, .temp)) |st| st.by == .buffer else false;
+            const buffer = if (self.varOf(temp, .temp)) |st| st.by == .buffer else false;
             const name = try self.hiddenStorage(temp, .temp, if (buffer) .buffer else .owned, .next);
             try self.w.print("var {s}: ", .{name});
             if (buffer) try self.w.writeAll(rt(.TextBuf)) else try self.emitTypeTy(self.typeOf(temp) orelse return self.unsupported(temp, "an untyped temporary"));
@@ -2961,7 +2968,7 @@ pub const Emitter = struct {
             if (in_place) return self.emitFillBind(target, sym, expr);
             // A fork's record is made in the slot of this frame its
             // storage fact names (`task_record`), then started there.
-            if (self.facts.taskInFrame(expr)) {
+            if (self.taskInFrame(expr)) {
                 const slot = try self.hiddenStorage(expr, .task_record, .owned, .next);
                 try self.w.print("var {s} = ", .{slot});
                 try self.emitTask(expr);
@@ -3182,7 +3189,7 @@ pub const Emitter = struct {
                 // A `!T` whose `T` is a view: the view it reaches is
                 // pointed at another place, made first where the value
                 // can act (`storesAfterValue`).
-                if (self.facts.varOf(value, .new_value) != null) {
+                if (self.varOf(value, .new_value) != null) {
                     const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = self.nextId() });
                     try self.w.print("{{ const {s} = ", .{name});
                     try self.emitWriteViewPtr(value);
@@ -3203,7 +3210,7 @@ pub const Emitter = struct {
         const kind = local.kind orelse {
             // The value is made first when it can act, so the store goes
             // through the place as the value left it (`storesAfterValue`).
-            const first = self.facts.varOf(value, .new_value) != null;
+            const first = self.varOf(value, .new_value) != null;
             if (first) {
                 const id = self.nextId();
                 const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
@@ -5933,7 +5940,7 @@ pub const Emitter = struct {
             .optional => |inner| inner,
             else => null,
         } else null;
-        if (if (self.facts.varOf(cond, .as_value)) |st| st.by == .owned else false) {
+        if (if (self.varOf(cond, .as_value)) |st| st.by == .owned else false) {
             const tmp = try self.hiddenStorage(cond, .as_value, .owned, .next);
             try self.w.print("|{s}| ", .{tmp});
             return .{ .optional = .{ .cond = cond, .name = if (sym != null) name else .nil, .tmp = tmp } };
@@ -6172,7 +6179,7 @@ pub const Emitter = struct {
             // view wants, is taken from the slot (`rig.keep`'s result).
             self.ptr_tail = false;
             // A template's text is written into its slot's buffer.
-            if (self.facts.varOf(sexp, .temp).?.by == .buffer) {
+            if (self.varOf(sexp, .temp).?.by == .buffer) {
                 try self.w.print(rt(.TextBuf) ++ ".keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
                 try self.emitPrintArgs(&.{sexp}, .{});
                 return self.w.writeAll(").*");
@@ -9433,7 +9440,7 @@ pub const Emitter = struct {
         }
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
         // A task that stays in its maker's frame, a fork, starts so.
-        if (self.facts.taskInFrame(sexp)) try self.w.writeAll(".frame");
+        if (self.taskInFrame(sexp)) try self.w.writeAll(".frame");
         // Through a witness: its method, given self as it takes it.
         if (self.facts.dispatchOf(sexp)) |d| if (d == .static and !d.static.self_arg and d.static.self_mode != .value) {
             const recv = self.selfOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its self");
@@ -9685,7 +9692,7 @@ pub const Emitter = struct {
             // A channel or task its select evaluated in the arm's turn is
             // read where it was held (`hoistSelf`).
             if (self.hoistedOf(handle)) |h| {
-                try self.w.print("{s}{s}", .{ h.name, if (self.facts.varOf(handle, .self).?.by == .pointer) ".*" else "" });
+                try self.w.print("{s}{s}", .{ h.name, if (self.varOf(handle, .self).?.by == .pointer) ".*" else "" });
             } else if (of_chan) {
                 try self.emitExpr(ir.Member.object(callee));
             } else try self.emitMemberBase(handle, handle_ty);
@@ -11729,7 +11736,7 @@ pub const Emitter = struct {
     /// `as` and payload bindings, and an owned closure environment; the
     /// kind picks its drop call.
     fn holdOf(self: *Emitter, sym: SymbolId) ?ResourceKind {
-        return self.facts.binding(sym).drop;
+        return (self.lowered.?.bindingOf(sym) orelse return null).drop;
     }
 
     /// How the var of `kind` that holds the value of `e`, or a discard of
@@ -11738,10 +11745,21 @@ pub const Emitter = struct {
         return (try self.needVar(e, kind)).drop;
     }
 
-    /// The var of `kind` the plan made for `node`: one it did not make is
+    /// Whether the task `call` makes stays in its maker's frame and is
+    /// waited for there, a fork (`StorageKind.task_record`).
+    fn taskInFrame(self: *Emitter, call: Sexp) bool {
+        return self.varOf(call, .task_record) != null;
+    }
+
+    /// The hidden var of `kind` lowering made for `node`.
+    fn varOf(self: *Emitter, node: Sexp, kind: facts.StorageKind) ?*const facts.lir.Var {
+        return self.lowered.?.varOf(node, kind);
+    }
+
+    /// The var of `kind` lowering made for `node`: one it did not make is
     /// storage the ownership checker did not walk, an internal error.
-    fn needVar(self: *Emitter, node: Sexp, kind: facts.StorageKind) Error!facts.Var {
-        return self.facts.varOf(node, kind) orelse self.unsupported(node, "hidden storage the var table does not record");
+    fn needVar(self: *Emitter, node: Sexp, kind: facts.StorageKind) Error!*const facts.lir.Var {
+        return self.varOf(node, kind) orelse self.unsupported(node, "hidden storage no body's lowering made");
     }
 
     fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {

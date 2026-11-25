@@ -33,6 +33,8 @@ const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const storage = @import("storage.zig");
 const resolve = @import("resolve.zig");
+const lowering = @import("lower.zig");
+pub const lir = @import("lir.zig");
 const rig = @import("rig.zig");
 
 const Sexp = parser.Sexp;
@@ -82,7 +84,9 @@ pub const PlainBit = sema.PlainBit;
 pub const PlainArg = sema.PlainArg;
 pub const Use = sema.Use;
 pub const Header = sema.Header;
-pub const Var = storage.Var;
+/// A module's bodies lowered (`src/lower.zig`), whose vars are the
+/// storage emit prints.
+pub const Lowered = lowering.Module;
 pub const StorageKind = storage.StorageKind;
 pub const StorageBy = storage.StorageBy;
 pub const Clone = sema.Clone;
@@ -598,12 +602,6 @@ pub const Facts = struct {
     pub fn isLocalTask(f: Facts, call: Sexp) bool {
         return f.c().isLocalTask(call);
     }
-    /// Whether the task `call` makes stays in its maker's frame and is
-    /// waited for there, a fork (`storage.taskStaysInFrame`,
-    /// `StorageKind.task_record`).
-    pub fn taskInFrame(f: Facts, call: Sexp) bool {
-        return f.varOf(call, .task_record) != null;
-    }
     pub fn isIsolateCall(f: Facts, call: Sexp) bool {
         return f.c().isIsolateCall(call);
     }
@@ -705,11 +703,9 @@ pub const Facts = struct {
     pub fn fieldMoves(f: Facts, sym: SymbolId) []const []const u8 {
         return f.c().fieldMoves(sym);
     }
-    pub fn varOf(f: Facts, node: Sexp, kind: StorageKind) ?Var {
-        return f.c().varOf(node, kind);
-    }
-    pub fn binding(f: Facts, sym: SymbolId) storage.Binding {
-        return f.c().vars.binding(sym);
+    /// The module's bodies, lowered: tree `module` is the module's.
+    pub fn lower(f: Facts, gpa: std.mem.Allocator, module: Sexp) !Lowered {
+        return lowering.lowerModule(gpa, @constCast(f.c()), module);
     }
     /// How the walk that reaches a value by address reaches `e`
     /// (`storage.leafStep`, a recorded decision); null when no checker

@@ -48,6 +48,10 @@ pub const Module = struct {
     owners: []Owner = &.{},
     /// The index of each owner, by its root's key.
     roots: std.AutoHashMapUnmanaged(u64, u32) = .empty,
+    /// The var of each node and kind, and of each binding, in every body
+    /// lowered: the storage emit prints.
+    vars: std.AutoHashMapUnmanaged(storage.Vars.Key, *const lir.Var) = .empty,
+    bindings: std.AutoHashMapUnmanaged(SymbolId, *const lir.Var) = .empty,
 
     pub const Owner = struct {
         root: Sexp,
@@ -63,6 +67,16 @@ pub const Module = struct {
 
     pub fn deinit(m: *Module) void {
         m.arena.deinit();
+    }
+
+    /// The hidden var of `kind` made for `node`.
+    pub fn varOf(m: *const Module, node: Sexp, kind: StorageKind) ?*const lir.Var {
+        return m.vars.get(.{ .node = sema.decisionKeyOf(node) orelse return null, .kind = kind });
+    }
+
+    /// The var of binding `sym`.
+    pub fn bindingOf(m: *const Module, sym: SymbolId) ?*const lir.Var {
+        return m.bindings.get(sym);
     }
 };
 
@@ -113,6 +127,10 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp) !Module
     for (m.owners) |o| if (o.func) |f| for (f.vars.items) |*v| switch (v.name) {
         .binding => |s| v.flag = l.flags.isSet(s),
         .hidden => {},
+    };
+    for (m.owners) |o| if (o.func) |f| for (f.vars.items) |*v| switch (v.name) {
+        .binding => |s| try m.bindings.put(a, s, v),
+        .hidden => |k| if (sema.decisionKeyOf(v.node)) |key| try m.vars.put(a, .{ .node = key, .kind = k }, v),
     };
     return m;
 }
@@ -541,7 +559,9 @@ const Lowerer = struct {
                 const inner = ir.Labeled.stmt(s);
                 try l.consumed(inner);
                 if (inner.isKind(.@"for")) return l.forLoop(inner, r);
-                if (!inner.isKind(.@"while")) return l.uncovered(inner, "loops");
+                // Any other statement a label names is a statement of its
+                // own, in the block the label makes.
+                if (!inner.isKind(.@"while")) return l.stmt(inner, r);
                 try l.whileLoop(inner, r);
             },
             .@"for" => try l.forLoop(s, r),
