@@ -261,7 +261,7 @@ pub fn isTypeCallee(ctx: *const SemContext, obj: Sexp) bool {
 /// The symbol `module.name` names in that module; null when `obj` is
 /// not a module's member.
 pub fn moduleMemberSym(ctx: *const SemContext, obj: Sexp) ?sema.Symbol {
-    const f = ctx.foreignMember(ctx.symbolOf(ir.Member.object(obj)) orelse return null, ir.Member.name(obj)) orelse return null;
+    const f = ctx.foreignMember(ctx.symbolOf(ir.Member.object(obj)) orelse return null, srcText(ctx, ir.Member.name(obj))) orelse return null;
     return f.ctx.symbols.items[f.id];
 }
 

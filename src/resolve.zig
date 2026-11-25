@@ -1535,12 +1535,8 @@ fn foreignSymbol(ctx: *const SemContext, scope: ScopeId, member: Sexp) ?struct {
     const object = ir.Member.object(member);
     const module_name = identAt(ctx.source, object) orelse return null;
     const name = identAt(ctx.source, ir.Member.name(member)) orelse return null;
-    const mod_id = ctx.lookupAt(scope, module_name, srcPos(object, 0)) orelse return null;
-    if (ctx.symbols.items[mod_id].kind != .module) return null;
-    const origin = ctx.module_refs.get(mod_id) orelse return null;
-    const foreign = ctx.foreign_semas.get(origin) orelse return null;
-    const fid = foreign.moduleMember(name) orelse return null;
-    return .{ .foreign = foreign, .module_id = origin, .id = fid, .sym = foreign.symbols.items[fid] };
+    const f = ctx.foreignMember(ctx.lookupAt(scope, module_name, srcPos(object, 0)) orelse return null, name) orelse return null;
+    return .{ .foreign = f.ctx, .module_id = f.module_id, .id = f.id, .sym = f.ctx.symbols.items[f.id] };
 }
 
 /// The named type inside a view, optional, handle, box, slice, or
@@ -2299,7 +2295,7 @@ pub const ConstNames = struct {
         const obj = ir.Member.object(e);
         if (obj != .src) return null;
         const id = self.ctx.lookupAt(self.scope, identAt(self.ctx.source, obj) orelse return null, obj.src.pos) orelse return null;
-        const f = self.ctx.foreignMember(id, ir.Member.name(e)) orelse return null;
+        const f = self.ctx.foreignMember(id, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
         if (!f.ctx.symbols.items[f.id].flags.is_public) return null;
         const c = f.ctx.const_ints.get(f.id) orelse return null;
         return .{ .v = c.value, .int = c.int };

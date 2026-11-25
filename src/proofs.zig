@@ -1868,7 +1868,7 @@ fn calledFn(ctx: *const SemContext, call: Sexp) ?Callee {
         return .{ .ctx = ctx, .pos = s.decl_pos };
     }
     if (!callee.isKind(.member)) return null;
-    const f = ctx.foreignMember(ctx.symbolOf(ir.Member.object(callee)) orelse return null, ir.Member.name(callee)) orelse return null;
+    const f = ctx.foreignMember(ctx.symbolOf(ir.Member.object(callee)) orelse return null, sema.identAt(ctx.source, ir.Member.name(callee)) orelse return null) orelse return null;
     const s = f.ctx.symbols.items[f.id];
     if (s.kind != .function or sema.isProxy(s)) return null;
     return .{ .ctx = f.ctx, .pos = s.decl_pos };

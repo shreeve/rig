@@ -4834,13 +4834,13 @@ pub const SemContext = struct {
         return if (self.symbols.items[id].decl_pos == builtin_decl_pos) null else id;
     }
 
-    /// The member the leaf `name` names in the module `module` is, when
-    /// `module` is a module this file uses.
-    pub fn foreignMember(self: *const SemContext, module: SymbolId, name: Sexp) ?Foreign {
+    /// The member `name` of the module `module` is, when `module` is a
+    /// module this file uses.
+    pub fn foreignMember(self: *const SemContext, module: SymbolId, name: []const u8) ?Foreign {
         if (self.symbols.items[module].kind != .module) return null;
         const origin = self.module_refs.get(module) orelse return null;
         const foreign = self.foreign_semas.get(origin) orelse return null;
-        return .{ .ctx = foreign, .module_id = origin, .id = foreign.moduleMember(identAt(self.source, name) orelse return null) orelse return null };
+        return .{ .ctx = foreign, .module_id = origin, .id = foreign.moduleMember(name) orelse return null };
     }
 
     /// The module a `use` in the file `pos` is in binds as `name`
@@ -16976,7 +16976,7 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
             const m = ir.Member.object(target);
             if (m != .src) return null;
             const module = c.lookupAt(sym.scope, identAt(c.source, m) orelse return null, m.src.pos) orelse return null;
-            const f = c.foreignMember(module, ir.Member.name(target)) orelse return null;
+            const f = c.foreignMember(module, identAt(c.source, ir.Member.name(target)) orelse return null) orelse return null;
             if (!f.ctx.symbols.items[f.id].flags.is_public) return null;
             c = f.ctx;
             alias = f.id;
@@ -17019,7 +17019,7 @@ pub fn patternConst(ctx: *const SemContext, pattern: Sexp) ?PatternConst {
             const obj = ir.Member.object(pattern);
             if (obj != .src) return null;
             const id = ctx.symbolOf(obj) orelse ctx.lookupInScopeOnly(module_scope, identAt(ctx.source, obj) orelse return null) orelse return null;
-            const f = ctx.foreignMember(id, ir.Member.name(pattern)) orelse return null;
+            const f = ctx.foreignMember(id, identAt(ctx.source, ir.Member.name(pattern)) orelse return null) orelse return null;
             return if (isModuleConst(f.ctx, f.id)) .{ .ctx = f.ctx, .id = f.id } else null;
         },
         else => return null,
@@ -17115,7 +17115,7 @@ fn foreignMemberOf(ctx: *const SemContext, e: Sexp) ?Symbol {
     const obj = ir.Member.object(e);
     if (obj != .src) return null;
     const id = ctx.symbolOf(obj) orelse ctx.lookupAt(module_scope, identAt(ctx.source, obj) orelse return null, obj.src.pos) orelse return null;
-    const f = ctx.foreignMember(id, ir.Member.name(e)) orelse return null;
+    const f = ctx.foreignMember(id, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
     return f.ctx.symbols.items[f.id];
 }
 

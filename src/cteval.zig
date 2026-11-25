@@ -95,9 +95,7 @@ pub const Scalar = struct {
 
     /// Whether `x`, a scalar's integer form, fits.
     fn fits(self: Scalar, x: Wide) bool {
-        const bits: u16 = @as(u16, self.width) * 8;
-        if (self.kind != .int) return x >= 0 and x < (@as(Wide, 1) << @intCast(bits));
-        return sema.intInfoFits(.{ .bits = @intCast(bits), .signed = self.signed }, x);
+        return sema.intInfoFits(.{ .bits = self.width * 8, .signed = self.signed }, x);
     }
 
     fn encode(self: Scalar, v: CtVal, dst: []u8) void {
@@ -719,7 +717,7 @@ fn namesCtFunction(ctx: *SemContext, obj: Sexp, scope: sema.ScopeId) bool {
     if (!obj.isKind(.member) or ir.Member.object(obj) != .src) return false;
     const m = ir.Member.object(obj);
     const module = ctx.lookupBefore(scope, identAt(ctx.source, m) orelse return false, m.src.pos) orelse return false;
-    const f = ctx.foreignMember(module, ir.Member.name(obj)) orelse return false;
+    const f = ctx.foreignMember(module, identAt(ctx.source, ir.Member.name(obj)) orelse return false) orelse return false;
     return isCtFunction(f.ctx, f.id);
 }
 
@@ -736,7 +734,7 @@ pub fn targetOf(ctx: *SemContext, obj: Sexp, names: anytype) ?Target {
         return .{ .ctx = ctx, .sym = id, .module_id = ctx.module_id };
     }
     if (!obj.isKind(.member) or ir.Member.object(obj) != .src) return null;
-    const f = ctx.foreignMember(names.symbol(ir.Member.object(obj)) orelse return null, ir.Member.name(obj)) orelse return null;
+    const f = ctx.foreignMember(names.symbol(ir.Member.object(obj)) orelse return null, identAt(ctx.source, ir.Member.name(obj)) orelse return null) orelse return null;
     if (!isCtFunction(f.ctx, f.id) or !f.ctx.symbols.items[f.id].flags.is_public) return null;
     return .{ .ctx = f.ctx, .sym = f.id, .module_id = f.module_id };
 }
@@ -1205,7 +1203,7 @@ pub const CheckedNames = struct {
     pub fn member(self: CheckedNames, e: Sexp) ?TypedInt {
         const obj = ir.Member.object(e);
         if (obj != .src) return null;
-        const f = self.ctx.foreignMember(self.symbol(obj) orelse return null, ir.Member.name(e)) orelse return null;
+        const f = self.ctx.foreignMember(self.symbol(obj) orelse return null, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
         const c = f.ctx.const_ints.get(f.id) orelse return null;
         return .{ .v = c.value };
     }
@@ -1257,7 +1255,7 @@ fn intTypeBy(ctx: *const SemContext, e: Sexp, names: anytype) ?IntInfo {
         .src => return if (names.symbol(e)) |id| sema.aliasIntType(ctx, id) else sema.intTypeNamed(identAt(ctx.source, e) orelse return null),
         .list => {
             if (!e.isKind(.member) or ir.Member.object(e) != .src) return null;
-            const f = ctx.foreignMember(names.symbol(ir.Member.object(e)) orelse return null, ir.Member.name(e)) orelse return null;
+            const f = ctx.foreignMember(names.symbol(ir.Member.object(e)) orelse return null, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
             if (!f.ctx.symbols.items[f.id].flags.is_public) return null;
             return sema.aliasIntType(f.ctx, f.id);
         },
@@ -1542,7 +1540,7 @@ fn spelledType(ctx: *SemContext, e: Sexp, names: anytype, depth: u32) Error!?Typ
     switch (sym.kind) {
         // `lib.K`, a constant of another module, typed there; `lib.Dir.east`.
         .module => if (obj == .src) {
-            const f = ctx.foreignMember(id, ir.Member.name(e)) orelse return null;
+            const f = ctx.foreignMember(id, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
             if (!sema.isModuleConst(f.ctx, f.id)) return null;
             return try sema.importType(ctx, f.ctx, f.ctx.symbols.items[f.id].ty, f.module_id);
         },

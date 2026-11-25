@@ -803,10 +803,8 @@ pub fn lookupAt(self: *Checker, scope: ScopeId, name: []const u8, pos: u32) ?Sym
 
 /// A module-level symbol of an imported module, public or not.
 pub fn foreignLookup(self: *Checker, module_sym: SymbolId, name: []const u8) ?Checker.Foreign {
-    const origin = self.ctx.module_refs.get(module_sym) orelse return null;
-    const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-    const fid = foreign.moduleMember(name) orelse return null;
-    return .{ .ctx = foreign, .module_id = origin, .id = fid, .sym = foreign.symbols.items[fid] };
+    const f = self.ctx.foreignMember(module_sym, name) orelse return null;
+    return .{ .ctx = f.ctx, .module_id = f.module_id, .id = f.id, .sym = f.ctx.symbols.items[f.id] };
 }
 
 /// A public module-level symbol of an imported module.
@@ -3786,7 +3784,6 @@ pub fn namesNumberType(self: *Checker, obj: Sexp) bool {
         const m = ir.Member.object(obj);
         if (m != .src) return false;
         const id = lookupQuiet(self, m) orelse return false;
-        if (self.ctx.symbols.items[id].kind != .module) return false;
         const found = foreignLookup(self, id, self.text(ir.Member.name(obj))) orelse return false;
         return found.sym.kind == .type_alias and sema.isNumeric(found.ctx, found.sym.ty);
     }
@@ -3801,7 +3798,6 @@ pub fn foreignMember(self: *Checker, e: Sexp) ?sema.Symbol {
     const m = ir.Member.object(e);
     if (m != .src) return null;
     const id = lookupQuiet(self, m) orelse return null;
-    if (self.ctx.symbols.items[id].kind != .module) return null;
     return (foreignLookup(self, id, self.text(ir.Member.name(e))) orelse return null).sym;
 }
 
