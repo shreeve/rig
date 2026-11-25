@@ -309,9 +309,10 @@ follows only if it passes.
   renaming-only B step, every hunk classified neutral, then resumes. If
   the shadow lowering cannot reproduce storage's decisions, the
   premise is false and the back track stops.
-- **Type-id order** may reach emitted text, which would break the
-  front pilot's identity. It is unknown, and the front pilot checks it
-  first.
+- **Type-id order** does not reach emitted text: F3 elaborates
+  iterator loops in place, with symbols, scopes, and interned types not
+  rolled back and so numbered differently from a second check, and the
+  emitted Zig of every program, Trig's included, is identical.
 - **Ownership's swap** must keep every verdict and message. The shadow
   run over the suite, the doc examples, and the corpus is the proof, and
   the oracle stays independent.

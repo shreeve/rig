@@ -524,8 +524,8 @@ wrapper also makes the only rewrites that need to inspect the tree:
   every later pass reads the body's `p.a` as the capture and checks,
   views, and emits the value as the expression it is;
 - a `for` over an iterator, which typecheck finds, is rewritten into
-  the `while` it means after the module's first check
-  (`Parser.desugarIterLoops`, [Loops over an iterator](#loops-over-an-iterator));
+  the `while` it means where typecheck finds it
+  (`Parser.elaborateIterLoop`, [Loops over an iterator](#loops-over-an-iterator));
 - a `for` source wrapped in `?`, `!`, or `<` moves into the mode slot:
   `(for iter x _ (read xs) body _)` becomes `(for read x _ xs body _)`;
 - a statement `<e` whose value is not used is a drop, a move to
@@ -914,11 +914,13 @@ files is the unit of mutual recursion, as a Go package or a Rust
 crate is. An unreadable file or directory is reported at the `use`. A
 module whose import has errors is not checked further, since its
 errors would only be consequences; the import's own errors are
-reported. A module with a `for` over an iterator is checked twice, the
-second time on the tree that loop is rewritten into ([Loops over an
-iterator](#loops-over-an-iterator)), and only the second check's
-context is the module's. The CLI prints at most 100 errors for a
-program and counts the rest.
+reported. A module with a string literal where a byte goes, a chain,
+an option group, or a spread is checked twice, the second time on the
+tree they are rewritten into ([Strings as bytes](#strings-as-bytes),
+[Groups and spreads](#groups-and-spreads)), and only the second check's
+context is the module's; a `for` over an iterator is rewritten where
+typecheck finds it ([Loops over an iterator](#loops-over-an-iterator)).
+The CLI prints at most 100 errors for a program and counts the rest.
 
 **Embedded files.** Typecheck records each `$embed("path")` as an
 `EmbedSite`: the call, its literal's span, and the bytes the literal
@@ -1798,7 +1800,9 @@ and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and
 a write costs nothing more. Symbols, scopes, and interned types are not
 taken back: each is made once for what it names, and asking again finds
-the same one.
+the same one. A rewrite of the tree, and the names and scopes of the
+nodes it makes, are written outside every mark (`pauseTrail`), since
+the tree keeps the rewrite.
 
 **Decisions.** A few questions about a node that emit, the storage plan,
 and the checkers all act on are recorded as answered the first time a
@@ -4475,13 +4479,19 @@ is alive, and `break` values and `else` are a `while`'s. An iterator
 has no index binding.
 
 The rewrite is a tree rewrite, so nothing downstream sees a `for` over
-an iterator. Typecheck cannot make it, since the type of a source is
-known only there; it records the loop (`SemContext.iter_loops`, with how
-the source is walked) and gives the loop variable no type, and
-`ModuleGraph.check` then calls `Parser.desugarIterLoops` and checks the
-module again from the rewritten tree, discarding the first run. The
-The new nodes are IR nodes like the parser's, and each spans the loop's
-source. The two names no source text holds, the method `next` and the
+an iterator. Typecheck makes it where it learns the source's type
+(`Checker.elaborateFor`): it takes a mark on the trail before it checks
+the source ([The facts table](#the-facts-table), "The trail"), and when
+the source is an iterator it rolls back what that check recorded,
+rewrites the loop where it stands (`Parser.elaborateIterLoop`), gives
+the new nodes their names and scopes from those the resolver gave the
+`for` (`resolve.resolveIterWhile`: the `for`'s scope becomes the
+`as`'s, and `h` is declared in a block of its own), and checks the
+statement that stands there now. The source and the body keep the
+names the resolver gave them in its walk of the module, which saw each
+declaration in order. A loop whose source has an error is not
+rewritten, and its variable has no type. The new nodes are IR nodes
+like the parser's, and each spans the loop's source. The two names no source text holds, the method `next` and the
 hidden binding `h`, are leaves at positions inside the loop's `for`
 keyword, which holds no leaf, whose `id` says which name they are
 (`rig.leafText`, which every pass reads a name through). `h` is named

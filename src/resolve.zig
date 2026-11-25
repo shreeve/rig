@@ -70,6 +70,41 @@ pub fn resolveSymbols(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error
     }
 }
 
+/// The names and scopes of `w`, the `while` the `for` over an
+/// iterator `loop` was rewritten into (`rig.Parser.elaborateIterLoop`),
+/// from those the walk gave the `for` (`walkFor`), as the walk of the
+/// `while` would give them (`walkConditional`, `walkSet`): the
+/// `for`'s scope, which binds the loop variable, is the scope of the
+/// `as` that binds it, and a held source's binding `h` is declared in
+/// a block of its own around the `while`. The source and the body
+/// keep theirs, made where the walk met them in order: walked again
+/// now, after the whole module, a name declared later would be seen.
+pub fn resolveIterWhile(ctx: *SemContext, loop: Sexp, w: rig.Parser.IterWhile) Error!void {
+    const scope = ctx.scopeOf(loop).?;
+    try ctx.removeIn(.{ .facts = .scopes }, loop.list.id);
+    const as = ir.While.cond(w.loop);
+    try ctx.recordScope(as, scope);
+    if (ctx.symbolOf(ir.As.name(as))) |x| ctx.symbols.items[x].flags.as_bound = true;
+    const view = ir.Member.object(ir.Call.callee(ir.As.value(as)));
+    const hold = w.hold orelse {
+        // `!it` was marked written by the `for`; it is by the view.
+        if (ctx.writeSiteOf(loop)) |site| {
+            try ctx.removeIn(.{ .ctx = .write_sites }, loop.list.id);
+            try ctx.putIn(.{ .ctx = .write_sites }, view.list.id, site);
+        }
+        return;
+    };
+    const block = w.stmt;
+    const outer = ctx.scopes.items[scope].parent orelse sema.scope_invalid;
+    var r: SymbolResolver = .{ .ctx = ctx, .scope = outer, .module_scope = sema.module_scope };
+    _ = try r.enter(block, .block);
+    ctx.scopes.items[scope].parent = r.scope;
+    const target = ir.Set.target(hold);
+    const loop_name = if (ctx.parser) |p| p.isLoopName(target) else false;
+    const h = (try r.declare(target, .local, .{ .pattern_bound = loop_name })).?;
+    try ctx.recordWrite(view, h, .write_viewed);
+}
+
 const SymbolResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,

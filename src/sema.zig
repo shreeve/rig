@@ -4203,9 +4203,10 @@ const ImportedEntry = struct { module_id: u32, list: GenericList, index: u32 };
 pub const SemContext = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
-    /// The parser that built the module's tree, for node spans; null for
-    /// a tree checked without one (spans then come from the leaves).
-    parser: ?*const parser.Parser = null,
+    /// The parser that built the module's tree, for node spans and the
+    /// rewrites typecheck makes in the tree; null for a tree checked
+    /// without one (spans then come from the leaves).
+    parser: ?*parser.Parser = null,
     /// Owns symbol names, messages, and every slice inside a Type.
     arena: std.heap.ArenaAllocator,
 
@@ -4624,14 +4625,10 @@ pub const SemContext = struct {
     /// The parameters each function and method calls at most once, those
     /// written `f: once ?fun() -> T`, by where its name is declared.
     declared_once: FastMap(u32, ParamMask) = .empty,
-    /// The `for` loops over an iterator that typecheck found, each to be
-    /// rewritten into the `while` it means (`rig.IterLoop`). A module with
-    /// any is checked again on the rewritten tree, so no pass sees one.
-    iter_loops: std.ArrayList(rig.IterLoop) = .empty,
     /// The string literals typecheck found where a `U8` or a `[N]U8` goes,
     /// each to be written as the byte or the array of bytes it is there
     /// (`rig.ByteLiteral`); a module with any is checked again on the
-    /// rewritten tree, as for `iter_loops`.
+    /// rewritten tree, so no pass sees one.
     byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
     /// Every `$embed` of the module (`EmbedSite`), recorded once each.
     embed_sites: std.ArrayList(EmbedSite) = .empty,
@@ -4639,13 +4636,13 @@ pub const SemContext = struct {
     embed_records: std.ArrayList(EmbedRecord) = .empty,
     /// The iterator chains typecheck found (`rig.Chain`), each to be
     /// rewritten into the loop it means; checked again, as for
-    /// `iter_loops`.
+    /// `byte_literals`.
     chains: std.ArrayList(rig.Chain) = .empty,
     /// The groups typecheck found (`rig.GroupSite`), each to be made the
     /// parameters it means, and the uses of each in its function's body,
     /// by the position of the group's name; the spreads (`rig.SpreadSite`),
     /// each to be made the keyword arguments it means. Checked again, as
-    /// for `iter_loops`.
+    /// for `byte_literals`.
     groups: std.ArrayList(rig.GroupSite) = .empty,
     /// The group each parameter that is a group's field belongs to, by
     /// name (`GroupParam`), for the message that the body reads it through
@@ -4741,7 +4738,6 @@ pub const SemContext = struct {
         self.declared_origins.deinit(self.allocator);
         self.declared_keeps.deinit(self.allocator);
         self.declared_once.deinit(self.allocator);
-        self.iter_loops.deinit(self.allocator);
         self.chains.deinit(self.allocator);
         self.groups.deinit(self.allocator);
         self.group_fields.deinit(self.allocator);
@@ -5218,6 +5214,17 @@ pub const SemContext = struct {
     pub fn mark(self: *SemContext) Mark {
         self.trail.open += 1;
         return .{ .entries = @intCast(self.trail.entries.items.len), .olds = @intCast(self.trail.olds.items.len), .diagnostics = @intCast(self.diagnostics.items.len), .decided = @intCast(self.decided.entries.items.len) };
+    }
+
+    /// Record outside every open mark until `resumeTrail`: what is
+    /// recorded then is kept, whatever is rolled back.
+    pub fn pauseTrail(self: *SemContext) u32 {
+        defer self.trail.open = 0;
+        return self.trail.open;
+    }
+
+    pub fn resumeTrail(self: *SemContext, open: u32) void {
+        self.trail.open = open;
     }
 
     /// Close `m` and keep what was recorded since.
@@ -6549,7 +6556,7 @@ pub const SemContext = struct {
 
 pub const CheckOptions = struct {
     /// The parser that built the tree, for node spans in diagnostics.
-    parser: ?*const parser.Parser = null,
+    parser: ?*parser.Parser = null,
     /// What the module's `use` declarations resolve to.
     imports: []const ImportEntry = &.{},
     /// Every module loaded so far, by id; the imports and the modules
