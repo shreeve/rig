@@ -19,6 +19,9 @@ const Error = std.mem.Allocator.Error;
 const srcPos = sema.srcPos;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
+const ApiCheck = @import("apis.zig");
+const CompatCheck = @import("compat.zig");
+const GenericCheck = @import("generics.zig");
 const BuiltinCheck = @import("builtins.zig");
 const CallCheck = @import("calls.zig");
 const ExprCheck = @import("expr.zig");
@@ -145,7 +148,7 @@ pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expe
             self.expect.plain_cond = try BuiltinCheck.plainCondOf(self, guard, &.{ir.Arm.body(arm)});
             try ViewCheck.checkExpr(self, guard, self.t().bool_id);
             self.expect.plain_cond = saved_plain;
-            if (tc.findMove(guard)) |m| try self.errAt(m, "a guard cannot move a value: when it fails, a later arm matches the same value", .{});
+            if (CompatCheck.findMove(guard)) |m| try self.errAt(m, "a guard cannot move a value: when it fails, a later arm matches the same value", .{});
             if (guardWrite(self, guard, subject, pattern)) |w| try self.errAt(w, "a guard cannot change the value being matched: when it fails, a later arm matches the same value", .{});
         }
         const body = ir.Arm.body(arm);
@@ -200,7 +203,7 @@ pub fn alwaysHolds(self: *Checker, pattern: Sexp, scrutinee: TypeId) Error!void 
 pub fn testCatchAll(self: *Checker, subject: Sexp, alts: []const Sexp, cov: *Checker.MatchCoverage) Error!void {
     for (alts) |alt| if (storage.isCatchAll(self.ctx, alt)) {
         const name = self.text(alt);
-        const compare = if (std.mem.eql(u8, name, "_")) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to compare with `{s}`, write `{s} == {s}`", .{ name, try ViewCheck.plainText(self, tc.stripSigil(subject)), name });
+        const compare = if (std.mem.eql(u8, name, "_")) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to compare with `{s}`, write `{s} == {s}`", .{ name, try ViewCheck.plainText(self, CompatCheck.stripSigil(subject)), name });
         try self.errAt(alt, "`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value{s}", .{ name, compare });
         try poisonBinding(self, alt);
         cov.rejected = true;
@@ -213,7 +216,7 @@ pub fn testCatchAll(self: *Checker, subject: Sexp, alts: []const Sexp, cov: *Che
 /// that is not an enum or an error.
 pub fn matchesRejects(self: *Checker, subject: Sexp, pattern: Sexp, scrutinee: TypeId) Error!bool {
     const reached = sema.unwrapViews(self.ctx, scrutinee);
-    const shown = try ViewCheck.plainText(self, tc.stripSigil(subject));
+    const shown = try ViewCheck.plainText(self, CompatCheck.stripSigil(subject));
     if (self.ctx.types.get(reached) == .optional) {
         const inner = try self.tyName(self.ctx.types.get(reached).optional);
         const v: []const u8 = if (inner.len > 0 and std.ascii.isAlphabetic(inner[0])) &.{std.ascii.toLower(inner[0])} else "v";
@@ -223,7 +226,7 @@ pub fn matchesRejects(self: *Checker, subject: Sexp, pattern: Sexp, scrutinee: T
     }
     if (rig.matchesBinds(self.ctx.source, pattern) and sema.enumVariantCount(self.ctx, reached) == null) {
         const ty = try self.tyName(reached);
-        try self.errAt(subject, "`matches` with a variant pattern tests which variant an enum value is, and `{s}` is {s} `{s}`", .{ shown, tc.article(ty), ty });
+        try self.errAt(subject, "`matches` with a variant pattern tests which variant an enum value is, and `{s}` is {s} `{s}`", .{ shown, CompatCheck.article(ty), ty });
         return true;
     }
     return false;
@@ -305,12 +308,12 @@ pub fn variantFields(self: *Checker, subject: TypeId, name: []const u8) []const 
 pub fn guardWrite(self: *Checker, g: Sexp, subject: Sexp, pattern: Sexp) ?Sexp {
     if (g != .list) return null;
     const written: ?Sexp = if (g.isKind(.write)) ir.Write.operand(g) else if (g.isKind(.cap_write)) ir.CapWrite.name(g) else null;
-    if (written) |w| if (tc.placeRoot(w)) |leaf| if (self.ctx.symbolOf(leaf)) |sym| {
-        if (tc.placeRoot(subject)) |s| if (self.ctx.symbolOf(s) == sym) return g;
+    if (written) |w| if (CompatCheck.placeRoot(w)) |leaf| if (self.ctx.symbolOf(leaf)) |sym| {
+        if (CompatCheck.placeRoot(subject)) |s| if (self.ctx.symbolOf(s) == sym) return g;
         if (patternBinds(self, pattern, sym)) return g;
         if (self.ctx.symbols.items[sym].kind == .capture) {
             const origin = self.ctx.symbols.items[sym].origin;
-            if (tc.placeRoot(subject)) |s| if (self.ctx.symbolOf(s) == origin) return g;
+            if (CompatCheck.placeRoot(subject)) |s| if (self.ctx.symbolOf(s) == origin) return g;
         }
     };
     for (g.items()) |c| if (guardWrite(self, c, subject, pattern)) |w| return w;
@@ -337,7 +340,7 @@ pub fn readMatchHint(self: *Checker, sym: ?SymbolId) Error![]const u8 {
     if (self.read_subjects.get(id)) |from| if (from.kind == .as) {
         const shown = try ViewCheck.plainText(self, from.place);
         // No `!` writes a field another module keeps read-only.
-        if (StmtCheck.placeOf(self, from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`, and field `{s}` of `{s}` is read-only {s}, so nothing here writes through it", .{ s.name, shown, f.field, f.owner, try tc.readOnlyWhere(self.ctx, f, false) });
+        if (StmtCheck.placeOf(self, from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`, and field `{s}` of `{s}` is read-only {s}, so nothing here writes through it", .{ s.name, shown, f.field, f.owner, try GenericCheck.readOnlyWhere(self.ctx, f, false) });
         // A parameter taken by value is written once it is taken to
         // write (`o: !T`).
         const subject = StmtCheck.placeOf(self, from.place);
@@ -352,7 +355,7 @@ pub fn readMatchHint(self: *Checker, sym: ?SymbolId) Error![]const u8 {
     if (from.kind != .match_copy and from.kind != .match_read) return "";
     const what = if (from.whole) "" else "a field of ";
     const shown = try ViewCheck.plainText(self, from.place);
-    if (StmtCheck.placeOf(self, from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`, and field `{s}` of `{s}` is read-only {s}, so nothing here writes through it", .{ s.name, what, shown, f.field, f.owner, try tc.readOnlyWhere(self.ctx, f, false) });
+    if (StmtCheck.placeOf(self, from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`, and field `{s}` of `{s}` is read-only {s}, so nothing here writes through it", .{ s.name, what, shown, f.field, f.owner, try GenericCheck.readOnlyWhere(self.ctx, f, false) });
     // A subject reached through a read view or a shared handle is never
     // written through, however it is matched.
     if (readOnlyStep(self, from.place)) |why| return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`, which is reached through {s}, so nothing writes through it", .{ s.name, what, shown, why });
@@ -500,7 +503,7 @@ pub fn holdsHeld(self: *Checker, subject: Sexp) Error!bool {
 /// statement temporary (`dropsTemp`).
 pub fn makesTemps(self: *Checker, node: Sexp, base: Sexp) bool {
     if (node != .list) return false;
-    if (!tc.sameNode(node, base) and self.ctx.dropsTemp(node)) return true;
+    if (!CompatCheck.sameNode(node, base) and self.ctx.dropsTemp(node)) return true;
     for (node.items()) |item| if (makesTemps(self, item, base)) return true;
     return false;
 }
@@ -523,9 +526,9 @@ pub fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, bound: TypeId
     try self.ctx.recordHeaderCopy(node);
     if (self.isPoison(bound)) return;
     if (ViewCheck.hands(self, subject).kind == .made and sema.holdsNoLoanButText(self.ctx, sema.unwrapViews(self.ctx, bound))) return;
-    if (tc.inIndex(subject, temp)) {
+    if (CompatCheck.inIndex(subject, temp)) {
         try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first", .{});
-    } else if (tc.inArgument(subject, temp)) {
+    } else if (CompatCheck.inArgument(subject, temp)) {
         try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the argument to a name first", .{});
     } else try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind `{s}` to a name first", .{CallCheck.sourceText(self, temp)});
 }
@@ -660,7 +663,7 @@ pub fn checkAlternativeTypes(self: *Checker, alts: []const Sexp) Error!void {
                 if (o != .src or !std.mem.eql(u8, self.text(o), self.text(b))) continue;
                 const other = self.ctx.payloadFieldOf(o) orelse continue;
                 if (other == ty) continue;
-                try self.errAt(o, "`{s}` is {s} `{s}` in `{s}` and {s} `{s}` in `{s}`: alternatives bind each name with one type", .{ self.text(b), tc.article(try self.tyName(ty)), try self.tyName(ty), try ViewCheck.plainText(self, first), tc.article(try self.tyName(other)), try self.tyName(other), try ViewCheck.plainText(self, alt) });
+                try self.errAt(o, "`{s}` is {s} `{s}` in `{s}` and {s} `{s}` in `{s}`: alternatives bind each name with one type", .{ self.text(b), CompatCheck.article(try self.tyName(ty)), try self.tyName(ty), try ViewCheck.plainText(self, first), CompatCheck.article(try self.tyName(other)), try self.tyName(other), try ViewCheck.plainText(self, alt) });
                 try poisonBinding(self, b);
                 return;
             }
@@ -682,7 +685,7 @@ pub fn coversAll(self: *Checker, cov: *Checker.MatchCoverage, scrutinee: TypeId)
     switch (self.ctx.types.get(ty)) {
         .bool => return cov.bools[0] and cov.bools[1],
         .int, .int_literal => {
-            const bounds = tc.intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
+            const bounds = CompatCheck.intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
             var next = bounds.min;
             const max = bounds.max;
             for (cov.ints.items) |iv| {
@@ -701,7 +704,7 @@ pub fn coversAll(self: *Checker, cov: *Checker.MatchCoverage, scrutinee: TypeId)
 pub fn notExhaustive(self: *Checker, cov: *const Checker.MatchCoverage, scrutinee: TypeId, pos: u32) Error!void {
     const ty = sema.unwrapViews(self.ctx, scrutinee);
     const fix = "add an arm for it, or `_ =>` for the rest";
-    if (tc.isText(self.ctx, ty)) return self.err(pos, "`match` on text is not exhaustive without `_ =>`: no set of strings covers every text", .{});
+    if (CompatCheck.isText(self.ctx, ty)) return self.err(pos, "`match` on text is not exhaustive without `_ =>`: no set of strings covers every text", .{});
     if (sema.nominalDecl(self.ctx, ty)) |decl| if (decl.symbol().fields) |fields| {
         var missing: std.ArrayList(u8) = .empty;
         const a = self.ctx.arena.allocator();
@@ -728,7 +731,7 @@ pub fn notExhaustive(self: *Checker, cov: *const Checker.MatchCoverage, scrutine
         .int, .int_literal => {
             // The least value missed that is not negative, else the
             // greatest negative one.
-            const bounds = tc.intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
+            const bounds = CompatCheck.intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
             var next: Wide = @max(bounds.min, 0);
             for (cov.ints.items) |iv| {
                 if (iv[0] > next) break;
@@ -772,10 +775,10 @@ pub fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *Chec
         .src => {
             const name = self.text(pattern);
             if (sema.isStringLiteralText(name)) {
-                if (tc.isU8(self.ctx, sema.unwrapViews(self.ctx, scrutinee))) return checkBytePattern(self, pattern, scrutinee, cov);
+                if (CompatCheck.isU8(self.ctx, sema.unwrapViews(self.ctx, scrutinee))) return checkBytePattern(self, pattern, scrutinee, cov);
                 return checkTextPattern(self, pattern, scrutinee, cov);
             }
-            if (tc.isLiteralText(name)) {
+            if (CompatCheck.isLiteralText(name)) {
                 try ViewCheck.checkExpr(self, pattern, scrutinee);
                 if (std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) {
                     const i: usize = if (name[0] == 't') 1 else 0;
@@ -863,7 +866,7 @@ pub fn checkBytePattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *
         cov.rejected = true;
         return;
     }
-    const bytes = tc.textLiteralBytes(self.ctx.arena.allocator(), self.text(pattern)) orelse return;
+    const bytes = CompatCheck.textLiteralBytes(self.ctx.arena.allocator(), self.text(pattern)) orelse return;
     try coverInts(self, cov, bytes[0], bytes[0], pattern.src.pos);
 }
 
@@ -873,13 +876,13 @@ pub fn checkTextPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *
     try ExprCheck.checkEscapes(self, pattern);
     const subject = sema.unwrapViews(self.ctx, scrutinee);
     if (self.isPoison(subject)) return;
-    if (!tc.isText(self.ctx, subject)) {
+    if (!CompatCheck.isText(self.ctx, subject)) {
         try self.errAt(pattern, "`{s}` is a string, which matches text: a `String`, a `?String`, or a `Static`; the subject is `{s}`", .{ self.text(pattern), try self.tyName(scrutinee) });
         cov.rejected = true;
         return;
     }
     if (self.ctx.diagnostics.items.len > mark) return;
-    const bytes = tc.textLiteralBytes(self.ctx.arena.allocator(), self.text(pattern)) orelse return;
+    const bytes = CompatCheck.textLiteralBytes(self.ctx.arena.allocator(), self.text(pattern)) orelse return;
     const key = try std.fmt.allocPrint(self.ctx.arena.allocator(), "\"{s}", .{bytes});
     if (cov.variantAt(key)) |first| {
         try self.errAt(pattern, "duplicate arm for `{s}`: an earlier arm matches the same text", .{self.text(pattern)});
@@ -898,7 +901,7 @@ pub fn checkRangePattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: 
     // A half-open range's end may be one past the largest value; an
     // inclusive one's is a value.
     const inclusive = rig.isInclusive(pattern);
-    const hi_literal = !inclusive and tc.isIntLiteralNode(self.ctx.source, hi_node);
+    const hi_literal = !inclusive and CompatCheck.isIntLiteralNode(self.ctx.source, hi_node);
     const st = self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee));
     if (hi_literal and (st == .int or st == .int_literal)) {
         // Record the bound's type without the fit check a value gets.
@@ -924,7 +927,7 @@ pub fn checkRangePattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: 
         return coverInts(self, cov, lo.?, hi.?, pos);
     }
     if (st == .int) {
-        const b = tc.intBounds(st.int);
+        const b = CompatCheck.intBounds(st.int);
         if (hi.? > b.max + 1 or hi.? <= b.min) {
             try self.errAt(hi_node, "the end of range `{d}..{d}` does not fit `{s}`; it may be at most {d}, one past the largest value", .{ lo.?, hi.?, try self.tyName(scrutinee), b.max + 1 });
             return;
@@ -1251,7 +1254,7 @@ pub fn fieldBindings(self: *Checker, pattern: Sexp, fields: []const Field) Error
         return null;
     }
     if (named < bindings.len) {
-        try self.err(name.src.pos, "`{s}` has {d} field{s}; bind them by name: `{s}`", .{ vname, fields.len, tc.plural(fields.len), try byNameText(self, pattern, fields, named == 0 and bindings.len == fields.len) });
+        try self.err(name.src.pos, "`{s}` has {d} field{s}; bind them by name: `{s}`", .{ vname, fields.len, CompatCheck.plural(fields.len), try byNameText(self, pattern, fields, named == 0 and bindings.len == fields.len) });
         return null;
     }
     if (!ok) return null;
@@ -1385,7 +1388,7 @@ pub fn cellMadeAway(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
     if (self.isPoison(ty) or !sema.holdsCellByValue(self.ctx, ty)) return false;
     // Typed only to infer a call's type arguments, it stands nowhere
     // yet: it is decided where it is checked.
-    if (tc.sameNode(e, self.expect.shared_operand) or tc.sameNode(e, self.expect.cell_home) or self.ctx.quiet > 0) return false;
+    if (CompatCheck.sameNode(e, self.expect.shared_operand) or CompatCheck.sameNode(e, self.expect.cell_home) or self.ctx.quiet > 0) return false;
     if (!e.isKind(.call)) return cellCopiedByBranch(self, e, ty);
     const src = CallCheck.sourceText(self, e);
     try self.errAt(e, "`{s}` makes a `{s}`, which holds a Cell, so it lives only behind a shared handle: write `*{s}`", .{ src, try self.tyName(ty), src });
@@ -1397,7 +1400,7 @@ pub fn cellMadeAway(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
 /// list of what may stand there: a value made there, a view, a jump,
 /// or a constant.
 pub fn cellCopiedByBranch(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
-    if (tc.sameNode(e, self.expect.in_place)) return false;
+    if (CompatCheck.sameNode(e, self.expect.in_place)) return false;
     var leaves: std.ArrayList(Sexp) = .empty;
     defer leaves.deinit(self.ctx.allocator);
     try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, e, &leaves);

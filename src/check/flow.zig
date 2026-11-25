@@ -15,6 +15,9 @@ const TypeId = sema.TypeId;
 const Error = std.mem.Allocator.Error;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
+const ApiCheck = @import("apis.zig");
+const CompatCheck = @import("compat.zig");
+const GenericCheck = @import("generics.zig");
 const BuiltinCheck = @import("builtins.zig");
 const CallCheck = @import("calls.zig");
 const ExprCheck = @import("expr.zig");
@@ -253,7 +256,7 @@ pub fn isBlockIf(self: *Checker, node: Sexp) bool {
 pub fn usesValue(self: *Checker, recv: Sexp, returns: TypeId) bool {
     if (self.expect.current_call) |c| if (ir.Call.task(c) != .nil) {
         const callee = ir.Call.callee(c);
-        if (callee.isKind(.member) and tc.sameNode(ir.Member.object(callee), recv)) return true;
+        if (callee.isKind(.member) and CompatCheck.sameNode(ir.Member.object(callee), recv)) return true;
     };
     const result = self.ctx.types.get(returns);
     const value = if (result == .fallible) result.fallible.ok else returns;
@@ -294,7 +297,7 @@ pub fn writeCallText(self: *Checker, recv: Sexp, method: []const u8, returns: Ty
 pub fn callWith(self: *Checker, recv: Sexp, with: []const u8, method: []const u8) Error![]const u8 {
     if (self.expect.current_call) |c| {
         const callee = ir.Call.callee(c);
-        if (callee.isKind(.member) and tc.sameSite(ir.Member.object(callee), recv)) {
+        if (callee.isKind(.member) and CompatCheck.sameSite(ir.Member.object(callee), recv)) {
             // A self written in parentheses, `(mk() if c else
             // d).m()`: `with` takes their place.
             const call = self.ctx.span(c);
@@ -321,7 +324,7 @@ pub fn isDiscardedCall(self: *const Checker, recv: Sexp) bool {
         .@"catch" => e = ir.Catch.value(e),
         .call => {
             const callee = ir.Call.callee(e);
-            return callee.isKind(.member) and tc.sameExpr(ir.Member.object(callee), recv);
+            return callee.isKind(.member) and CompatCheck.sameExpr(ir.Member.object(callee), recv);
         },
         else => return false,
     };
@@ -344,7 +347,7 @@ pub fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
     defer self.expect.held_base = saved_held;
     if (!self.expect.no_hold) self.expect.held_base = PatternCheck.madeBase(self, expr);
     const saved_as = self.expect.as_call;
-    self.expect.as_call = tc.resultCall(expr) orelse .nil;
+    self.expect.as_call = CompatCheck.resultCall(expr) orelse .nil;
     const ty = try PatternCheck.synthExpr(self, expr);
     self.expect.as_call = saved_as;
     var inner = self.t().invalid_id;
@@ -504,7 +507,7 @@ pub fn enterFrame(self: *Checker, frame: *Checker.LoopFrame) Error!void {
         c: *Checker,
         node: Sexp,
         pub fn jump(r: @This(), j: Sexp) Error!void {
-            try r.c.jump_targets.put(r.c.ctx.allocator, tc.nodeId(j), r.node);
+            try r.c.jump_targets.put(r.c.ctx.allocator, CompatCheck.nodeId(j), r.node);
         }
     };
     try sema.eachJumpTo(self.ctx.source, frame.node, frame.label, Record{ .c = self, .node = frame.node });
@@ -656,13 +659,13 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
             // loop cannot both view and take, unless its elements copy.
             const peeled_hands = ViewCheck.hands(self, peeled_source);
             const unbound = (!peeled_hands.hasStorage() and peeled_hands.kind != .made) or (mode == .iter and peeled_hands.kind == .part_of_made and self.expect.held_base == .nil);
-            const list = tc.listElementType(self.ctx, source_ty) != null or sema.tableElem(self.ctx, source_ty) != null;
+            const list = CompatCheck.listElementType(self.ctx, source_ty) != null or sema.tableElem(self.ctx, source_ty) != null;
             const moving = list or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, source_ty))) {
                 .array => |a| sema.copies(self.ctx, a.elem) == .no,
                 else => false,
             };
             // A List whose elements move is reported by `elementTypeForLoop`.
-            const list_moves = if (tc.listElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty)) orelse sema.tableElem(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
+            const list_moves = if (CompatCheck.listElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty)) orelse sema.tableElem(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
             if (mode != .move and unbound and !list_moves and (if (mode == .iter) moving else list) and !self.isPoison(source_ty)) {
                 const what = if (list) "a List held in a place or made by a call" else "a place or takes a value made here";
                 try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
@@ -846,7 +849,7 @@ pub fn loopOrderHint(self: *Checker, e: Sexp, wanted: TypeId) Error![]const u8 {
     const pair = self.loop_pairs.get(sym) orelse return "";
     const other = if (sym == pair.elem) pair.index else pair.elem;
     const other_ty = self.ctx.symbols.items[other].ty;
-    const fits = if (sym == pair.elem) sema.isInteger(self.ctx, wanted) else tc.compatible(self.ctx, other_ty, wanted);
+    const fits = if (sym == pair.elem) sema.isInteger(self.ctx, wanted) else CompatCheck.compatible(self.ctx, other_ty, wanted);
     if (!fits) return "";
     const elem = self.ctx.symbols.items[pair.elem].name;
     const index = self.ctx.symbols.items[pair.index].name;
@@ -944,8 +947,8 @@ pub fn resolveJump(self: *Checker, node: Sexp) Error!?*Checker.LoopFrame {
     const brk = node.isKind(.@"break");
     const label = ir.get(node, .label);
     var target = self.body.loops;
-    if (self.jump_targets.get(tc.nodeId(node))) |named| {
-        while (target) |f| : (target = f.parent) if (tc.sameNode(f.node, named)) break;
+    if (self.jump_targets.get(CompatCheck.nodeId(node))) |named| {
+        while (target) |f| : (target = f.parent) if (CompatCheck.sameNode(f.node, named)) break;
     } else target = null;
     const word = if (brk) "break" else "continue";
     const f = target orelse {
@@ -1024,7 +1027,7 @@ pub fn loopElement(self: *Checker, mode: sema.LoopMode, elem: TypeId) Error!Type
 /// with the loan on `h`. Nothing is written through a handle, or
 /// taken out through one.
 pub fn sharedLoopElement(self: *Checker, source: Sexp, inner_source: Sexp, walked: TypeId, mode: ?Tag) Error!TypeId {
-    const elem, const what = if (tc.listElementType(self.ctx, walked)) |e| .{ e, "a List" } else .{ self.ctx.types.get(walked).array.elem, "an array" };
+    const elem, const what = if (CompatCheck.listElementType(self.ctx, walked)) |e| .{ e, "a List" } else .{ self.ctx.types.get(walked).array.elem, "an array" };
     const pos = self.startOf(source);
     const shown = try ViewCheck.plainText(self, inner_source);
     if (mode == .write) {
@@ -1078,7 +1081,7 @@ pub fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, sour
             }
             if (mode == .write) return writeElement(self, source, inner_source, elem);
             return loopElement(self, .read, elem);
-        } else if (tc.listElementType(self.ctx, peeled)) |elem| {
+        } else if (CompatCheck.listElementType(self.ctx, peeled)) |elem| {
             // Elements that move (handles and boxes) are walked by
             // view; every other element is plain data.
             const is_resource = sema.moves(self.ctx, elem) == .yes;
@@ -1131,7 +1134,7 @@ pub fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, sour
         else => {},
     }
     // `for b in ?t` walks the bytes of the `?String` `?t` makes.
-    if (mode == .read and tc.stringOrBoxed(self.ctx, peeled) == self.t().string_id) {
+    if (mode == .read and CompatCheck.stringOrBoxed(self.ctx, peeled) == self.t().string_id) {
         if (!StmtCheck.placeOf(self, source).named()) try ViewCheck.viewTemp(self, source);
         return ViewCheck.byteType(self);
     }
@@ -1267,7 +1270,7 @@ pub fn checkMatchSubject(self: *Checker, node: Sexp) Error!Checker.MatchSubject 
     if (scrutinee == self.t().int_literal_id) try ViewCheck.defaultIntLiteral(self, subject);
     // A value of a set parameter is matched as an error of any set.
     scrutinee = try PatternCheck.setParamAsError(self, scrutinee);
-    const matchable = tc.isText(self.ctx, scrutinee) or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee))) {
+    const matchable = CompatCheck.isText(self.ctx, scrutinee) or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee))) {
         .int, .int_literal, .bool, .symbol, .invalid, .unknown, .any_error => true,
         .nominal, .parameterized_nominal, .imported_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null or sema.isErrorUnion(self.ctx, sema.unwrapViews(self.ctx, scrutinee)),
         else => false,

@@ -17,6 +17,9 @@ const Error = std.mem.Allocator.Error;
 const srcPos = sema.srcPos;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
+const ApiCheck = @import("apis.zig");
+const CompatCheck = @import("compat.zig");
+const GenericCheck = @import("generics.zig");
 const CallCheck = @import("calls.zig");
 const ExprCheck = @import("expr.zig");
 const PatternCheck = @import("patterns.zig");
@@ -34,9 +37,9 @@ pub fn checkLiteralFits(self: *Checker, e: Sexp, target: TypeId) Error!void {
         return self.errAt(e, "a literal is a `{s}` only where `n` is known; make one with `{s}.of(i)`", .{ try self.tyName(target), try self.tyName(target) });
     }
     switch (sema.constInt(self.ctx, e)) {
-        .value => |v| if (!tc.holdsInt(self.ctx, target, v)) switch (tt) {
+        .value => |v| if (!CompatCheck.holdsInt(self.ctx, target, v)) switch (tt) {
             .slot => |n| try self.errAt(e, "integer value `{d}` does not fit in `{s}` (0..{d}): a slot names one of {d} slots", .{ v, try self.tyName(target), sema.slotCount(self.ctx, n).? - 1, sema.slotCount(self.ctx, n).? }),
-            .int => |info| try self.errAt(e, "integer value `{d}` does not fit in `{s}` ({d}..{d})", .{ v, try self.tyName(target), tc.intBounds(info).min, tc.intBounds(info).max }),
+            .int => |info| try self.errAt(e, "integer value `{d}` does not fit in `{s}` ({d}..{d})", .{ v, try self.tyName(target), CompatCheck.intBounds(info).min, CompatCheck.intBounds(info).max }),
             else => try self.errAt(e, "integer value `{d}` does not fit exactly in `{s}`", .{ v, try self.tyName(target) }),
         },
         .overflow => if (e == .src) {
@@ -347,7 +350,7 @@ pub fn checkListConstruction(self: *Checker, call: Sexp, list_ty: TypeId) Error!
     var seen: ?u32 = null;
     const args = ir.Call.args(call);
     if (args.len == 1 and !args[0].isKind(.kwarg)) {
-        _ = try listFromElems(self, args[0], tc.listElementType(self.ctx, list_ty));
+        _ = try listFromElems(self, args[0], CompatCheck.listElementType(self.ctx, list_ty));
         return;
     }
     for (args) |a| {
@@ -433,11 +436,11 @@ pub fn unify(self: *Checker, a: TypeId, b: TypeId, pos: u32) Error!?TypeId {
     if (b == self.t().none_id and self.ctx.types.get(a) == .optional) return a;
     // Integer and float literals meet as a float literal.
     if ((a == self.t().int_literal_id and b == self.t().float_literal_id) or (b == self.t().int_literal_id and a == self.t().float_literal_id)) return self.t().float_literal_id;
-    if (tc.compatible(self.ctx, a, b)) return b;
-    if (tc.compatible(self.ctx, b, a)) return a;
+    if (CompatCheck.compatible(self.ctx, a, b)) return b;
+    if (CompatCheck.compatible(self.ctx, b, a)) return a;
     // A viewed Copy value meets a value as the value.
-    const va = tc.readValue(self.ctx, a);
-    const vb = tc.readValue(self.ctx, b);
+    const va = CompatCheck.readValue(self.ctx, a);
+    const vb = CompatCheck.readValue(self.ctx, b);
     if (va != a or vb != b) return unify(self, va, vb, pos);
     try self.err(pos, "incompatible types `{s}` and `{s}`", .{ try self.tyName(a), try self.tyName(b) });
     return null;
@@ -544,7 +547,7 @@ pub fn synthBuiltin(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId 
         }
         break :blk target;
     };
-    if (expected) |e| if (!self.isPoison(ty) and !tc.compatible(self.ctx, ty, e)) try ViewCheck.mismatch(self, node, e, ty);
+    if (expected) |e| if (!self.isPoison(ty) and !CompatCheck.compatible(self.ctx, ty, e)) try ViewCheck.mismatch(self, node, e, ty);
     return ty;
 }
 
@@ -567,7 +570,7 @@ pub fn plainTest(self: *Checker, node: Sexp, args: []const Sexp, pos: u32) Error
     };
     const cond = self.expect.plain_cond orelse return self.t().bool_id;
     const operand = for (cond.operands) |o| {
-        if (tc.sameNode(o, node)) break true;
+        if (CompatCheck.sameNode(o, node)) break true;
     } else false;
     if (!operand) return self.t().bool_id;
     const regions = &self.ctx.plain_regions;
@@ -617,7 +620,7 @@ pub fn embedOf(self: *Checker, node: Sexp, args: []const Sexp, pos: u32) Error!T
         return self.t().invalid_id;
     }
     _ = try PatternCheck.synthExpr(self, arg);
-    const path = tc.textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return self.t().invalid_id;
+    const path = CompatCheck.textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return self.t().invalid_id;
     try self.ctx.recordEmbed(node, arg, path);
     return self.t().static_id;
 }
@@ -681,7 +684,7 @@ pub fn castProblem(self: *Checker, cast: Checker.Builtin, from: TypeId, to: Type
             if (!f_int or t_ != .int) return "it converts one integer type to another";
             if (f == .int) {
                 if (f.int.signed != t_.int.signed) return "both must be signed, or both unsigned";
-                if (tc.numericBits(t_).? > tc.numericBits(f).?) return "the result may not be wider";
+                if (CompatCheck.numericBits(t_).? > CompatCheck.numericBits(f).?) return "the result may not be wider";
             }
         },
         .floatCast => if (!f_float or t_ != .float) return "it converts one float type to another",
@@ -689,8 +692,8 @@ pub fn castProblem(self: *Checker, cast: Checker.Builtin, from: TypeId, to: Type
         .floatFromInt => if (!f_int or t_ != .float) return "it converts an integer to a float",
         .fromBackingInt => if (!f_int or !sema.isPlainEnum(self.ctx, to)) return "it converts an integer to a plain enum",
         .bitCast => {
-            const fb = tc.numericBits(f) orelse return "it reinterprets a number of the same size";
-            const tb = tc.numericBits(t_) orelse return "it reinterprets a number of the same size";
+            const fb = CompatCheck.numericBits(f) orelse return "it reinterprets a number of the same size";
+            const tb = CompatCheck.numericBits(t_) orelse return "it reinterprets a number of the same size";
             if (fb != tb) return "both must have the same size";
         },
         .size, .@"align", .name, .type, .sizeOf, .alignOf, .typeName, .TypeOf, .variants, .plain, .embed => {},

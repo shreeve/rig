@@ -17,6 +17,9 @@ const Requirement = sema.Requirement;
 const Error = std.mem.Allocator.Error;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
+const ApiCheck = @import("apis.zig");
+const CompatCheck = @import("compat.zig");
+const GenericCheck = @import("generics.zig");
 const CallCheck = @import("calls.zig");
 const ExprCheck = @import("expr.zig");
 const FlowCheck = @import("flow.zig");
@@ -207,13 +210,13 @@ pub fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
     // A call's several results are discarded whole, as one result is.
     const saved_ok = self.expect.results_ok;
     defer self.expect.results_ok = saved_ok;
-    self.expect.results_ok = tc.resultCall(stmt) orelse .nil;
+    self.expect.results_ok = CompatCheck.resultCall(stmt) orelse .nil;
     const ty = try PatternCheck.synthExpr(self, stmt);
     // A closure literal alone is reported by the ownership checker.
     if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
     if (try StdFormCheck.discardedSwap(self, stmt)) return;
     // A test's last line is its value: a `Bool` decides the test.
-    if (self.body.in_test and tc.sameSite(stmt, self.expect.test_tail) and ExprCheck.canonical(self, ty) == self.t().bool_id) return self.ctx.recordTestCheck(stmt, try testReport(self, stmt));
+    if (self.body.in_test and CompatCheck.sameSite(stmt, self.expect.test_tail) and ExprCheck.canonical(self, ty) == self.t().bool_id) return self.ctx.recordTestCheck(stmt, try testReport(self, stmt));
     if (!hasEffect(stmt)) {
         // A statement `<e` is a drop everywhere but on a line whose
         // value is used, which a closure's last line is, though this
@@ -281,7 +284,7 @@ pub fn checkReturn(self: *Checker, node: Sexp) Error!void {
     // `return f()` gives the several results `f` gives, whole.
     const saved_ok = self.expect.results_ok;
     defer self.expect.results_ok = saved_ok;
-    if (sema.resultsOf(self.ctx, self.body.ret) != null) self.expect.results_ok = tc.resultCall(value) orelse .nil;
+    if (sema.resultsOf(self.ctx, self.body.ret) != null) self.expect.results_ok = CompatCheck.resultCall(value) orelse .nil;
     if (value != .nil) try ViewCheck.recordUse(self, value, .take);
     const ret = self.body.ret;
     if (self.body.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
@@ -336,10 +339,10 @@ pub fn testReport(self: *Checker, node: Sexp) Error![]const u8 {
         const src = self.ctx.source;
         const start = self.ctx.span(node).start;
         const end = std.mem.findScalarPos(u8, src, start, '\n') orelse src.len;
-        const rest = try tc.withoutComments(a, src[start..end]);
+        const rest = try CompatCheck.withoutComments(a, src[start..end]);
         return std.mem.trimEnd(u8, rest, " \t\r");
     }
-    return a.print("{s} is false", .{try tc.oneLine(a, CallCheck.sourceText(self, value))});
+    return a.print("{s} is false", .{try CompatCheck.oneLine(a, CallCheck.sourceText(self, value))});
 }
 
 /// Whether `e` is a branch leaf of the `return` operand being
@@ -351,7 +354,7 @@ pub fn isReturnLeaf(self: *const Checker, e: Sexp) bool {
 }
 
 pub fn isBranchLeaf(value: Sexp, e: Sexp) bool {
-    if (tc.sameNode(value, e) or (value == .src and e == .src and value.src.pos == e.src.pos)) return true;
+    if (CompatCheck.sameNode(value, e) or (value == .src and e == .src and value.src.pos == e.src.pos)) return true;
     switch (value.kind() orelse return false) {
         .@"if" => return isBranchLeaf(ir.If.then(value), e) or isBranchLeaf(ir.If.@"else"(value), e),
         .match => for (ir.Match.arms(value)) |arm| {
@@ -372,7 +375,7 @@ pub fn checkDestructure(self: *Checker, node: Sexp) Error!void {
     const targets = ir.Destructure.targets(node).items();
     if (value.isKind(.results)) return parallelAssignment(self, node, targets, value);
     var ok = try checkResultTargets(self, targets);
-    const call = tc.resultCall(value) orelse Sexp.nil;
+    const call = CompatCheck.resultCall(value) orelse Sexp.nil;
     if (ok and !isResultsValue(self, value)) {
         try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, or a fallback that jumps (`f() ?? return`, `f() catch return`, `catch break`, `catch continue`); a value cannot stand for several results", .{try targetNames(self, targets)});
         _ = try FlowCheck.synthQuiet(self, value);
@@ -451,7 +454,7 @@ pub fn checkResultTargets(self: *Checker, targets: []const Sexp) Error!bool {
             const reads = for (targets) |o| {
                 if (!o.isKind(.set) or ir.Set.target(o) != .src) continue;
                 const name = self.text(ir.Set.target(o));
-                if (tc.readsNameIn(self.ctx.source, target, name)) break name;
+                if (CompatCheck.readsNameIn(self.ctx.source, target, name)) break name;
             } else null;
             if (reads) |name| {
                 try self.errAt(target, "each result is bound to a name, and `{s}` reads `{s}`, which this statement binds, so the order would decide what it means: bind a name here, then assign `{s}` on the next line", .{ shown, name, shown });
@@ -478,8 +481,8 @@ pub fn isResultsValue(self: *const Checker, value: Sexp) bool {
         .call => true,
         .propagate => ir.Propagate.value(value).isKind(.call),
         .propagate_none => ir.PropagateNone.value(value).isKind(.call),
-        .@"??" => ir.@"??".left(value).isKind(.call) and tc.isJumpNode(ir.@"??".right(value)),
-        .@"catch" => ir.Catch.value(value).isKind(.call) and tc.isJumpNode(ir.Catch.handler(value)),
+        .@"??" => ir.@"??".left(value).isKind(.call) and CompatCheck.isJumpNode(ir.@"??".right(value)),
+        .@"catch" => ir.Catch.value(value).isKind(.call) and CompatCheck.isJumpNode(ir.Catch.handler(value)),
         else => false,
     };
 }
@@ -543,7 +546,7 @@ pub fn resultNames(self: *Checker, n: usize) Error![]const u8 {
 pub fn misplacedResults(self: *Checker, call: Sexp, ty: TypeId) Error!void {
     const n = sema.resultsOf(self.ctx, ty).?.len;
     const name = try StdFormCheck.calleeName(self, ir.Call.callee(call));
-    if (tc.sameNode(call, self.expect.bound_call)) {
+    if (CompatCheck.sameNode(call, self.expect.bound_call)) {
         return self.errAt(call, "`{s}` gives {d} results; bind each: `{s} = {s}`", .{ name, n, try resultNames(self, n), CallCheck.sourceText(self, self.expect.bound_value) });
     }
     // A `for` over an iterator calls its `next` for one value a step.
@@ -551,10 +554,10 @@ pub fn misplacedResults(self: *Checker, call: Sexp, ty: TypeId) Error!void {
     if (callee.isKind(.member) and rig.isHiddenLeaf(ir.Member.name(callee))) {
         return self.errAt(call, "a `for` binds one value each step, and this iterator's `next` gives {d} results: bind them with `while (!it).next() as {s}`", .{ n, try resultNames(self, n) });
     }
-    if (tc.sameNode(call, self.expect.as_call)) {
+    if (CompatCheck.sameNode(call, self.expect.as_call)) {
         return self.errAt(call, "`{s}` gives {d} results: bind each, `if {s} as {s}`", .{ name, n, CallCheck.sourceText(self, call), try resultNames(self, n) });
     }
-    if (tc.sameNode(call, self.expect.results_tail)) {
+    if (CompatCheck.sameNode(call, self.expect.results_tail)) {
         return self.errAt(call, "several results are given with `return`: `return {s}`", .{CallCheck.sourceText(self, call)});
     }
     try self.errAt(call, "a call that gives several results stands only where each result is bound: `{s} = {s}`", .{ try resultNames(self, n), CallCheck.sourceText(self, call) });
@@ -617,7 +620,7 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
     const saved_bound = .{ self.expect.bound_value, self.expect.bound_call, self.expect.local_value, self.expect.local_target };
     defer self.expect.bound_value, self.expect.bound_call, self.expect.local_value, self.expect.local_target = saved_bound;
     self.expect.bound_value = rhs;
-    self.expect.bound_call = tc.resultCall(rhs) orelse .nil;
+    self.expect.bound_call = CompatCheck.resultCall(rhs) orelse .nil;
     self.expect.local_value = if (target == .src) rhs else .nil;
     self.expect.local_target = target;
     if (kind == .default) try StdFormCheck.checkTemplateGrows(self, rhs, target);
@@ -648,7 +651,7 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
         // `_ = f()` discards every result `f` gives.
         const saved_ok = self.expect.results_ok;
         defer self.expect.results_ok = saved_ok;
-        self.expect.results_ok = tc.resultCall(rhs) orelse .nil;
+        self.expect.results_ok = CompatCheck.resultCall(rhs) orelse .nil;
         _ = try PatternCheck.synthExpr(self, rhs);
         if (rhs.isKind(.lambda)) try self.errAt(rhs, Checker.never_called, .{});
         return;
@@ -778,7 +781,7 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
             const shown = CallCheck.sourceText(self, rhs);
             try self.errAt(rhs, "`{s}` is a `{s}`, whose value's type is erased, so `{s} = {s}` neither copies nor moves it: pass it on as a view, `{s} = ?{s}` or `{s} = !{s}`", .{ shown, try self.tyName(rhs_ty), name, shown, name, shown, name, shown });
             rhs_ty = self.t().invalid_id;
-        } else if (!rhs.isKind(.read) and !holds_write_view) rhs_ty = try ViewCheck.readThrough(self, rhs, rhs_ty, tc.bindingValue(self.ctx, rhs_ty));
+        } else if (!rhs.isKind(.read) and !holds_write_view) rhs_ty = try ViewCheck.readThrough(self, rhs, rhs_ty, CompatCheck.bindingValue(self.ctx, rhs_ty));
         rhs_ty = try defaultBindingType(self, rhs, rhs_ty, name);
     }
 
@@ -904,7 +907,7 @@ pub fn checkPlaceAssign(self: *Checker, kind: rig.BindingKind, target: Sexp, typ
     }
     const place = placeOf(self, target);
     if (place.cell_list_elem) |elem| {
-        if (!tc.sameNode(elem, target) or kind.operator() != null) {
+        if (!CompatCheck.sameNode(elem, target) or kind.operator() != null) {
             try self.errAt(target, "an element of a Cell's List is written whole, with `c[i] = e`: copy it out, change the copy, and write it back", .{});
             _ = try PatternCheck.synthExpr(self, rhs);
             return;
@@ -958,7 +961,7 @@ pub fn assignThroughCall(self: *Checker, kind: rig.BindingKind, target: Sexp, vi
         },
         else => {
             const name = try self.tyName(view_ty);
-            try self.errAt(target, "cannot assign to a call's result, {s} `{s}`; only a write view (`!T`) a call returns is assigned through", .{ tc.article(name), name });
+            try self.errAt(target, "cannot assign to a call's result, {s} `{s}`; only a write view (`!T`) a call returns is assigned through", .{ CompatCheck.article(name), name });
             _ = try PatternCheck.synthExpr(self, rhs);
             return;
         },
@@ -1032,7 +1035,7 @@ pub fn placeOf(self: *Checker, e: Sexp) Checker.Place {
         const inner = sema.unwrapViews(self.ctx, ty);
         const obj = self.ctx.types.get(inner);
         if (index) {
-            if (place.cell_list_elem == null and tc.cellListElement(self.ctx, ty) != null) place.cell_list_elem = step;
+            if (place.cell_list_elem == null and CompatCheck.cellListElement(self.ctx, ty) != null) place.cell_list_elem = step;
             const is_text = obj == .string_view or obj == .static;
             if (is_text or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) {
                 place.block(if (is_text) .string else .slice, self.startOf(p));
@@ -1055,7 +1058,7 @@ pub fn placeOf(self: *Checker, e: Sexp) Checker.Place {
         } else if (self.ctx.isEnumText(step)) {
             place.block(if (inner == self.t().symbol_id) .symbol_text else .text, self.startOf(ir.Member.name(step)));
             if (!crossed) place.leaf_blocked = true;
-        } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or tc.listElementType(self.ctx, inner) != null or sema.tableElem(self.ctx, inner) != null or tc.cellListElement(self.ctx, inner) != null or sema.isTaskSet(self.ctx, inner))) {
+        } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or CompatCheck.listElementType(self.ctx, inner) != null or sema.tableElem(self.ctx, inner) != null or CompatCheck.cellListElement(self.ctx, inner) != null or sema.isTaskSet(self.ctx, inner))) {
             place.block(.len, self.startOf(ir.Member.name(step)));
             if (!crossed) place.leaf_blocked = true;
         }
@@ -1227,7 +1230,7 @@ pub fn requireAccess(self: *Checker, place_in: Checker.Place, access: Checker.Ac
             } else if (access == .assign and place.cell_list_elem != null) {
                 const cell = ir.get(place.cell_list_elem.?, .object);
                 try self.errAt(at, "write `(!{s})[i] = e`: changing a shared Cell is marked with `!`", .{try ViewCheck.plainText(self, cell)});
-            } else if (access == .assign and tc.cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
+            } else if (access == .assign and CompatCheck.cellElementType(self.ctx, self.ctx.typeOf(place.node) orelse sema.type_invalid) != null) {
                 const shown = try ViewCheck.plainText(self, place.node);
                 try self.errAt(at, "cannot assign through a shared handle (`*T`); other handles may exist. `{s}` is a Cell: change its value with `!{s}.set(...)`", .{ shown, shown });
             } else try self.errAt(at, "cannot {s}{s} through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", .{ through.head, through.tail }),
@@ -1242,7 +1245,7 @@ pub fn requireAccess(self: *Checker, place_in: Checker.Place, access: Checker.Ac
             },
             .read_only => {
                 const f = place.read_only.?;
-                try self.err(b.pos, "cannot {s} `{s}`{s}: field `{s}` of `{s}` is read-only {s}", .{ verb.head, try ViewCheck.plainText(self, place.node), verb.tail, f.field, f.owner, try tc.readOnlyWhere(self.ctx, f, true) });
+                try self.err(b.pos, "cannot {s} `{s}`{s}: field `{s}` of `{s}` is read-only {s}", .{ verb.head, try ViewCheck.plainText(self, place.node), verb.tail, f.field, f.owner, try GenericCheck.readOnlyWhere(self.ctx, f, true) });
             },
         }
         return false;
@@ -1269,7 +1272,7 @@ pub fn requireAccess(self: *Checker, place_in: Checker.Place, access: Checker.Ac
 /// reaches: reached to write (`SemContext.recordTableWrite`), where any
 /// other slot is reached read-only.
 pub fn recordTableWrites(self: *Checker, e: Sexp) Error!void {
-    var p = tc.stripSigil(e);
+    var p = CompatCheck.stripSigil(e);
     while (p.isKind(.member) or p.isKind(.index)) : (p = ir.get(p, .object)) {
         if (!p.isKind(.index)) continue;
         const ty = self.ctx.typeOf(ir.get(p, .object)) orelse continue;

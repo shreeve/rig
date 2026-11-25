@@ -22,6 +22,9 @@ const Error = std.mem.Allocator.Error;
 const srcPos = sema.srcPos;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
+const ApiCheck = @import("apis.zig");
+const CompatCheck = @import("compat.zig");
+const GenericCheck = @import("generics.zig");
 const BuiltinCheck = @import("builtins.zig");
 const CallCheck = @import("calls.zig");
 const ClosureCheck = @import("closures.zig");
@@ -108,7 +111,7 @@ pub fn synthLeaf(self: *Checker, leaf: Sexp) Error!TypeId {
     if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false")) return self.t().bool_id;
     if (std.mem.eql(u8, s, "none")) return self.t().none_id;
     if (sema.isFloatLiteralText(s)) {
-        if (!std.math.isFinite(tc.floatLiteralValue(s))) {
+        if (!std.math.isFinite(CompatCheck.floatLiteralValue(s))) {
             try self.errAt(leaf, "float literal `{s}` is too large", .{s});
             return self.t().invalid_id;
         }
@@ -125,7 +128,7 @@ pub fn synthLeaf(self: *Checker, leaf: Sexp) Error!TypeId {
     // A task given a write view is only waited for or canceled where
     // it is bound: no use of its name moves it on, a `return` or a last
     // value among them.
-    if (self.write_tasks.count() != 0 and !tc.sameSite(leaf, self.expect.task_wait) and self.write_tasks.contains(id)) {
+    if (self.write_tasks.count() != 0 and !CompatCheck.sameSite(leaf, self.expect.task_wait) and self.write_tasks.contains(id)) {
         try self.errAt(leaf, "`{s}` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>{s}`", .{ s, s });
         return self.t().invalid_id;
     }
@@ -697,7 +700,7 @@ pub fn checkNotScope(self: *Checker, e: Sexp) Error!void {
     // Written in parentheses: `not` ends past its operand, at `)`.
     if (whole.end > cmp.end) return;
     const a = self.ctx.arena.allocator();
-    const shown = try tc.oneLine(self.ctx.arena.allocator(), try tc.withoutComments(self.ctx.arena.allocator(), CallCheck.sourceText(self, operand)));
+    const shown = try CompatCheck.oneLine(self.ctx.arena.allocator(), try CompatCheck.withoutComments(self.ctx.arena.allocator(), CallCheck.sourceText(self, operand)));
     const equality = op[0] == '=' or op[0] == '!';
     const exact = equality or (flipsExactly(self, ir.get(operand, .left)) and flipsExactly(self, ir.get(operand, .right)));
     // The operator, between the two sides' spans (and any
@@ -707,7 +710,7 @@ pub fn checkNotScope(self: *Checker, e: Sexp) Error!void {
     const at = if (exact and gap_start <= gap_end) std.mem.find(u8, diag.textBetween(self.ctx.source, gap_start, gap_end), op) else null;
     if (at) |i| {
         const o = gap_start + i;
-        const flip = try tc.oneLine(a, try tc.withoutComments(a, try std.mem.concat(a, u8, &.{ diag.textBetween(self.ctx.source, cmp.start, o), flipped, diag.textBetween(self.ctx.source, o + op.len, cmp.end) })));
+        const flip = try CompatCheck.oneLine(a, try CompatCheck.withoutComments(a, try std.mem.concat(a, u8, &.{ diag.textBetween(self.ctx.source, cmp.start, o), flipped, diag.textBetween(self.ctx.source, o + op.len, cmp.end) })));
         return self.errAt(e, "write `{s}`, or `not ({s})`: `not` applies to the whole comparison", .{ flip, shown });
     }
     try self.errAt(e, "write `not ({s})`: `not` applies to the whole comparison", .{shown});
@@ -795,7 +798,7 @@ pub fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []con
     }
     const v = constInt(self, amount) orelse return true;
     const width: ?Wide = switch (self.ctx.types.get(shifted)) {
-        .int => |info| tc.intBounds(info).bits,
+        .int => |info| CompatCheck.intBounds(info).bits,
         .type_var => |tv| blk: {
             if (v >= 0) try require(self, tv, .{ .shift = v }, self.startOf(amount), op);
             break :blk null;
@@ -849,13 +852,13 @@ pub fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement
                 // An optional orders beside another (`orderedBeside`).
                 if (self.ctx.types.get(ty) == .optional and self.ctx.types.get(if (i == 0) b else a) != .optional) {
                     const shown = CallCheck.sourceText(self, operands[i]);
-                    try self.errAt(operands[i], "operator `{s}` orders an optional only beside another, and `{s}` is {s} `{s}` beside {s} `{s}`: give it a value, `{s} ?? x`, or test it, `if {s} as v`", .{ op, shown, tc.article(try self.tyName(ty)), try self.tyName(ty), tc.article(try self.tyName(if (i == 0) b else a)), try self.tyName(if (i == 0) b else a), shown, shown });
+                    try self.errAt(operands[i], "operator `{s}` orders an optional only beside another, and `{s}` is {s} `{s}` beside {s} `{s}`: give it a value, `{s} ?? x`, or test it, `if {s} as v`", .{ op, shown, CompatCheck.article(try self.tyName(ty)), try self.tyName(ty), CompatCheck.article(try self.tyName(if (i == 0) b else a)), try self.tyName(if (i == 0) b else a), shown, shown });
                 } else if ((try sema.lacks(self.ctx, ty, .Ord)) == null) {
                     // It is ordered; the other operand is another type.
                     const other = if (i == 0) b else a;
                     const shown = CallCheck.sourceText(self, operands[1 - i]);
                     const fix = if (sema.isDurationType(self.ctx, sema.unwrapViews(self.ctx, ty)) and sema.isNumeric(self.ctx, other)) try std.fmt.allocPrint(self.ctx.arena.allocator(), ": a number is no duration, so write `time.duration({s})`", .{shown}) else "";
-                    try self.errAt(operands[1 - i], "operator `{s}` orders two values of one type, and `{s}` is {s} `{s}` beside {s} `{s}`{s}", .{ op, shown, tc.article(try self.tyName(other)), try self.tyName(other), tc.article(try self.tyName(ty)), try self.tyName(ty), fix });
+                    try self.errAt(operands[1 - i], "operator `{s}` orders two values of one type, and `{s}` is {s} `{s}` beside {s} `{s}`{s}", .{ op, shown, CompatCheck.article(try self.tyName(other)), try self.tyName(other), CompatCheck.article(try self.tyName(ty)), try self.tyName(ty), fix });
                 } else try orderingOperand(self, operands[i], op, ty);
             } else {
                 // String is built, not added: `String(a, b)`, `!t.add(b)`.
@@ -939,10 +942,10 @@ pub fn calledUnwritten(self: *Checker, pos: u32) bool {
 /// method of the type.
 pub fn decidedByOwnerBounds(self: *Checker, param: SymbolId, req: Requirement, pos: u32) Error!bool {
     if (!sema.ownerWidened(self.ctx, param)) return false;
-    const api = tc.apiOf(req) orelse return false;
-    if (tc.ownershipApi(api)) return false;
-    if (!tc.boundsGive(self.ctx, self.ctx.symbols.items[param], req, api)) {
-        try tc.reportUnbounded(self.ctx, pos, param, api, try self.ctx.arena.allocator().print("{s}", .{req.describe()}));
+    const api = GenericCheck.apiOf(req) orelse return false;
+    if (GenericCheck.ownershipApi(api)) return false;
+    if (!GenericCheck.boundsGive(self.ctx, self.ctx.symbols.items[param], req, api)) {
+        try GenericCheck.reportUnbounded(self.ctx, pos, param, api, try self.ctx.arena.allocator().print("{s}", .{req.describe()}));
     }
     return true;
 }
@@ -965,7 +968,7 @@ pub fn checkOwnerBounds(self: *Checker, type_sym: SymbolId, node: Sexp, pos: u32
         const header = try boundedHeader(self, keyword, sym.name, tparams, std.math.maxInt(u32), "");
         var it = b.apis.iterator();
         while (it.next()) |api| {
-            if (tc.ownershipApi(api)) {
+            if (GenericCheck.ownershipApi(api)) {
                 try self.err(pos, "`{s}.{s}` bounds `{s}` by `{s}`, which says how a `{s}` is copied, kept, or sent, the same in every method: bound the type, `{s}`", .{ sym.name, mname, param.name, @tagName(api), param.name, try boundedHeader(self, keyword, sym.name, tparams, b.param, @tagName(api)) });
             } else if (has.contains(api)) {
                 try self.err(pos, "`{s}.{s}` repeats `{s}: {s}`, which `{s}` already gives: a method's bounds add to its type's", .{ sym.name, mname, param.name, @tagName(api), header });
@@ -976,7 +979,7 @@ pub fn checkOwnerBounds(self: *Checker, type_sym: SymbolId, node: Sexp, pos: u32
             const builds = try sema.builtInSupers(self.ctx, &.{u});
             var bit = builds.iterator();
             const moves: ?sema.Api = while (bit.next()) |api| {
-                if (tc.ownershipApi(api)) break api;
+                if (GenericCheck.ownershipApi(api)) break api;
             } else null;
             if (moves) |api| {
                 try self.err(pos, "`{s}.{s}` bounds `{s}` by `{s}`, which builds on `{s}`, which says how a `{s}` is copied, kept, or sent, the same in every method: bound the type, `{s}`", .{ sym.name, mname, param.name, uname, @tagName(api), param.name, try boundedHeader(self, keyword, sym.name, tparams, b.param, uname) });
@@ -1014,7 +1017,7 @@ pub fn requireHoldsLiteral(self: *Checker, param: SymbolId, lit_ty: TypeId, lit:
     if (ViewCheck.integerOnlyOp(lit)) |int_op| try require(self, param, .integer, self.startOf(int_op), @tagName(int_op.kind().?));
     if (lit_ty == self.t().float_literal_id) try require(self, param, .float, pos, op);
     if (lit_ty == self.t().int_literal_id) if (constInt(self, lit)) |v| try require(self, param, .{ .fits = v }, pos, op);
-    if (tc.wholeDivision(self.ctx.source, lit)) |div| try require(self, param, .whole_division, self.startOf(div), CallCheck.sourceText(self, div));
+    if (CompatCheck.wholeDivision(self.ctx.source, lit)) |div| try require(self, param, .whole_division, self.startOf(div), CallCheck.sourceText(self, div));
 }
 
 pub fn synthNeg(self: *Checker, e: Sexp) Error!TypeId {
@@ -1058,8 +1061,8 @@ pub fn synthEquality(self: *Checker, e: Sexp) Error!TypeId {
     // type of the value the other side gives. `none` and a bare
     // `.variant` test which variant it holds, and compare no payload;
     // a payload literal compares its payload, so it needs `==`.
-    if (tc.isContextual(self.ctx.source, l) or tc.isContextual(self.ctx.source, r)) {
-        const lit, const other = if (tc.isContextual(self.ctx.source, r)) .{ r, l } else .{ l, r };
+    if (CompatCheck.isContextual(self.ctx.source, l) or CompatCheck.isContextual(self.ctx.source, r)) {
+        const lit, const other = if (CompatCheck.isContextual(self.ctx.source, r)) .{ r, l } else .{ l, r };
         const ty = try PatternCheck.synthExpr(self, other);
         // An `==` operand is read (Core §3). `none` and a bare
         // `.variant` test a value made there and drop it with the
@@ -1294,8 +1297,8 @@ pub fn finishEquality(self: *Checker, e: Sexp, l: Sexp, r: Sexp, a_ty: TypeId, b
     // Comparing reads both texts: a `Static` beside a `?String`.
     const a_read = if (a == self.t().static_id) string_view_ty else a;
     const b_read = if (b == self.t().static_id) string_view_ty else b;
-    const ta_text = tc.stringOrBoxed(self.ctx, a_read);
-    const tb_text = tc.stringOrBoxed(self.ctx, b_read);
+    const ta_text = CompatCheck.stringOrBoxed(self.ctx, a_read);
+    const tb_text = CompatCheck.stringOrBoxed(self.ctx, b_read);
     // A shared handle is not text: it has no `==`, and its content is
     // compared through a view, `?a == ?b`.
     const handles = sema.accessThroughShared(self.ctx, a) or sema.accessThroughShared(self.ctx, b);
@@ -1371,7 +1374,7 @@ pub fn textOptionals(ctx: *const SemContext, a: TypeId, b: TypeId) bool {
         .optional => |i| i,
         else => return false,
     };
-    if (tc.isText(ctx, ia) and tc.isText(ctx, ib)) return true;
+    if (CompatCheck.isText(ctx, ia) and CompatCheck.isText(ctx, ib)) return true;
     return textOptionals(ctx, ia, ib);
 }
 
@@ -1390,12 +1393,12 @@ pub fn comparesWithOptional(self: *Checker, opt: TypeId, value: TypeId, value_no
     };
     // Text beside an optional of text compares by its bytes, whatever
     // its type, as two texts do.
-    if (tc.isText(self.ctx, inner) and tc.isText(self.ctx, value) and value != inner) return true;
+    if (CompatCheck.isText(self.ctx, inner) and CompatCheck.isText(self.ctx, value) and value != inner) return true;
     // An error of a set the optional's holds compares as one of it,
     // a code beside a code: neither set has fields.
     const widens = sema.isErrorSet(self.ctx, value) and sema.isErrorSet(self.ctx, inner) and sema.errorSubset(self.ctx, value, inner) and
         !sema.setHasFields(self.ctx, value) and !sema.setHasFields(self.ctx, inner);
-    if (value != inner and !widens and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or tc.compatible(self.ctx, value, inner)))) return false;
+    if (value != inner and !widens and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or CompatCheck.compatible(self.ctx, value, inner)))) return false;
     if (param) |tv| try requireHoldsLiteral(self, tv, value, value_node, self.startOf(at), op);
     try ViewCheck.recordAdapted(self, value_node, value, inner);
     return true;
@@ -1428,7 +1431,7 @@ pub fn checkEquatable(self: *Checker, ty: TypeId, node: Sexp, op: []const u8) Er
     var params: std.ArrayList(SymbolId) = .empty;
     defer params.deinit(self.ctx.allocator);
     if (try sema.notEquatable(self.ctx, ty, &params)) |n| {
-        return self.errAt(node, "`{s}` is not defined for `{s}`: {s}", .{ op, try self.tyName(ty), try tc.notEquatableReason(self.ctx, n) });
+        return self.errAt(node, "`{s}` is not defined for `{s}`: {s}", .{ op, try self.tyName(ty), try ApiCheck.notEquatableReason(self.ctx, n) });
     }
     for (params.items) |tv| try require(self, tv, .equatable, self.startOf(node), op);
 }
@@ -1493,7 +1496,7 @@ pub fn synthCoalesce(self: *Checker, e: Sexp, expected: ?TypeId) Error!TypeId {
 /// writes the jump (`?? return Config.missing`). True when it
 /// reported.
 pub fn errorAsFallback(self: *Checker, fallback: Sexp, wanted: TypeId, op: []const u8) Error!bool {
-    if (tc.isJumpNode(fallback) or self.isPoison(wanted) or sema.isErrorSet(self.ctx, wanted)) return false;
+    if (CompatCheck.isJumpNode(fallback) or self.isPoison(wanted) or sema.isErrorSet(self.ctx, wanted)) return false;
     const ty = ty: {
         self.tentative += 1;
         defer self.tentative -= 1;
@@ -1535,12 +1538,12 @@ pub fn fallbackCopy(self: *Checker, e: Sexp, holder: Sexp, holder_ty: TypeId, vi
         // A fallback whose type only its context gives (`.point`,
         // `List()`) is a value made there, never a view.
         if (self.isPoison(ty)) break :copies true;
-        if (tc.meets(self.ctx, ty, view) or tc.meets(self.ctx, ty, view_result)) break :copies false;
+        if (CompatCheck.meets(self.ctx, ty, view) or CompatCheck.meets(self.ctx, ty, view_result)) break :copies false;
         // One that fits neither the view nor the value is reported
         // against the view, as it was; `none` alone, where no optional
         // is expected, fits neither, so a `??` in a fallback decides
         // the same with or without its context.
-        break :copies tc.meets(self.ctx, ty, fallbackType(self, viewed, expected));
+        break :copies CompatCheck.meets(self.ctx, ty, fallbackType(self, viewed, expected));
     };
     // Decided where the form is checked for good: a quiet pass may
     // decide otherwise without its context.
@@ -1556,7 +1559,7 @@ pub fn fallbackCopy(self: *Checker, e: Sexp, holder: Sexp, holder_ty: TypeId, vi
         const head = "`{s}` would copy out the `{s}` that `{s}` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and ";
         if (answer == .depends) {
             try self.errAt(e, head ++ "`{s}` may not copy in every instance: make the fallback a view, so the result is one: `{s}`", .{ CallCheck.sourceText(self, e), name, CallCheck.sourceText(self, holder), name, fix });
-        } else try self.errAt(e, head ++ "{s} `{s}` {s}: make the fallback a view, so the result is one, and clone that for {s} `{s}` of its own: `+({s})`", .{ CallCheck.sourceText(self, e), name, CallCheck.sourceText(self, holder), tc.article(name), name, ViewCheck.movesBecause(self, viewed), tc.article(name), name, fix });
+        } else try self.errAt(e, head ++ "{s} `{s}` {s}: make the fallback a view, so the result is one, and clone that for {s} `{s}` of its own: `+({s})`", .{ CallCheck.sourceText(self, e), name, CallCheck.sourceText(self, holder), CompatCheck.article(name), name, ViewCheck.movesBecause(self, viewed), CompatCheck.article(name), name, fix });
         return self.t().invalid_id;
     }
     return viewed;
@@ -1583,7 +1586,7 @@ pub fn joinFallback(self: *Checker, result: TypeId, fallback: Sexp) Error!TypeId
     self.tentative += 1;
     defer self.tentative -= 1;
     const ty = try FlowCheck.synthQuiet(self, fallback);
-    return if (tc.readValue(self.ctx, ty) == self.t().string_view_id) self.t().string_view_id else result;
+    return if (CompatCheck.readValue(self.ctx, ty) == self.t().string_view_id) self.t().string_view_id else result;
 }
 
 /// The short forms a fallback gives (`sema.yieldedLeaves`) take their
@@ -1600,7 +1603,7 @@ pub fn recordFallbackLiterals(self: *Checker, fallback: Sexp) Error!void {
     try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, fallback, &leaves);
     for (leaves.items) |leaf| {
         const payload = leaf.isKind(.call) and ir.Call.callee(leaf).isKind(.enum_lit);
-        if (!payload and !(leaf.isKind(.enum_lit) and !tc.sameNode(leaf, fallback))) continue;
+        if (!payload and !(leaf.isKind(.enum_lit) and !CompatCheck.sameNode(leaf, fallback))) continue;
         const ty = self.ctx.typeOf(leaf) orelse continue;
         if (self.isPoison(ty) or ty == self.t().any_error_id or sema.isErrorSet(self.ctx, sema.unwrapViews(self.ctx, ty))) continue;
         try self.ctx.recordTypedLiteral(leaf);
@@ -1617,7 +1620,7 @@ pub fn recordFallbackLiterals(self: *Checker, fallback: Sexp) Error!void {
 pub fn fallbackType(self: *Checker, inner: TypeId, expected: ?TypeId) TypeId {
     const e = expected orelse return inner;
     return switch (self.ctx.types.get(e)) {
-        .optional => |i| if (tc.meets(self.ctx, inner, i) or (!sema.viewHeldAsPointer(self.ctx, inner) and tc.compatible(self.ctx, inner, i))) e else inner,
+        .optional => |i| if (CompatCheck.meets(self.ctx, inner, i) or (!sema.viewHeldAsPointer(self.ctx, inner) and CompatCheck.compatible(self.ctx, inner, i))) e else inner,
         else => inner,
     };
 }
@@ -1661,7 +1664,7 @@ pub fn synthCatch(self: *Checker, e: Sexp, expected: ?TypeId) Error!TypeId {
     // value gives the fallback, as anywhere (`run() catch 0`). A
     // value that owns what it must release is dropped visibly, by
     // `_ =`, so only there.
-    if (tc.sameNode(e, self.expect.discarded) and inner != self.t().void_id) {
+    if (CompatCheck.sameNode(e, self.expect.discarded) and inner != self.t().void_id) {
         if (try FlowCheck.synthQuiet(self, handler) == self.t().void_id) {
             const owned = sema.typeHasDropGlue(self.ctx, inner) or sema.maybeDropGlue(self.ctx, inner);
             if (owned and !self.expect.discard_named) {
@@ -1776,7 +1779,7 @@ pub fn checkReturnedError(self: *Checker, e: Sexp, actual: TypeId, expected: Typ
         return self.errAt(e, "`{s}` is not in `{s}`, the error set {s} declares", .{ shown, try self.tyName(declared), fname });
     }
     const set = try self.tyName(actual);
-    return self.errAt(e, "`{s}` is {s} `{s}` error, which `{s}`, the error set {s} declares, does not hold", .{ shown, tc.article(set), set, try self.tyName(declared), fname });
+    return self.errAt(e, "`{s}` is {s} `{s}` error, which `{s}`, the error set {s} declares, does not hold", .{ shown, CompatCheck.article(set), set, try self.tyName(declared), fname });
 }
 
 /// The header the function being checked would write to fail with
@@ -1816,7 +1819,7 @@ pub fn synthPropagateNone(self: *Checker, e: Sexp) Error!TypeId {
         .optional => |i| i,
         else => {
             // `*w?` is `*(w?)`; propagating a gone value is `(*w)?`.
-            if (tc.sameNode(e, self.expect.shared_operand) and self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .weak) {
+            if (CompatCheck.sameNode(e, self.expect.shared_operand) and self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .weak) {
                 const shown = try ViewCheck.plainText(self, operand);
                 try self.errAt(operand, "`*{s}?` is `*({s}?)`, and `{s}` is a weak handle, not an optional: to return `none` once its value is gone, write `(*{s})?`", .{ shown, shown, shown, shown });
                 return self.t().invalid_id;

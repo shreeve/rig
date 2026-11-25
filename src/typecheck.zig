@@ -67,6 +67,24 @@ const PatternCheck = @import("check/patterns.zig");
 const StdFormCheck = @import("check/stdforms.zig");
 const StmtCheck = @import("check/stmt.zig");
 const ViewCheck = @import("check/views.zig");
+const ApiCheck = @import("check/apis.zig");
+const CompatCheck = @import("check/compat.zig");
+const GenericCheck = @import("check/generics.zig");
+
+/// What other passes use of the check files.
+pub const FrameWalker = GenericCheck.FrameWalker;
+pub const checkApiDecl = ApiCheck.checkApiDecl;
+pub const checkApis = ApiCheck.checkApis;
+pub const checkConformance = ApiCheck.checkConformance;
+pub const checkDeclaredApis = GenericCheck.checkDeclaredApis;
+pub const checkFrames = GenericCheck.checkFrames;
+pub const checkGenericInstantiations = GenericCheck.checkGenericInstantiations;
+pub const checkMethodCalls = GenericCheck.checkMethodCalls;
+pub const checkStatedForwards = GenericCheck.checkStatedForwards;
+pub const inlineFrame = GenericCheck.inlineFrame;
+pub const max_inline_depth = GenericCheck.max_inline_depth;
+pub const meets = CompatCheck.meets;
+pub const recordFrameOwners = GenericCheck.recordFrameOwners;
 
 pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     if (!tree.isKind(.module)) return;
@@ -667,7 +685,7 @@ pub const Checker = struct {
                 const body = ir.Test.body(sexp);
                 const saved_tail = self.expect.test_tail;
                 defer self.expect.test_tail = saved_tail;
-                self.expect.test_tail = lastStmt(body);
+                self.expect.test_tail = CompatCheck.lastStmt(body);
                 try self.checkBody(body, .{ .ret = self.t().void_id, .fail_to = .caller, .in_test = true });
             },
             .set => try self.checkModuleConst(sexp),
@@ -760,7 +778,7 @@ pub const Checker = struct {
     /// branching on something Rig does not compute, is rejected.
     pub fn checkConstArithmetic(self: *Checker, e: Sexp) Error!void {
         if (e != .list) return;
-        if (!isArithmetic(e)) {
+        if (!CompatCheck.isArithmetic(e)) {
             for (e.items()) |c| try self.checkConstArithmetic(c);
             return;
         }
@@ -779,7 +797,7 @@ pub const Checker = struct {
         const pair = if (e.isKind(.neg)) [2]Sexp{ ir.Neg.operand(e), .nil } else [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
         for (pair) |o| {
             if (o == .nil) continue;
-            if (isArithmetic(o)) {
+            if (CompatCheck.isArithmetic(o)) {
                 if (self.unknownOperand(o)) |x| return x;
             } else if (sema.constInt(self.ctx, o) == .not_constant) return o;
         }
@@ -971,15 +989,15 @@ pub const Checker = struct {
         switch (not.why) {
             .padding_before => |p| {
                 const bytes = p.alignment - p.at % p.alignment;
-                try self.err(pos, head ++ "has {d} {s} of padding before field `{s}`: it starts at byte {d}, and {s} `{s}` starts at a multiple of {d}; write the padding as a field before it, `_pad: [{d}]U8`, or order the fields so that none needs it", .{ name, bytes, if (bytes == 1) "byte" else "bytes", not.field, p.at, article(not.shown), not.shown, p.alignment, bytes });
+                try self.err(pos, head ++ "has {d} {s} of padding before field `{s}`: it starts at byte {d}, and {s} `{s}` starts at a multiple of {d}; write the padding as a field before it, `_pad: [{d}]U8`, or order the fields so that none needs it", .{ name, bytes, if (bytes == 1) "byte" else "bytes", not.field, p.at, CompatCheck.article(not.shown), not.shown, p.alignment, bytes });
             },
             .padding_after => |p| try self.err(pos, head ++ "has {d} {s} of padding after field `{s}`, to a multiple of {d}; write the padding as a field after it, `_pad: [{d}]U8`", .{ name, p.bytes, if (p.bytes == 1) "byte" else "bytes", not.field, p.alignment, p.bytes }),
             .empty => if (not.field.len == 0)
                 try self.err(pos, head ++ "holds no bytes: give it a field", .{name})
             else
-                try self.err(pos, head ++ "holds field `{s}`, {s} `{s}`, which holds no bytes", .{ name, not.field, article(not.shown), not.shown }),
-            .not_exact => |inner| try self.err(pos, head ++ "holds field `{s}`, {s} `{s}`, which is not `exact`: add `exact` to `obj {s}`", .{ name, not.field, article(not.shown), not.shown, inner }),
-            else => try self.err(pos, head ++ "holds field `{s}`, {s} `{s}`; an `exact` object holds integers, floats, `Bool`s, plain enums, `exact` objects, and fixed arrays of them", .{ name, not.field, article(not.shown), not.shown }),
+                try self.err(pos, head ++ "holds field `{s}`, {s} `{s}`, which holds no bytes", .{ name, not.field, CompatCheck.article(not.shown), not.shown }),
+            .not_exact => |inner| try self.err(pos, head ++ "holds field `{s}`, {s} `{s}`, which is not `exact`: add `exact` to `obj {s}`", .{ name, not.field, CompatCheck.article(not.shown), not.shown, inner }),
+            else => try self.err(pos, head ++ "holds field `{s}`, {s} `{s}`; an `exact` object holds integers, floats, `Bool`s, plain enums, `exact` objects, and fixed arrays of them", .{ name, not.field, CompatCheck.article(not.shown), not.shown }),
         }
     }
 
@@ -1328,7 +1346,7 @@ pub const Checker = struct {
             if (!p.isKind(.group_param)) continue;
             const g = types.items[gi].?;
             gi += 1;
-            const id = nodeId(p);
+            const id = CompatCheck.nodeId(p);
             const fields = try a.alloc([]const u8, g.fields.len);
             for (g.fields, fields) |f, *o| o.* = f.name;
             const written = if (g.module == null) try self.writtenFieldTypes(self.ctx.symbols.items[g.sym], g.fields) else &.{};
@@ -1427,7 +1445,7 @@ pub const Checker = struct {
 
     /// Record spread `spread`, which gives `fields`.
     pub fn recordSpread(self: *Checker, spread: Sexp, given: Given) Error!void {
-        const id = nodeId(spread);
+        const id = CompatCheck.nodeId(spread);
         for (self.spreads.items) |sp| if (sp.node == id) return;
         try self.spreads.append(self.ctx.allocator, .{ .node = id, .fields = given.fields, .group = self.spreadGroup(spread), .sigil = spreadSigil(spread), .moves = given.moves });
     }
@@ -1684,7 +1702,7 @@ pub const Checker = struct {
         // `none` holds one.
         if (sema.durationParam(self.ctx, ty) != null and !std.mem.eql(u8, identAt(self.ctx.source, value) orelse "", "none")) {
             const shown = try ViewCheck.plainText(self, value);
-            const made = if (sema.isNumeric(self.ctx, self.ctx.typeOf(value) orelse sema.type_invalid) or isDefaultLiteral(self.ctx.source, value)) try std.fmt.allocPrint(self.ctx.arena.allocator(), "time.duration({s})", .{shown}) else shown;
+            const made = if (sema.isNumeric(self.ctx, self.ctx.typeOf(value) orelse sema.type_invalid) or CompatCheck.isDefaultLiteral(self.ctx.source, value)) try std.fmt.allocPrint(self.ctx.arena.allocator(), "time.duration({s})", .{shown}) else shown;
             return self.errAt(value, "a `time.Duration` is made as the program runs, so the only default it has is `none`: declare `{s}: time.Duration? = none`, and read it as `{s} ?? {s}`", .{ name, name, made });
         }
         // A table reserves or makes its slots as the program runs, which
@@ -1692,7 +1710,7 @@ pub const Checker = struct {
         if (sema.tableElem(self.ctx, ty) != null) {
             return self.errAt(value, "a table is made as the program runs, so it is no {s}'s default: make it where the value is made, `{s}()` in a constructor or a function", .{ what, "Table" });
         }
-        const ok = isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
+        const ok = CompatCheck.isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
         if (!ok) {
             if (field and try self.emptyConstructorGap(value)) return;
             if (field) {
@@ -1732,7 +1750,7 @@ pub const Checker = struct {
     pub fn isConstructorDefault(self: *Checker, e: Sexp) Error!bool {
         if (e.isKind(.array_fill)) {
             const v = ir.ArrayFill.value(e);
-            return isDefaultLiteral(self.ctx.source, v) or self.isConstantDefault(v);
+            return CompatCheck.isDefaultLiteral(self.ctx.source, v) or self.isConstantDefault(v);
         }
         if (!e.isKind(.call)) return false;
         var callee = ir.Call.callee(e);
@@ -1742,7 +1760,7 @@ pub const Checker = struct {
         const args = ir.Call.args(e);
         if (callee == .src) if (CallCheck.lookupQuiet(self, callee)) |id| {
             if (id == self.ctx.list_sym_id) return args.len == 0;
-            if (id == self.ctx.cell_sym_id) return args.len == 1 and isDefaultLiteral(self.ctx.source, args[0]);
+            if (id == self.ctx.cell_sym_id) return args.len == 1 and CompatCheck.isDefaultLiteral(self.ctx.source, args[0]);
         };
         return args.len == 0 and try self.emptyConstructor(ir.Call.callee(e));
     }
@@ -1812,7 +1830,7 @@ pub const Checker = struct {
     /// the function returns, `ret` its result type.
     pub fn checkBodyStmt(self: *Checker, s: Sexp, last: bool, ret: TypeId, ends_void: bool) Error!void {
         if (!last) return StmtCheck.checkStmt(self, s);
-        if (loopsForever(self.ctx.source, s) or (ends_void and (FlowCheck.yieldsNoValue(self, s) or isIfWithoutElse(s)))) {
+        if (CompatCheck.loopsForever(self.ctx.source, s) or (ends_void and (FlowCheck.yieldsNoValue(self, s) or CompatCheck.isIfWithoutElse(s)))) {
             try StmtCheck.checkStmt(self, s);
             return;
         }
@@ -1839,7 +1857,7 @@ pub const Checker = struct {
         }
         const saved_tail = self.expect.results_tail;
         defer self.expect.results_tail = saved_tail;
-        if (sema.resultsOf(self.ctx, ret) != null) self.expect.results_tail = resultCall(s) orelse .nil;
+        if (sema.resultsOf(self.ctx, ret) != null) self.expect.results_tail = CompatCheck.resultCall(s) orelse .nil;
         try self.checkTail(s, ret);
     }
 
@@ -1983,7 +2001,7 @@ pub const Checker = struct {
     // =========================================================================
 
     pub fn noteValueTail(self: *Checker, e: Sexp) Error!void {
-        if (e == .list) try self.value_tails.put(self.ctx.allocator, nodeId(e), {});
+        if (e == .list) try self.value_tails.put(self.ctx.allocator, CompatCheck.nodeId(e), {});
     }
 
     // ---- bindings and assignment --------------------------------------------
@@ -2741,7 +2759,7 @@ pub const Checker = struct {
             if (n != .list or n.isKind(.lambda)) return;
             if (n.isKind(.member) or n.isKind(.index)) {
                 const obj = ir.get(n, .object);
-                if (ViewCheck.viewOf(f.c, obj)) |view| if (!viewsSlice(view) and !f.c.methods.contains(nodeId(n)) and !(isCallee(f.root, n) and (ViewCheck.isSelfSigil(f.c, obj) or !ViewCheck.namesField(f.c, obj, n)))) {
+                if (ViewCheck.viewOf(f.c, obj)) |view| if (!CompatCheck.viewsSlice(view) and !f.c.methods.contains(CompatCheck.nodeId(n)) and !(CompatCheck.isCallee(f.root, n) and (ViewCheck.isSelfSigil(f.c, obj) or !ViewCheck.namesField(f.c, obj, n)))) {
                     _ = try f.add(n, obj);
                 };
             }
@@ -2755,8 +2773,8 @@ pub const Checker = struct {
         pub fn useOf(f: *ViewBaseFix, path: Sexp, obj: Sexp) Error!Edit {
             const c = f.c;
             var top = path;
-            while (parentIn(f.root, top)) |p| {
-                if (!(p.isKind(.member) or p.isKind(.index)) or !sameExpr(ir.get(p, .object), top) or c.methods.contains(nodeId(p))) break;
+            while (CompatCheck.parentIn(f.root, top)) |p| {
+                if (!(p.isKind(.member) or p.isKind(.index)) or !CompatCheck.sameExpr(ir.get(p, .object), top) or c.methods.contains(CompatCheck.nodeId(p))) break;
                 top = p;
             }
             const view = ViewCheck.viewOf(c, obj) orelse obj;
@@ -2769,12 +2787,12 @@ pub const Checker = struct {
             var n = top;
             while (n.isKind(.member) or n.isKind(.index)) : (n = ir.get(n, .object)) {
                 const o = ir.get(n, .object);
-                const o_ty = if (sameExpr(o, obj)) c.ctx.typeOf(place) else c.ctx.typeOf(o);
+                const o_ty = if (CompatCheck.sameExpr(o, obj)) c.ctx.typeOf(place) else c.ctx.typeOf(o);
                 if (o_ty) |ty| {
                     const v = sema.unwrapViews(c.ctx, ty);
                     if (c.ctx.types.get(v) == .shared) x.shared = true;
                 }
-                if (sameExpr(o, obj)) break;
+                if (CompatCheck.sameExpr(o, obj)) break;
             }
             // A part of a value made here, which no name holds: a view a
             // call returns is not one.
@@ -2783,12 +2801,12 @@ pub const Checker = struct {
                 x.temp = pt == null or !sema.isReadOrWriteView(c.ctx, pt.?);
             }
             if (c.ctx.typeOf(top)) |tt| x.optional = c.ctx.types.get(tt) == .optional;
-            const p = parentIn(f.root, top) orelse {
+            const p = CompatCheck.parentIn(f.root, top) orelse {
                 f.setValueSigil(&x, top, sigil);
                 return f.spans(x, obj);
             };
             switch (p.kind() orelse .module) {
-                .set => if (sameExpr(ir.Set.target(p), top)) {
+                .set => if (CompatCheck.sameExpr(ir.Set.target(p), top)) {
                     x.assigned = true;
                     x.writes = true;
                 } else {
@@ -2803,17 +2821,17 @@ pub const Checker = struct {
                 },
                 .read => {},
                 // A header's subject: its binding takes the view's sigil.
-                .match => if (sameExpr(ir.Match.subject(p), top)) {
+                .match => if (CompatCheck.sameExpr(ir.Match.subject(p), top)) {
                     x.header = true;
                     x.open = sigil;
                 },
-                .as => if (sameExpr(ir.As.value(p), top)) {
+                .as => if (CompatCheck.sameExpr(ir.As.value(p), top)) {
                     x.header = true;
                     x.open = sigil;
                 },
                 // A `for` walks a binding's place, or a field or element of
                 // one, in place: none of a value that branches.
-                .@"for" => if (sameExpr(ir.For.source(p), top)) {
+                .@"for" => if (CompatCheck.sameExpr(ir.For.source(p), top)) {
                     x.header = true;
                     if (ir.For.mode(p).tag == .iter) x.open = sigil;
                     x.writes = ir.For.mode(p).tag == .write;
@@ -2822,14 +2840,14 @@ pub const Checker = struct {
                 // A method's self: a write view where the method
                 // writes it (in parentheses where the call's `Bool` value
                 // is used), and bare otherwise.
-                .member => if (c.methods.get(nodeId(p))) |m| {
+                .member => if (c.methods.get(CompatCheck.nodeId(p))) |m| {
                     x.reach = c.ctx.span(p).end;
                     if (m.self_mode == .write) {
                         x.writes = true;
-                        const call = parentIn(f.root, p) orelse p;
+                        const call = CompatCheck.parentIn(f.root, p) orelse p;
                         const ret = c.ctx.types.get(m.returns);
                         const value = if (ret == .fallible) ret.fallible.ok else m.returns;
-                        const used = !sameExpr(call, f.root) or c.value_tails.contains(nodeId(call));
+                        const used = !CompatCheck.sameExpr(call, f.root) or c.value_tails.contains(CompatCheck.nodeId(call));
                         const bool_used = value == c.t().bool_id and used;
                         x.open = if (bool_used) "(!" else "!";
                         x.close = if (bool_used) ")" else "";
@@ -2864,9 +2882,9 @@ pub const Checker = struct {
         pub fn valueSigil(f: *ViewBaseFix, top: Sexp, sigil: []const u8) ?[]const u8 {
             const c = f.c;
             var at = top;
-            while (parentIn(f.root, at)) |p| {
+            while (CompatCheck.parentIn(f.root, at)) |p| {
                 const leaf = switch (p.kind() orelse break) {
-                    .@"if" => !sameExpr(ir.If.cond(p), at),
+                    .@"if" => !CompatCheck.sameExpr(ir.If.cond(p), at),
                     .@"??", .@"catch" => true,
                     else => false,
                 };
@@ -2877,7 +2895,7 @@ pub const Checker = struct {
             const top_ty = c.ctx.typeOf(top) orelse return null;
             if (c.isPoison(top_ty)) return null;
             const copies = sema.copies(c.ctx, top_ty) == .yes;
-            const want_ty = c.expected.get(nodeId(at));
+            const want_ty = c.expected.get(CompatCheck.nodeId(at));
             if (top.isKind(.index) and ir.Index.index(top).isKind(.@"..")) {
                 if (want_ty) |w| if (c.ctx.types.get(w) == .write_view or sema.writeSliceElem(c.ctx, w) != null) return "!";
                 return "?";
@@ -2894,17 +2912,17 @@ pub const Checker = struct {
                     .read_view => return if (!opt and f.implicitArg(at)) "" else "?",
                     .slice, .string_view => if (!sema.holdsWriteView(c.ctx, inner)) {
                         if (sema.writeSliceElem(c.ctx, inner) != null) return "!";
-                        return if (compatible(c.ctx, top_ty, inner)) "" else "?";
+                        return if (CompatCheck.compatible(c.ctx, top_ty, inner)) "" else "?";
                     },
                     else => {},
                 }
                 if (sema.holdsWriteView(c.ctx, want)) return "!";
-                if (!compatible(c.ctx, top_ty, want)) return null;
+                if (!CompatCheck.compatible(c.ctx, top_ty, want)) return null;
                 if (copies) return "";
                 return if (sema.cloneable(c.ctx, top_ty) != .no) "+" else null;
             }
             // A branch whose other leaves are views takes their sigil.
-            if (!sameExpr(at, top)) {
+            if (!CompatCheck.sameExpr(at, top)) {
                 var leaves: std.ArrayList(Sexp) = .empty;
                 defer leaves.deinit(c.ctx.allocator);
                 sema.yieldedLeaves(c.ctx.allocator, c.ctx.source, at, &leaves) catch return "";
@@ -2916,7 +2934,7 @@ pub const Checker = struct {
             // A value taken that does not copy keeps the view's sigil: a
             // binding's, an element's.
             if (!copies) {
-                const taken = c.ctx.useOf(at) == .take or if (parentIn(f.root, at)) |p| p.isKind(.set) or p.isKind(.array) else false;
+                const taken = c.ctx.useOf(at) == .take or if (CompatCheck.parentIn(f.root, at)) |p| p.isKind(.set) or p.isKind(.array) else false;
                 if (taken) return sigil;
             }
             return "";
@@ -2926,12 +2944,12 @@ pub const Checker = struct {
         /// where a read view is made without a written `?`; a type's
         /// constructor stores it.
         pub fn implicitArg(f: *ViewBaseFix, e: Sexp) bool {
-            var p = parentIn(f.root, e) orelse return false;
-            if (p.isKind(.kwarg)) p = parentIn(f.root, p) orelse return false;
+            var p = CompatCheck.parentIn(f.root, e) orelse return false;
+            if (p.isKind(.kwarg)) p = CompatCheck.parentIn(f.root, p) orelse return false;
             if (!p.isKind(.call)) return false;
             const callee = ir.Call.callee(p);
-            if (sameExpr(callee, e)) return false;
-            if (f.c.methods.contains(nodeId(callee))) return true;
+            if (CompatCheck.sameExpr(callee, e)) return false;
+            if (f.c.methods.contains(CompatCheck.nodeId(callee))) return true;
             const ty = f.c.ctx.typeOf(callee) orelse return false;
             return switch (f.c.ctx.types.get(sema.unwrapViews(f.c.ctx, ty))) {
                 .function => true,
@@ -2948,9 +2966,9 @@ pub const Checker = struct {
             // but not a call's.
             while (true) {
                 var i = ls.start;
-                while (i > 0 and isBlank(src[i - 1])) i -= 1;
+                while (i > 0 and CompatCheck.isBlank(src[i - 1])) i -= 1;
                 var j = ls.end;
-                while (j < src.len and isBlank(src[j])) j += 1;
+                while (j < src.len and CompatCheck.isBlank(src[j])) j += 1;
                 if (i == 0 or j >= src.len or src[i - 1] != '(' or src[j] != ')') break;
                 const k = i - 1;
                 if (k > 0 and (std.ascii.isAlphanumeric(src[k - 1]) or src[k - 1] == '_' or src[k - 1] == ')' or src[k - 1] == ']')) break;
@@ -2964,11 +2982,11 @@ pub const Checker = struct {
                 var slice: ?Sexp = null;
                 while (n.isKind(.member) or n.isKind(.index)) : (n = ir.get(n, .object)) {
                     if (n.isKind(.index) and ir.Index.index(n).isKind(.@"..")) slice = n;
-                    if (sameExpr(ir.get(n, .object), obj)) break;
+                    if (CompatCheck.sameExpr(ir.get(n, .object), obj)) break;
                 }
                 // Only a place is sliced: a value that branches is not.
                 if (slice != null and ViewCheck.hands(f.c, x.place).kind != .place) x.none = true;
-                if (slice) |sl| if (!sameExpr(sl, x.top)) {
+                if (slice) |sl| if (!CompatCheck.sameExpr(sl, x.top)) {
                     const view = ViewCheck.viewOf(f.c, obj) orelse obj;
                     const sig: []const u8 = if (x.writes and view.isKind(.write)) "(!" else "(?";
                     x.open = std.mem.concat(f.c.ctx.arena.allocator(), u8, &.{ x.open, sig }) catch x.open;
@@ -2990,7 +3008,7 @@ pub const Checker = struct {
         }
 
         pub fn edit(f: *const ViewBaseFix, view: Sexp) ?Edit {
-            for (f.edits.items) |x| if (sameExpr(x.view, view)) return x;
+            for (f.edits.items) |x| if (CompatCheck.sameExpr(x.view, view)) return x;
             return null;
         }
 
@@ -3067,7 +3085,7 @@ pub const Checker = struct {
                         sliced[n.i] = true;
                     },
                     .view => {
-                        if (f.named) |named| if (sameExpr(named.view, x.view)) {
+                        if (f.named) |named| if (CompatCheck.sameExpr(named.view, x.view)) {
                             try out.appendSlice(a, named.name);
                             at = x.end;
                             continue;
@@ -3076,7 +3094,7 @@ pub const Checker = struct {
                         // parentheses: `(a if c else b).len`.
                         const base = x.place;
                         const bs = f.c.ctx.span(base);
-                        const parens = !postfixBinds(base) and src[bs.start] != '(';
+                        const parens = !CompatCheck.postfixBinds(base) and src[bs.start] != '(';
                         if (parens) try out.append(a, '(');
                         try f.writeWithin(out, bs.start, bs.end, n.i);
                         if (parens) try out.append(a, ')');
@@ -3184,2929 +3202,15 @@ pub const Checker = struct {
 // Compatibility and classification
 // =============================================================================
 
-/// The type an operator reads from an operand: a viewed Copy value
-/// (`readValue`), or the `T` a viewed type parameter reaches. Every
-/// `T` an operator's requirement admits is plain data, so reading one
-/// through its view copies no resource.
-pub fn operandValue(ctx: *const SemContext, ty: TypeId) TypeId {
-    return switch (ctx.types.get(ty)) {
-        .read_view, .write_view => |inner| if (ctx.types.get(inner) == .type_var) inner else readValue(ctx, ty),
-        else => ty,
-    };
-}
-
-/// A view of a scalar (`sema.readsAsValue`) reads as the scalar to an
-/// operator: `n + 1` with `n: ?Int` or `n: !Int` is an `Int`.
-pub fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
-    return switch (ctx.types.get(ty)) {
-        .read_view, .write_view => |inner| if (sema.readsAsValue(ctx, inner)) inner else ty,
-        else => ty,
-    };
-}
-
-/// The type a binding with no type takes from a bare name or place of
-/// type `ty` (Core sentence 1): a write view, which is never copied,
-/// reads the value it reaches where that copies (`sema.copiedThrough`);
-/// a read view is copied, but one of a scalar binds the scalar
-/// (`readValue`).
-pub fn bindingValue(ctx: *const SemContext, ty: TypeId) TypeId {
-    return switch (ctx.types.get(ty)) {
-        .write_view => sema.copiedThrough(ctx, ty) orelse ty,
-        else => readValue(ctx, ty),
-    };
-}
-
-/// Whether `ty` can be written in an expression's bracket list
-/// (`id[Wrap[Int]](...)`): array, slice, and function types cannot.
-pub fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
-    return switch (ctx.types.get(ty)) {
-        .slice, .array, .function => false,
-        .optional, .read_view, .write_view, .shared, .weak => |inner| spelledInBrackets(ctx, inner),
-        .fallible => |inner| spelledInBrackets(ctx, inner.ok),
-        .parameterized_nominal => |pn| for (pn.args) |arg| {
-            if (!spelledInBrackets(ctx, arg)) break false;
-        } else true,
-        else => true,
-    };
-}
-
-/// `x` of `?x`, `!x`, or `<x`; any other node as it is.
-pub fn stripSigil(e: Sexp) Sexp {
-    return if (e.isKind(.read) or e.isKind(.write) or e.isKind(.move)) ir.get(e, .operand) else e;
-}
-
-/// The place `?x` or `!x` views (through any number of them); any other
-/// node, `<x` among them, as it is.
-pub fn viewedPlace(e: Sexp) Sexp {
-    var p = e;
-    while (p.isKind(.read) or p.isKind(.write)) p = ir.get(p, .operand);
-    return p;
-}
-
-/// The leaf a place starts from: `a` in `!a.b[i]`.
-pub fn placeRoot(e: Sexp) ?Sexp {
-    var x = e;
-    while (true) {
-        if (x == .src) return x;
-        const h = x.kind() orelse return null;
-        x = switch (h) {
-            .member, .index => ir.get(x, .object),
-            .read, .write, .move => ir.get(x, .operand),
-            else => return null,
-        };
-    }
-}
-
-/// The first `<x` in `e`, if any.
-pub fn findMove(e: Sexp) ?Sexp {
-    if (e != .list) return null;
-    if (e.isKind(.move)) return e;
-    for (e.items()) |c| if (findMove(c)) |m| return m;
-    return null;
-}
-
-/// Can a value of type `actual` be used where `expected` is required?
-/// As itself (`meets`), or as a copy of the value a view of it reaches
-/// (`copiedOut`).
-pub fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
-    return meets(ctx, actual, expected) or copiedOut(ctx, actual, expected);
-}
-
-/// Whether a view `actual` meets `expected` only as a copy of the value
-/// it reaches (`sema.copiedThrough`): that value meets `expected`,
-/// and the view itself does not. A view of a value that copies is copied
-/// out where the value is expected (Core §4), and the view is read
-/// through there (`Checker.recordAdapted`).
-pub fn copiedOut(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
-    const inner = sema.copiedThrough(ctx, actual) orelse return false;
-    return !meets(ctx, actual, expected) and compatible(ctx, inner, expected);
-}
-
-/// How many levels of optional `ty` has.
-pub fn optionalDepth(ctx: *const SemContext, ty: TypeId) u32 {
-    var n: u32 = 0;
-    var t = ty;
-    while (ctx.types.get(t) == .optional) : (n += 1) t = ctx.types.get(t).optional;
-    return n;
-}
-
-/// Can a value of type `actual` be used as itself where `expected` is
-/// required?
-pub fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
-    if (actual == expected) return true;
-    const ts = &ctx.types;
-    if (actual == ts.invalid_id or actual == ts.unknown_id or expected == ts.invalid_id or expected == ts.unknown_id) return true;
-    if (actual == ts.noreturn_id) return true;
-    const a = ts.get(actual);
-    const e = ts.get(expected);
-    switch (e) {
-        .optional => |inner| {
-            if (a == .none_literal) return true;
-            // A `Static?` is read as a `(?String)?`.
-            if (a == .optional) if (sema.readsAsStringView(ctx, a.optional, inner)) return true;
-            return meets(ctx, actual, inner);
-        },
-        // A `Static` is read as the `?String` it is, a view that carries
-        // no loan. Only where the text is read: a place that can be
-        // written (`!x`) holds exactly its type.
-        .string_view => if (a == .static) return true,
-        .read_view => |inner| if (sema.readsAsStringView(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner else if (inner == ts.any_error_id and a == .read_view and sema.isSetParam(ctx, a.read_view)) return true,
-        // A `T!` holds a `T`; an error value meets it only as `return`'s
-        // operand (`Checker.isReturnLeaf`).
-        .fallible => |inner| {
-            // A `T!A` meets a `T!L` whose set holds `A`'s.
-            if (a == .fallible) return a.fallible.ok == inner.ok and sema.errorSubset(ctx, a.fallible.set, inner.set);
-            return meets(ctx, actual, inner.ok);
-        },
-        // `error` holds an error of any set, a set parameter's included.
-        .any_error => if (sema.isErrorSet(ctx, actual) or sema.isSetParam(ctx, actual)) return true,
-        // A `![]T` (or a `?[]T`) reads as the `[]T` it views.
-        .slice => |want| switch (a) {
-            .read_view, .write_view => |inner| if (inner == expected) return true,
-            // The elements of a `[]Static` are read as `?String`s.
-            .slice => |have| if (sema.readsAsStringView(ctx, have.elem, want.elem)) return true,
-            else => {},
-        },
-        // A union holds an error of each set it joins.
-        .nominal, .imported_nominal => if (sema.isErrorUnion(ctx, expected) and sema.isErrorSet(ctx, actual) and sema.errorSubset(ctx, actual, expected)) return true,
-        else => {},
-    }
-    return switch (a) {
-        // A literal is a `Slot[n]` below `n` (`Checker.checkLiteralFits`).
-        .int_literal => e == .int or e == .float or e == .slot,
-        .float_literal => e == .float,
-        else => false,
-    };
-}
-
-pub const SelfTypeKind = enum { owned_nominal, read_view, write_view, shared, other };
-
-/// What kind of value a method's self is, for the type whose symbol
-/// is `nominal_sym` (`symbol_invalid` for an imported type).
-pub fn classifySelfType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: SymbolId) SelfTypeKind {
-    const matches = struct {
-        fn f(c: *const SemContext, id: TypeId, sym: SymbolId) bool {
-            // A box's value is reached as the box is: owned, or viewed,
-            // or through the read view it holds.
-            if (sym != c.box_sym_id) if (sema.boxedType(c, id)) |inner| return f(c, sema.unwrapViews(c, inner), sym);
-            return switch (c.types.get(id)) {
-                .nominal => |s| s == sym,
-                .parameterized_nominal => |pn| pn.sym == sym,
-                .imported_nominal => sym == sema.symbol_invalid,
-                else => false,
-            };
-        }
-    }.f;
-    // A view of a shared handle (`!h.m()` with `h: *T`) still reaches
-    // the value through the handle, and so does a box of one, for a
-    // method of the value (not the box's own).
-    if (ctx.types.get(sema.unwrapViews(ctx, ty_id)) == .shared) return .shared;
-    if (nominal_sym != ctx.box_sym_id and sema.accessThroughShared(ctx, ty_id)) return .shared;
-    // A box of a read view (`^?T`) reaches its value through the view.
-    if (nominal_sym != ctx.box_sym_id and sema.boxedReadView(ctx, ty_id) != null) return if (matches(ctx, sema.unwrapViews(ctx, ty_id), nominal_sym)) .read_view else .other;
-    return switch (ctx.types.get(ty_id)) {
-        .read_view => |i| if (matches(ctx, i, nominal_sym)) .read_view else .other,
-        .write_view => |i| if (matches(ctx, i, nominal_sym)) .write_view else .other,
-        else => if (matches(ctx, ty_id, nominal_sym)) .owned_nominal else .other,
-    };
-}
-
-/// How a self is written: with a self sigil (`?v.m()`, `!v.m()`,
-/// `<v.m()`, Core §8), or bare, by what it hands over
-/// (`Checker.selfShape`).
-pub const SelfShape = enum { read_explicit, write_explicit, move_explicit, made, branches, place };
-
-/// The sigil of a self sigil node, as written.
-pub fn sigilText(recv: Sexp) []const u8 {
-    return if (recv.isKind(.read)) "?" else if (recv.isKind(.write)) "!" else "<";
-}
-
-/// The element type of a Cell self (`Cell[T]`, `?Cell[T]`, `*Cell[T]`, ...).
-pub fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    const pn = switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
-        .parameterized_nominal => |pn| pn,
-        else => return null,
-    };
-    if (pn.sym != ctx.cell_sym_id or pn.args.len != 1) return null;
-    return pn.args[0];
-}
-
-/// Whether `node` lies in the index of an element read in `tree`.
-pub fn inIndex(tree: Sexp, node: Sexp) bool {
-    if (tree != .list) return false;
-    if (tree.isKind(.index) and contains(ir.Index.index(tree), node)) return true;
-    for (tree.items()) |item| if (inIndex(item, node)) return true;
-    return false;
-}
-
-/// Whether `node` lies in an argument of a call in `tree`.
-pub fn inArgument(tree: Sexp, node: Sexp) bool {
-    if (tree != .list) return false;
-    if (tree.isKind(.call)) for (ir.Call.args(tree)) |a| if (contains(a, node)) return true;
-    for (tree.items()) |item| if (inArgument(item, node)) return true;
-    return false;
-}
-
-/// Whether `node` is `tree` or inside it.
-pub fn contains(tree: Sexp, node: Sexp) bool {
-    if (sameNode(tree, node)) return true;
-    if (tree != .list) return false;
-    for (tree.items()) |item| if (contains(item, node)) return true;
-    return false;
-}
-
-/// The element type of a Cell holding a List (`Cell[List[E]]`, `?Cell[List[E]]`, `*Cell[List[E]]`, ...).
-pub fn cellListElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    return listElementType(ctx, cellElementType(ctx, ty) orelse return null);
-}
-
-pub const slice_of_temporary = "only a named array, List, or String, or a field or element of one, can be sliced; bind this value to a name first";
-
-pub const cell_list_handle = "cannot read or overwrite an element of a `{s}` in place: its elements are handles, which would be copied out or released while the cell holds them; `pop` the element, or `swap` the List out to work on it";
-
-/// The data field (not a method or variant) named `name`.
-pub fn findDataField(ctx: *SemContext, fields: []const Field, name: []const u8) Error!?Field {
-    return fields[(try sema.findMember(ctx, fields, name, .data)) orelse return null];
-}
-
-/// The element type of a `List[T]`.
-pub fn listElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    const pn = switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn,
-        else => return null,
-    };
-    if (pn.sym != ctx.list_sym_id or pn.args.len != 1) return null;
-    return pn.args[0];
-}
-
-/// An arithmetic operation: unary minus or a binary arithmetic,
-/// bitwise, or shift operator.
-pub fn isArithmetic(e: Sexp) bool {
-    const h = e.kind() orelse return false;
-    return switch (h) {
-        .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => true,
-        else => false,
-    };
-}
-
-/// What a slice argument (`Checker.slicedArg`) of type `actual` views
-/// where a `view` is expected: the view it is, which goes where its own
-/// type does (a `[]T` or a `?String`, or an optional of one). Null
-/// elsewhere.
-pub fn sliceArgView(ctx: *const SemContext, actual: TypeId, view: TypeId) ?sema.View {
-    return if (compatible(ctx, actual, view)) .{ .ty = view } else null;
-}
-
-/// `String` for a type that reaches a String through boxes and handles
-/// (`sema.unwrapAccess`), which is viewed through them; any other type as
-/// it is.
-pub fn stringOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
-    return if (sema.unwrapAccess(ctx, ty) == ctx.types.string_id) ctx.types.string_id else ty;
-}
-
-/// Why enum `ty`, which has variants, is not plain: its payloads, or its
-/// type parameters.
-pub fn notPlainWhy(ctx: *const SemContext, ty: TypeId) []const u8 {
-    const generic = if (sema.nominalDecl(ctx, ty)) |d| d.symbol().type_params != null else false;
-    return if (generic) "is generic" else "has variants with payloads";
-}
-
-pub const isText = sema.isText;
-
-/// The bytes a string literal holds: a double-quoted one with its escapes
-/// read as Zig reads them, a single-quoted one as `sema.SingleQuoted`
-/// reads it. Null for an escape the checker rejects.
-pub fn textLiteralBytes(a: std.mem.Allocator, lit: []const u8) ?[]const u8 {
-    if (rig.isBlockText(lit)) return rig.literalBytes(a, lit);
-    if (lit[0] == '"') return std.zig.string_literal.parseAlloc(a, lit) catch null;
-    var bytes: std.ArrayList(u8) = .empty;
-    var it = sema.SingleQuoted.init(lit);
-    while (it.next()) |c| bytes.append(a, c) catch return null;
-    return bytes.items;
-}
-
-pub fn numericBits(t: sema.Type) ?u16 {
-    return switch (t) {
-        .int => |i| intBounds(i).bits,
-        .float => |f| if (f.bits == 0) 64 else f.bits,
-        else => null,
-    };
-}
-
-pub const IntBounds = struct { min: Wide, max: Wide, bits: u8 };
-
-/// The width and value range of an integer type.
-pub fn intBounds(info: sema.IntInfo) IntBounds {
-    const bits: u8 = if (info.bits == 0) 64 else info.bits;
-    const half = @as(Wide, 1) << @intCast(bits - 1);
-    return if (info.signed) .{ .min = -half, .max = half - 1, .bits = bits } else .{ .min = 0, .max = 2 * half - 1, .bits = bits };
-}
-
-/// The value of a float literal (`inf` when it is out of `F64`'s range).
-pub fn floatLiteralValue(lit: []const u8) f64 {
-    return floatLiteralAs(f64, lit);
-}
-
-pub fn floatLiteralAs(comptime F: type, lit: []const u8) F {
-    return std.fmt.parseFloat(F, lit) catch 0;
-}
-
-/// The value of a constant expression of number literals computed in
-/// float type `F` as the program computes it: each literal and each
-/// operation rounded to `F`. Null when `e` is not one, or when an
-/// operation in it overflows.
-pub fn floatConstIn(comptime F: type, source: []const u8, e: Sexp) ?F {
-    switch (e) {
-        .src => {
-            const t = identAt(source, e) orelse return null;
-            if (sema.isFloatLiteralText(t)) {
-                const v = floatLiteralAs(F, t);
-                return if (std.math.isFinite(v)) v else null;
-            }
-            if (!sema.isIntLiteralText(t)) return null;
-            return wideToFloat(F, std.fmt.parseInt(Wide, t, 0) catch return null);
-        },
-        .list => {
-            const h = e.kind() orelse return null;
-            if (h == .member) return floatLimit(F, source, e);
-            if (h == .neg) return -(floatConstIn(F, source, ir.Neg.operand(e)) orelse return null);
-            switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%" => {},
-                else => return null,
-            }
-            const a = floatConstIn(F, source, ir.get(e, .left)) orelse return null;
-            const b = floatConstIn(F, source, ir.get(e, .right)) orelse return null;
-            return if (floatOverflows(F, h, a, b)) null else floatOp(F, h, a, b);
-        },
-        else => return null,
-    }
-}
-
-/// `F32.max`, `Float.min`: a float type's limit, in `F`; null for any
-/// other member.
-pub fn floatLimit(comptime F: type, source: []const u8, e: Sexp) ?F {
-    const obj = ir.Member.object(e);
-    const name = identAt(source, obj) orelse return null;
-    const max: f64 = if (std.mem.eql(u8, name, "F32"))
-        std.math.floatMax(f32)
-    else if (std.mem.eql(u8, name, "F64") or std.mem.eql(u8, name, "Float"))
-        std.math.floatMax(f64)
-    else
-        return null;
-    const field = identAt(source, ir.Member.name(e)) orelse return null;
-    const v: F = @floatCast(if (std.mem.eql(u8, field, "max")) max else if (std.mem.eql(u8, field, "min")) -max else return null);
-    return if (std.math.isFinite(v)) v else null;
-}
-
-/// Whether the arithmetic node `e`, whose operands are constants in `F`,
-/// overflows `F`.
-pub fn floatOpOverflows(comptime F: type, source: []const u8, e: Sexp) bool {
-    const a = floatConstIn(F, source, ir.get(e, .left)) orelse return false;
-    const b = floatConstIn(F, source, ir.get(e, .right)) orelse return false;
-    return floatOverflows(F, e.kind().?, a, b);
-}
-
-/// An operation on finite values whose result is infinite. Division by
-/// zero gives an infinity or NaN instead.
-pub fn floatOverflows(comptime F: type, h: Tag, a: F, b: F) bool {
-    if (b == 0 and (h == .@"/" or h == .@"%")) return false;
-    return std.math.isFinite(a) and std.math.isFinite(b) and !std.math.isFinite(floatOp(F, h, a, b));
-}
-
-pub fn floatOp(comptime F: type, h: Tag, a: F, b: F) F {
-    return switch (h) {
-        .@"+" => a + b,
-        .@"-" => a - b,
-        .@"*" => a * b,
-        .@"/" => a / b,
-        else => if (b == 0) std.math.nan(F) else @rem(a, b),
-    };
-}
-
-/// `v` as a float, rounded. (LLVM has no conversion from an integer as
-/// wide as `Wide`, so it goes through two 128-bit halves.)
-pub fn wideToFloat(comptime F: type, v: Wide) F {
-    if (std.math.cast(i128, v)) |n| return @floatFromInt(n);
-    const lo: u128 = @truncate(@as(u256, @bitCast(v)));
-    const hi: i128 = @truncate(v >> 128);
-    return @floatCast(@as(f64, @floatFromInt(hi)) * 0x1p128 + @as(f64, @floatFromInt(lo)));
-}
-
-/// The first division of whole-number literals (`7 / 2`, `9 % 4`) that
-/// a literal context reaches in `e`: through negation, a ternary's
-/// branches, `+`, `-`, `*`, a comparison of literals, and a division
-/// that is not one.
-pub fn wholeDivision(source: []const u8, e: Sexp) ?Sexp {
-    const h = e.kind() orelse return null;
-    return switch (h) {
-        .neg => wholeDivision(source, ir.Neg.operand(e)),
-        .@"if" => wholeDivision(source, ir.If.then(e)) orelse wholeDivision(source, ir.If.@"else"(e)),
-        .@"+", .@"-", .@"*", .@"<", .@">", .@"<=", .@">=", .@"==", .@"!=" => wholeDivision(source, ir.get(e, .left)) orelse wholeDivision(source, ir.get(e, .right)),
-        .@"/", .@"%" => if (wholeLiterals(source, ir.get(e, .left)) and wholeLiterals(source, ir.get(e, .right)))
-            e
-        else
-            wholeDivision(source, ir.get(e, .left)) orelse wholeDivision(source, ir.get(e, .right)),
-        else => null,
-    };
-}
-
-/// An expression of whole-number literals: integer literals, and
-/// arithmetic and builtins (`$size(T)`) over them.
-pub fn wholeLiterals(source: []const u8, e: Sexp) bool {
-    return switch (e) {
-        .src => sema.isIntLiteralText(identAt(source, e) orelse ""),
-        .list => switch (e.kind() orelse return false) {
-            .neg => wholeLiterals(source, ir.Neg.operand(e)),
-            .@"+", .@"-", .@"*", .@"/", .@"%" => wholeLiterals(source, ir.get(e, .left)) and wholeLiterals(source, ir.get(e, .right)),
-            .builtin => true,
-            else => false,
-        },
-        else => false,
-    };
-}
-
-/// Whether numeric type `ty` holds the integer `v`: in range for an
-/// integer type, exactly representable for a float type (Zig rejects a
-/// constant that would round).
-pub fn holdsInt(ctx: *const SemContext, ty: TypeId, v: Wide) bool {
-    return switch (ctx.types.get(ty)) {
-        .slot => |n| if (sema.slotCount(ctx, n)) |c| v >= 0 and v < c else false,
-        .int => |info| v >= intBounds(info).min and v <= intBounds(info).max,
-        .float => |f| blk: {
-            const mantissa: u8 = if (f.bits == 32) 24 else 53;
-            const a = @abs(v);
-            break :blk a == 0 or @bitSizeOf(Wide) - @clz(a) - @ctz(a) <= mantissa;
-        },
-        else => true,
-    };
-}
-
-/// `loop` with no `break` out of it: the loop only ends by
-/// `return`, so a function may end with it.
-pub fn loopsForever(source: []const u8, s: Sexp) bool {
-    return sema.isLoop(source, s) and !sema.breaksOut(source, s, false);
-}
-
-/// `return`, `break`, `continue`, or `panic`: a fallback that leaves.
-pub fn isJumpNode(e: Sexp) bool {
-    return rig.leaves(e);
-}
-
-/// Whether `e` names `name` anywhere in `source`.
-pub fn readsNameIn(source: []const u8, e: Sexp, name: []const u8) bool {
-    return switch (e) {
-        .src => |leaf| std.mem.eql(u8, rig.leafText(source, leaf), name),
-        .list => for (e.items()) |c| {
-            if (readsNameIn(source, c, name)) break true;
-        } else false,
-        else => false,
-    };
-}
-
-/// The call whose value `e` is: `e` itself, or the call under a `!`,
-/// `?`, `catch`, or on the left of `??`.
-pub fn resultCall(e: Sexp) ?Sexp {
-    const head = e.kind() orelse return null;
-    return switch (head) {
-        .call => e,
-        .propagate => resultCall(ir.Propagate.value(e)),
-        .propagate_none => resultCall(ir.PropagateNone.value(e)),
-        .@"catch" => resultCall(ir.Catch.value(e)),
-        .@"??" => resultCall(ir.@"??".left(e)),
-        else => null,
-    };
-}
-
-/// `a` and `b` are the same parsed node.
-pub fn sameNode(a: Sexp, b: Sexp) bool {
-    return a == .list and b == .list and a.list.ptr == b.list.ptr;
-}
-
-/// Whether `a` and `b` are the same node, a leaf by its place in the
-/// source.
-pub fn sameSite(a: Sexp, b: Sexp) bool {
-    if (a == .src and b == .src) return a.src.pos == b.src.pos and a.src.len == b.src.len;
-    return sameNode(a, b);
-}
-
-/// `text` with each comment (`#` to the end of its line, outside a
-/// string) taken out, for a hint that writes source spanning lines.
-pub fn withoutComments(a: std.mem.Allocator, text: []const u8) Error![]const u8 {
-    if (std.mem.findScalar(u8, text, '#') == null) return text;
-    var out: std.ArrayList(u8) = .empty;
-    var quote: ?u8 = null;
-    var i: usize = 0;
-    while (i < text.len) : (i += 1) {
-        const c = text[i];
-        if (quote) |q| {
-            if (c == '\\' and q == '"' and i + 1 < text.len) {
-                try out.appendSlice(a, text[i .. i + 2]);
-                i += 1;
-                continue;
-            }
-            if (c == q) quote = null;
-        } else if (c == '"' or c == '\'') {
-            quote = c;
-        } else if (c == '#') {
-            while (i < text.len and text[i] != '\n') i += 1;
-            while (out.items.len > 0 and isBlank(out.items[out.items.len - 1])) out.items.len -= 1;
-            if (i < text.len) try out.append(a, '\n');
-            continue;
-        }
-        try out.append(a, c);
-    }
-    return out.items;
-}
-
-/// `text` on one line: each run of blanks with a line break in it is one
-/// space.
-pub fn oneLine(a: std.mem.Allocator, text: []const u8) Error![]const u8 {
-    if (std.mem.findScalar(u8, text, '\n') == null) return text;
-    var out: std.ArrayList(u8) = .empty;
-    var i: usize = 0;
-    while (i < text.len) : (i += 1) {
-        if (!isBlank(text[i])) {
-            try out.append(a, text[i]);
-            continue;
-        }
-        var j = i;
-        var broke = false;
-        while (j < text.len and isBlank(text[j])) : (j += 1) broke = broke or text[j] == '\n';
-        if (broke) {
-            const prev = if (out.items.len > 0) out.items[out.items.len - 1] else ' ';
-            const next = if (j < text.len) text[j] else ' ';
-            if (prev != '(' and prev != '[' and next != ')' and next != ']' and next != '.') try out.append(a, ' ');
-        } else try out.appendSlice(a, text[i..j]);
-        i = j - 1;
-    }
-    return out.items;
-}
-
-pub fn isBlank(c: u8) bool {
-    return c == ' ' or c == '\t' or c == '\n' or c == '\r';
-}
-
-/// The id a node is recorded by.
-pub fn nodeId(e: Sexp) parser.NodeId {
-    return if (e == .list) e.list.id else 0;
-}
-
-/// Whether `view` views a slice, the view it makes (`?t[..]`).
-pub fn viewsSlice(view: Sexp) bool {
-    const viewed = viewedPlace(view);
-    return viewed.isKind(.index) and ir.Index.index(viewed).isKind(.@"..");
-}
-
-/// Whether a postfix written after `e` binds to all of it: a name, a
-/// field, an element, or a call.
-pub fn postfixBinds(e: Sexp) bool {
-    return e == .src or e.isKind(.member) or e.isKind(.index) or e.isKind(.call);
-}
-
-/// The node within `root` that holds `target` as a child, outside the
-/// closures in it.
-pub fn parentIn(root: Sexp, target: Sexp) ?Sexp {
-    if (root != .list or root.isKind(.lambda)) return null;
-    for (root.items()) |c| {
-        if (sameExpr(c, target)) return root;
-        if (parentIn(c, target)) |p| return p;
-    }
-    return null;
-}
-
-/// Whether member `m` within `root` names the method a call calls, with
-/// or without compile-time arguments (`(!w).put[2](3)`).
-pub fn isCallee(root: Sexp, m: Sexp) bool {
-    if (!m.isKind(.member)) return false;
-    var callee = m;
-    var p = parentIn(root, m) orelse return false;
-    if ((p.isKind(.index) or p.isKind(.inst)) and sameExpr(ir.get(p, .object), m)) {
-        callee = p;
-        p = parentIn(root, p) orelse return false;
-    }
-    return p.isKind(.call) and sameExpr(ir.Call.callee(p), callee);
-}
-
-/// Whether the code of `src`, its comments aside, holds `word` as a
-/// whole name: a name a hint may bind is declared nowhere in the module.
-pub fn hasCodeWord(src: []const u8, word: []const u8) bool {
-    var lines = std.mem.splitScalar(u8, src, '\n');
-    while (lines.next()) |line| {
-        const code = if (std.mem.findScalar(u8, line, '#')) |h| line[0..h] else line;
-        if (hasWord(code, word)) return true;
-    }
-    return false;
-}
-
-/// Whether `text` holds `word` as a whole name.
-pub fn hasWord(text: []const u8, word: []const u8) bool {
-    var i: usize = 0;
-    while (std.mem.findPos(u8, text, i, word)) |at| : (i = at + 1) {
-        const before = at == 0 or !(std.ascii.isAlphanumeric(text[at - 1]) or text[at - 1] == '_');
-        const end = at + word.len;
-        const after = end == text.len or !(std.ascii.isAlphanumeric(text[end]) or text[end] == '_');
-        if (before and after) return true;
-    }
-    return false;
-}
-
-/// `a` and `b` are the same parsed expression: a list node, or a leaf at
-/// one position.
-pub fn sameExpr(a: Sexp, b: Sexp) bool {
-    if (a == .src and b == .src) return a.src.pos == b.src.pos;
-    return sameNode(a, b);
-}
-
-/// Forms whose type comes from the other operand: `.variant`,
-/// `.variant(field: value)`, `none`.
-pub fn isContextual(source: []const u8, e: Sexp) bool {
-    if (e.isKind(.call) and ir.Call.callee(e).isKind(.enum_lit)) return true;
-    return e.isKind(.enum_lit) or std.mem.eql(u8, identAt(source, e) orelse "", "none");
-}
-
-/// Literal forms allowed as default parameter values: the same text
-/// means the same value at every call site, in any module.
-pub fn isDefaultLiteral(source: []const u8, e: Sexp) bool {
-    return switch (e) {
-        .src => isLiteralText(identAt(source, e).?) or std.mem.eql(u8, identAt(source, e).?, "none"),
-        .list => e.isKind(.enum_lit) or e.isKind(.symbol) or
-            (e.isKind(.neg) and ir.Neg.operand(e) == .src and isLiteralText(identAt(source, ir.Neg.operand(e)).?)),
-        else => false,
-    };
-}
-
-/// The last statement of a block (the block itself when it is empty),
-/// or a lone statement.
-pub fn lastStmt(body: Sexp) Sexp {
-    if (!body.isKind(.block)) return body;
-    const stmts = ir.Block.stmts(body);
-    return if (stmts.len > 0) stmts[stmts.len - 1] else body;
-}
-
-/// An `if` (or `else if` chain) that lacks a final `else`.
-pub fn ifWithoutValue(e: Sexp) bool {
-    if (!e.isKind(.@"if")) return false;
-    const other = ir.If.@"else"(e);
-    return other == .nil or ifWithoutValue(other);
-}
-
-/// A keyword a duration in seconds might be meant by, for `seconds:`.
-pub fn isSecondsName(name: []const u8) bool {
-    for ([_][]const u8{ "second", "secs", "sec", "s" }) |n| if (std.mem.eql(u8, n, name)) return true;
-    return false;
-}
-
-/// An `Int` literal as written, possibly negated, if `e` is one.
-pub fn constIntText(source: []const u8, e: Sexp) ?i64 {
-    if (e.isKind(.neg)) return -(constIntText(source, ir.Neg.operand(e)) orelse return null);
-    const t = identAt(source, e) orelse return null;
-    if (t.len == 0 or !std.ascii.isDigit(t[0])) return null;
-    return std.fmt.parseInt(i64, t, 0) catch null;
-}
-
-/// `Float.inf()` or `Float.nan()`, possibly negated, of any float type.
-pub fn isNotFinite(source: []const u8, e: Sexp) bool {
-    if (e.isKind(.neg)) return isNotFinite(source, ir.Neg.operand(e));
-    if (!e.isKind(.call) or ir.Call.args(e).len != 0 or !ir.Call.callee(e).isKind(.member)) return false;
-    const name = identAt(source, ir.Member.name(ir.Call.callee(e))) orelse return false;
-    const owner = identAt(source, ir.Member.object(ir.Call.callee(e))) orelse return false;
-    const float = std.mem.eql(u8, owner, "Float") or std.mem.eql(u8, owner, "F64") or std.mem.eql(u8, owner, "F32");
-    return float and (std.mem.eql(u8, name, "inf") or std.mem.eql(u8, name, "nan"));
-}
-
-/// The value of a float literal, possibly negated: `2.5`, `-1e3`.
-/// What `Checker.floatConst` knows of a `Float`: its value as Rig
-/// computes it, that it is a constant with no finite value, or nothing.
-pub const FloatConst = union(enum) { value: f64, not_finite, unknown };
-
-pub fn constFloatOf(source: []const u8, e: Sexp) ?f64 {
-    if (e.isKind(.neg)) return -(constFloatOf(source, ir.Neg.operand(e)) orelse return null);
-    const t = identAt(source, e) orelse return null;
-    if (!sema.isFloatLiteralText(t)) return null;
-    return std.fmt.parseFloat(f64, t) catch null;
-}
-
-/// `if c` with no `else`: a statement, never a value.
-pub fn isIfWithoutElse(s: Sexp) bool {
-    return s.isKind(.@"if") and ir.If.@"else"(s) == .nil;
-}
-
-/// Whether `ty` is `U8`, the byte.
-pub fn isU8(ctx: *const SemContext, ty: TypeId) bool {
-    return switch (ctx.types.get(ty)) {
-        .int => |info| info.bits == 8 and !info.signed,
-        else => false,
-    };
-}
-
-/// An integer literal, possibly negated: `42`, `-1`.
-pub fn isIntLiteralNode(source: []const u8, e: Sexp) bool {
-    if (e.isKind(.neg)) return isIntLiteralNode(source, ir.Neg.operand(e));
-    return e == .src and sema.isIntLiteralText(identAt(source, e) orelse "");
-}
-
-pub fn isLiteralText(s: []const u8) bool {
-    if (s.len == 0) return false;
-    if (sema.isStringLiteralText(s)) return true;
-    if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false")) return true;
-    return sema.isIntLiteralText(s) or sema.isFloatLiteralText(s);
-}
-
-/// The article before a type's name in a diagnostic: "an `Int`",
-/// "a `String`".
-pub fn article(name: []const u8) []const u8 {
-    if (name.len == 0) return "a";
-    return switch (name[0]) {
-        'A', 'E', 'I', 'O', 'a', 'e', 'i', 'o' => "an",
-        else => "a",
-    };
-}
-
-/// The first `n` parameters.
-pub fn paramsMask(n: usize) sema.ParamMask {
-    return if (n >= 64) sema.all_params else (@as(sema.ParamMask, 1) << @intCast(n)) - 1;
-}
-
-pub fn plural(n: usize) []const u8 {
-    return if (n == 1) "" else "s";
-}
-
 // =============================================================================
 // Generic requirements
 // =============================================================================
 
-/// Every instantiation of a generic type, and every instance of a
-/// generic function, must support the operations its bodies apply to
-/// the type parameters (`@value + 1` requires a numeric `T`). Checked
-/// after all bodies, against every instance the module's code makes.
-/// An instance's type arguments, each standing as one (`sema.misplaced`):
-/// a value holding a Cell by value, a write view, a bare API object, a
-/// frozen value, or an actor's value is no type argument.
-/// True when one stands misplaced, reported at the instance's site when
-/// `report` gives one.
-pub fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!bool {
-    for (args) |arg| {
-        if (sema.containsPoison(ctx, arg)) continue;
-        const why = sema.misplaced(ctx, arg, .type_arg) orelse continue;
-        const site = report orelse return true;
-        const shown = try sema.formatType(ctx, arg);
-        switch (why) {
-            .cell => try ctx.err(site, sema.cell_misplaced, .{ shown, shown }),
-            .write_view => try ctx.err(site, sema.write_view_misplaced, .{shown}),
-            .unsized => try ctx.err(site, sema.object_unsized_arg, .{shown}),
-            .frozen => try ctx.err(site, sema.frozen_misplaced_arg, .{ shown, shown }),
-            .actor => try ctx.err(site, sema.actor_misplaced, .{shown}),
-        }
-        return true;
-    }
-    return false;
-}
-
-/// What the module's generic bodies, headers, APIs, and conformances
-/// declare, checked before the instances are expanded, which read what
-/// each conformance's witness names (`sema.Conformance.members`).
-pub fn checkDeclaredApis(ctx: *SemContext) Error!void {
-    try checkStatedForwards(ctx);
-    try checkBoundedBodies(ctx);
-    try checkHeaders(ctx);
-    try checkApis(ctx);
-}
-
-pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
-    var reqs: Requirements = .empty;
-    defer {
-        var lists = reqs.valueIterator();
-        while (lists.next()) |l| l.deinit(ctx.allocator);
-        reqs.deinit(ctx.allocator);
-    }
-    for (ctx.generic_requirements.items, 0..) |req, i| {
-        // A method's own, where the method is reached (`checkReaches`).
-        if (req.body != sema.no_body) continue;
-        const gop = try reqs.getOrPut(ctx.allocator, req.param);
-        if (!gop.found_existing) gop.value_ptr.* = .empty;
-        try gop.value_ptr.append(ctx.allocator, @intCast(i));
-    }
-    var it = ctx.instantiation_sites.iterator();
-    while (it.next()) |entry| {
-        const pn = switch (ctx.types.get(entry.key_ptr.*)) {
-            .parameterized_nominal => |pn| pn,
-            else => continue,
-        };
-        const params = ctx.symbols.items[pn.sym].type_params orelse continue;
-        // A box holds an API object through its allocation, `^{Shape}`.
-        if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) continue;
-        if (try misplacedArgs(ctx, pn.args, entry.value_ptr.*)) continue;
-        const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
-        if (!try sema.checkBounds(ctx, params, pn.args, entry.value_ptr.*, of)) continue;
-        if (!try checkRequirements(ctx, &reqs, params, pn.args, entry.value_ptr.*, of)) continue;
-        if (!try checkMethodCalls(ctx, .{ .params = params, .args = pn.args }, params, entry.value_ptr.*, of)) continue;
-        try checkInstanceSizes(ctx, params, pn.args, entry.value_ptr.*, of);
-    }
-    // A method's instance checks only its own parameters; its type's
-    // are checked with self's instance.
-    // An instance made by one whose bounds failed is not checked: the
-    // failure written at the call is the error, and the generics that
-    // instance calls would only repeat it (`sort.sort[F32]` and each of
-    // the bounded helpers it reaches).
-    var failed: std.HashMapUnmanaged(sema.FnInstance, void, sema.FnInstance.Context, 80) = .empty;
-    defer failed.deinit(ctx.allocator);
-    var i: usize = 0;
-    while (i < ctx.fn_instances.items.len) : (i += 1) {
-        const f = ctx.fn_instances.items[i];
-        if (f.via) |via| if (via == .func and failed.contains(via.func)) continue;
-        // An implementation's method reached through an API has the
-        // arguments the call's instance of the API's method checks and
-        // reports.
-        if (try misplacedArgs(ctx, f.inst.ownArgs(), if (f.through_api) null else f.site)) continue;
-        const of: sema.InstanceRoot = .{ .func = f.inst };
-        // So are its bounds, which are the API's method's.
-        const bounded = if (f.through_api) try sema.boundsMet(ctx, f.inst.ownParams(), f.inst.ownArgs()) else try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of);
-        if (!bounded) {
-            try failed.put(ctx.allocator, f.inst, {});
-            if (!f.through_api) if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
-        } else if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
-            try checkMethodCalls(ctx, f.inst.subst(), f.inst.ownParams(), f.site, of))
-        {
-            try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
-        } else if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
-    }
-    try checkReaches(ctx);
-}
-
 // ---- stack frames -----------------------------------------------------------
-
-/// Every frame owner (`sema.FrameOwner`: a function, method, closure,
-/// test, or drop body) keeps at most `sema.max_frame_bytes` of values on
-/// its stack: each binding it declares and each by-value parameter, once,
-/// and each array literal, fill, and call whose value no binding takes
-/// directly (a temporary). A closure's captures count in the frame that
-/// makes it. A call's result counts twice when a binding takes it, since a
-/// debug build holds it in a temporary first. This count is a limit on
-/// what a program keeps on the stack; what keeps the stack safe is its
-/// reach, below.
-///
-/// A frame's reach is its values and a copy of every value its code
-/// makes or copies (`FrameWalker.copy`): Zig's code may hold each in a
-/// temporary of its own, so the stack the frame really takes is at most
-/// `sema.reach_factor` times its reach, which must fit
-/// `sema.max_frame_reach`, far below the guard under the stack. Code Zig
-/// writes more than once counts once for each copy: a `defer` or
-/// `errdefer` body at every exit it covers (`FrameWalker.deferBody`), and
-/// an inlined function at every call (`inlining.decide`, which fills each
-/// owner's `sema.Account`). A frame whose reach passes
-/// `sema.noinline_reach` is never inlined, so two such frames never merge
-/// (`sema.SemContext.large_frames`).
-///
-/// A frame whose size depends on generic parameters is checked at each
-/// instance (`checkInstanceSizes`). `recordFrameOwners` runs first.
-pub fn checkFrames(ctx: *SemContext) Error!void {
-    var w: FrameWalker = .{ .ctx = ctx };
-    var i: u32 = 0;
-    while (i < ctx.frame_owners.items.len) i = try checkOwnerTree(&w, i);
-    // What each `inline` function lands in a caller's frame, worked out
-    // here, where it is declared, for the modules that import this one.
-    var it = ctx.inline_decls.keyIterator();
-    while (it.next()) |pos| _ = try inlineFrame(ctx, pos.*, 1);
-}
-
-/// What the `inline` function declared at `pos` in this module lands in
-/// the frame of a call of it: the values it keeps and its copies, and
-/// those of the `inline` functions it calls in turn, each at the instance
-/// its call makes, over its own and its type's parameters. Its closures
-/// are frames of their own. Null while it is being worked out: a call on
-/// a cycle of `inline` functions, which `inlining.decide` reports, so the
-/// program is never emitted.
-pub fn inlineFrame(ctx: *SemContext, pos: u32, depth: u32) Error!?[]const sema.FrameSlot {
-    if (ctx.inline_frames.get(pos)) |known| return known;
-    const node = ctx.inline_decls.get(pos).?;
-    try ctx.inline_frames.put(ctx.allocator, pos, null);
-    var w: FrameWalker = .{ .ctx = ctx, .depth = depth };
-    var slots: FrameWalker.Slots = .empty;
-    defer slots.deinit(ctx.allocator);
-    for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false, false);
-    try w.paramCopies(ir.get(node, .params), &slots);
-    const kept = try ctx.arena.allocator().dupe(sema.FrameSlot, slots.items);
-    try ctx.inline_frames.put(ctx.allocator, pos, kept);
-    try ctx.inline_heights.put(ctx.allocator, pos, w.height);
-    return kept;
-}
-
-/// The most calls of marked `inline` functions that may nest, each
-/// inlined into the one around it: Zig's own analysis recurses once for
-/// each, and runs out of its stack some thousands deep.
-pub const max_inline_depth = 256;
-
-/// Check owner `i` after the closures in it, in source order, as a
-/// closure's frame is met inside its maker's: so a message about a
-/// closure comes before one about the frame around it. The owners are
-/// listed with each one's closures right after it. Returns the owner
-/// after them.
-pub fn checkOwnerTree(w: *FrameWalker, i: u32) Error!u32 {
-    const owners = w.ctx.frame_owners.items;
-    var j = i + 1;
-    while (j < owners.len and owners[j].parent == i) j = try checkOwnerTree(w, j);
-    try w.ownerFrame(i);
-    return j;
-}
-
-/// Record the frame owners of `tree` (`sema.FrameOwner`), each with the
-/// owner around it, and every call with the innermost owner around it
-/// and the copies of it Zig writes (`sema.FrameCall`): one walk, which
-/// knows the owners by a positive list of their kinds. Nothing else
-/// finds an owner or attributes a call; `checkFrames`, `inlining.decide`,
-/// and `rig check --facts=frames` read these.
-pub fn recordFrameOwners(ctx: *SemContext, tree: Sexp) Error!void {
-    var w: OwnerWalker = .{ .ctx = ctx };
-    try w.walk(tree, null, 1, .{});
-    const a = ctx.arena.allocator();
-    const owners = ctx.frame_owners.items;
-    const counts = try a.alloc(u32, owners.len);
-    @memset(counts, 0);
-    for (ctx.frame_calls.items) |c| if (c.owner) |o| {
-        counts[o] += 1;
-    };
-    const lists = try a.alloc([]u32, owners.len);
-    for (lists, counts) |*l, n| l.* = try a.alloc(u32, n);
-    @memset(counts, 0);
-    for (ctx.frame_calls.items, 0..) |c, i| if (c.owner) |o| {
-        lists[o][counts[o]] = @intCast(i);
-        counts[o] += 1;
-    };
-    for (owners, lists) |*o, l| o.calls = l;
-}
-
-pub const OwnerWalker = struct {
-    ctx: *SemContext,
-
-    /// What the declarations around a function make it: a member of a
-    /// type, and of a generic one, and the type's name.
-    const Decl = struct { member: bool = false, generic_type: bool = false, type_name: []const u8 = "" };
-
-    /// `copies`: how many times Zig writes the code `node` is in, which a
-    /// `defer` or `errdefer` body multiplies by its exits
-    /// (`FrameWalker.deferBody` counts its values the same way).
-    fn walk(self: *OwnerWalker, node: Sexp, owner: ?u32, copies: u32, decl: Decl) Error!void {
-        const ctx = self.ctx;
-        if (node != .list) return;
-        const kind = node.kind() orelse {
-            for (node.items()) |c| try self.walk(c, owner, copies, decl);
-            return;
-        };
-        const a = ctx.arena.allocator();
-        switch (kind) {
-            .use => {},
-            .fun, .sub => {
-                // A compile-time function has no frame: it never runs when
-                // the program does.
-                if (rig.isCtFun(node)) return;
-                const name = ir.get(node, .name);
-                const label = try a.print("`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
-                const o = try self.add(.{ .kind = .function, .root = node, .parent = owner, .pos = ctx.startOf(name), .label = label, .member = decl.member, .of_generic_type = decl.generic_type, .type_name = decl.type_name });
-                for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try self.walk(part, o, 1, .{});
-            },
-            .@"test" => {
-                const label = try a.print("test {s}", .{sema.identAt(ctx.source, ir.get(node, .name)) orelse "?"});
-                const o = try self.add(.{ .kind = .test_block, .root = node, .parent = owner, .pos = ctx.startOf(node), .label = label });
-                try self.walk(ir.get(node, .body), o, 1, .{});
-            },
-            .drop_decl => {
-                const o = try self.add(.{ .kind = .drop, .root = node, .parent = owner, .pos = ctx.startOf(node), .label = "`drop`" });
-                for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try self.walk(part, o, 1, .{});
-            },
-            .lambda => {
-                // The captures are made where the closure is.
-                try self.walk(ir.Lambda.captures(node), owner, copies, decl);
-                const o = try self.add(.{ .kind = .closure, .root = node, .parent = owner, .pos = ctx.startOf(node), .label = "a closure" });
-                for ([_]Sexp{ ir.Lambda.params(node), ir.Lambda.body(node) }) |part| try self.walk(part, o, 1, .{});
-            },
-            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => {
-                const of: Decl = .{ .member = true, .generic_type = decl.generic_type or kind == .generic_struct or kind == .generic_enum, .type_name = sema.identAt(ctx.source, ir.get(node, .name)) orelse "" };
-                for (rig.children(node)) |c| try self.walk(c, owner, copies, of);
-            },
-            .call => {
-                // The callee first, as its object's calls run first.
-                try self.walk(ir.Call.callee(node), owner, copies, decl);
-                const i: u32 = @intCast(ctx.frame_calls.items.len);
-                try ctx.frame_calls.append(ctx.allocator, .{ .node = node, .owner = owner, .copies = copies });
-                if (sema.decisionKeyOf(node)) |k| try ctx.call_index.put(ctx.allocator, k, i);
-                for (ir.Call.args(node)) |arg| try self.walk(arg, owner, copies, decl);
-            },
-            else => {
-                const kids = rig.children(node);
-                for (kids, 0..) |c, i| {
-                    if (owner != null and (c.isKind(.@"defer") or c.isKind(.@"errdefer"))) {
-                        var exits: u32 = 1;
-                        for (kids[i + 1 ..]) |r| exits += @intCast(FrameWalker.countExits(r));
-                        // Saturating: a count that large fails every limit.
-                        try self.walk(ir.get(c, .body), owner, copies *| exits, decl);
-                        continue;
-                    }
-                    try self.walk(c, owner, copies, decl);
-                }
-            },
-        }
-    }
-
-    fn add(self: *OwnerWalker, o: sema.FrameOwner) Error!u32 {
-        const i: u32 = @intCast(self.ctx.frame_owners.items.len);
-        try self.ctx.frame_owners.append(self.ctx.allocator, o);
-        return i;
-    }
-};
-
-pub const FrameWalker = struct {
-    ctx: *SemContext,
-    /// How deep in calls of marked `inline` functions the body walked is
-    /// (`inlineFrame`): 0 for an owner's own.
-    depth: u32 = 0,
-    /// The deepest nesting of marked calls below the body walked, which
-    /// `inlineFrame` records (`SemContext.inline_heights`).
-    height: u32 = 0,
-
-    /// A value the frame keeps, or (`copy`) a copy its code may make,
-    /// which counts in its reach alone; `marked` when a call of a marked
-    /// `inline` function lands it there (`addInlined`).
-    const Slot = sema.FrameSlot;
-    const Slots = std.ArrayList(Slot);
-
-    /// `copied`: the value of `node` is made or copied where it is used,
-    /// so Zig's code may hold it in a temporary (`copiedIn`).
-    fn walk(self: *FrameWalker, node: Sexp, frame: ?*Slots, bound: bool, copied: bool) Error!void {
-        const ctx = self.ctx;
-        if (node == .src) {
-            const f = frame orelse return;
-            const id = ctx.symbolOf(node) orelse return;
-            const sym = ctx.symbols.items[id];
-            if (sym.decl_pos != node.src.pos) {
-                if (copied) try self.copy(node, f);
-                return;
-            }
-            switch (sym.kind) {
-                .local, .param, .capture => {},
-                else => return,
-            }
-            if (sym.flags.comptime_known or sym.scope == sema.module_scope) return;
-            try f.append(ctx.allocator, .{ .ty = sym.ty, .name = sym.name });
-            return;
-        }
-        // A group (a parameter list) has no kind.
-        const kind = node.kind() orelse {
-            for (node.items()) |c| try self.walk(c, frame, false, false);
-            return;
-        };
-        switch (kind) {
-            // Frame owners of their own (`recordFrameOwners`).
-            .fun, .sub, .@"test", .drop_decl => {},
-            // The captures are stored where the closure is made; its body
-            // is a frame of its own.
-            .lambda => try self.walk(ir.Lambda.captures(node), frame, false, false),
-            .set => {
-                try self.walk(ir.Set.target(node), frame, false, false);
-                // A fill built in the local makes no copy (`storage.fillsInPlace`).
-                try self.walk(ir.Set.value(node), frame, true, !storage.fillsInPlace(ctx, node));
-            },
-            .box => {
-                // A fill built in the box's allocation is no temporary.
-                const in_place = storage.fillsInPlace(ctx, node);
-                try self.walk(ir.Box.operand(node), frame, in_place, !in_place);
-            },
-            else => {
-                if (frame) |f| {
-                    switch (kind) {
-                        .array, .array_fill => if (!bound) if (ctx.typeOf(node)) |ty| try f.append(ctx.allocator, .{ .ty = ty, .name = "" }),
-                        .call => if (ctx.typeOf(node)) |ty| {
-                            // A constructor builds its value where a binding takes it.
-                            if (!bound or self.callsFunction(node)) try f.append(ctx.allocator, .{ .ty = ty, .name = "" });
-                        },
-                        else => {},
-                    }
-                    if (copied) try self.copy(node, f);
-                    if (kind == .call) {
-                        // A self a method takes by value is copied.
-                        if (storage.selfOf(ctx, node)) |recv| if (self.takesSelf(node)) try self.copy(recv, f);
-                        try self.addInlined(node, f);
-                    }
-                }
-                const kids = rig.children(node);
-                for (kids, 0..) |c, i| {
-                    if (frame) |f| if (c.isKind(.@"defer") or c.isKind(.@"errdefer")) {
-                        try self.deferBody(c, f, kids[i + 1 ..]);
-                        continue;
-                    };
-                    // A fork's record, in a slot of this frame
-                    // (`storage.taskRecordIn`, `task_record`).
-                    if (frame) |f| if (kind == .block) if (try storage.taskRecordIn(ctx, c, node)) |task| {
-                        const bytes = (try storage.taskRecordBytes(ctx, task)).?;
-                        const byte = try ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
-                        const record = try ctx.intern(.{ .array = .{ .elem = byte, .len = try sema.ctInt(ctx, @intCast(bytes)) } });
-                        try f.append(ctx.allocator, .{ .ty = record, .name = "a task's record" });
-                    };
-                    try self.walk(c, frame, false, self.copiedIn(node, c));
-                }
-            },
-        }
-    }
-
-    /// Whether the value of `child` is made or copied where `parent` uses
-    /// it, by a positive list of the uses that read it in place: a callee,
-    /// and the base of a field or element path or the operand of a view
-    /// that is storage (`storage.hasStorage`) or reached where its leaf is
-    /// (`storage.reachesLeaf`); any other base or operand is made into a
-    /// temporary first.
-    fn copiedIn(self: *FrameWalker, parent: Sexp, child: Sexp) bool {
-        const ctx = self.ctx;
-        return switch (parent.kind().?) {
-            .member, .index => !sameSite(child, ir.get(parent, .object)) or !readsInPlace(ctx, child),
-            .read, .write => !readsInPlace(ctx, child),
-            .call => !sameSite(child, ctx.calleeOf(parent)),
-            else => true,
-        };
-    }
-
-    fn readsInPlace(ctx: *SemContext, e: Sexp) bool {
-        return storage.hasStorage(ctx, e) or storage.reachesLeaf(ctx, e);
-    }
-
-    /// Whether the method `call` calls takes its self by value, not
-    /// through a view.
-    fn takesSelf(self: *FrameWalker, call: Sexp) bool {
-        const ctx = self.ctx;
-        const f = storage.fnType(ctx, storage.typeOf(ctx, ctx.calleeOf(call))) orelse return false;
-        if (f.params.len == 0) return false;
-        return switch (ctx.types.get(f.params[0])) {
-            .read_view, .write_view => false,
-            else => true,
-        };
-    }
-
-    /// A `defer` or `errdefer`, whose body Zig writes again at each exit
-    /// of its block it covers: every exit among the statements after it
-    /// (`storage.leave_kinds`), and the block's end. The body's values
-    /// and copies count once more for each exit past the first, as
-    /// copies.
-    fn deferBody(self: *FrameWalker, d: Sexp, f: *Slots, rest: []const Sexp) Error!void {
-        const ctx = self.ctx;
-        const start = f.items.len;
-        try self.walk(ir.get(d, .body), f, false, false);
-        var exits: usize = 1;
-        for (rest) |r| exits += countExits(r);
-        const once = try ctx.arena.allocator().dupe(Slot, f.items[start..]);
-        for (1..exits) |_| for (once) |slot| try f.append(ctx.allocator, .{ .ty = slot.ty, .name = "", .copy = true, .marked = slot.marked });
-    }
-
-    /// The values a call of a marked `inline` function lands in the frame
-    /// it is in (`sema.InlineCall`): the function's own values and copies
-    /// and those of the marked functions it calls in turn
-    /// (`inlineFrame`), at the instance the call makes, in this module's
-    /// types, each marked. The count fails closed: a frame no count knows,
-    /// or one the instance does not make concrete, is an error at the
-    /// call, never no values.
-    fn addInlined(self: *FrameWalker, call: Sexp, f: *Slots) Error!void {
-        const ctx = self.ctx;
-        const ic = ctx.inlineCallOf(call) orelse return;
-        const decl = ctx.declaringContext(ic.fun) orelse return self.unknownFrame(call, "its module is not loaded");
-        const local = decl == @as(*const SemContext, ctx);
-        if (!decl.inline_decls.contains(ic.fun.pos)) return self.unknownFrame(call, "its declaration is not recorded");
-        // Zig inlines each call into the body it is in, nested as deep as
-        // the calls are: past `max_inline_depth` Zig itself runs out of
-        // stack, so a deeper nesting is an error, found before this walk
-        // goes deeper.
-        if (self.depth + 1 > max_inline_depth) return self.tooDeep(call);
-        const slots = if (local)
-            // Null on a cycle of `inline` functions, which
-            // `inlining.decide` reports, so the program is never emitted.
-            (try inlineFrame(ctx, ic.fun.pos, self.depth + 1)) orelse return
-        else
-            // The module that declares it worked out its frame
-            // (`checkFrames`), unless that module failed its check.
-            (decl.inline_frames.get(ic.fun.pos) orelse return self.unknownFrame(call, "its module did not count it")) orelse return self.unknownFrame(call, "its module did not count it");
-        const below = decl.inline_heights.get(ic.fun.pos) orelse 0;
-        if (self.depth + 1 + below > max_inline_depth) return self.tooDeep(call);
-        self.height = @max(self.height, below + 1);
-        // The instance binds every parameter the frame mentions: with each
-        // argument poisoned, none is left.
-        const a = ctx.arena.allocator();
-        const blank = try a.alloc(TypeId, ic.subst.args.len);
-        @memset(blank, ctx.types.invalid_id);
-        for (slots) |slot| {
-            const ty = if (local) slot.ty else try sema.importType(ctx, decl, slot.ty, ic.fun.module);
-            if (sema.containsTypeVar(ctx, try sema.substituteType(ctx, ty, .{ .params = ic.subst.params, .args = blank })))
-                return self.unknownFrame(call, "the call does not bind every parameter its values hold");
-            try f.append(ctx.allocator, .{ .ty = try sema.substituteType(ctx, ty, ic.subst), .name = slot.name, .copy = slot.copy, .marked = true });
-        }
-    }
-
-    /// A copy of each parameter of the function whose parameters are
-    /// `params`: where it is inlined, Zig's code copies each into a local
-    /// of its own (`rig.rt`), beside the argument a call makes and the
-    /// parameter itself.
-    fn paramCopies(self: *FrameWalker, params: Sexp, f: *Slots) Error!void {
-        if (params != .list) return;
-        for (params.items()) |p| {
-            const name = sema.paramNameNode(p) orelse continue;
-            const id = self.ctx.symbolOf(name) orelse continue;
-            const sym = self.ctx.symbols.items[id];
-            if (sym.kind != .param or sym.flags.comptime_known) continue;
-            try f.append(self.ctx.allocator, .{ .ty = sym.ty, .name = "", .copy = true });
-        }
-    }
-
-    fn unknownFrame(self: *FrameWalker, call: Sexp, why: []const u8) Error!void {
-        try self.ctx.errAt(ir.Call.callee(call), "cannot count the values this `inline` call adds to the frame it is in ({s}); a frame must be known to be checked", .{why});
-    }
-
-    fn tooDeep(self: *FrameWalker, call: Sexp) Error!void {
-        try self.ctx.errAt(ir.Call.callee(call), "calls of `inline` functions nest more than {d} deep through this one, which no build can inline; drop `inline` from one of them", .{max_inline_depth});
-    }
-
-    /// The exits in `e` (`storage.leave_kinds`), not counting those in its
-    /// closures.
-    pub fn countExits(e: Sexp) usize {
-        if (e != .list) return 0;
-        const kind = e.kind() orelse {
-            var n: usize = 0;
-            for (e.items()) |c| n += countExits(c);
-            return n;
-        };
-        if (kind == .lambda) return 0;
-        var n: usize = @intFromBool(std.mem.findScalar(Tag, &storage.leave_kinds, kind) != null);
-        for (rig.children(e)) |c| n += countExits(c);
-        return n;
-    }
-
-    /// A copy of the value of `node` in the frame's reach, unless it is
-    /// viewed where it is used (a pointer) or fits in registers. A view its
-    /// context reads through (`readsThrough`: a use that expects the
-    /// value copies it out) counts at the size of what it views.
-    fn copy(self: *FrameWalker, node: Sexp, f: *Slots) Error!void {
-        const ctx = self.ctx;
-        if (ctx.viewOf(node) != null) return;
-        const seen = ctx.typeOf(node) orelse return;
-        const ty = if (ctx.readsThrough(node)) sema.unwrapViews(ctx, seen) else seen;
-        if (!sema.containsTypeVar(ctx, ty)) {
-            if (sema.containsPoison(ctx, ty)) return;
-            const b = (try sema.minBytes(ctx, ty)) orelse return;
-            if (b <= sema.register_bytes) return;
-        }
-        try f.append(ctx.allocator, .{ .ty = ty, .name = "", .copy = true });
-    }
-
-    /// Whether `call` calls a function or method, not a type's constructor.
-    fn callsFunction(self: *FrameWalker, call: Sexp) bool {
-        const callee = self.ctx.calleeOf(call);
-        if (callee.isKind(.member)) return true;
-        const id = self.ctx.symbolOf(callee) orelse return false;
-        return self.ctx.symbols.items[id].kind == .function;
-    }
-
-    /// The frame of owner `index`, checked now or, when its size depends
-    /// on generic parameters, at each instance; its own count goes into
-    /// the owner (`sema.FrameOwner.own`).
-    fn ownerFrame(self: *FrameWalker, index: u32) Error!void {
-        const ctx = self.ctx;
-        const owner = ctx.frame_owners.items[index];
-        const root = owner.root;
-        const label = owner.label;
-        const pos = owner.pos;
-        var slots: Slots = .empty;
-        defer slots.deinit(ctx.allocator);
-        const nodes: []const Sexp = switch (owner.kind) {
-            .function, .drop => &.{ ir.get(root, .params), ir.get(root, .body) },
-            .test_block => &.{ir.get(root, .body)},
-            .closure => &.{ ir.Lambda.params(root), ir.Lambda.body(root) },
-        };
-        for (nodes) |p| try self.walk(p, &slots, false, false);
-        // A function's parameters, copied where the rule inlines it.
-        var params: Slots = .empty;
-        defer params.deinit(ctx.allocator);
-        if (owner.kind == .function) try self.paramCopies(ir.get(root, .params), &params);
-        const items = slots.items;
-        if (items.len + params.items.len == 0) {
-            ctx.frame_owners.items[index].own = .none;
-            return;
-        }
-        // The values first, then the copies; in each, its own, then what
-        // marked calls land in it; then the parameters' copies.
-        const arena = ctx.arena.allocator();
-        const tys = try arena.alloc(TypeId, items.len + params.items.len);
-        const names = try arena.alloc([]const u8, tys.len);
-        var n: usize = 0;
-        var parts: FrameParts = .{};
-        for ([_]bool{ false, true }) |copies| for ([_]bool{ false, true }) |mark| for (items) |s| if (s.copy == copies and s.marked == mark) {
-            tys[n] = s.ty;
-            names[n] = s.name;
-            n += 1;
-            if (copies) parts.copies += 1;
-            if (mark and copies) parts.marked_copies += 1;
-            if (mark and !copies) parts.marked += 1;
-        };
-        for (params.items) |s| {
-            tys[n] = s.ty;
-            names[n] = s.name;
-            n += 1;
-        }
-        parts.params = @intCast(params.items.len);
-        for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
-            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names, .copies = parts.copies, .marked = parts.marked, .marked_copies = parts.marked_copies, .params = parts.params });
-            ctx.frame_owners.items[index].per_instance = true;
-            return;
-        };
-        const counted = (try checkFrame(ctx, pos, label, null, tys, names, parts, pos)) orelse return;
-        ctx.frame_owners.items[index].own = counted.own;
-        ctx.frame_owners.items[index].marked = counted.marked;
-        ctx.frame_owners.items[index].params = counted.params;
-    }
-};
-
-/// How a frame's types (`sema.Frame.tys`) are laid out: the values, then
-/// `copies`, which are copies its code may make, then `params`, a
-/// function's parameters as the code copies them where it is inlined;
-/// of the values the last `marked`, and of the copies the last
-/// `marked_copies`, are what calls of marked `inline` functions land in
-/// it.
-pub const FrameParts = struct { copies: u32 = 0, marked: u32 = 0, marked_copies: u32 = 0, params: u32 = 0 };
-
-/// A frame's count: its own values, what marked calls land in it
-/// (`sema.Account`), and the reach of its parameters' copies where it is
-/// inlined (`sema.FrameOwner.params`).
-pub const FrameCounted = struct { own: sema.FrameCount, marked: sema.FrameCount, params: u128 = 0 };
-
-/// Check the frame of `label` whose types are `tys`, laid out as `parts`
-/// says: its count, its own values and what marked calls land in it
-/// together, against `sema.max_frame_bytes` and its reach against
-/// `sema.max_frame_reach`. A large one marks its declaration, at `decl`
-/// in `module` (0 for this one), `noinline` (`sema.SemContext.large_frames`).
-/// A marked `inline` function's frame is counted, for what the rule
-/// inlines through it (`inlining.decide`), and not checked: Zig never
-/// writes it, and its values land in each caller's, which is.
-pub fn checkFrame(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, parts: FrameParts, decl: u32) Error!?FrameCounted {
-    return checkFrameIn(ctx, pos, label, of, tys, names, parts, 0, decl);
-}
-
-/// The count of the frame, null when a value in it follows an error. It
-/// is recorded (`SemContext.frame_sizes`) as the frame of the owner
-/// declared at `decl` in module `module` (0 for this one).
-pub fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, parts: FrameParts, module: u32, decl: u32) Error!?FrameCounted {
-    const body = tys[0 .. tys.len - parts.params];
-    const values = body[0 .. body.len - parts.copies];
-    const copied = body[values.len..];
-    const bytes = (try frameBytes(ctx, values)) orelse return null;
-    const reach = bytes + ((try reachBytes(ctx, copied)) orelse return null);
-    const marked_bytes = (try frameBytes(ctx, values[values.len - parts.marked ..])) orelse return null;
-    const marked: sema.FrameCount = .{ .bytes = marked_bytes, .reach = marked_bytes + ((try reachBytes(ctx, copied[copied.len - parts.marked_copies ..])) orelse return null) };
-    const params = (try reachBytes(ctx, tys[body.len..])) orelse return null;
-    const counted: FrameCounted = .{ .own = .{ .bytes = bytes - marked.bytes, .reach = reach - marked.reach }, .marked = marked, .params = params };
-    const shown = if (of) |root| try ctx.arena.allocator().print("{s} in `{s}`", .{ label, try sema.rootName(ctx, root) }) else label;
-    const declared = if (module == 0) ctx.module_id else module;
-    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = counted.own.bytes, .reach = counted.own.reach, .marked = marked, .params = params, .module = declared, .decl = decl });
-    // A marked `inline` function's frame is never written: its values
-    // land in each caller's, which is checked in turn.
-    const decl_ctx = ctx.declaringContext(.{ .module = declared, .pos = decl }) orelse return counted;
-    if (decl_ctx.inline_decls.contains(decl)) return counted;
-    if (bytes > sema.max_frame_bytes) {
-        try reportFrame(ctx, pos, label, bytes, of, values, names[0..values.len]);
-        return counted;
-    }
-    if (reach * sema.reach_factor > sema.max_frame_reach) {
-        const in = if (of) |root| try ctx.arena.allocator().print(" in `{s}`", .{try sema.rootName(ctx, root)}) else "";
-        try ctx.err(pos, "{s} makes or copies {d} bytes of values{s}, and a build may hold each in a temporary of its own on the stack, {d} times over at most; a function's code may take at most {d} bytes (512 MiB) of stack. Keep large data on the heap, in a box (`^T`) or a `List`, or split the function", .{ label, reach, in, sema.reach_factor, sema.max_frame_reach });
-        return counted;
-    }
-    if (reach * sema.reach_factor < sema.noinline_reach) return counted;
-    // Within `max_frame_reach`, checked above.
-    const takes: u64 = @intCast(reach * sema.reach_factor);
-    if (declared == ctx.module_id) try sema.markLarge(&ctx.large_frames, ctx.allocator, decl, takes) else try ctx.large_foreign_frames.append(ctx.allocator, .{ .module = module, .pos = decl, .bytes = takes });
-    return counted;
-}
-
-/// The bytes of the copies `tys`, each that does not fit in registers;
-/// null when one follows an error.
-pub fn reachBytes(ctx: *SemContext, tys: []const TypeId) Error!?u128 {
-    var total: u128 = 0;
-    for (tys) |ty| {
-        if (sema.containsPoison(ctx, ty)) return null;
-        const b = (try sema.minBytes(ctx, ty)) orelse return null;
-        if (b > sema.register_bytes) total += b;
-    }
-    return total;
-}
-
-/// The bytes the values `tys` take together; null when one follows an
-/// error or is too large by itself, which is reported on its own.
-pub fn frameBytes(ctx: *SemContext, tys: []const TypeId) Error!?u128 {
-    var total: u128 = 0;
-    for (tys) |ty| {
-        if (sema.containsPoison(ctx, ty)) return null;
-        const b = (try sema.minBytes(ctx, ty)) orelse return null;
-        if (b > sema.max_value_bytes) return null;
-        total += b;
-    }
-    return total;
-}
-
-pub fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8) Error!void {
-    const in = if (of) |root| try ctx.arena.allocator().print(" in `{s}`", .{try sema.rootName(ctx, root)}) else "";
-    // The three largest, by name where a local has one.
-    var top: [3]usize = undefined;
-    var n: usize = 0;
-    for (tys, 0..) |ty, i| {
-        const b = (try sema.minBytes(ctx, ty)) orelse 0;
-        var at = n;
-        while (at > 0 and (try sema.minBytes(ctx, tys[top[at - 1]])).? < b) : (at -= 1) {}
-        if (at >= top.len) continue;
-        if (n < top.len) n += 1;
-        var j = n - 1;
-        while (j > at) : (j -= 1) top[j] = top[j - 1];
-        top[at] = i;
-    }
-    var largest: std.ArrayList(u8) = .empty;
-    for (top[0..n], 0..) |i, k| {
-        const b = (try sema.minBytes(ctx, tys[i])) orelse 0;
-        const what = if (names[i].len > 0) try ctx.arena.allocator().print("`{s}`", .{names[i]}) else "a temporary";
-        try largest.appendSlice(ctx.arena.allocator(), try ctx.arena.allocator().print("{s}{s} ({d} bytes)", .{ if (k == 0) "" else ", ", what, b }));
-    }
-    try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (13 MiB). Its largest: {s}. Keep large data on the heap, in a box (`^T`) or a `List`", .{ label, bytes, in, sema.max_frame_bytes, largest.items });
-}
-
-/// The arrays a generic declaration makes, in one instance, and a generic
-/// type's instance itself, must fit `sema.max_value_bytes`; the instance
-/// must also nest at most `sema.max_value_depth` deep.
-pub fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
-    for (args) |a| if (sema.containsPoison(ctx, a)) return;
-    const subst: sema.TypeSubst = .{ .params = params, .args = args };
-    var entries: std.ArrayList(u32) = .empty;
-    defer entries.deinit(ctx.allocator);
-    try ctx.genericEntries(.arrays, params, &entries);
-    for (entries.items) |i| {
-        const g = ctx.generic_arrays.items[i];
-        const ty = try sema.substituteType(ctx, g.ty, subst);
-        if (sema.containsTypeVar(ctx, ty) or sema.containsPoison(ctx, ty)) continue;
-        const bytes = (try sema.arrayOversized(ctx, ty)) orelse continue;
-        try ctx.oversized.put(ctx.allocator, ty, {});
-        if (of == .type) try ctx.oversized.put(ctx.allocator, of.type, {});
-        try ctx.err(at, "`{s}` makes `{s}`, which takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `List`", .{ try sema.rootName(ctx, of), try sema.formatType(ctx, ty), bytes, sema.max_value_bytes });
-        try ctx.noteIn(g.module_id, g.pos, "the array is made here", .{});
-        return;
-    }
-    if (of == .type) {
-        const sym = ctx.types.get(of.type).parameterized_nominal.sym;
-        if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| {
-            try sema.reportOversized(ctx, at, of.type, bytes);
-            return;
-        }
-        if (try sema.tooDeepByItself(ctx, of.type, sym, subst)) |depth| {
-            try sema.reportTooDeep(ctx, at, of.type, depth);
-            return;
-        }
-    }
-    // A function instance checks the frames that use its own parameters;
-    // those that use only its type's are checked with the type's instance.
-    const own = switch (of) {
-        .func => |f| f.ownParams(),
-        .type => params,
-    };
-    var buf: std.ArrayList(TypeId) = .empty;
-    defer buf.deinit(ctx.allocator);
-    try ctx.genericEntries(.frames, own, &entries);
-    frames: for (entries.items) |i| {
-        const fr = ctx.generic_frames.items[i];
-        buf.clearRetainingCapacity();
-        for (fr.tys) |ty| {
-            const t = try sema.substituteType(ctx, ty, subst);
-            if (sema.containsTypeVar(ctx, t)) continue :frames;
-            try buf.append(ctx.allocator, t);
-        }
-        const before = ctx.diagnostics.items.len;
-        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, .{ .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .params = fr.params }, fr.module_id, fr.pos);
-        if (ctx.diagnostics.items.len == before) continue;
-        try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
-        return;
-    }
-}
-
-/// Why a value holding `blocker` cannot go to another task
-/// (`Checker.crossCheck`), and to be read there when `shared`; `verb`
-/// says how it relates to `blocker` when it is that type or views it.
-pub fn crossingReason(ctx: *SemContext, blocker: TypeId, shared: bool, verb: ?[]const u8) Error![]const u8 {
-    const a = ctx.arena.allocator();
-    const what = verb orelse try std.fmt.allocPrint(a, "holds `{s}`,", .{try sema.formatType(ctx, blocker)});
-    const blocker_is_weak = ctx.types.get(blocker) == .weak;
-    const why: []const u8 = switch (ctx.types.get(blocker)) {
-        .shared, .weak => |inner| if (ctx.types.get(inner) == .function)
-            "an owned closure, whose captures its type does not show"
-        else if (blocker_is_weak and (sema.isWordCell(ctx, inner) or sema.cellObject(ctx, inner)))
-            "a `~` handle, which stays with one task; a `*` handle to the same value goes to other tasks"
-        else if (blocker_is_weak)
-            "a `~` handle whose count is not atomic, so two cores could change it at once"
-        else if (sema.isCell(ctx, inner))
-            "a `*` handle to a Cell of more than one word, which stays with one task; a Cell of an `Int`, `Bool`, `Float`, or plain enum goes to other tasks"
-        else if (try sema.cellRefusalReason(ctx, inner)) |reason|
-            reason
-        else
-            "a `*` handle whose count is not atomic, so two cores could change it at once",
-        .callable => "a closure or function passed to a call as a view, whose captures its type does not show",
-        .write_view => "a write view, which no two tasks may hold at once",
-        // The bound it lacks for the form that reached it: one named
-        // alone says which the other is.
-        .api_object => |o| blk: {
-            const named = sema.objectBounds(ctx, o);
-            if (named.contains(.Sends)) break :blk "an API object whose braces and API name no `Syncs`, so no two tasks may read what it hides";
-            if (named.contains(.Syncs)) break :blk "an API object whose braces and API name no `Sends`, so what it hides may not go to another task";
-            break :blk "an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task";
-        },
-        .parameterized_nominal => |pn| if (pn.sym == ctx.task_sym_id and shared)
-            "a task, which only the one that holds it may wait for"
-        else if (pn.sym == ctx.tasks_sym_id)
-            "a set of tasks, which stays with the task that made it"
-        else
-            "a value that changes through handles that stay on this core",
-        else => "a value that cannot go to another core",
-    };
-    return std.fmt.allocPrint(a, "{s} {s}", .{ what, why });
-}
-
-/// `inst`, made at `at`, gives its parameter `pname` the type `arg`, which
-/// fails `req`, a `Requirement.task` or `.no_task`: the error, and a note
-/// at the body's line.
-pub fn reportTaskReq(ctx: *SemContext, req: sema.GenericRequirement, at: u32, inst: []const u8, pname: []const u8, arg: TypeId) Error!void {
-    const aname = try sema.formatType(ctx, arg);
-    switch (req.req) {
-        .no_task => {
-            try ctx.err(at, "`{s}` cannot use `{s} = {s}`: {s}, and {s}", .{ inst, pname, aname, req.op, try taskWhy(ctx, arg) });
-            try ctx.noteIn(req.module_id, req.pos, "`{s}` hidden here", .{pname});
-        },
-        .task => |reach| {
-            const blocker = (try sema.taskBlocker(ctx, arg, reach)).?;
-            // A value a local task takes: the task the body makes crosses.
-            // (An erasure hides the value in an object, which crosses by
-            // its bound wherever it goes.)
-            const crosses = !reach.local and (try sema.localBlocker(ctx, arg, reach.how)) == null and !std.mem.startsWith(u8, req.op, "is erased");
-            const whose = if (std.mem.find(u8, req.op, "actor") != null) "the actor's task" else "the body's task";
-            try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a value that holds a `{s}` {s} in the generic body, and `{s}` {s}{s}{s}{s}", .{ inst, pname, aname, pname, req.op, aname, try crossingReason(ctx, blocker, reach.how == .shares, if (blocker == arg) "is" else null), if (crosses) "; " else "", if (crosses) whose else "", if (crosses) " may run on another core in every instance, so it takes nothing that stays on one thread" else "" });
-            try ctx.noteIn(req.module_id, req.pos, "a `{s}` {s} here", .{ pname, req.op });
-        },
-        else => unreachable,
-    }
-}
-
-/// The methods the program reaches (`sema.BodyReach`), each checked
-/// against what its body requires of its type's parameters
-/// (`GenericRequirement.body`): at the call that reaches it, or that
-/// makes the instance of the body whose call does.
-pub fn checkReaches(ctx: *SemContext) Error!void {
-    var i: usize = 0;
-    while (i < ctx.body_reaches.items.len) : (i += 1) {
-        const r = ctx.body_reaches.items[i];
-        for (ctx.generic_requirements.items) |req| {
-            if (req.body == sema.no_body or req.body != r.fun.pos) continue;
-            if ((if (req.module_id == 0) ctx.module_id else req.module_id) != r.fun.module) continue;
-            if (req.index >= r.args.len) continue;
-            const arg = r.args[req.index];
-            if (sema.containsPoison(ctx, arg) or sema.containsTypeVar(ctx, arg)) continue;
-            if (!try sema.liveAt(ctx, req.module_id, req.pos, r.params, r.args)) continue;
-            if (try satisfies(ctx, arg, req.req)) continue;
-            const inst = try sema.rootName(ctx, .{ .func = try sema.reachInstance(ctx, r) });
-            try reportTaskReq(ctx, req, r.site, inst, ctx.symbols.items[req.param].name, arg);
-            if (r.via) |via| try ctx.note(r.site, "`{s}` is reached from `{s}`", .{ inst, try sema.rootName(ctx, via) });
-            break;
-        }
-    }
-}
-
-/// The positions of `generic_requirements` on each parameter, in order.
-pub const Requirements = std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32));
-
-/// False after a diagnostic.
-pub fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: []const SymbolId, given_args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
-    var ok = true;
-    // The associated types of the parameters too (`I.Item`), at what each
-    // argument gives them.
-    const all = try sema.withAssoc(ctx, given_params, given_args);
-    const params = all.params;
-    const args = all.args;
-    for (params, 0..) |param, i| {
-        if (i >= args.len) break;
-        const arg = args[i];
-        // A diagnostic was reported about the argument.
-        if (sema.containsPoison(ctx, arg)) continue;
-        const on = reqs.getPtr(param) orelse continue;
-        for (on.items) |r| {
-            const req = ctx.generic_requirements.items[r];
-            // What code this instance does not compile needs (`sema.liveAt`).
-            if (!try sema.liveAt(ctx, req.module_id, req.pos, params, args)) continue;
-            if (try satisfies(ctx, arg, req.req)) continue;
-            const inst = try sema.rootName(ctx, of);
-            const pname = ctx.symbols.items[param].name;
-            const aname = try sema.formatType(ctx, arg);
-            const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
-            switch (req.req) {
-                .copies, .no_cleanup => if (sema.typeHasDropGlue(ctx, arg))
-                    try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname })
-                else
-                    try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is unique", .{ inst, pname, aname, req.op, pname, aname }),
-                .clones => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is not `Clone`", .{ inst, pname, aname, req.op, pname, aname }),
-                .array_len => try ctx.err(at, cannot ++ "uses `{s}` as an array length, which runs from 0 to {d}", .{ inst, pname, aname, pname, sema.max_array_len }),
-                .lane_count => try ctx.err(at, cannot ++ "uses `{s}` as a lane count, a power of two from 2 to 64", .{ inst, pname, aname, pname }),
-                .slot_count => try ctx.err(at, cannot ++ "names `Slot[{s}]`, and a slot names one of `n` slots, `n` at least 1", .{ inst, pname, aname, pname }),
-                .sized => try ctx.err(at, cannot ++ "takes `${s}` of a type that holds a `{s}`, and `{s}` holds a vector, whose size and alignment differ from target to target", .{ inst, pname, aname, req.op, pname, aname }),
-                .bytes => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` in bytes, which takes an integer or float type", .{ inst, pname, aname, req.op, pname }),
-                .records => try ctx.err(at, cannot ++ "makes a `{s}` from bytes with `extend_from_bytes`, and not every bit pattern is {s} `{s}`: give `{s}` an integer, a float, or an object or array of them with no padding", .{ inst, pname, aname, pname, article(aname), aname, pname }),
-                .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
-                .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
-                .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
-                .printable => if (try sema.objectUnprinted(ctx, arg)) |held|
-                    try ctx.err(at, cannot ++ "{s}s a value that holds a `{s}`, and `{s}` cannot be {s}: its type is erased, and its braces and API name no `Print`", .{ inst, pname, aname, req.op, pname, try sema.formatType(ctx, held), if (std.mem.eql(u8, req.op, "write")) "written" else "printed" })
-                else
-                    try ctx.err(at, cannot ++ "{s}s a value that holds a `{s}`, and {s} would {s} as text, like a `?String`", .{ inst, pname, aname, req.op, pname, if (std.mem.eql(u8, aname, "[]U8")) "a `[]U8`" else try ctx.arena.allocator().print("the `[]U8` a `{s}` holds", .{aname}), req.op }),
-                .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
-                .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
-                .error_set => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` names an error set, and `{s}` is not one", .{ inst, pname, aname, pname, aname }),
-                .not_function => try ctx.err(at, cannot ++ "makes a handle `{s}{s}` of a `{s}`, and `{s}` is a function type: `*{s}` is an owned closure, not a handle of a function. Hold the owned closure itself in a `{s}`: `{s} = *{s}`", .{ inst, pname, aname, req.op[1..2], pname, pname, aname, aname, pname, pname, aname }),
-                .named => {
-                    const held = sema.unnameable(ctx, arg).?;
-                    const what = if (held == arg) "is one" else try ctx.arena.allocator().print("holds `{s}`", .{try sema.formatType(ctx, held)});
-                    try ctx.err(at, cannot ++ "names a type that holds a `{s}` with `$name`, which spells no view or slice in a type parameter's instance but a `?String`, and `{s}` {s}", .{ inst, pname, aname, pname, aname, what });
-                },
-                .frozen => try ctx.err(at, cannot ++ "freezes a value that holds a `{s}`, and {s}", .{ inst, pname, aname, pname, try sema.frozenReason(ctx, arg, (try sema.frozenBlocker(ctx, arg)).?) }),
-                .no_task, .task => try reportTaskReq(ctx, req, at, inst, pname, arg),
-                .meets => |api| try ctx.err(at, cannot ++ "{s}, and `{s}` is not `{s}`", .{ inst, pname, aname, req.op, aname, @tagName(api) }),
-                .order => {
-                    const lack: sema.Lack = (try sema.lacks(ctx, arg, .Ord)) orelse .{ .ty = arg };
-                    try ctx.err(at, cannot ++ "orders a `{s}` with `order`, and `{s}` cannot be ordered{s}", .{ inst, pname, aname, pname, aname, try sema.lackDetail(ctx, ctx.arena.allocator(), arg, .Ord, lack) });
-                },
-                .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
-                .hashable => try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, (try sema.notHashable(ctx, arg, null)).?) }),
-                else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
-            }
-            switch (req.req) {
-                .copies, .no_cleanup, .clones => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
-                .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
-                .lane_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a lane count here", .{pname}),
-                .slot_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a slot count here", .{pname}),
-                .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
-                .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
-                .error_set => try ctx.noteIn(req.module_id, req.pos, "`!{s}` here", .{pname}),
-                .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
-                .named => try ctx.noteIn(req.module_id, req.pos, "`$name` here", .{}),
-                .printable => try ctx.noteIn(req.module_id, req.pos, "written here", .{}),
-                .frozen => try ctx.noteIn(req.module_id, req.pos, "frozen here", .{}),
-                .no_task, .task => {},
-                .meets => try ctx.noteIn(req.module_id, req.pos, "erased here", .{}),
-                else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
-            }
-            ok = false;
-            break;
-        }
-    }
-    return ok;
-}
-
-/// Whether `ty` is an `obj` or an `enum` a module declares, whose
-/// methods a call on a type parameter reaches as Zig resolves it in each
-/// instance; a built-in type's methods are lowered by emit at a call of
-/// a known type, so none is reached through a type parameter.
-pub fn declaredType(ctx: *const SemContext, ty: TypeId) bool {
-    switch (ctx.types.get(ty)) {
-        .nominal, .imported_nominal, .parameterized_nominal => {},
-        else => return false,
-    }
-    const decl = sema.nominalDecl(ctx, ty) orelse return false;
-    return decl.symbol().decl_pos != sema.builtin_decl_pos and !(decl.module_id == null and sema.isBuiltinGeneric(ctx, decl.sym));
-}
-
-/// The method calls generic bodies make on the parameters `own`
-/// (`sema.GenericMethodCall`), checked at the instance `subst` made at
-/// `at`: a call whose types this instance leaves open is checked where
-/// they are bound. A type's instance leaves open what its methods' own
-/// parameters bind; a method's instance checks only the calls on its own
-/// parameters or whose types name one. False after a diagnostic.
-pub fn checkMethodCalls(ctx: *SemContext, subst: TypeSubst, own: []const SymbolId, at: u32, of: sema.InstanceRoot) Error!bool {
-    const outer: TypeSubst = .{ .params = subst.params[0 .. subst.params.len - own.len], .args = subst.args[0 .. subst.args.len - own.len] };
-    var i: usize = 0;
-    while (i < ctx.generic_methods.items.len) : (i += 1) {
-        const c = ctx.generic_methods.items[i];
-        if (subst.lookup(c.param) == null) continue;
-        if (std.mem.findScalar(SymbolId, own, c.param) == null) {
-            // On a type's parameter: checked with a method's instance only
-            // where it names one of the method's own.
-            if (of == .func and !try namesOwn(ctx, c, outer)) continue;
-        }
-        const arg = subst.lookup(c.param).?;
-        if (sema.containsPoison(ctx, arg)) continue;
-        // A call in code this instance does not compile (`sema.liveAt`).
-        if (!try sema.liveAt(ctx, c.module_id, c.pos, subst.params, subst.args)) continue;
-        if (!try checkMethodCall(ctx, c, subst, arg, at, of)) return false;
-    }
-    return true;
-}
-
-/// Whether the types of call `c` name a parameter `outer` leaves open.
-pub fn namesOwn(ctx: *SemContext, c: sema.GenericMethodCall, outer: TypeSubst) Error!bool {
-    for (c.args) |t| if (sema.containsTypeVar(ctx, try sema.substituteType(ctx, t, outer))) return true;
-    return switch (c.result) {
-        .ty => |t| sema.containsTypeVar(ctx, try sema.substituteType(ctx, t, outer)),
-        .nothing, .dropped => false,
-    };
-}
-
-/// Call `c` at an instance whose type for its parameter is `arg`. True
-/// when the instance meets it, or when the instance leaves a type of it
-/// open.
-pub fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst, arg: TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
-    const a = ctx.arena.allocator();
-    const args = try a.alloc(TypeId, c.args.len);
-    for (c.args, args) |t, *out| out.* = try sema.substituteType(ctx, t, subst);
-    const result: ?TypeId = switch (c.result) {
-        .ty => |t| try sema.substituteType(ctx, t, subst),
-        .nothing, .dropped => null,
-    };
-    if (sema.containsTypeVar(ctx, arg)) return true;
-    for (args) |t| if (sema.containsTypeVar(ctx, t)) return true;
-    if (result) |t| if (sema.containsTypeVar(ctx, t)) return true;
-    for (args) |t| if (sema.containsPoison(ctx, t)) return true;
-    if (result) |t| if (sema.containsPoison(ctx, t)) return true;
-
-    const inst = try sema.rootName(ctx, of);
-    const pname = ctx.symbols.items[c.param].name;
-    const aname = try sema.formatType(ctx, arg);
-    const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
-    const viewed = ctx.types.get(arg) == .read_view;
-    const base = if (viewed) ctx.types.get(arg).read_view else arg;
-    const bname = try sema.formatType(ctx, base);
-    const verb: []const u8 = switch (c.self_mode) {
-        .write => "writes",
-        .value => "consumes",
-        .read, .none => "reads",
-    };
-    if (try reportApiUnbound(ctx, c, base, at, of)) return false;
-    // An API object's methods are reached through its table, which only
-    // a call on a value whose type is written as the object makes.
-    if (sema.mentionsObject(ctx, base)) {
-        try ctx.err(at, cannot ++ "calls `{s}` on a `{s}`, and an API object's methods are called only where its type is written", .{ inst, pname, aname, c.method, pname });
-        try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
-        return false;
-    }
-    if (!declaredType(ctx, base)) {
-        try ctx.err(at, cannot ++ "calls `{s}` on a `{s}`, and a call on a `{s}` reaches only the methods of an `obj` or an `enum` a module declares, not those of `{s}`", .{ inst, pname, aname, c.method, pname, pname, bname });
-        try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
-        return false;
-    }
-    if (viewed and c.self_mode != .read) {
-        try ctx.err(at, cannot ++ "calls `{s}`, which {s} `{s}`, and `{s}` is a read view, through which nothing is written or consumed", .{ inst, pname, aname, c.call, verb, c.recv, aname });
-        try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
-        return false;
-    }
-    const m = (try sema.typeMethod(ctx, base, c.method)) orelse {
-        try ctx.err(at, cannot ++ "calls `{s}` on a `{s}`, and `{s}` has no method `{s}`", .{ inst, pname, aname, c.method, pname, bname, c.method });
-        try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
-        return false;
-    };
-    const owner = try a.print("{s}.{s}", .{ bname, c.method });
-    const why: ?[]const u8 = blk: {
-        const declared = m.module orelse if (sema.isProxy(m.owner)) m.owner.from.module_id else ctx.module_id;
-        const body = if (c.module_id == 0) ctx.module_id else c.module_id;
-        if (!m.field.is_pub and declared != body) {
-            const mname = if (declared == ctx.module_id) ctx.name else if (ctx.foreign_semas.get(declared)) |f| f.name else "?";
-            break :blk try a.print("and `{s}` is private to module `{s}`; declare it `pub` there", .{ owner, mname });
-        }
-        if (m.field.self_mode == .none) break :blk try a.print("and `{s}` takes no `self`", .{owner});
-        // A method with options takes them by name, which a generic
-        // body's call, by position only, never gives: refused as a
-        // function value is (`optionsValue`).
-        if (m.field.has_groups) break :blk try a.print("and `{s}` has options, given by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", .{owner});
-        if (m.field.param_defaults) |d| for (d) |x| {
-            if (x != null) break :blk try a.print("and `{s}` has options, given by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", .{owner});
-        };
-        if (m.field.self_mode != c.self_mode) break :blk try a.print("which {s} `{s}`, but `{s}` takes `self` as `{s}`", .{ verb, c.recv, owner, switch (m.field.self_mode) {
-            .read => "?@",
-            .write => "!@",
-            .value => "<@",
-            .none => "",
-        } });
-        if (m.field.inline_marked) break :blk try a.print("and `{s}` is marked `inline`, and a call on a `{s}` is not inlined", .{ owner, pname });
-        // A view kept in a `T` the body holds by value is a loan the body
-        // does not track, which a move of the value could carry out of
-        // the function; through a write view, the function's own `keeps`
-        // says what may be stored.
-        if (c.owned_recv and m.field.origins.stores & m.field.origins.viewed != 0) break :blk try a.print("and `{s}` keeps a view of an argument in `{s}`, a `{s}` the body holds, whose views it does not track", .{ owner, c.recv, pname });
-        // Its result may view `x` itself, a `T` the body holds, or an
-        // argument: held as a value of a type parameter's type, which can
-        // hold a view at this instance, the view is one no loan tracks.
-        if (c.owned_recv and c.result == .ty and sema.containsTypeVar(ctx, c.result.ty) and m.field.origins.result & m.field.origins.viewed != 0 and sema.mayHoldView(ctx, result.?))
-            break :blk try a.print("and `{s}` gives a view of `{s}` or an argument, which the body holds as a `{s}`, whose views it does not track", .{ owner, c.recv, try sema.formatType(ctx, c.result.ty) });
-        if (m.field.owner_bounds.len > 0) break :blk try a.print("and `{s}` is declared under a bound on its type's parameters, which a call on a `{s}` with no bound does not state", .{ owner, pname });
-        if (sema.isGenericFn(ctx, m.fn_ty)) break :blk try a.print("and `{s}` takes compile-time parameters of its own, which a call on a `{s}` does not give", .{ owner, pname });
-        const params = m.fn_ty.params[1..];
-        if (params.len != args.len) break :blk try a.print("with {d} argument{s}, and `{s}` takes {d}", .{ args.len, if (args.len == 1) "" else "s", owner, params.len });
-        for (args, params, 1..) |got, want, n| if (got != want)
-            break :blk try a.print("passing argument {d} as `{s}`, and `{s}` takes `{s}` there", .{ n, try sema.formatType(ctx, got), owner, try sema.formatType(ctx, want) });
-        const gives = m.fn_ty.returns;
-        switch (c.result) {
-            .ty => if (result.? != gives) break :blk try a.print("taking its result as `{s}`, and `{s}` gives `{s}`", .{ try sema.formatType(ctx, result.?), owner, try sema.formatType(ctx, gives) }),
-            .nothing => if (ctx.types.get(gives) != .void) break :blk try a.print("as a statement, and `{s}` gives `{s}`; discard it with `_ = {s}`", .{ owner, try sema.formatType(ctx, gives), c.call }),
-            .dropped => if (ctx.types.get(gives) == .fallible) break :blk try a.print("under `_ =`, and `{s}` gives `{s}`, whose failure `_ =` would not handle", .{ owner, try sema.formatType(ctx, gives) }),
-        }
-        break :blk null;
-    };
-    const reason = why orelse return true;
-    try ctx.err(at, cannot ++ "calls `{s}`, {s}", .{ inst, pname, aname, c.call, reason });
-    try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
-    return false;
-}
-
-/// A call `x.area()` on a `T` with no bound, where the instance's type
-/// has no method `area` of its own but provides an API the module sees
-/// that declares it (a default, or an addition's method): only a bound
-/// reaches it, so the error says to write one. False when that is not so.
-pub fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
-    if (try sema.typeMethod(ctx, base, c.method) != null) return false;
-    const a = ctx.arena.allocator();
-    var refs: std.ArrayList(sema.ApiRef) = .empty;
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = ctx.module_id, .sym = @intCast(i) });
-    }
-    for (ctx.imports) |imp| for (imp.sema.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and sym.flags.is_public and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = imp.module_id, .sym = @intCast(i) });
-    };
-    const api: sema.ApiRef = for (refs.items) |r| {
-        const sym = sema.apiSymbol(ctx, r) orelse continue;
-        const declares = for (sym.fields orelse &.{}) |f| {
-            if (f.is_method and std.mem.eql(u8, f.name, c.method)) break true;
-        } else false;
-        if (declares and try sema.provides(ctx, base, r) != null) break r;
-    } else return false;
-    const pname = ctx.symbols.items[c.param].name;
-    const generic: []const u8 = switch (of) {
-        .func => |f| blk: {
-            var out: std.ArrayList(u8) = .empty;
-            try out.print(a, "{s}[", .{f.name});
-            for (f.ownParams(), 0..) |p, i| try out.print(a, "{s}{s}", .{ if (i > 0) ", " else "", ctx.symbols.items[p].name });
-            try out.append(a, ']');
-            break :blk out.items;
-        },
-        .type => |t| try sema.formatType(ctx, if (ctx.types.get(t) == .parameterized_nominal) (try sema.makeNominalContext(ctx, ctx.types.get(t).parameterized_nominal.sym)).self_type else t),
-    };
-    try ctx.err(at, "`{s}` has no method `{s}`: `{s}` gives `{s}` no bound; write `[{s}: {s}]`, which declares `{s}`", .{ pname, c.method, generic, pname, pname, try sema.apiName(ctx, api), c.method });
-    try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
-    return true;
-}
-
-/// The value a box, a counted handle, or a frozen value's handle of type
-/// `ty` reaches, through each in turn; `ty` itself for any other type.
-pub fn reachedValue(ctx: *const SemContext, ty: TypeId) TypeId {
-    var a = ty;
-    while (true) {
-        if (sema.boxedType(ctx, a)) |inner| {
-            a = inner;
-        } else switch (ctx.types.get(a)) {
-            .shared => |inner| a = sema.frozenValue(ctx, inner) orelse inner,
-            else => return a,
-        }
-    }
-}
-
-/// Whether the bounds of `sym` give what `req` needs, `api`: the API
-/// itself, or for the comparison operators `Num`, since every number
-/// orders by `<`, a float as IEEE 754 says (a NaN beside anything false).
-pub fn boundsGive(ctx: *SemContext, sym: sema.Symbol, req: Requirement, api: sema.Api) bool {
-    const apis = sema.boundApis(ctx, sym);
-    return apis.contains(api) or (req == .ordered and apis.contains(.Num));
-}
-
-/// Whether `api` says how a value is copied, kept, or crosses to
-/// another task: a fact of a type's parts that every method of a generic
-/// type shares, never one a method's own bounds add.
-pub fn ownershipApi(api: sema.Api) bool {
-    return switch (api) {
-        .Copy, .Clone, .Owned, .Sends, .Syncs => true,
-        else => false,
-    };
-}
-
-/// The API that gives a body requirement `req` on a type parameter
-/// (docs/design/apis.md, "What a bound changes in a body"), or null for
-/// one each instance still decides with any bounds: a literal's fit, a
-/// shift's width, a size, a name.
-pub fn apiOf(req: Requirement) ?sema.Api {
-    return switch (req) {
-        .numeric, .bytes => .Num,
-        .integer, .whole_division => .Integer,
-        .records => null,
-        .signed => .Signed,
-        .ordered, .order => .Ord,
-        .equatable => .Eq,
-        .hashable => .Hash,
-        .copies, .no_cleanup => .Copy,
-        .clones => .Clone,
-        .printable => .Print,
-        .meets => |api| api,
-        .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .error_set, .not_function, .named, .frozen, .no_task, .task => null,
-    };
-}
-
-/// A type parameter checked by its bounds (`sema.checkedByBounds`) that a
-/// generic function's body gives, through the generic functions it calls
-/// at it (`SemContext.param_calls`), to a task that may run on another
-/// core must state `Sends`, or `Syncs` given as a read view, and one it
-/// gives to a body that prints it must state `Print`, as a body doing so
-/// itself must: each instance is not checked for it, and an error at a
-/// callee's instance would name what the public generic does not show. What
-/// a callee's parameter needs, the caller's parameters its argument holds
-/// need, where the callee's own walk looks: `sema.taskParams` for a task,
-/// `sema.printedTypeVars` for printing. A generic type's printing passes
-/// the same way to the parameters of each instance a body names
-/// (`SemContext.generic_uses`), as every instance is checked for it.
-pub fn checkStatedForwards(ctx: *SemContext) Error!void {
-    const a = ctx.arena.allocator();
-    const Need = union(enum) { task: sema.TaskReach, print };
-    const Gone = struct { param: SymbolId, need: Need, pos: u32 };
-    var gone: std.ArrayList(Gone) = .empty;
-    for (ctx.generic_requirements.items) |r| {
-        if (r.body != sema.no_body) continue;
-        switch (r.req) {
-            .task => |reach| try gone.append(a, .{ .param = r.param, .need = .{ .task = reach }, .pos = r.pos }),
-            // A parameter checked by its bounds answers for its own
-            // printing (`checkBoundedBodies`), and its callers through
-            // them at each call.
-            .printable => if (!sema.checkedByBounds(ctx.symbols.items[r.param])) try gone.append(a, .{ .param = r.param, .need = .print, .pos = r.pos }),
-            else => {},
-        }
-    }
-    if (gone.items.len == 0) return;
-    // What each callee's parameter needs, its caller's parameters need
-    // through the arguments, until nothing new.
-    var tasks: std.ArrayList(sema.TaskParam) = .empty;
-    defer tasks.deinit(ctx.allocator);
-    var printed: std.ArrayList(SymbolId) = .empty;
-    defer printed.deinit(ctx.allocator);
-    var i: usize = 0;
-    while (i < gone.items.len) : (i += 1) {
-        const g = gone.items[i];
-        for (ctx.param_calls.items) |c| for (c.params, c.args) |p, arg| {
-            if (p != g.param) continue;
-            switch (g.need) {
-                // A task in a method of a generic type is checked where
-                // the program reaches the method (`sema.BodyReach`).
-                .task => |reach| if (c.body == sema.no_body) {
-                    tasks.clearRetainingCapacity();
-                    try sema.taskParams(ctx, arg, reach, &tasks);
-                    for (tasks.items) |f| try addNeed(Gone, a, &gone, .{ .param = f.param, .need = .{ .task = f.reach }, .pos = c.pos });
-                },
-                .print => try printedNeeds(Gone, ctx, a, &gone, arg, c.pos, &printed),
-            }
-        };
-        // A type's printing is its every instance's (`checkGenericInstantiations`):
-        // the parameters of what a body names it at, `Box(v: x)` in `f[T]`.
-        if (g.need == .print) for (ctx.generic_uses.items, ctx.generic_uses_at.items) |use, at| {
-            const pn = switch (ctx.types.get(use)) {
-                .parameterized_nominal => |pn| pn,
-                else => continue,
-            };
-            const params = ctx.symbols.items[pn.sym].type_params orelse continue;
-            for (params, pn.args) |p, arg| if (p == g.param) try printedNeeds(Gone, ctx, a, &gone, arg, at, &printed);
-        };
-    }
-    var reported: std.AutoHashMapUnmanaged(struct { SymbolId, sema.Api }, void) = .empty;
-    defer reported.deinit(ctx.allocator);
-    for (gone.items) |g| {
-        const sym = ctx.symbols.items[g.param];
-        if (sema.isProxy(sym) or !sema.checkedByBounds(sym)) continue;
-        const api: sema.Api, const what: []const u8 = switch (g.need) {
-            .task => |reach| if (reach.local) continue else if (reach.how == .moves)
-                .{ .Sends, "a value given to a task that may run on another core" }
-            else
-                .{ .Syncs, "a value passed as a view to a task that may run on another core" },
-            .print => .{ .Print, "printing" },
-        };
-        if (sema.boundApis(ctx, sym).contains(api)) continue;
-        if ((try reported.getOrPut(ctx.allocator, .{ g.param, api })).found_existing) continue;
-        try reportUnbounded(ctx, g.pos, g.param, api, what);
-    }
-}
-
-/// Adds to `gone` (`checkStatedForwards`) the need to print each type
-/// parameter a printed `arg` holds, given at `pos`.
-pub fn printedNeeds(comptime Gone: type, ctx: *SemContext, a: std.mem.Allocator, gone: *std.ArrayList(Gone), arg: TypeId, pos: u32, printed: *std.ArrayList(SymbolId)) Error!void {
-    printed.clearRetainingCapacity();
-    try sema.printedTypeVars(ctx, arg, printed, ctx.allocator);
-    for (printed.items) |param| try addNeed(Gone, a, gone, .{ .param = param, .need = .print, .pos = pos });
-}
-
-/// Adds `need` to `gone` (`checkStatedForwards`) unless it is there.
-pub fn addNeed(comptime Gone: type, a: std.mem.Allocator, gone: *std.ArrayList(Gone), need: Gone) Error!void {
-    for (gone.items) |o| if (o.param == need.param and std.meta.eql(o.need, need.need)) return;
-    try gone.append(a, need);
-}
-
-/// A type parameter with bounds is checked against its bounds alone: what
-/// this module's bodies do with one must be what its bounds name. A
-/// parameter with no bound keeps per-instance checking.
-pub fn checkBoundedBodies(ctx: *SemContext) Error!void {
-    const a = ctx.arena.allocator();
-    for (ctx.generic_requirements.items) |r| {
-        if (r.module_id != 0) continue;
-        const sym = ctx.symbols.items[r.param];
-        if (!sema.checkedByBounds(sym)) continue;
-        const api = apiOf(r.req) orelse continue;
-        if (boundsGive(ctx, sym, r.req, api)) continue;
-        // Where `$plain(T)` has held, a `T` copies and holds no loan.
-        if (sema.plainApis().contains(api) and sema.narrowedAt(ctx, 0, r.pos, r.param)) continue;
-        if (try sema.reportStated(ctx, r.pos, r.param, api, r.op)) continue;
-        try reportUnbounded(ctx, r.pos, r.param, api, try a.print("{s}", .{r.req.describe()}));
-    }
-}
-
-/// A body at `pos` does with a `T` (`param`, which has bounds or is one
-/// of a `pub` declaration's) what `api` gives (`what`), and its bounds do
-/// not name it.
-pub fn reportUnbounded(ctx: *SemContext, pos: u32, param: SymbolId, api: sema.Api, what: []const u8) Error!void {
-    if (try sema.reportStated(ctx, pos, param, api, "")) return;
-    const a = ctx.arena.allocator();
-    const sym = ctx.symbols.items[param];
-    try ctx.err(pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});
-}
-
-/// The APIs this module's types name on their headers. A type that
-/// declares the method of an API it names (`sema.apiMethodName`) gives
-/// that API its own meaning, by that method, whose signature the API
-/// fixes (`checkApiMethod`). A type that names `Ord` with no `order` of its
-/// own is ordered by its fields in declared order, and an enum by its
-/// variant, then its payload's fields: each must provide `Ord`. A field of
-/// a type parameter's type is decided by each instance (`sema.lacks`).
-pub fn checkHeaders(ctx: *SemContext) Error!void {
-    for (ctx.symbols.items) |sym| {
-        if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
-        if (sema.isProxy(sym) or sym.decl_pos == sema.builtin_decl_pos) continue;
-        try checkLookAlikes(ctx, sym);
-        if (sym.apis.count() == 0) continue;
-        var it = sym.apis.iterator();
-        while (it.next()) |api| if (sema.ownApiMethod(sym, api)) |m| try checkApiMethod(ctx, sym, api, m);
-        if (!sym.apis.contains(.Ord) or sema.ownApiMethod(sym, .Ord) != null) continue;
-        for (sym.fields orelse &.{}) |f| {
-            if (f.is_method) continue;
-            const parts: []const Field = if (f.is_variant) f.payload orelse &.{} else &.{f};
-            for (parts) |part| {
-                const lack = (try sema.lacks(ctx, part.ty, .Ord)) orelse continue;
-                const shown = if (f.is_variant) try ctx.arena.allocator().print("{s}.{s}", .{ f.name, part.name }) else part.name;
-                try ctx.err(sym.decl_pos, "`{s}` names `Ord`, so it is ordered by its fields, but its field `{s}` is a `{s}`, which {s}{s}", .{ sym.name, shown, try sema.formatType(ctx, part.ty), sema.cannotDo(.Ord), try sema.lackDetail(ctx, ctx.arena.allocator(), part.ty, .Ord, lack) });
-                break;
-            }
-        }
-    }
-}
-
-/// Where field `f`, declared `pub ?name`, may be written, as an error
-/// says it: in its module, or, for a built-in type written in Rig, in the
-/// type's own methods. `declares` adds what declares it so.
-pub fn readOnlyWhere(ctx: *SemContext, f: sema.ReadOnlyField, declares: bool) Error![]const u8 {
-    const a = ctx.arena.allocator();
-    if (std.mem.eql(u8, f.module, "std." ++ rig.builtin_module_name)) return a.print("outside the methods of `{s}`", .{f.owner});
-    if (declares) return a.print("outside module `{s}`, which declares it `pub ?{s}`", .{ f.module, f.field });
-    return a.print("outside module `{s}`", .{f.module});
-}
-
-/// The signature `api` fixes for the method by which a type gives it its
-/// own meaning, as an error shows it.
-pub fn fixedSignature(api: sema.Api) []const u8 {
-    return switch (api) {
-        .Eq => "fun eq(?@, other: ?Self) -> Bool",
-        .Hash => "sub hash_into(?@, h: !Hasher)",
-        .Ord => "fun order(?@, other: ?Self) -> Order",
-        .Print => "sub print(?@, out: !Printer)",
-        else => "",
-    };
-}
-
-/// Whether `ty` is a write view of the built-in `Hasher`.
-pub fn isHasherView(ctx: *SemContext, ty: TypeId) Error!bool {
-    return ty == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.hasher_sym_id }) });
-}
-
-/// The method `m` of `sym`, by which it gives `api` its own meaning, has
-/// the signature `api` fixes: another signature is an error, not a quiet
-/// opt-out (docs/design/apis.md, Stage 2).
-pub fn checkApiMethod(ctx: *SemContext, sym: sema.Symbol, api: sema.Api, m: Field) Error!void {
-    const why = (try apiMethodMismatch(ctx, api, m)) orelse return;
-    if (why.len == 0) return;
-    const owner = try ctx.arena.allocator().print("{s}.{s}", .{ sym.name, m.name });
-    try ctx.err(m.decl_pos, "`{s}` {s}, but `{s}` fixes `{s}`", .{ owner, why, @tagName(api), fixedSignature(api) });
-}
-
-/// A method of `sym` with the very signature a built-in API fixes,
-/// `fun eq(?@, other: ?Self) -> Bool` and the others, on a type whose
-/// header does not name that API: `==`, hashing, ordering, or printing
-/// would quietly pass it by. A method under the name with another
-/// signature is an ordinary method.
-pub fn checkLookAlikes(ctx: *SemContext, sym: sema.Symbol) Error!void {
-    if (sym.flags.error_set) return;
-    for ([_]sema.Api{ .Eq, .Hash, .Ord, .Print }) |api| {
-        if (sym.apis.contains(api)) continue;
-        const name = sema.apiMethodName(api).?;
-        for (sym.fields orelse &.{}) |m| {
-            if (!m.is_method or m.is_drop_method or !std.mem.eql(u8, m.name, name)) continue;
-            if ((try apiMethodMismatch(ctx, api, m)) != null) continue;
-            const a = ctx.arena.allocator();
-            const is_enum = for (sym.fields orelse &.{}) |f| {
-                if (f.is_variant) break true;
-            } else false;
-            const params: []const u8 = if (sym.kind == .generic_type) try a.print("[{s}]", .{tparamNames(ctx, sym)}) else "";
-            const uses: []const u8 = switch (api) {
-                .Eq => "`==`",
-                .Hash => "hashing",
-                .Ord => "`<`",
-                .Print => "`print`",
-                else => unreachable,
-            };
-            try ctx.err(m.decl_pos, "`{s}.{s}` has the signature `{s}` fixes, but `{s}` does not name `{s}`, so {s} does not use it: name it on the header, `{s} {s}{s}: {s}`, or rename the method", .{ sym.name, m.name, @tagName(api), sym.name, @tagName(api), uses, if (is_enum) "enum" else "obj", sym.name, params, try sema.formatBounds(ctx, a, sym, api) });
-        }
-    }
-}
-
-/// How method `m` differs from the signature `api` fixes for it, as an
-/// error says it; empty for no function, null for the very signature.
-pub fn apiMethodMismatch(ctx: *SemContext, api: sema.Api, m: Field) Error!?[]const u8 {
-    const a = ctx.arena.allocator();
-    const f = switch (ctx.types.get(m.ty)) {
-        .function => |f| f,
-        else => return "",
-    };
-    if (f.params.len == 0) return "";
-    const self_view = f.params[0];
-    const names = m.param_names orelse &.{};
-    const what: ?[]const u8 = blk: {
-        if (m.self_mode != .read) break :blk try a.print("takes `self` as `{s}`", .{switch (m.self_mode) {
-            .write => "!@",
-            .value => "<@",
-            .none => "nothing",
-            .read => "?@",
-        }});
-        if (f.ct_params.len > 0) break :blk "takes compile-time parameters";
-        if (m.owner_bounds.len > 0) break :blk "is declared under a bound on its type's parameters, which the header does not state";
-        if (f.params.len != 2) break :blk try a.print("takes {d} parameter{s}", .{ f.params.len - 1, if (f.params.len == 2) "" else "s" });
-        const p = f.params[1];
-        const ok = switch (api) {
-            .Eq, .Ord => p == self_view,
-            .Hash => try isHasherView(ctx, p),
-            .Print => p == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.printer_sym_id }) }),
-            else => true,
-        };
-        if (!ok) break :blk try a.print("takes `{s}` as `{s}`", .{ if (names.len > 1) names[1] else "?", try sema.formatType(ctx, p) });
-        const want: TypeId = switch (api) {
-            .Eq => ctx.types.bool_id,
-            .Ord => try ctx.intern(.{ .nominal = ctx.order_sym_id }),
-            else => ctx.types.void_id,
-        };
-        if (f.returns != want) break :blk if (f.returns == ctx.types.void_id) "gives nothing" else try a.print("gives `{s}`", .{try sema.formatType(ctx, f.returns)});
-        break :blk null;
-    };
-    return what;
-}
 
 // =============================================================================
 // APIs of a program's own (docs/design/apis.md, Stage 3)
 // =============================================================================
-
-/// This module's APIs, and each conformance it writes: a header that
-/// names an API, or an addition. An API builds on others without a
-/// cycle and takes their methods as they are; each of its methods says
-/// what its result views. A conformance provides every method its API
-/// and those it builds on declare, each matching its declaration
-/// exactly but for `from` and `keeps`, which may be narrower; meets the
-/// built-in APIs they build on; and is the only one of its type and API
-/// in the program, written in the type's module or the API's.
-pub fn checkApis(ctx: *SemContext) Error!void {
-    for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and !sema.isProxy(sym)) try checkApiDecl(ctx, @intCast(i));
-    }
-    for (ctx.conformances.items, 0..) |_, i| try checkConformance(ctx, i);
-}
-
-pub fn checkApiDecl(ctx: *SemContext, id: SymbolId) Error!void {
-    const a = ctx.arena.allocator();
-    const sym = ctx.symbols.items[id];
-    const self_ref: sema.ApiRef = .{ .module_id = ctx.module_id, .sym = id };
-    for (sym.user_apis) |s| {
-        const closure = try sema.apiClosure(ctx, a, s);
-        for (closure) |c| if (c.eql(self_ref)) {
-            try ctx.err(sym.decl_pos, "`{s}` builds on itself, through `{s}`: an API builds on others without a cycle", .{ sym.name, try sema.apiName(ctx, s) });
-            return;
-        };
-    }
-    try recordObjectTable(ctx, id);
-    const own = sym.fields orelse &.{};
-    // Each associated type is what a provider's methods give where the
-    // API's required methods name it (`sema.inferAssoc`), so one names it.
-    const params = sym.type_params orelse &.{};
-    if (params.len > 1) for (params[1..]) |p| {
-        const named = for (own) |m| {
-            if (m.is_method and !m.is_default and sema.usesParams(ctx, m.ty, &.{p})) break true;
-        } else false;
-        if (!named) try ctx.err(ctx.symbols.items[p].decl_pos, "`{s}` declares `type {s}`, which none of its required methods names: a provider's `{s}` is what its methods give in their place", .{ sym.name, ctx.symbols.items[p].name, ctx.symbols.items[p].name });
-    };
-    for (own) |m| {
-        // An API takes the methods of those it builds on as they are.
-        supers: for (sym.user_apis) |s| for (try sema.apiClosure(ctx, a, s)) |c| {
-            const csym = sema.apiSymbol(ctx, c) orelse continue;
-            for (csym.fields orelse &.{}) |f| if (std.mem.eql(u8, f.name, m.name)) {
-                try ctx.err(m.decl_pos, "`{s}` builds on `{s}`, which declares `{s}`: an API takes the methods of those it builds on as they are, and declares none of them again", .{ sym.name, try sema.apiName(ctx, c), m.name });
-                break :supers;
-            };
-        };
-        // A call through the API passes every argument: an implementation
-        // has no default to fill, and one of the API's would be a second.
-        if (m.has_groups) for (ctx.group_params.get(m.decl_pos) orelse &.{}) |g| if (g) |x| {
-            try ctx.err(m.decl_pos, "`{s}.{s}` takes the group `{s}`, and an API's method takes none: a call through the API passes each argument", .{ sym.name, m.name, x.group });
-            break;
-        };
-        for (m.param_defaults orelse &.{}, 0..) |d, i| if (d != null) {
-            const pname = if (m.param_names) |ns| (if (i < ns.len) ns[i] else "?") else "?";
-            try ctx.err(m.decl_pos, "`{s}.{s}` gives `{s}` a default, and an API's method takes none: a call through the API passes each argument", .{ sym.name, m.name, pname });
-            break;
-        };
-        const f = switch (ctx.types.get(m.ty)) {
-            .function => |f| f,
-            else => continue,
-        };
-        if (m.origins.declared or sema.containsPoison(ctx, f.returns)) continue;
-        var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
-        defer scratch.deinit();
-        if ((try sema.viewTargets(ctx, scratch.allocator(), f.returns)).isEmpty()) continue;
-        const ret = try sema.formatType(ctx, f.returns);
-        try ctx.err(m.decl_pos, "`{s}.{s}` gives `{s}`, which may view what it is passed, and an API's method says what with `from`: `-> {s} from @`", .{ sym.name, m.name, ret, ret });
-    }
-}
-
-/// The entries of the table of API `id` (`sema.TableEntry`): each method
-/// a call through an object of it reaches, its type brought into this
-/// module, where emit writes the table (docs/design/apis.md, Stage 4).
-pub fn recordObjectTable(ctx: *SemContext, id: SymbolId) Error!void {
-    const a = ctx.arena.allocator();
-    const ref: sema.ApiRef = .{ .module_id = ctx.module_id, .sym = id };
-    var entries: std.ArrayList(sema.TableEntry) = .empty;
-    for (try sema.objectMethods(ctx, a, ref)) |m| {
-        const slot = m.slot orelse continue;
-        const home = sema.apiContext(ctx, m.api) orelse continue;
-        const fn_ty = if (home == @as(*const SemContext, ctx)) m.field.ty else try sema.importType(ctx, home, m.field.ty, m.api.module_id);
-        if (ctx.types.get(fn_ty) != .function or sema.containsPoison(ctx, fn_ty)) continue;
-        // An associated type an entry names is the object's, built with
-        // the braces that name it (open question 7).
-        const f = ctx.types.get(fn_ty).function;
-        const named_param = for (f.params[@min(1, f.params.len)..]) |p| {
-            if (sema.containsTypeVar(ctx, p)) break true;
-        } else false;
-        if (named_param or sema.containsTypeVar(ctx, f.returns)) continue;
-        try entries.append(a, .{ .name = m.field.name, .slot = slot, .self_mode = m.field.self_mode, .fn_ty = fn_ty, .result_out = try sema.resultOut(ctx, f.returns) });
-    }
-    try ctx.object_tables.put(ctx.allocator, id, entries.items);
-}
-
-/// An API method a conformance must provide: its field, and the API of
-/// the closure that declares it.
-pub const ApiMethod = struct { api: sema.ApiRef, home: *const SemContext, field: Field };
-
-pub fn checkConformance(ctx: *SemContext, index: usize) Error!void {
-    const a = ctx.arena.allocator();
-    const conf = ctx.conformances.items[index];
-    const api_sym = sema.apiSymbol(ctx, conf.api) orelse return;
-    const api_name = try sema.apiName(ctx, conf.api);
-    if (sema.containsPoison(ctx, conf.ty)) return;
-    // The type's own symbol, for a type a module declares.
-    const decl = sema.nominalDecl(ctx, conf.ty);
-    const tname: []const u8 = if (conf.kind == .header) ctx.symbols.items[decl.?.sym].name else try sema.formatType(ctx, conf.ty);
-    if (conf.kind == .add and !try checkAddHome(ctx, conf, tname, api_name)) return;
-    // Once in the program: a type and an API take one conformance.
-    for (ctx.conformances.items[0..index]) |other| {
-        if (!try sameProvider(ctx, conf.ty, other.ty)) continue;
-        const overlap = if (conf.kind == .header and other.kind == .header) other.api.eql(conf.api) else try buildsOn(ctx, conf.api, other.api) or try buildsOn(ctx, other.api, conf.api);
-        if (!overlap) continue;
-        try ctx.err(conf.pos, "`{s}` provides `{s}` twice: a type provides an API once in the whole program", .{ tname, api_name });
-        try ctx.note(other.pos, "`{s}` provides `{s}` here", .{ tname, try sema.apiName(ctx, other.api) });
-        return;
-    }
-    // The built-in APIs it builds on, which the type's parts give.
-    const closure = try sema.apiClosure(ctx, a, conf.api);
-    for (closure) |c| {
-        const csym = sema.apiSymbol(ctx, c) orelse continue;
-        var it = csym.apis.iterator();
-        while (it.next()) |b| {
-            const lack = (try sema.lacks(ctx, conf.ty, b)) orelse continue;
-            // An iterator is one by its `next`, not by its fields.
-            const by_field = if (b == .Iter) null else try fieldLacking(ctx, decl, b);
-            const detail = by_field orelse try sema.lackDetail(ctx, a, conf.ty, b, lack);
-            const shown = if (std.mem.startsWith(u8, detail, "; ")) try a.print(": {s}", .{detail[2..]}) else detail;
-            try ctx.err(conf.pos, "`{s}` provides `{s}`, which builds on `{s}`, but `{s}` {s}{s}", .{ tname, api_name, @tagName(b), tname, sema.cannotDo(b), shown });
-            return;
-        }
-    }
-    // Every method of the API and those it builds on.
-    var wanted: std.ArrayList(ApiMethod) = .empty;
-    for (closure) |c| {
-        const home = sema.apiContext(ctx, c) orelse continue;
-        const csym = sema.apiSymbol(ctx, c) orelse continue;
-        for (csym.fields orelse &.{}) |f| try wanted.append(a, .{ .api = c, .home = home, .field = f });
-    }
-    const provider = providerMethods(conf, decl);
-    // An addition's methods are its APIs', and none its type has already.
-    if (conf.kind == .add) for (conf.methods) |m| {
-        const declared = for (wanted.items) |w| {
-            if (std.mem.eql(u8, w.field.name, m.name)) break true;
-        } else false;
-        if (!declared and !try anotherApiDeclares(ctx, conf, m.name)) try ctx.err(m.decl_pos, "`add {s}: {s}` declares `{s}`, which `{s}` does not: an addition's methods are its API's", .{ tname, api_name, m.name, api_name });
-        const has = if (decl) |d| typeHasMethod(d.symbol(), m.name) else false;
-        if (declared and (has or builtinMember(ctx, conf.ty, m.name))) {
-            try ctx.err(m.decl_pos, "`add {s}: {s}` declares `{s}`, which `{s}` has already: an addition neither adopts nor replaces a method of its type", .{ tname, api_name, m.name, tname });
-        }
-    };
-    var members: std.ArrayList(sema.WitnessMember) = .empty;
-    defer ctx.conformances.items[index].members = members.items;
-    for (wanted.items, 0..) |w, wi| {
-        // Each name once, by the first API that declares it.
-        const first = for (wanted.items[0..wi]) |e| {
-            if (std.mem.eql(u8, e.field.name, w.field.name)) break false;
-        } else true;
-        if (!first) continue;
-        const have = findMethod(provider, w.field.name) orelse {
-            if (w.field.is_default) {
-                try members.append(a, .{ .name = w.field.name, .from = .{ .default = w.api } });
-                // Two defaults for one name, until the type writes it: from
-                // the APIs this one builds on, or another API the type
-                // provides.
-                const other: ?sema.ApiRef = for (wanted.items[wi + 1 ..]) |e| {
-                    if (std.mem.eql(u8, e.field.name, w.field.name) and e.field.is_default and !e.api.eql(w.api)) break e.api;
-                } else try laterDefault(ctx, index, w.field.name, w.api);
-                if (other) |o| try ctx.err(conf.pos, "`{s}` provides `{s}` and `{s}`, which both give `{s}` a default: declare `{s}` in `{s}` to choose", .{ tname, try sema.apiName(ctx, w.api), try sema.apiName(ctx, o), w.field.name, w.field.name, tname });
-                continue;
-            }
-            try ctx.err(conf.pos, "`{s}` provides `{s}` but has no method `{s}`; declare `{s}` in `{s}`", .{ tname, api_name, w.field.name, headerText(w.home.source, w.field.decl_pos), if (conf.kind == .add) try a.print("add {s}: {s}", .{ tname, api_name }) else tname });
-            continue;
-        };
-        try members.append(a, .{ .name = w.field.name, .from = if (conf.kind == .add) .added else .own });
-        // A method under bounds the header does not state meets no API on
-        // it: only an addition under those bounds gives the API.
-        if (conf.kind == .header and have.owner_bounds.len > 0) {
-            const tsym = ctx.symbols.items[decl.?.sym];
-            const tparams = tsym.type_params orelse &.{};
-            var names: std.ArrayList(u8) = .empty;
-            for (tparams, 0..) |p, i| try names.print(a, "{s}{s}", .{ if (i > 0) ", " else "", ctx.symbols.items[p].name });
-            const under = try sema.ownerBoundsText(ctx, ctx, a, tparams, have.owner_bounds);
-            try ctx.err(have.decl_pos, "`{s}.{s}` is declared under `{s}`, which `{s}[{s}]: {s}` does not state: a conformance is met only by methods its own bounds imply; take `{s}` off the header and write `add {s}[{s}]: {s}`, which declares `{s}`", .{ tname, have.name, under, tname, names.items, api_name, api_name, tname, try boundParamsText(ctx, a, tparams, have.owner_bounds), api_name, have.name });
-            continue;
-        }
-        try checkMethodMeets(ctx, conf, tname, w, have);
-        // A call through the API gives each argument by position, so a
-        // method that meets it has no option (SPEC "Functions"); the API's
-        // own method has none either (`checkApiDecl`).
-        if (have.has_groups) for (ctx.group_params.get(have.decl_pos) orelse &.{}) |g| if (g) |x| {
-            try ctx.err(have.decl_pos, "`{s}.{s}` meets `{s}` of `{s}`, so it takes no group, and it takes `{s}`: a call through the API gives each argument by position", .{ tname, have.name, w.field.name, try sema.apiName(ctx, w.api), x.group });
-            break;
-        };
-        for (have.param_defaults orelse &.{}, 0..) |d, i| if (d != null) {
-            const pname = if (have.param_names) |ns| (if (i < ns.len) ns[i] else "?") else "?";
-            try ctx.err(have.decl_pos, "`{s}.{s}` meets `{s}` of `{s}`, so `{s}` has no default: a call through the API gives each argument by position", .{ tname, have.name, w.field.name, try sema.apiName(ctx, w.api), pname });
-            break;
-        };
-        // A method that meets a `pub` API on a `pub` type is `pub`.
-        if (conf.kind == .header and api_sym.flags.is_public and ctx.symbols.items[decl.?.sym].flags.is_public and !have.is_pub) {
-            try ctx.err(have.decl_pos, "`{s}.{s}` meets `{s}`, a `pub` API, on `{s}`, a `pub` type, so it is `pub`: write `pub {s}`", .{ tname, have.name, api_name, tname, headerText(ctx.source, have.decl_pos) });
-        }
-    }
-}
-
-/// A generic type's parameters with the bounds a method adds written in:
-/// `T: Print, U`.
-pub fn boundParamsText(ctx: *SemContext, a: std.mem.Allocator, tparams: []const SymbolId, bounds: []const sema.OwnerBound) Error![]const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    for (tparams, 0..) |p, i| {
-        if (i > 0) try out.appendSlice(a, ", ");
-        const b = for (bounds) |b| {
-            if (b.param == i) break b;
-        } else null;
-        if (b) |one| {
-            try out.appendSlice(a, try sema.ownerBoundsText(ctx, ctx, a, tparams, &.{one}));
-        } else try out.appendSlice(a, ctx.symbols.items[p].name);
-    }
-    return out.items;
-}
-
-/// An API other than `api` that a later conformance of the same type
-/// gives a default method `name`, which the type does not write.
-pub fn laterDefault(ctx: *SemContext, index: usize, name: []const u8, api: sema.ApiRef) Error!?sema.ApiRef {
-    const conf = ctx.conformances.items[index];
-    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
-    defer scratch.deinit();
-    for (ctx.conformances.items[index + 1 ..]) |o| {
-        if (!try sameProvider(ctx, conf.ty, o.ty)) continue;
-        for (try sema.apiClosure(ctx, scratch.allocator(), o.api)) |c| {
-            if (c.eql(api)) continue;
-            const csym = sema.apiSymbol(ctx, c) orelse continue;
-            const f = findMethod(csym.fields orelse &.{}, name) orelse continue;
-            if (f.is_default) return c;
-        }
-    }
-    return null;
-}
-
-/// Why a value of `ty`, which holds a task (`sema.holdsTask`), holds
-/// one: its first field that does (`taskField`), or "a `T` holds one".
-pub fn taskWhy(ctx: *SemContext, ty: TypeId) Error![]const u8 {
-    if (taskField(ctx, sema.nominalDecl(ctx, ty))) |f| return f;
-    return ctx.arena.allocator().print("a `{s}` holds one", .{try sema.formatType(ctx, ty)});
-}
-
-/// The first field or payload of `decl` that holds a task (`sema.holdsTask`),
-/// as `its field `t` is a `Task[Int]``; null when none of its own does.
-pub fn taskField(ctx: *SemContext, decl: ?sema.NominalDecl) ?[]const u8 {
-    const d = decl orelse return null;
-    if (d.ctx != @as(*const SemContext, ctx)) return null;
-    for (d.symbol().fields orelse &.{}) |*f| {
-        for (sema.dataFields(f)) |df| {
-            if (!sema.holdsTask(ctx, df.ty)) continue;
-            return ctx.arena.allocator().print("its {s} `{s}` is a `{s}`", .{ if (f.is_variant) "payload" else "field", df.name, sema.formatType(ctx, df.ty) catch return null }) catch null;
-        }
-    }
-    return null;
-}
-
-/// The first field of the object `decl` whose type lacks `api`, as the
-/// end of an error says it: `; its field `cache` is a `*Cell[Int]``.
-pub fn fieldLacking(ctx: *SemContext, decl: ?sema.NominalDecl, api: sema.Api) Error!?[]const u8 {
-    const d = decl orelse return null;
-    if (d.ctx != @as(*const SemContext, ctx)) return null;
-    for (d.symbol().fields orelse &.{}) |f| {
-        if (f.is_method or f.is_variant) continue;
-        if (try sema.lacks(ctx, f.ty, api) == null) continue;
-        return try ctx.arena.allocator().print("; its field `{s}` is a `{s}`", .{ f.name, try sema.formatType(ctx, f.ty) });
-    }
-    return null;
-}
-
-/// Whether another API of the addition that writes `conf` (`add Int:
-/// Shape + Named`), or one it builds on, declares a method `name`.
-pub fn anotherApiDeclares(ctx: *SemContext, conf: sema.Conformance, name: []const u8) Error!bool {
-    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
-    defer scratch.deinit();
-    for (ctx.conformances.items) |o| {
-        if (o.kind != .add or o.pos != conf.pos or o.api.eql(conf.api)) continue;
-        for (try sema.apiClosure(ctx, scratch.allocator(), o.api)) |c| {
-            const csym = sema.apiSymbol(ctx, c) orelse continue;
-            if (findMethod(csym.fields orelse &.{}, name) != null) return true;
-        }
-    }
-    return false;
-}
-
-/// The methods a conformance provides its API by: an addition's own, or
-/// the type's.
-pub fn providerMethods(conf: sema.Conformance, decl: ?sema.NominalDecl) []const Field {
-    if (conf.kind == .add) return conf.methods;
-    return (decl orelse return &.{}).symbol().fields orelse &.{};
-}
-
-pub fn findMethod(fields: []const Field, name: []const u8) ?Field {
-    for (fields) |f| if (f.is_method and !f.is_drop_method and std.mem.eql(u8, f.name, name)) return f;
-    return null;
-}
-
-pub fn typeHasMethod(sym: sema.Symbol, name: []const u8) bool {
-    return findMethod(sym.fields orelse &.{}, name) != null;
-}
-
-/// Whether built-in type `ty` has a member `name` no declaration holds:
-/// the `len` and `is_empty` of text, an array, a slice, or a List, a
-/// String's `add`, `push`, `reserve`, and `clear`, a `Symbol`'s `text`.
-pub fn builtinMember(ctx: *SemContext, ty: TypeId, name: []const u8) bool {
-    const t = ctx.types.get(ty);
-    const has_len = switch (t) {
-        .array, .slice, .string_view, .static, .string => true,
-        .parameterized_nominal => listElementType(ctx, ty) != null or cellListElement(ctx, ty) != null,
-        else => false,
-    };
-    if (has_len and (std.mem.eql(u8, name, "len") or std.mem.eql(u8, name, "is_empty"))) return true;
-    if (t == .string) if (std.meta.stringToEnum(sema.StringCall, name)) |op| switch (op) {
-        .add, .push, .reserve, .clear => return true,
-        else => {},
-    };
-    return t == .symbol and std.mem.eql(u8, name, "text");
-}
-
-/// Whether API `a` is `b` or builds on it.
-pub fn buildsOn(ctx: *SemContext, x: sema.ApiRef, y: sema.ApiRef) Error!bool {
-    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
-    defer scratch.deinit();
-    for (try sema.apiClosure(ctx, scratch.allocator(), x)) |c| if (c.eql(y)) return true;
-    return false;
-}
-
-/// Whether `x` and `y`, types of this module's conformances, are one
-/// type constructor: one conformance covers both.
-pub fn sameProvider(ctx: *SemContext, x: TypeId, y: TypeId) Error!bool {
-    if (x == y) return true;
-    const gx = genericSym(ctx, x) orelse return false;
-    const gy = genericSym(ctx, y) orelse return false;
-    return gx == gy;
-}
-
-pub fn genericSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
-    return switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn.sym,
-        // Every `Slot[n]` is one type constructor's.
-        .slot => ctx.slot_sym_id,
-        else => null,
-    };
-}
-
-/// An addition is written in the module of its API or of its type, and
-/// in the type's own module only under a bound (`add Wrap[T: Shape]`);
-/// there a header says the rest. False after a diagnostic.
-pub fn checkAddHome(ctx: *SemContext, conf: sema.Conformance, tname: []const u8, api_name: []const u8) Error!bool {
-    const own_type = switch (ctx.types.get(conf.ty)) {
-        .nominal => |s| !sema.isProxy(ctx.symbols.items[s]) and ctx.symbols.items[s].decl_pos != sema.builtin_decl_pos,
-        .parameterized_nominal => |pn| !sema.isProxy(ctx.symbols.items[pn.sym]) and ctx.symbols.items[pn.sym].decl_pos != sema.builtin_decl_pos,
-        else => false,
-    };
-    if (own_type) {
-        const conditional = for (conf.params) |p| {
-            if (sema.hasBounds(ctx.symbols.items[p])) break true;
-        } else false;
-        if (conditional) return true;
-        const decl = sema.nominalDecl(ctx, conf.ty).?.symbol();
-        const is_enum = for (decl.fields orelse &.{}) |f| {
-            if (f.is_variant) break true;
-        } else false;
-        const params: []const u8 = if (genericSym(ctx, conf.ty) != null) try ctx.arena.allocator().print("[{s}]", .{tparamNames(ctx, decl)}) else "";
-        try ctx.err(conf.pos, "`{s}` is declared in this module, so it names `{s}` on its header: `{s} {s}{s}: {s}`; `add` is for a type of another module, a built-in type, or an API a type provides only under a bound", .{ decl.name, api_name, if (is_enum) "enum" else "obj", decl.name, params, api_name });
-        return false;
-    }
-    if (conf.api.module_id != ctx.module_id) {
-        try ctx.err(conf.pos, "`add {s}: {s}` is written in the module that declares `{s}`, or the one that declares `{s}`", .{ tname, api_name, api_name, tname });
-        return false;
-    }
-    // It provides the APIs its API builds on too, each of which it may
-    // provide only here as well: elsewhere two modules could each give
-    // the type one, neither seeing the other.
-    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
-    defer scratch.deinit();
-    for (try sema.apiClosure(ctx, scratch.allocator(), conf.api)) |c| {
-        if (c.module_id == ctx.module_id) continue;
-        const cname = try sema.apiName(ctx, c);
-        try ctx.err(conf.pos, "`add {s}: {s}` gives `{s}` `{s}` too, which `{s}` builds on, outside the module of `{s}` and of `{s}`: a type provides an API once in the whole program, in its own module or the API's", .{ tname, api_name, tname, cname, api_name, cname, tname });
-        return false;
-    }
-    return true;
-}
-
-pub fn tparamNames(ctx: *SemContext, sym: sema.Symbol) []const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    const a = ctx.arena.allocator();
-    for (sym.type_params orelse &.{}, 0..) |tp, i| {
-        if (i > 0) out.appendSlice(a, ", ") catch return "T";
-        out.appendSlice(a, ctx.symbols.items[tp].name) catch return "T";
-    }
-    return out.items;
-}
-
-/// The header of the method whose name is at `pos` in `source`, as
-/// written: `fun area(?@) -> Float`, without its comment.
-pub fn headerText(source: []const u8, pos: u32) []const u8 {
-    const start = (std.mem.findScalarLast(u8, source[0..pos], '\n') orelse 0);
-    const end = std.mem.findScalarPos(u8, source, pos, '\n') orelse source.len;
-    var line = source[start..end];
-    if (std.mem.findScalar(u8, line, '#')) |h| line = line[0..h];
-    line = std.mem.trim(u8, line, " \t\r\n");
-    if (std.mem.startsWith(u8, line, "pub ")) line = line[4..];
-    return line;
-}
-
-/// The method's name, parameters, and result, as its header writes them:
-/// `size(?@) -> Int!Bad`; `with_result` false stops after the
-/// parameters, `next(!@)`.
-pub fn signatureText(source: []const u8, pos: u32, with_result: bool) []const u8 {
-    const header = headerText(source, pos);
-    const name_at = @intFromPtr(source.ptr + pos) -| @intFromPtr(header.ptr);
-    if (name_at >= header.len) return header;
-    const sig = header[name_at..];
-    if (!with_result) {
-        var depth: usize = 0;
-        for (sig, 0..) |c, i| switch (c) {
-            '(' => depth += 1,
-            ')' => {
-                depth -|= 1;
-                if (depth == 0) return sig[0 .. i + 1];
-            },
-            else => {},
-        };
-        return sig;
-    }
-    return clauseless(sig);
-}
-
-/// `text` without its `from` and `keeps` clauses.
-pub fn clauseless(text: []const u8) []const u8 {
-    var end = text.len;
-    for ([_][]const u8{ " from ", " keeps " }) |w| if (std.mem.find(u8, text, w)) |i| {
-        end = @min(end, i);
-    };
-    return std.mem.trimEnd(u8, text[0..end], " ");
-}
-
-/// The result the header of the method at `pos` writes: `-> Int!Bad`.
-pub fn resultText(source: []const u8, pos: u32) []const u8 {
-    const sig = signatureText(source, pos, true);
-    var depth: usize = 0;
-    for (sig, 0..) |c, i| switch (c) {
-        '(', '[' => depth += 1,
-        ')', ']' => depth -|= 1,
-        '-' => if (depth == 0 and i + 1 < sig.len and sig[i + 1] == '>') return sig[i..],
-        else => {},
-    };
-    return "";
-}
-
-/// The method `have` meets the API method `w` (of a conformance of
-/// `tname`): the same self, parameters and their modes, compile-time
-/// parameters, `once`, and result, its failure included; its `from`
-/// and `keeps` within the API's, by position.
-pub fn checkMethodMeets(ctx: *SemContext, conf: sema.Conformance, tname: []const u8, w: ApiMethod, have: Field) Error!void {
-    const a = ctx.arena.allocator();
-    const owner = try a.print("{s}.{s}", .{ tname, have.name });
-    const aname = try sema.apiName(ctx, w.api);
-    const src = w.home.source;
-    const pos = w.field.decl_pos;
-    const header = headerText(src, pos);
-    if (have.self_mode != w.field.self_mode) {
-        try ctx.err(have.decl_pos, "`{s}` takes `self` as `{s}`, but `{s}` declares `{s}`; a method meets its API with the same self: write `{s}`", .{ owner, selfSigil(have.self_mode), aname, signatureText(src, pos, false), header });
-        return;
-    }
-    const want_ty = try apiMethodType(ctx, w, conf, have) orelse return;
-    const want = ctx.types.get(want_ty).function;
-    const got = switch (ctx.types.get(have.ty)) {
-        .function => |f| f,
-        else => return,
-    };
-    if (sema.containsPoison(ctx, have.ty) or sema.containsPoison(ctx, want_ty)) return;
-    if (want.ct_params.len != got.ct_params.len) {
-        try ctx.err(have.decl_pos, "`{s}` takes {d} compile-time parameter{s}, but `{s}` declares `{s}`; a method meets its API with the same compile-time parameters: write `{s}`", .{ owner, got.ct_params.len, plural(got.ct_params.len), aname, signatureText(src, pos, true), header });
-        return;
-    }
-    // Each the same kind, of the same type, with the same bounds: a call
-    // through the API passes what its brackets promise.
-    const api_ct_syms = switch (w.home.types.get(w.field.ty)) {
-        .function => |f| f.ct_syms,
-        else => &.{},
-    };
-    for (want.ct_params, got.ct_params, 0..) |wc, gc, i| {
-        const gsym: ?sema.Symbol = if (i < got.ct_syms.len and got.ct_syms[i] != sema.symbol_invalid) ctx.symbols.items[got.ct_syms[i]] else null;
-        const gname = if (gsym) |s| s.name else "?";
-        if (wc != gc) {
-            const as: []const u8 = if (ctx.types.get(gc) == .type_var) "a type" else try a.print("`{s}`", .{try sema.formatType(ctx, gc)});
-            try ctx.err(have.decl_pos, "`{s}` takes `{s}` as {s}, but `{s}` declares `{s}`; a method meets its API with the same compile-time parameters: write `{s}`", .{ owner, gname, as, aname, signatureText(src, pos, true), header });
-            return;
-        }
-        if (ctx.types.get(gc) != .type_var or i >= api_ct_syms.len or api_ct_syms[i] == sema.symbol_invalid) continue;
-        const g = gsym orelse continue;
-        if (try sameBounds(w.home, w.home.symbols.items[api_ct_syms[i]], ctx, g)) continue;
-        const written = try sema.formatBounds(ctx, a, g, null);
-        const by: []const u8 = if (written.len == 0) "nothing" else try a.print("`{s}`", .{written});
-        try ctx.err(have.decl_pos, "`{s}` bounds `{s}` by {s}, but `{s}` declares `{s}`; a method meets its API with the same compile-time parameters: write `{s}`", .{ owner, gname, by, aname, signatureText(src, pos, true), header });
-        return;
-    }
-    if (want.params.len != got.params.len) {
-        try ctx.err(have.decl_pos, "`{s}` takes {d} parameter{s}, but `{s}` declares `{s}`; a method meets its API with the same parameters: write `{s}`", .{ owner, got.params.len - 1, plural(got.params.len - 1), aname, signatureText(src, pos, false), header });
-        return;
-    }
-    const names = have.param_names orelse &.{};
-    for (want.params[1..], got.params[1..], 1..) |wp, gp, i| {
-        if (wp == gp) continue;
-        try ctx.err(have.decl_pos, "`{s}` takes `{s}` as `{s}`, but `{s}` declares `{s}`; a method meets its API with the same parameters: write `{s}`", .{ owner, if (i < names.len) names[i] else "?", try sema.formatType(ctx, gp), aname, signatureText(src, pos, false), header });
-        return;
-    }
-    // The same names: a call through the API passes its arguments by the
-    // API's names, which are the implementation's. A parameter its body
-    // ignores may be `_`, as in any function (SPEC "Functions").
-    const api_names = w.field.param_names orelse &.{};
-    for (names, 0..) |n, i| {
-        if (i == 0 or i >= api_names.len or std.mem.eql(u8, n, api_names[i])) continue;
-        if (std.mem.eql(u8, n, "_") or std.mem.eql(u8, api_names[i], "_")) continue;
-        try ctx.err(have.decl_pos, "`{s}` names its parameter `{s}` where `{s}` declares `{s}`; a method meets its API with the same names: write `{s}`", .{ owner, n, aname, api_names[i], header });
-        return;
-    }
-    if (want.returns != got.returns) {
-        const fails = ctx.types.get(want.returns) == .fallible or ctx.types.get(got.returns) == .fallible;
-        const same_ok = sema.okOf(ctx, want.returns) == sema.okOf(ctx, got.returns);
-        const got_shown = try sema.formatType(ctx, got.returns);
-        const verb: []const u8 = if (ctx.types.get(got.returns) == .fallible) "fails with" else "gives";
-        const what: []const u8 = if (fails and same_ok) "set" else "result";
-        const result = resultText(src, pos);
-        if (result.len == 0) {
-            try ctx.err(have.decl_pos, "`{s}` {s} `{s}`, but `{s}` declares `{s}`, which gives nothing; a method meets its API with the same result: write `{s}`", .{ owner, verb, got_shown, aname, signatureText(src, pos, true), header });
-        } else try ctx.err(have.decl_pos, "`{s}` {s} `{s}`, but `{s}` declares `{s}`; a method meets its API with the same {s}: write `{s}`", .{ owner, verb, got_shown, aname, signatureText(src, pos, true), what, result });
-        return;
-    }
-    if (have.origins.once != w.field.origins.once) {
-        const at = @ctz(have.origins.once ^ w.field.origins.once);
-        const pname = if (at < names.len) names[at] else "?";
-        try ctx.err(have.decl_pos, "`{s}` takes `{s}` {s} `once`, but `{s}` declares `{s}`; a method meets its API with the same `once`: write `{s}`", .{ owner, pname, if (have.origins.once & sema.paramBit(at) != 0) "with" else "without", aname, signatureText(src, pos, false), header });
-        return;
-    }
-    // `keeps` and `from` may be narrower, never wider: a call through
-    // the API keeps and views what the API says.
-    const kept = have.origins.stores & have.origins.viewed;
-    const api_kept = w.field.origins.stores & w.field.origins.viewed;
-    if (kept & ~api_kept != 0) {
-        const extra = kept & ~api_kept;
-        const first = @ctz(extra);
-        const pname = if (first < names.len) names[first] else "?";
-        try ctx.err(have.decl_pos, "`{s}` keeps {s}, but `{s}.{s}` keeps {s}: a call through `{s}` would leave `{s}` free while `{s}` still views it; add `keeps {s}` to `{s}.{s}`", .{ owner, try maskNames(a, names, extra), aname, w.field.name, try maskNames(a, api_names, api_kept), aname, pname, tname, if (first < api_names.len) api_names[first] else pname, aname, w.field.name });
-        return;
-    }
-    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
-    defer scratch.deinit();
-    if ((try sema.viewTargets(ctx, scratch.allocator(), got.returns)).isEmpty()) return;
-    const viewed = have.origins.result & ~w.field.origins.result & paramsMask(got.params.len);
-    if (viewed != 0) {
-        const first = @ctz(viewed);
-        const pname = if (first < names.len) names[first] else "?";
-        const fix = if (have.origins.declared)
-            try a.print("add `{s}` to the `from` of `{s}.{s}`", .{ pname, aname, w.field.name })
-        else
-            try a.print("write `from {s}` on `{s}`", .{ try maskList(a, api_names, w.field.origins.result & paramsMask(got.params.len)), owner });
-        try ctx.err(have.decl_pos, "`{s}` may give a view of `{s}`, but `{s}.{s}` does not: a call through `{s}` would leave `{s}` free while the result still views it; {s}", .{ owner, pname, aname, w.field.name, aname, pname, fix });
-    }
-}
-
-/// Whether type parameters `x` (of module `xc`) and `y` (of `yc`) are
-/// bounded alike: the same built-in APIs and the same of a program's own,
-/// with what each implies and builds on (`[K: Hash]` is `[K: Hash +
-/// Eq]`).
-pub fn sameBounds(xc: *const SemContext, x: sema.Symbol, yc: *const SemContext, y: sema.Symbol) Error!bool {
-    if (!sema.boundApis(xc, x).eql(sema.boundApis(yc, y))) return false;
-    var scratch = std.heap.ArenaAllocator.init(xc.allocator);
-    defer scratch.deinit();
-    const a = scratch.allocator();
-    var xs: std.ArrayList(sema.ApiRef) = .empty;
-    var ys: std.ArrayList(sema.ApiRef) = .empty;
-    for (x.user_apis) |r| try xs.appendSlice(a, try sema.apiClosure(xc, a, r));
-    for (y.user_apis) |r| try ys.appendSlice(a, try sema.apiClosure(yc, a, r));
-    for ([_][2][]const sema.ApiRef{ .{ xs.items, ys.items }, .{ ys.items, xs.items } }) |pair| {
-        for (pair[0]) |r| {
-            const found = for (pair[1]) |o| {
-                if (o.eql(r)) break true;
-            } else false;
-            if (!found) return false;
-        }
-    }
-    return true;
-}
-
-pub fn selfSigil(r: sema.SelfMode) []const u8 {
-    return switch (r) {
-        .read => "?@",
-        .write => "!@",
-        .value => "<@",
-        .none => "nothing",
-    };
-}
-
-/// The parameters `mask` names, as an error lists them: `` `s` ``,
-/// `` `s`, `t` ``, or `nothing`.
-pub fn maskNames(a: std.mem.Allocator, names: []const []const u8, mask: sema.ParamMask) Error![]const u8 {
-    if (mask == 0) return "nothing";
-    var out: std.ArrayList(u8) = .empty;
-    for (names, 0..) |n, i| {
-        if (i >= 64 or mask & sema.paramBit(i) == 0) continue;
-        if (out.items.len > 0) try out.appendSlice(a, ", ");
-        try out.print(a, "`{s}`", .{n});
-    }
-    return out.items;
-}
-
-/// The parameters `mask` names, joined for a `from` clause: `@, a`.
-pub fn maskList(a: std.mem.Allocator, names: []const []const u8, mask: sema.ParamMask) Error![]const u8 {
-    if (mask == 0) return "static";
-    var out: std.ArrayList(u8) = .empty;
-    for (names, 0..) |n, i| {
-        if (i >= 64 or mask & sema.paramBit(i) == 0) continue;
-        if (out.items.len > 0) try out.appendSlice(a, ", ");
-        try out.appendSlice(a, n);
-    }
-    return out.items;
-}
-
-/// The type the API method `w` gives a conformance's method, in this
-/// module's types: `Self` is the conformance's type, and each of the
-/// API method's compile-time parameters the method's own (`have`), in
-/// order. Null when the two take different numbers of them, which the
-/// caller reports.
-pub fn apiMethodType(ctx: *SemContext, w: ApiMethod, conf: sema.Conformance, have: Field) Error!?TypeId {
-    const local_ty = if (w.home == @as(*const SemContext, ctx)) w.field.ty else try sema.importType(ctx, w.home, w.field.ty, w.api.module_id);
-    const f = switch (ctx.types.get(local_ty)) {
-        .function => |f| f,
-        else => return null,
-    };
-    const got = switch (ctx.types.get(have.ty)) {
-        .function => |g| g,
-        else => return null,
-    };
-    const api_sym = sema.apiSymbol(ctx, w.api) orelse return null;
-    const home_self = (api_sym.type_params orelse return null)[0];
-    const self_param = if (w.home == @as(*const SemContext, ctx)) home_self else try sema.proxyOf(ctx, .{ .module_id = w.api.module_id, .sym = home_self });
-    var params: std.ArrayList(SymbolId) = .empty;
-    var args: std.ArrayList(TypeId) = .empty;
-    const a = ctx.arena.allocator();
-    try params.append(a, self_param);
-    try args.append(a, conf.ty);
-    if (f.ct_syms.len == got.ct_syms.len) for (f.ct_syms, got.ct_syms, 0..) |p, g, i| {
-        if (p == sema.symbol_invalid or g == sema.symbol_invalid) continue;
-        try params.append(a, p);
-        const is_type = ctx.types.get(got.ct_params[i]) == .type_var;
-        try args.append(a, try ctx.intern(if (is_type) .{ .type_var = g } else .{ .ct_param = g }));
-    };
-    return try sema.substituteType(ctx, local_ty, .{ .params = params.items, .args = args.items });
-}
-
-/// Why `==` is not defined for a type, as a diagnostic says it.
-pub fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
-    const a = ctx.arena.allocator();
-    const t = try sema.formatType(ctx, n.ty);
-    if (n.path.len > 0) return switch (n.why) {
-        .handle => a.print("field `{s}` is a handle `{s}`, which could compare by identity or by content", .{ n.path, t }),
-        .closure => a.print("field `{s}` is an owned closure `{s}`", .{ n.path, t }),
-        .function => a.print("field `{s}` is a function value", .{n.path}),
-        .no_eq => a.print("field `{s}` is a `{s}`, which has no `==`", .{ n.path, t }),
-        .view => a.print("field `{s}` holds a `?T`, `!T`, or slice", .{n.path}),
-        .drop => a.print("field `{s}` is a `{s}`: `{s}` declares `drop`", .{ n.path, t, t }),
-        .unique => a.print("field `{s}` is a `{s}`, which is unique", .{ n.path, t }),
-        .lanes => a.print("field `{s}` is a `{s}`, whose `==` compares lane by lane; compare the fields and reduce the mask: `(x.{s} == y.{s}).all()`", .{ n.path, t, n.path, n.path }),
-        .float => a.print("field `{s}` is a `{s}`, and `==` calls `0.0` and `-0.0` equal and NaN equal to nothing", .{ n.path, t }),
-        .own_eq => a.print("field `{s}` is a `{s}`, which declares its own `==` and no hash of its own", .{ n.path, t }),
-        .object => a.print("field `{s}` is a `{s}`, and two API objects may hide two types, which `==` cannot compare", .{ n.path, t }),
-    };
-    return switch (n.why) {
-        .handle => a.print("`{s}` is a handle, which could compare by identity or by content", .{t}),
-        .closure => a.print("`{s}` is an owned closure", .{t}),
-        .function => a.print("`{s}` is a function value", .{t}),
-        .no_eq => a.print("`{s}` has no `==`", .{t}),
-        .view => a.print("`{s}` is a view", .{t}),
-        .drop => a.print("`{s}` declares `drop`", .{t}),
-        .unique => a.print("`{s}` is unique", .{t}),
-        .lanes => a.print("`{s}` holds a vector, whose `==` compares lane by lane", .{t}),
-        .float => a.print("`==` calls `0.0` and `-0.0` equal and NaN equal to nothing; hash its bits, `x.to_bits().hash()`", .{}),
-        .own_eq => sema.ownEqUnhashed(ctx, n.ty),
-        .object => a.print("two API objects may hide two types, which `==` cannot compare", .{}),
-    };
-}
-
-pub fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
-    return switch (req) {
-        .numeric, .bytes => sema.isNumeric(ctx, ty),
-        .records => switch (try sema.bytesRecord(ctx, ty)) {
-            // A generic body's bytes are not an embedded file's, known
-            // where the call is written, so every bit pattern is a value.
-            .record => |r| r.checks.len == 0,
-            .not => false,
-        },
-        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static or sema.isOrderedEnum(ctx, ty) or (try sema.lacks(ctx, ty, .Ord)) == null,
-        .integer => sema.isInteger(ctx, ty),
-        .signed => switch (ctx.types.get(ty)) {
-            .int => |info| info.signed,
-            .float => true,
-            else => false,
-        },
-        .float => ctx.types.get(ty) == .float,
-        .fits => |v| sema.isNumeric(ctx, ty) and holdsInt(ctx, ty, v),
-        .shift => |v| switch (ctx.types.get(ty)) {
-            .int => |info| v < intBounds(info).bits,
-            else => false,
-        },
-        .copies => sema.copies(ctx, ty) != .no,
-        .clones => (try sema.lacks(ctx, ty, .Clone)) == null,
-        .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
-        .lane_count => switch (ctx.types.get(ty)) {
-            .ct_value => |v| sema.lanesInRange(v.int),
-            else => false,
-        },
-        .slot_count => sema.slotCount(ctx, ty) != null,
-        .sized => !sema.holdsVector(ctx, ty),
-        .array_len => switch (ctx.types.get(ty)) {
-            .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
-            else => false,
-        },
-        .equatable => sema.isEquatable(ctx, ty),
-        .hashable => isText(ctx, ty) or (try sema.notHashable(ctx, ty, null)) == null,
-        .whole_division => sema.isInteger(ctx, ty),
-        // An API object prints only by the `Print` its braces or API name.
-        .printable => try sema.printable(ctx, ty) and try sema.objectUnprinted(ctx, ty) == null,
-        .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
-        .error_set => sema.isErrorValue(ctx, ty),
-        .not_function => ctx.types.get(ty) != .function,
-        .named => sema.unnameable(ctx, ty) == null,
-        .frozen => (try sema.frozenBlocker(ctx, ty)) == null,
-        .no_task => !sema.holdsTask(ctx, ty),
-        .task => |reach| (try sema.taskBlocker(ctx, ty, reach)) == null,
-        .meets => |api| (try sema.lacks(ctx, ty, api)) == null,
-        .order => (try sema.lacks(ctx, ty, .Ord)) == null,
-    };
-}
 
 // =============================================================================
 // Tests
@@ -6135,7 +3239,7 @@ pub fn expectClean(ctx: *const SemContext) !void {
 }
 
 /// Typecheck's source, its files joined, which the tests read.
-const typecheck_source = @embedFile("typecheck.zig") ++ @embedFile("check/builtins.zig") ++ @embedFile("check/calls.zig") ++ @embedFile("check/closures.zig") ++ @embedFile("check/expr.zig") ++ @embedFile("check/flow.zig") ++ @embedFile("check/patterns.zig") ++ @embedFile("check/stdforms.zig") ++ @embedFile("check/stmt.zig") ++ @embedFile("check/views.zig");
+const typecheck_source = @embedFile("typecheck.zig") ++ @embedFile("check/builtins.zig") ++ @embedFile("check/calls.zig") ++ @embedFile("check/closures.zig") ++ @embedFile("check/expr.zig") ++ @embedFile("check/flow.zig") ++ @embedFile("check/patterns.zig") ++ @embedFile("check/stdforms.zig") ++ @embedFile("check/stmt.zig") ++ @embedFile("check/views.zig") ++ @embedFile("check/compat.zig") ++ @embedFile("check/generics.zig") ++ @embedFile("check/apis.zig");
 
 test "check: implicit lift of T into T! and T?" {
     var r = try checkSource(std.testing.allocator,
@@ -6605,11 +3709,11 @@ test "check: a frame an inline call cannot count is an error at the call, never 
     const ic = it.next().?;
     const saved = ic.*;
     ic.subst = .empty;
-    try checkFrames(&r.ctx);
+    try GenericCheck.checkFrames(&r.ctx);
     try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (the call does not bind every parameter its values hold)");
     // A function no module declares.
     ic.* = saved;
     ic.fun.module +%= 1000;
-    try checkFrames(&r.ctx);
+    try GenericCheck.checkFrames(&r.ctx);
     try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (its module is not loaded)");
 }

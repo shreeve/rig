@@ -24,6 +24,9 @@ const Error = std.mem.Allocator.Error;
 const srcPos = sema.srcPos;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
+const ApiCheck = @import("apis.zig");
+const CompatCheck = @import("compat.zig");
+const GenericCheck = @import("generics.zig");
 const BuiltinCheck = @import("builtins.zig");
 const CallCheck = @import("calls.zig");
 const ClosureCheck = @import("closures.zig");
@@ -44,7 +47,7 @@ pub fn recordLoan(self: *Checker, e: Sexp, view: TypeId) Error!void {
         .write_view => |base| base,
         else => return self.ctx.recordLoan(e, .write),
     };
-    if (tc.sameNode(e, self.expect.self_obj)) switch (self.ctx.types.get(viewed)) {
+    if (CompatCheck.sameNode(e, self.expect.self_obj)) switch (self.ctx.types.get(viewed)) {
         .shared => |inner| viewed = inner,
         else => {},
     };
@@ -98,7 +101,7 @@ pub fn makeViewOf(self: *Checker, e: Sexp, kind: Checker.ViewKind) Error!TypeId 
     }
     // Anywhere but where a `!Bool` is expected, `!flag` is read as
     // a `Bool`: the habit of `!` as negation.
-    if (kind == .write and tc.readValue(self.ctx, inner) == self.t().bool_id and !tc.sameNode(e, self.expect.viewed_write)) {
+    if (kind == .write and CompatCheck.readValue(self.ctx, inner) == self.t().bool_id and !CompatCheck.sameNode(e, self.expect.viewed_write)) {
         try self.errAt(e, "`!` makes a write view; use `not` for negation (a `Bool` gets a write view only where a `!Bool` is expected: `f(!flag)`)", .{});
         return self.t().invalid_id;
     }
@@ -130,7 +133,7 @@ pub fn makeViewOf(self: *Checker, e: Sexp, kind: Checker.ViewKind) Error!TypeId 
     // only where `c` may be written (`handleWritable`, the one fact
     // `requireAccess` decides). Anywhere else, and as a self never
     // matters, it views what the handle holds: that value's write view.
-    if (kind == .write and StmtCheck.viewsHandle(self, place) and !tc.sameNode(e, self.expect.self_obj) and !try StmtCheck.handleWritable(self, place, operand)) {
+    if (kind == .write and StmtCheck.viewsHandle(self, place) and !CompatCheck.sameNode(e, self.expect.self_obj) and !try StmtCheck.handleWritable(self, place, operand)) {
         const handle = sema.unwrapViews(self.ctx, inner);
         const view = try self.ctx.intern(.{ .write_view = self.ctx.types.get(handle).shared });
         if (sema.viewAs(self.ctx, handle, .write, view)) |made| try self.ctx.recordView(e, made);
@@ -207,14 +210,14 @@ pub fn viewsBranch(self: *Checker, operand: Sexp, whole: Sexp, kind: Checker.Vie
     // A handle that changes by a marked call is viewed, not what holds
     // it: the branch is only read.
     if (kind == .write and StmtCheck.viewsPath(self, StmtCheck.placeOf(self, operand))) return true;
-    if (self.branch_views.get(tc.nodeId(viewed))) |ok| return ok;
+    if (self.branch_views.get(CompatCheck.nodeId(viewed))) |ok| return ok;
     var leaves: std.ArrayList(Sexp) = .empty;
     defer leaves.deinit(self.ctx.allocator);
     try sema.valueLeaves(self.ctx.allocator, viewed, &leaves);
     const place = try heldLeaf(self, leaves.items);
     // A verdict reached while diagnostics are dropped is not kept: the
     // check that keeps them decides again, and reports.
-    if (self.ctx.quiet == 0) try self.branch_views.put(self.ctx.allocator, tc.nodeId(viewed), place == .nil);
+    if (self.ctx.quiet == 0) try self.branch_views.put(self.ctx.allocator, CompatCheck.nodeId(viewed), place == .nil);
     if (place == .nil) return true;
     const a = self.ctx.arena.allocator();
     const sigil: u8 = if (kind == .write) '!' else '?';
@@ -223,7 +226,7 @@ pub fn viewsBranch(self: *Checker, operand: Sexp, whole: Sexp, kind: Checker.Vie
     // What `o?` unwraps is viewed and unwrapped in a header instead.
     const fix = if (unwrapped(self, place))
         try a.print("make a view of what it unwraps, and unwrap it in a header: `if {c}{s} as x`", .{ sigil, CallCheck.sourceText(self, place) })
-    else if (whole != .nil or tc.sameNode(operand, viewed))
+    else if (whole != .nil or CompatCheck.sameNode(operand, viewed))
         try a.print("put the sigil on each branch: `{s}`", .{try spliced(self, if (whole != .nil) whole else operand, leaves.items, withs)})
     else
         // A path keeps its view, now through each branch's view.
@@ -286,7 +289,7 @@ pub fn isConstant(self: *Checker, e: Sexp) Error!bool {
         defer leaves.deinit(self.ctx.allocator);
         try sema.valueLeaves(self.ctx.allocator, e, &leaves);
         // A value that branches.
-        if (leaves.items.len != 1 or !tc.sameNode(leaves.items[0], e)) {
+        if (leaves.items.len != 1 or !CompatCheck.sameNode(leaves.items[0], e)) {
             for (leaves.items) |leaf| if (!try isConstant(self, leaf)) return false;
             return leaves.items.len > 0;
         }
@@ -406,7 +409,7 @@ pub fn copiesValue(self: *const Checker, e: Sexp) bool {
 }
 
 /// How self `recv` is written (`SelfShape`).
-pub fn selfShape(self: *const Checker, recv: Sexp) tc.SelfShape {
+pub fn selfShape(self: *const Checker, recv: Sexp) CompatCheck.SelfShape {
     if (recv.isKind(.read)) return .read_explicit;
     if (recv.isKind(.write)) return .write_explicit;
     if (recv.isKind(.move)) return .move_explicit;
@@ -478,7 +481,7 @@ pub fn writeSlice(self: *Checker, slice: Sexp) Error!TypeId {
     if (place.root == .temporary) {
         if (!try checkWriteView(self, object)) return self.t().invalid_id;
     } else if (sema.writeSliceElem(self.ctx, obj_ty) == null and place.base != .src) {
-        try self.errAt(object, tc.slice_of_temporary, .{});
+        try self.errAt(object, CompatCheck.slice_of_temporary, .{});
         return self.t().invalid_id;
     }
     return self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .slice = .{ .elem = elem } }) });
@@ -598,7 +601,7 @@ pub fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
         // `*o` of an optional weak handle: `*` upgrades the handle
         // inside, once it is taken out.
         if (self.ctx.types.get(sema.unwrapOptionals(self.ctx, inner)) == .weak) {
-            const shown = try plainText(self, tc.stripSigil(operand));
+            const shown = try plainText(self, CompatCheck.stripSigil(operand));
             try self.errAt(operand, "`{s}` is an optional weak handle `{s}`, and `*` upgrades a weak handle, not an optional: take the handle out first, `if {s} as w`, then `*w`", .{ shown, try self.tyName(inner), shown });
             return self.t().invalid_id;
         }
@@ -640,7 +643,7 @@ pub fn weakUpgrade(self: *Checker, e: Sexp, ty: TypeId) Error!?TypeId {
         .jump, .none => return null,
     };
     if (operand.isKind(.write)) {
-        const shown = try plainText(self, tc.stripSigil(operand));
+        const shown = try plainText(self, CompatCheck.stripSigil(operand));
         try self.errAt(operand, "`*` only reads the weak handle it upgrades: write `*{s}`", .{shown});
         return self.t().invalid_id;
     }
@@ -843,7 +846,7 @@ pub fn synthClone(self: *Checker, e: Sexp) Error!TypeId {
 /// The value an operator reads from `e` (`operandValue`).
 pub fn synthOperandValue(self: *Checker, e: Sexp) Error!TypeId {
     const ty = try PatternCheck.synthExpr(self, e);
-    return readThrough(self, e, ty, tc.operandValue(self.ctx, ty));
+    return readThrough(self, e, ty, CompatCheck.operandValue(self.ctx, ty));
 }
 
 /// The value a view `e` reaches, or `e`'s own value.
@@ -856,7 +859,7 @@ pub fn synthReached(self: *Checker, e: Sexp) Error!TypeId {
 /// reads as the value (`readValue`).
 pub fn synthValue(self: *Checker, e: Sexp) Error!TypeId {
     const ty = try PatternCheck.synthExpr(self, e);
-    return readThrough(self, e, ty, tc.readValue(self.ctx, ty));
+    return readThrough(self, e, ty, CompatCheck.readValue(self.ctx, ty));
 }
 
 /// `value`, the value `e` of type `ty` gives where it is read; when
@@ -963,7 +966,7 @@ pub fn meetsNeeds(self: *Checker, m: Field, owner_sym: SymbolId, args: []const T
         // in the ownership checker).
         .plain => if (sema.mayHoldView(self.ctx, param)) {
             const shown = try self.tyName(param);
-            try self.err(pos, "{s}, and {s} `{s}` holds a view, which the List would not track: push each element, `!xs.push(y)`", .{ needs.says.into_elements.what, tc.article(shown), shown });
+            try self.err(pos, "{s}, and {s} `{s}` holds a view, which the List would not track: push each element, `!xs.push(y)`", .{ needs.says.into_elements.what, CompatCheck.article(shown), shown });
             return false;
         } else if (!try cannotCopy(self, param, pos, needs.op)) return true,
         .records => return readsRecords(self, m.name, param, pos, if (values.len > 0 and !values[0].isKind(.kwarg)) values[0] else null),
@@ -974,7 +977,7 @@ pub fn meetsNeeds(self: *Checker, m: Field, owner_sym: SymbolId, args: []const T
                 for (params.items) |tv| try ExprCheck.require(self, tv, .equatable, pos, needs.op);
                 return true;
             };
-            try self.err(pos, "`{s}.{s}` compares elements with `==`, which is not defined for `{s}`: {s}", .{ self.ctx.symbols.items[owner_sym].name, m.name, try self.tyName(param), try tc.notEquatableReason(self.ctx, n) });
+            try self.err(pos, "`{s}.{s}` compares elements with `==`, which is not defined for `{s}`: {s}", .{ self.ctx.symbols.items[owner_sym].name, m.name, try self.tyName(param), try ApiCheck.notEquatableReason(self.ctx, n) });
             return false;
         },
     }
@@ -983,7 +986,7 @@ pub fn meetsNeeds(self: *Checker, m: Field, owner_sym: SymbolId, args: []const T
     const shown = try self.tyName(param);
     switch (needs.says) {
         .element_out => |advice| try self.err(pos, "`{s}.{s}` would copy an element out of a `{s}` of `{s}`, which a copy cannot share; {s}", .{ owner, m.name, owner, shown, advice }),
-        .value_out => |advice| try self.err(pos, "`{s}.{s}` returns a copy of the value, and {s} `{s}` {s}, so it can't be copied; {s}", .{ owner, m.name, tc.article(shown), shown, if (sema.typeHasDropGlue(self.ctx, param)) "owns what it must release" else movesBecause(self, param), advice }),
+        .value_out => |advice| try self.err(pos, "`{s}.{s}` returns a copy of the value, and {s} `{s}` {s}, so it can't be copied; {s}", .{ owner, m.name, CompatCheck.article(shown), shown, if (sema.typeHasDropGlue(self.ctx, param)) "owns what it must release" else movesBecause(self, param), advice }),
         .into_elements => |d| try notDuplicated(self, pos, d.what, param, d.loop, d.tail),
         .from_bytes, .compares => unreachable,
     }
@@ -1026,30 +1029,30 @@ pub fn readsRecords(self: *Checker, method: []const u8, elem: TypeId, pos: u32, 
         },
         .not => |n| n,
     };
-    const subject = if (not.field.len == 0) try a.print(", and {s} `{s}`", .{ tc.article(not.shown), not.shown }) else try a.print("; field `{s}` of `{s}` is {s} `{s}`,", .{ not.field, not.owner, tc.article(not.shown), not.shown });
+    const subject = if (not.field.len == 0) try a.print(", and {s} `{s}`", .{ CompatCheck.article(not.shown), not.shown }) else try a.print("; field `{s}` of `{s}` is {s} `{s}`,", .{ not.field, not.owner, CompatCheck.article(not.shown), not.shown });
     const which = if (not.field.len == 0) "" else " which";
     const embed_hint: []const u8 = if (checked) "; an `$embed(path)`'s bytes may make one, since the compiler checks their values" else "";
     switch (not.why) {
-        .boolean => try self.err(pos, head ++ "{s}{s} is only 0 or 1{s}", .{ method, shown, tc.article(shown), shown, subject, which, embed_hint }),
+        .boolean => try self.err(pos, head ++ "{s}{s} is only 0 or 1{s}", .{ method, shown, CompatCheck.article(shown), shown, subject, which, embed_hint }),
         .enumeration => if (not.field.len == 0)
-            try self.err(pos, head ++ ", and `{s}` is an enum, whose values are only its variants'{s}", .{ method, shown, tc.article(shown), shown, not.shown, embed_hint })
+            try self.err(pos, head ++ ", and `{s}` is an enum, whose values are only its variants'{s}", .{ method, shown, CompatCheck.article(shown), shown, not.shown, embed_hint })
         else
-            try self.err(pos, head ++ "; field `{s}` of `{s}` is an enum, whose values are only its variants'{s}", .{ method, shown, tc.article(shown), shown, not.field, not.owner, embed_hint }),
-        .other => try self.err(pos, head ++ "{s}{s} is not an integer, a float, or an object or array of them", .{ method, shown, tc.article(shown), shown, subject, which }),
-        .not_plain => try self.err(pos, head ++ ", and `{s}` is not plain data: it does not copy, or has a `drop`", .{ method, shown, tc.article(shown), shown, not.shown }),
-        .generic => try self.err(pos, head ++ ", and `{s}` is an instance of a generic object; declare an object of its field types", .{ method, shown, tc.article(shown), shown, not.shown }),
+            try self.err(pos, head ++ "; field `{s}` of `{s}` is an enum, whose values are only its variants'{s}", .{ method, shown, CompatCheck.article(shown), shown, not.field, not.owner, embed_hint }),
+        .other => try self.err(pos, head ++ "{s}{s} is not an integer, a float, or an object or array of them", .{ method, shown, CompatCheck.article(shown), shown, subject, which }),
+        .not_plain => try self.err(pos, head ++ ", and `{s}` is not plain data: it does not copy, or has a `drop`", .{ method, shown, CompatCheck.article(shown), shown, not.shown }),
+        .generic => try self.err(pos, head ++ ", and `{s}` is an instance of a generic object; declare an object of its field types", .{ method, shown, CompatCheck.article(shown), shown, not.shown }),
         .not_exact => |obj| if (not.field.len == 0)
-            try self.err(pos, head ++ ", and `{s}` is not `exact`, so Zig may lay out its fields in an order of its own: add `exact` to `obj {s}`", .{ method, shown, tc.article(shown), shown, not.shown, obj })
+            try self.err(pos, head ++ ", and `{s}` is not `exact`, so Zig may lay out its fields in an order of its own: add `exact` to `obj {s}`", .{ method, shown, CompatCheck.article(shown), shown, not.shown, obj })
         else
-            try self.err(pos, head ++ "; field `{s}` of `{s}` is {s} `{s}`, which is not `exact`: add `exact` to `obj {s}`", .{ method, shown, tc.article(shown), shown, not.field, not.owner, tc.article(not.shown), not.shown, obj }),
-        .empty => try self.err(pos, head ++ ", and `{s}` holds no bytes", .{ method, shown, tc.article(shown), shown, not.shown }),
-        .private => |module| try self.err(pos, head ++ "; field `{s}` of `{s}` is private to module `{s}`, which sets it", .{ method, shown, tc.article(shown), shown, not.field, not.owner, module }),
-        .padding_before => |p| try self.err(pos, head ++ ", and `{s}` has padding before field `{s}`: it starts at byte {d}, and {s} `{s}` starts at a multiple of {d}; order the fields so that none needs padding", .{ method, shown, tc.article(shown), shown, not.owner, not.field, p.at, tc.article(not.shown), not.shown, p.alignment }),
+            try self.err(pos, head ++ "; field `{s}` of `{s}` is {s} `{s}`, which is not `exact`: add `exact` to `obj {s}`", .{ method, shown, CompatCheck.article(shown), shown, not.field, not.owner, CompatCheck.article(not.shown), not.shown, obj }),
+        .empty => try self.err(pos, head ++ ", and `{s}` holds no bytes", .{ method, shown, CompatCheck.article(shown), shown, not.shown }),
+        .private => |module| try self.err(pos, head ++ "; field `{s}` of `{s}` is private to module `{s}`, which sets it", .{ method, shown, CompatCheck.article(shown), shown, not.field, not.owner, module }),
+        .padding_before => |p| try self.err(pos, head ++ ", and `{s}` has padding before field `{s}`: it starts at byte {d}, and {s} `{s}` starts at a multiple of {d}; order the fields so that none needs padding", .{ method, shown, CompatCheck.article(shown), shown, not.owner, not.field, p.at, CompatCheck.article(not.shown), not.shown, p.alignment }),
         .named_none => |none| {
             const value = if (none.variant) |v| try a.print(".{s}", .{v}) else try a.print("{d}", .{none.value});
-            try self.err(pos, head ++ "{s}{s} names its none (`none {s} == {s}`), a value no `{s}` holds", .{ method, shown, tc.article(shown), shown, subject, which, none.field, value, not.shown });
+            try self.err(pos, head ++ "{s}{s} names its none (`none {s} == {s}`), a value no `{s}` holds", .{ method, shown, CompatCheck.article(shown), shown, subject, which, none.field, value, not.shown });
         },
-        .padding_after => |p| try self.err(pos, head ++ ", and `{s}` has {d} {s} of padding after field `{s}`, to a multiple of {d}; add a field that fills them", .{ method, shown, tc.article(shown), shown, not.owner, p.bytes, if (p.bytes == 1) "byte" else "bytes", not.field, p.alignment }),
+        .padding_after => |p| try self.err(pos, head ++ ", and `{s}` has {d} {s} of padding after field `{s}`, to a multiple of {d}; add a field that fills them", .{ method, shown, CompatCheck.article(shown), shown, not.owner, p.bytes, if (p.bytes == 1) "byte" else "bytes", not.field, p.alignment }),
     }
     return false;
 }
@@ -1062,7 +1065,7 @@ pub fn recordsIn(self: *Checker, method: []const u8, shown: []const u8, record: 
     if (bytes == .src) {
         const lit = self.text(bytes);
         if (lit.len < 2 or (lit[0] != '"' and lit[0] != '\'')) return;
-        const held = tc.textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return;
+        const held = CompatCheck.textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return;
         if (held.len % size != 0) try self.errAt(bytes, "`{s}` reads whole `{s}`s, {d} bytes each, and the literal holds {d} bytes", .{ method, shown, size, held.len });
         return;
     }
@@ -1149,7 +1152,7 @@ pub fn meetsOwnerBounds(self: *Checker, m: Field, owner: sema.Symbol, module: ?u
 pub fn notDuplicated(self: *Checker, at: anytype, what: []const u8, elem: TypeId, loop: []const u8, tail: []const u8) Error!void {
     const shown = try self.tyName(elem);
     const why = movesBecause(self, elem);
-    const args = .{ what, tc.article(shown), shown, why };
+    const args = .{ what, CompatCheck.article(shown), shown, why };
     const plain = "{s}, and {s} `{s}` {s}, so it cannot be copied";
     if (sema.holdsWriteView(self.ctx, elem)) {
         if (@TypeOf(at) == Sexp) return self.errAt(at, plain, args);
@@ -1161,7 +1164,7 @@ pub fn notDuplicated(self: *Checker, at: anytype, what: []const u8, elem: TypeId
         return self.err(at, fmt, args);
     }
     const fmt = plain ++ ": write a loop that makes each element with `+x` ({s}){s}";
-    const with_loop = .{ what, tc.article(shown), shown, why, loop, tail };
+    const with_loop = .{ what, CompatCheck.article(shown), shown, why, loop, tail };
     if (@TypeOf(at) == Sexp) return self.errAt(at, fmt, with_loop);
     return self.err(at, fmt, with_loop);
 }
@@ -1237,7 +1240,7 @@ pub fn readLeaf(self: *Checker, e: Sexp) Error!void {
 /// (a handle given a write view has its use recorded as a view).
 pub fn readLeafAs(self: *Checker, e: Sexp, record_use: bool) Error!void {
     // A value a header holds is taken there, not read as a temporary.
-    if (e == .list and tc.sameNode(e, self.expect.held_base)) return recordUse(self, e, .take);
+    if (e == .list and CompatCheck.sameNode(e, self.expect.held_base)) return recordUse(self, e, .take);
     if (record_use) try recordUse(self, e, .read);
     var leaves: std.ArrayList(Sexp) = .empty;
     defer leaves.deinit(self.ctx.allocator);
@@ -1408,7 +1411,7 @@ pub fn isSelfSigil(self: *Checker, node: Sexp) bool {
 /// `?p.m(...)`, `!p.m(...)`, or `<p.m(...)` where `m` takes no
 /// self the sigil could apply to.
 pub fn misplacedSigil(self: *Checker, recv: Sexp, method: []const u8, why: []const u8) Error!void {
-    try self.errAt(recv, "`{s}` {s}; remove the `{s}`", .{ method, why, tc.sigilText(recv) });
+    try self.errAt(recv, "`{s}` {s}; remove the `{s}`", .{ method, why, CompatCheck.sigilText(recv) });
 }
 
 /// `!p.f(...)` or `<p.f[i](...)`, where `f` is a field holding
@@ -1423,7 +1426,7 @@ pub fn fieldCallSigil(self: *Checker, recv: Sexp, field: []const u8, what: []con
         return self.errAt(recv, "`{s}` is {s}, not a method that takes `self`; for negation use `not`", .{ field, what });
     }
     if (recv.isKind(.read)) return self.errAt(recv, "`{s}` is {s}, not a method that takes `self`; remove the `?`, or make a view of the call's result with `?({s})`", .{ field, what, try FlowCheck.callWith(self, recv, CallCheck.sourceText(self, ir.Read.operand(recv)), field) });
-    try self.errAt(recv, "`{s}` is {s}, not a method that takes `self`; remove the `{s}`", .{ field, what, tc.sigilText(recv) });
+    try self.errAt(recv, "`{s}` is {s}, not a method that takes `self`; remove the `{s}`", .{ field, what, CompatCheck.sigilText(recv) });
 }
 
 /// `?p.m(...)`, `!p.m(...)`, and `<p.m(...)` (see
@@ -1463,7 +1466,7 @@ pub fn checkSelfSigil(self: *Checker, recv: Sexp, mode: SelfMode, returns: TypeI
             const long = try self.ctx.arena.allocator().print("({s})", .{CallCheck.sourceText(self, recv)});
             const call = if (self.expect.current_call) |c| try spliced(self, c, &.{recv}, &.{long}) else try self.ctx.arena.allocator().print("{s}.{s}(...)", .{ long, method });
             // Under `not` the negation is meant: only its long form.
-            if (self.expect.current_call) |c| if (tc.sameSite(c, self.expect.not_operand)) {
+            if (self.expect.current_call) |c| if (CompatCheck.sameSite(c, self.expect.not_operand)) {
                 try self.errAt(recv, "`!` makes a write view of `{s}` and never negates: write `not {s}`", .{ name, call });
                 return true;
             };
@@ -1482,7 +1485,7 @@ pub fn checkSelfSigil(self: *Checker, recv: Sexp, mode: SelfMode, returns: TypeI
 
 /// Whether a write self `recv` of kind `kind` is a write view,
 /// which a write method writes through.
-pub fn writesThrough(self: *Checker, recv: Sexp, kind: tc.SelfTypeKind) bool {
+pub fn writesThrough(self: *Checker, recv: Sexp, kind: CompatCheck.SelfTypeKind) bool {
     if (kind == .write_view) return true;
     const ty = self.ctx.typeOf(recv) orelse return false;
     return self.ctx.types.get(ty) == .write_view;
@@ -1499,7 +1502,7 @@ pub fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8, returns:
     const call = try FlowCheck.callWith(self, recv, if (FlowCheck.parenthesized(self, recv, returns)) try a.print("({s})", .{viewed}) else viewed, method);
     // A `!` that is there but does not reach self.
     const outer = self.expect.outer_write;
-    if (outer.isKind(.call) and tc.sameNode(ir.Call.callee(outer), self.expect.self_of)) {
+    if (outer.isKind(.call) and CompatCheck.sameNode(ir.Call.callee(outer), self.expect.self_of)) {
         return self.errAt(recv, "`{s}` changes `self`, a temporary no name holds; the `!` here makes a write view of what `{s}` returns, not of `self`: write `{s}`", .{ method, method, call });
     }
     try self.errAt(recv, "`{s}` changes `self`, a temporary no name holds; add `!`: `{s}`", .{ method, call });
@@ -1550,7 +1553,7 @@ pub fn markNote(self: *Checker, recv: Sexp) []const u8 {
 /// Self rules: `?@` is viewed implicitly; `!@` needs an explicit
 /// `!x.m()`; a consuming `<@` needs an explicit `<x.m()`. Write and
 /// consuming selves are refused through `?T` and `*T`.
-pub fn checkSelfMode(self: *Checker, recv: Sexp, mode: SelfMode, kind: tc.SelfTypeKind, method: []const u8, pos: u32, returns: TypeId) Error!void {
+pub fn checkSelfMode(self: *Checker, recv: Sexp, mode: SelfMode, kind: CompatCheck.SelfTypeKind, method: []const u8, pos: u32, returns: TypeId) Error!void {
     const shape = selfShape(self, recv);
     switch (mode) {
         .read => if (shape == .move_explicit) {
@@ -1600,7 +1603,7 @@ pub fn checkSelfMode(self: *Checker, recv: Sexp, mode: SelfMode, kind: tc.SelfTy
                     if (self.ctx.typeOf(recv)) |rt| if (sema.objectHeld(self.ctx, sema.unwrapViews(self.ctx, rt)) orelse sema.objectHeld(self.ctx, rt)) |ov| {
                         const call = CallCheck.sourceText(self, self.expect.current_call orelse recv);
                         const box = try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), ov.object);
-                        return self.err(pos, "`{s}{s}` consumes self, and `{s}` is a `{s}`, a view: only a box, `^{s}`, gives its value up", .{ if (std.mem.startsWith(u8, call, "<")) "" else "<", call, CallCheck.sourceText(self, tc.stripSigil(recv)), try self.tyName(rt), box });
+                        return self.err(pos, "`{s}{s}` consumes self, and `{s}` is a `{s}`, a view: only a box, `^{s}`, gives its value up", .{ if (std.mem.startsWith(u8, call, "<")) "" else "<", call, CallCheck.sourceText(self, CompatCheck.stripSigil(recv)), try self.tyName(rt), box });
                     };
                     return self.err(pos, "method `{s}` consumes `self`; cannot consume through a view", .{method});
                 },
@@ -1680,13 +1683,13 @@ pub fn checkExprAgainstType(self: *Checker, e: Sexp, expected: TypeId) Error!voi
     // there: a typed binding, an argument, a field, an element, a
     // result.
     try recordUse(self, e, .take);
-    if (e == .list and self.ctx.quiet == 0) try self.expected.put(self.ctx.allocator, tc.nodeId(e), expected);
+    if (e == .list and self.ctx.quiet == 0) try self.expected.put(self.ctx.allocator, CompatCheck.nodeId(e), expected);
     const prev_viewed = self.expect.viewed_write;
     defer self.expect.viewed_write = prev_viewed;
     if (e.isKind(.write) and self.ctx.types.get(expected) == .write_view) self.expect.viewed_write = e;
     const saved_result = self.expect.result_expected;
     defer self.expect.result_expected = saved_result;
-    if (tc.resultCall(e)) |call| self.expect.result_expected = .{ .call = call, .ty = expected, .value = e };
+    if (CompatCheck.resultCall(e)) |call| self.expect.result_expected = .{ .call = call, .ty = expected, .value = e };
     // A poisoned expected type still reaches a generic call's
     // inference, which then reports nothing more.
     if (self.isPoison(expected)) {
@@ -1729,7 +1732,7 @@ pub fn checkActual(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Er
     if (self.ctx.types.get(expected) == .function and sema.callableFnTy(self.ctx, actual) == expected) {
         return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; a view of a closure goes to a parameter declared `{s}`", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(actual) });
     }
-    if (tc.compatible(self.ctx, actual, expected)) {
+    if (CompatCheck.compatible(self.ctx, actual, expected)) {
         try recordAdapted(self, e, actual, expected);
         return;
     }
@@ -1745,19 +1748,19 @@ pub fn checkActual(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Er
     // A fallible call where its value is expected: `synthCall`
     // reported the missing `!` / `catch`.
     const at = self.ctx.types.get(actual);
-    if (at == .fallible and tc.compatible(self.ctx, at.fallible.ok, expected)) return;
-    if (tc.sameExpr(e, self.expect.ignored_in)) return;
-    if (tc.resultCall(e)) |call| if (call.list.id != 0) if (self.result_hints.get(call.list.id)) |hint| {
+    if (at == .fallible and CompatCheck.compatible(self.ctx, at.fallible.ok, expected)) return;
+    if (CompatCheck.sameExpr(e, self.expect.ignored_in)) return;
+    if (CompatCheck.resultCall(e)) |call| if (call.list.id != 0) if (self.result_hints.get(call.list.id)) |hint| {
         return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; {s}", .{ try self.tyName(expected), try self.tyName(actual), hint });
     };
     // Only a value that copies is copied out of a view (`copiedOut`).
     switch (at) {
-        .read_view, .write_view => |inner| if (tc.compatible(self.ctx, inner, expected)) {
+        .read_view, .write_view => |inner| if (CompatCheck.compatible(self.ctx, inner, expected)) {
             if (try PatternCheck.payloadViewTaken(self, e, "move")) return;
             // A bounded `T` copies only where its bounds name `Copy`.
             switch (self.ctx.types.get(inner)) {
                 .type_var => |param| if (sema.checkedByBounds(self.ctx.symbols.items[param]))
-                    return tc.reportUnbounded(self.ctx, self.startOf(e), param, .Copy, "a copy"),
+                    return GenericCheck.reportUnbounded(self.ctx, self.startOf(e), param, .Copy, "a copy"),
                 else => {},
             }
             const name = try self.tyName(inner);
@@ -1814,7 +1817,7 @@ pub fn unionViewed(self: *Checker, from: TypeId, expected: TypeId) ?TypeId {
 /// take the slice's element type. True when handled.
 pub fn viewedTempLiteral(self: *Checker, e: Sexp, expected: TypeId) Error!bool {
     if (!e.isKind(.array) and !e.isKind(.array_fill)) return false;
-    if (!tc.sameNode(e, self.expect.viewed_temp)) return false;
+    if (!CompatCheck.sameNode(e, self.expect.viewed_temp)) return false;
     const elem = switch (self.ctx.types.get(expected)) {
         .slice => |sl| sl.elem,
         else => return false,
@@ -1851,7 +1854,7 @@ pub fn viewByRows(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Err
     // is `total(?w[1..3])`, whose slice `synthSlice` made, so the
     // view goes where its own type does.
     const sliced = CallCheck.slicedArg(self, e);
-    var made = (if (sliced) tc.sliceArgView(self.ctx, actual, expected) else sema.viewAs(self.ctx, from, kind, expected)) orelse
+    var made = (if (sliced) CompatCheck.sliceArgView(self.ctx, actual, expected) else sema.viewAs(self.ctx, from, kind, expected)) orelse
         return sliced and try sliceArgRejected(self, e, actual, expected);
     // `!h` of a handle views the handle itself where a `!*T` goes, and
     // makes a write view of the value it holds where the view goes
@@ -1868,8 +1871,8 @@ pub fn viewByRows(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Err
     const function = made.callable() != null and self.ctx.types.get(from) == .function and !closureBinding(self, e);
     // (A temporary array viewed as a `[]T` by a call that keeps no view
     // of it lives in a slot of the call: `arrayAsSlice`.)
-    const temp_array = tc.sameNode(e, self.expect.viewed_temp) and self.ctx.types.get(from) == .array;
-    if (!view and tc.sameExpr(e, self.expect.view_arg) and !function and !temp_array) {
+    const temp_array = CompatCheck.sameNode(e, self.expect.viewed_temp) and self.ctx.types.get(from) == .array;
+    if (!view and CompatCheck.sameExpr(e, self.expect.view_arg) and !function and !temp_array) {
         switch (hands(self, e).kind) {
             .place, .part_of_made, .made => {},
             .view, .branches, .jump, .none => return false,
@@ -2163,7 +2166,7 @@ pub fn erasable(self: *Checker, e: Sexp, viewed: Sexp, actual: TypeId, reached: 
     while (it.next()) |b| if (b != .Sends and b != .Syncs) if (try sema.lacks(self.ctx, reached, b)) |_| {
         // `Owned`: the value holds no loan, which a part of it may.
         if (b == .Owned) {
-            const why = if (try tc.fieldLacking(self.ctx, sema.nominalDecl(self.ctx, reached), .Owned)) |f| f[2..] else try std.fmt.allocPrint(self.ctx.arena.allocator(), "a `{s}` may hold a view", .{try self.tyName(reached)});
+            const why = if (try ApiCheck.fieldLacking(self.ctx, sema.nominalDecl(self.ctx, reached), .Owned)) |f| f[2..] else try std.fmt.allocPrint(self.ctx.arena.allocator(), "a `{s}` may hold a view", .{try self.tyName(reached)});
             try self.errAt(e, "`{s}` is erased to `{s}`, which holds no view, but {s}", .{ try self.tyName(reached), shown_view, why });
             return null;
         }
@@ -2224,11 +2227,11 @@ pub fn crossingLack(self: *Checker, reached: TypeId, shown_view: []const u8, how
         for (d.symbol().fields orelse &.{}) |f| {
             if (f.is_method or f.is_variant) continue;
             const fb = (try sema.crossingBlocker(self.ctx, f.ty, how)) orelse continue;
-            const why = if (fb == f.ty) (try tc.crossingReason(self.ctx, fb, shared, "is"))[3..] else try a.print("which {s}", .{try tc.crossingReason(self.ctx, fb, shared, null)});
+            const why = if (fb == f.ty) (try GenericCheck.crossingReason(self.ctx, fb, shared, "is"))[3..] else try a.print("which {s}", .{try GenericCheck.crossingReason(self.ctx, fb, shared, null)});
             return a.print("`{s}` is erased to `{s}`, which {s}, but its field `{s}` is a `{s}`, {s}", .{ try self.tyName(reached), shown_view, goes, f.name, try self.tyName(f.ty), why });
         }
     };
-    return a.print("`{s}` is erased to `{s}`, which {s}, but `{s}` {s}", .{ try self.tyName(reached), shown_view, goes, try self.tyName(reached), try tc.crossingReason(self.ctx, blocker, shared, if (blocker == reached) "is" else null) });
+    return a.print("`{s}` is erased to `{s}`, which {s}, but `{s}` {s}", .{ try self.tyName(reached), shown_view, goes, try self.tyName(reached), try GenericCheck.crossingReason(self.ctx, blocker, shared, if (blocker == reached) "is" else null) });
 }
 
 /// `stmt`, a binding or an assignment, keeps the value it is given.
@@ -2265,7 +2268,7 @@ pub fn keptViews(self: *Checker, value: Sexp, kept: Checker.Kept) Error!void {
     defer copied.deinit(self.ctx.allocator);
     try copiedPayloadLeaves(self, value, &copied);
     leaf: for (leaves.items) |leaf| {
-        for (copied.items) |c| if (tc.sameNode(c, leaf)) continue :leaf;
+        for (copied.items) |c| if (CompatCheck.sameNode(c, leaf)) continue :leaf;
         try keptLeaf(self, leaf, kept);
     }
 }
@@ -2288,11 +2291,11 @@ pub fn keptLeaf(self: *Checker, e: Sexp, kept: Checker.Kept) Error!void {
     // A chain whose result holds views of its source's items keeps
     // the source viewed, as a call keeps an argument it carries:
     // `vs = ?names.filter(f).collect()`.
-    if (self.chain_views.count() > 0 and e.isKind(.call)) if (self.chain_views.get(tc.nodeId(e))) |root| {
-        if (self.kept_reported.contains(tc.nodeId(e))) return;
+    if (self.chain_views.count() > 0 and e.isKind(.call)) if (self.chain_views.get(CompatCheck.nodeId(e))) |root| {
+        if (self.kept_reported.contains(CompatCheck.nodeId(e))) return;
         if (!implicitSelf(self, root)) return keptLeaf(self, root, kept);
         if (self.ctx.quiet != 0) return;
-        try self.kept_reported.put(self.ctx.allocator, tc.nodeId(e), {});
+        try self.kept_reported.put(self.ctx.allocator, CompatCheck.nodeId(e), {});
         // A chain reported is not rewritten into its loop, so the
         // report is the last word on it.
         for (self.chains.items, 0..) |c, i| if (c.node == e.list.id) {
@@ -2311,8 +2314,8 @@ pub fn keptLeaf(self: *Checker, e: Sexp, kept: Checker.Kept) Error!void {
         .call => {
             // Marked reported only where the report is kept: a quiet
             // check's is dropped, and the check that keeps it reports.
-            if (self.kept_reported.contains(tc.nodeId(e))) return;
-            if (self.ctx.quiet == 0) try self.kept_reported.put(self.ctx.allocator, tc.nodeId(e), {});
+            if (self.kept_reported.contains(CompatCheck.nodeId(e))) return;
+            if (self.ctx.quiet == 0) try self.kept_reported.put(self.ctx.allocator, CompatCheck.nodeId(e), {});
             const callee = ir.Call.callee(e);
             const params = self.ctx.callParamsOf(e);
             const has_recv = if (params) |p| p.fills.len > 0 and p.fills[0] == .self else false;
@@ -2370,7 +2373,7 @@ pub fn reportKept(self: *Checker, call: Sexp, viewed: Sexp, kept: Checker.Kept) 
 pub fn sliceArgRejected(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
     const a = self.ctx.arena.allocator();
     const slot = self.expect.slot;
-    const in_call = tc.sameExpr(e, slot.value) and slot.call != .nil and !slot.field and argOf(slot.call, e);
+    const in_call = CompatCheck.sameExpr(e, slot.value) and slot.call != .nil and !slot.field and argOf(slot.call, e);
     const shown = try plainText(self, e);
     const callee = if (in_call) try a.print("`{s}`", .{try StdFormCheck.calleeName(self, ir.Call.callee(slot.call))}) else "the call";
     const object = try plainText(self, ir.Index.object(e));
@@ -2394,7 +2397,7 @@ pub fn sliceArgRejected(self: *Checker, e: Sexp, actual: TypeId, expected: TypeI
     const target = liftTarget(self, expected);
     const owns = switch (self.ctx.types.get(target)) {
         .array => |arr| arr.elem == elem,
-        else => tc.listElementType(self.ctx, target) == elem,
+        else => CompatCheck.listElementType(self.ctx, target) == elem,
     };
     if (!owns) return false;
     try self.errAt(e, "{s} takes a `{s}`, which owns its elements, and `{s}` only views `{s}`'s", .{ callee, try self.tyName(expected), shown, object });
@@ -2433,7 +2436,7 @@ pub fn arrayAsSlice(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) E
                 try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; write `{c}{s}` or `{c}{s}[..]`", .{ try self.tyName(expected), try self.tyName(actual), sigil, shown, sigil, shown });
                 return true;
             }
-            if (!want_write and tc.sameNode(e, self.expect.viewed_temp)) {
+            if (!want_write and CompatCheck.sameNode(e, self.expect.viewed_temp)) {
                 try viewTempArray(self, e, actual, expected);
                 return true;
             }
@@ -2467,14 +2470,14 @@ pub fn stringAsStringView(self: *Checker, e: Sexp, actual: TypeId, expected: Typ
         try self.errAt(e, "a template is a `?String` only as an argument a parameter reads, a temporary of its statement; elsewhere bind its String to a name first", .{});
         return true;
     }
-    const shown = try plainText(self, tc.stripSigil(e));
+    const shown = try plainText(self, CompatCheck.stripSigil(e));
     try self.errAt(e, "type mismatch: expected `?String`, got `{s}`; pass it as a `?String` with `?{s}` or `?{s}[..]`", .{ try self.tyName(actual), shown, shown });
     return true;
 }
 
 pub fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
     // `o or 0` for an optional `o`: a fallback, which `??` writes.
-    if (std.mem.eql(u8, self.expect.logic_op, "or") and tc.sameSite(e, self.expect.logic_operands[0]) and expected == self.t().bool_id and self.ctx.types.get(actual) == .optional) {
+    if (std.mem.eql(u8, self.expect.logic_op, "or") and CompatCheck.sameSite(e, self.expect.logic_operands[0]) and expected == self.t().bool_id and self.ctx.types.get(actual) == .optional) {
         return self.errAt(e, "`or` joins Bools; an optional's fallback is `{s} ?? {s}`", .{ CallCheck.sourceText(self, e), CallCheck.sourceText(self, self.expect.logic_operands[1]) });
     }
     // `!c` of a handle that may not be written here views what it holds
@@ -2487,7 +2490,7 @@ pub fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error
     };
     // `?p.m()` reads `p`; where a view of the call's result is
     // expected, the view goes around the call.
-    if (e.isKind(.call) and self.ctx.types.get(expected) == .read_view and tc.compatible(self.ctx, actual, sema.unwrapViews(self.ctx, expected))) {
+    if (e.isKind(.call) and self.ctx.types.get(expected) == .read_view and CompatCheck.compatible(self.ctx, actual, sema.unwrapViews(self.ctx, expected))) {
         const callee = ir.Call.callee(e);
         if (callee.isKind(.member) and ir.Member.object(callee).isKind(.read) and isSelfSigil(self, ir.Member.object(callee))) {
             const recv = ir.Member.object(callee);
@@ -2511,7 +2514,7 @@ pub fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error
     // (A literal is no place to view.)
     const place = StmtCheck.placeOf(self, e);
     switch (self.ctx.types.get(expected)) {
-        .read_view, .write_view => |inner| if (place.named() and place.sym != null and tc.compatible(self.ctx, actual, inner)) {
+        .read_view, .write_view => |inner| if (place.named() and place.sym != null and CompatCheck.compatible(self.ctx, actual, inner)) {
             const write = self.ctx.types.get(expected) == .write_view;
             // A read match's binding is written through `match !e`.
             if (write) {
@@ -2525,7 +2528,7 @@ pub fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error
     // A mask is no `Bool`: it is reduced or combined.
     if (expected == self.t().bool_id and sema.isMask(self.ctx, actual)) return StdFormCheck.maskAsBool(self, e, sema.unwrapViews(self.ctx, actual));
     // `not n` of an integer: the complement is a method.
-    if (tc.sameSite(e, self.expect.not_operand) and expected == self.t().bool_id and sema.isInteger(self.ctx, sema.unwrapViews(self.ctx, actual))) {
+    if (CompatCheck.sameSite(e, self.expect.not_operand) and expected == self.t().bool_id and sema.isInteger(self.ctx, sema.unwrapViews(self.ctx, actual))) {
         return self.errAt(e, "`not` takes a Bool; for the bitwise complement write `x.not()`", .{});
     }
     const match_hint = if (self.ctx.types.get(expected) == .write_view) try PatternCheck.readMatchHint(self, place.sym) else "";
@@ -2557,7 +2560,7 @@ pub fn staticHint(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) []c
         else => actual,
     });
     if (got != self.t().string_view_id and got != self.t().string_id) return "";
-    if (self.expect.static_target.len > 0 and tc.sameSite(e, self.expect.static_target_value)) return self.ctx.arena.allocator().print("; `{s}` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `{s}: ?String = ...` to hold other text", .{ self.expect.static_target, self.expect.static_target }) catch "";
+    if (self.expect.static_target.len > 0 and CompatCheck.sameSite(e, self.expect.static_target_value)) return self.ctx.arena.allocator().print("; `{s}` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `{s}: ?String = ...` to hold other text", .{ self.expect.static_target, self.expect.static_target }) catch "";
     return "; a `Static` is a literal, or text derived only from literals, and a `?String` may view a `String`. A parameter or field that only reads its text is declared `?String`, which takes a `Static` too";
 }
 
@@ -2600,17 +2603,17 @@ pub fn variantUnderView(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId
 /// stays text.
 pub fn byteString(self: *Checker, e: Sexp, target: TypeId) Error!?TypeId {
     const len: ?u64 = switch (self.ctx.types.get(target)) {
-        .array => |a| if (tc.isU8(self.ctx, a.elem)) (sema.arrayLen(self.ctx, a) orelse return null) else return null,
-        else => if (tc.isU8(self.ctx, target)) null else return null,
+        .array => |a| if (CompatCheck.isU8(self.ctx, a.elem)) (sema.arrayLen(self.ctx, a) orelse return null) else return null,
+        else => if (CompatCheck.isU8(self.ctx, target)) null else return null,
     };
     const lit = self.text(e);
     const mark = self.ctx.diagnostics.items.len;
     try ExprCheck.checkEscapes(self, e);
     if (self.ctx.diagnostics.items.len > mark) return self.t().invalid_id;
-    const bytes = tc.textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return self.t().invalid_id;
+    const bytes = CompatCheck.textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return self.t().invalid_id;
     if (len) |n| {
         if (bytes.len != n) {
-            try self.errAt(e, "string literal `{s}` is {d} byte{s}; `{s}` needs {d}", .{ lit, bytes.len, tc.plural(bytes.len), try self.tyName(target), n });
+            try self.errAt(e, "string literal `{s}` is {d} byte{s}; `{s}` needs {d}", .{ lit, bytes.len, CompatCheck.plural(bytes.len), try self.tyName(target), n });
             return self.t().invalid_id;
         }
     } else if (bytes.len != 1) {
@@ -2663,7 +2666,7 @@ pub fn byteBeside(self: *Checker, operands: [2]Sexp, a: TypeId, b: TypeId) Error
     for (operands, [2]TypeId{ b, a }) |o, other| {
         if (o != .src or !sema.isStringLiteralText(self.text(o))) continue;
         const ty = sema.unwrapViews(self.ctx, other);
-        if (!tc.isU8(self.ctx, ty)) continue;
+        if (!CompatCheck.isU8(self.ctx, ty)) continue;
         try checkExpr(self, o, ty);
         return ty;
     }
@@ -2723,7 +2726,7 @@ pub fn contextualCall(self: *Checker, e: Sexp, expected: TypeId, target: TypeId)
     // (`frozenMake`, `actorMake`).
     if (id == self.ctx.frozen_sym_id or id == self.ctx.actor_sym_id) return null;
     _ = try ExprCheck.useName(self, callee);
-    if (id == self.ctx.signal_sym_id and !tc.sameNode(e, self.expect.shared_operand)) {
+    if (id == self.ctx.signal_sym_id and !CompatCheck.sameNode(e, self.expect.shared_operand)) {
         try self.errAt(callee, Checker.stack_signal, .{});
         try CallCheck.synthArgs(self, ir.Call.args(e));
     } else if (id == self.ctx.list_sym_id) {
@@ -2747,7 +2750,7 @@ pub fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId 
             if (std.mem.eql(u8, s, "none")) return try checkNone(self, e, expected);
             // A number literal where a view argument `?N` goes is viewed
             // as `?5` is: a copy of the number.
-            if (tc.sameExpr(e, self.expect.view_arg) and (sema.isIntLiteralText(s) or sema.isFloatLiteralText(s))) switch (self.ctx.types.get(expected)) {
+            if (CompatCheck.sameExpr(e, self.expect.view_arg) and (sema.isIntLiteralText(s) or sema.isFloatLiteralText(s))) switch (self.ctx.types.get(expected)) {
                 .read_view => |inner| if (sema.isNumeric(self.ctx, inner)) {
                     try checkExpr(self, e, inner);
                     return inner;
@@ -2799,7 +2802,7 @@ pub fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId 
         .lambda => {
             if (self.ctx.types.get(target) == .function) {
                 const ty = try ClosureCheck.checkLambda(self, e, target);
-                if (!tc.sameNode(e, self.expect.viewed_callable) and !tc.sameNode(e, self.expect.callable_kept)) return ty;
+                if (!CompatCheck.sameNode(e, self.expect.viewed_callable) and !CompatCheck.sameNode(e, self.expect.callable_kept)) return ty;
                 // Reported here; the closure is not checked as escaping.
                 try self.errAt(e, "a closure literal is not a function value `{s}`; declare the parameter `?{s}` to pass the closure to the call as a view", .{ try self.tyName(target), try self.tyName(target) });
                 return self.t().invalid_id;
@@ -2820,7 +2823,7 @@ pub fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId 
             }
             if (operand.isKind(.lambda)) {
                 const ty = try ClosureCheck.ownedClosure(self, operand, ClosureCheck.ownedClosureType(self, target));
-                if (!tc.compatible(self.ctx, ty, expected)) try mismatch(self, e, expected, ty);
+                if (!CompatCheck.compatible(self.ctx, ty, expected)) try mismatch(self, e, expected, ty);
                 return ty;
             }
             const tt = self.ctx.types.get(target);
@@ -2844,12 +2847,12 @@ pub fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId 
             if (typedWhereItStands(self, operand)) {
                 const ty = try shareOperand(self, operand, null);
                 if (try weakUpgrade(self, e, ty)) |upgraded| {
-                    if (!tc.compatible(self.ctx, upgraded, expected)) try mismatch(self, e, expected, upgraded);
+                    if (!CompatCheck.compatible(self.ctx, upgraded, expected)) try mismatch(self, e, expected, upgraded);
                     return upgraded;
                 }
                 if (self.isPoison(ty)) return target;
                 try recordUse(self, operand, .take);
-                if (operand == .list and self.ctx.quiet == 0) try self.expected.put(self.ctx.allocator, tc.nodeId(operand), tt.shared);
+                if (operand == .list and self.ctx.quiet == 0) try self.expected.put(self.ctx.allocator, CompatCheck.nodeId(operand), tt.shared);
                 try checkActual(self, operand, ty, tt.shared);
                 return target;
             }
@@ -2882,7 +2885,7 @@ pub fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId 
             const ty = if (head == .@"??") try ExprCheck.synthCoalesce(self, e, expected) else try ExprCheck.synthCatch(self, e, expected);
             // A view either branch gives is copied out where its
             // value is expected (`copiedOut`).
-            if (tc.compatible(self.ctx, ty, expected)) try recordAdapted(self, e, ty, expected) else try mismatch(self, e, expected, ty);
+            if (CompatCheck.compatible(self.ctx, ty, expected)) try recordAdapted(self, e, ty, expected) else try mismatch(self, e, expected, ty);
             return ty;
         },
         else => return null,
@@ -2941,7 +2944,7 @@ pub fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) 
     try recordLift(self, e, self.ctx.typeOf(e) orelse actual, expected);
     // A view copied out adapts as the value it copies: `?B.y` where
     // an error with fields goes widens as `B.y` does.
-    const value = if (tc.copiedOut(self.ctx, actual, expected)) sema.copiedThrough(self.ctx, actual) orelse actual else actual;
+    const value = if (CompatCheck.copiedOut(self.ctx, actual, expected)) sema.copiedThrough(self.ctx, actual) orelse actual else actual;
     try recordCodeWidening(self, e, value, expected);
 }
 
@@ -2970,7 +2973,7 @@ pub fn recordLift(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Err
         return self.ctx.recordLift(e, .{ .into = into, .from = self.t().none_id });
     }
     var from = actual;
-    while (!tc.meets(self.ctx, from, into)) from = sema.copiedThrough(self.ctx, from) orelse return self.ctx.recordLift(e, null);
+    while (!CompatCheck.meets(self.ctx, from, into)) from = sema.copiedThrough(self.ctx, from) orelse return self.ctx.recordLift(e, null);
     switch (ts.get(from)) {
         // `?none` copies out the `none` it views, and `<none` and
         // `+none` are the `none` they move or clone: each becomes the
@@ -2979,13 +2982,13 @@ pub fn recordLift(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Err
         .noreturn, .invalid, .unknown => return self.ctx.recordLift(e, null),
         else => {},
     }
-    if (tc.optionalDepth(self.ctx, from) >= tc.optionalDepth(self.ctx, into)) return self.ctx.recordLift(e, null);
+    if (CompatCheck.optionalDepth(self.ctx, from) >= CompatCheck.optionalDepth(self.ctx, into)) return self.ctx.recordLift(e, null);
     try self.ctx.recordLift(e, .{ .into = into, .from = from });
 }
 
 pub fn recordAdaptedType(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
     const lifted = liftTarget(self, expected);
-    if (tc.copiedOut(self.ctx, actual, expected)) return readOf(self, e, actual, .{ .slot = expected });
+    if (CompatCheck.copiedOut(self.ctx, actual, expected)) return readOf(self, e, actual, .{ .slot = expected });
     if (self.ctx.types.get(actual) == .write_view) switch (self.ctx.types.get(lifted)) {
         .read_view => |inner| if (sema.viewByValue(self.ctx, inner)) return readOf(self, e, actual, .narrow),
         else => {},
@@ -3061,7 +3064,7 @@ pub fn isBodyOf(n: Sexp, x: Sexp) bool {
         .arm => ir.get(n, .body),
         else => return false,
     };
-    return tc.sameExpr(body, x);
+    return CompatCheck.sameExpr(body, x);
 }
 
 /// `e`, a field, element, or slice, in statement `root` (a block's
@@ -3070,11 +3073,11 @@ pub fn isBodyOf(n: Sexp, x: Sexp) bool {
 pub fn viewBase(self: *Checker, e: Sexp, root: Sexp, in_block: bool, module_level: bool) Error!void {
     const obj = ir.get(e, .object);
     const view = viewOf(self, obj) orelse return;
-    if (self.methods.contains(tc.nodeId(e))) return;
+    if (self.methods.contains(CompatCheck.nodeId(e))) return;
     // The element of a Cell's List, assigned: the view marks the Cell,
     // whose elements are copies and cannot be viewed.
-    if (e.isKind(.index) and view.isKind(.write) and tc.cellListElement(self.ctx, self.ctx.typeOf(obj) orelse sema.type_invalid) != null) return;
-    if (tc.isCallee(root, e)) {
+    if (e.isKind(.index) and view.isKind(.write) and CompatCheck.cellListElement(self.ctx, self.ctx.typeOf(obj) orelse sema.type_invalid) != null) return;
+    if (CompatCheck.isCallee(root, e)) {
         // Self sigil the parser moved onto a call of a field
         // holding functions (`!p.f[0]()`) is the call's to report, and
         // so is a method the call did not find (`(!s).nope()`).
@@ -3082,7 +3085,7 @@ pub fn viewBase(self: *Checker, e: Sexp, root: Sexp, in_block: bool, module_leve
         if (!namesField(self, obj, e)) return;
     }
     var fix: Checker.ViewBaseFix = .{ .c = self, .root = root };
-    if (tc.viewsSlice(view)) {
+    if (CompatCheck.viewsSlice(view)) {
         const ty = self.ctx.typeOf(obj) orelse return;
         if (writtenWriteView(self, obj, ty) == null) return;
         if ((try fix.useOf(e, obj)).writes) return;
@@ -3091,7 +3094,7 @@ pub fn viewBase(self: *Checker, e: Sexp, root: Sexp, in_block: bool, module_leve
     }
     try fix.collect(fix.root);
     const own = fix.edit(obj) orelse try fix.add(e, obj);
-    const shown = try tc.oneLine(self.ctx.arena.allocator(), CallCheck.sourceText(self, e));
+    const shown = try CompatCheck.oneLine(self.ctx.arena.allocator(), CallCheck.sourceText(self, e));
     const head = "`{s}`: put the sigil on the whole path, not its base";
     // No rewrite compiles where the path writes through a read view
     // or a shared handle, takes a part that is no optional, or binds
@@ -3126,7 +3129,7 @@ pub fn viewBase(self: *Checker, e: Sexp, root: Sexp, in_block: bool, module_leve
     if (own.temp and (own.assigned or own.header or own.taken)) {
         if (!in_block or stmt.start != ws.start) return self.errAt(obj, head ++ "; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own", .{shown});
         const name = for ([_][]const u8{ "t", "tmp", "tmp1", "tmp2", "tmp3", "tmp4" }) |n| {
-            if (!tc.hasCodeWord(src, n)) break n;
+            if (!CompatCheck.hasCodeWord(src, n)) break n;
         } else "tmp5";
         fix.named = .{ .view = obj, .name = name };
         var out: std.ArrayList(u8) = .empty;
@@ -3158,7 +3161,7 @@ pub fn namesField(self: *Checker, obj: Sexp, e: Sexp) bool {
 /// them.
 pub fn viewOf(self: *Checker, e: Sexp) ?Sexp {
     if (e != .list) return null;
-    const id = tc.nodeId(e);
+    const id = CompatCheck.nodeId(e);
     if (self.view_of.get(id)) |known| return known;
     const view = viewUnder(self, e);
     self.view_of.put(self.ctx.allocator, id, view) catch {};
@@ -3168,10 +3171,10 @@ pub fn viewOf(self: *Checker, e: Sexp) ?Sexp {
 /// The place `view` views, under every sigil and every `<` of a view
 /// on the way: `p` in `!(<(!p))`.
 pub fn viewedThrough(self: *Checker, view: Sexp) Sexp {
-    var e = tc.viewedPlace(view);
+    var e = CompatCheck.viewedPlace(view);
     while (e.isKind(.move)) {
         const inner = viewOf(self, e) orelse break;
-        e = tc.viewedPlace(inner);
+        e = CompatCheck.viewedPlace(inner);
     }
     return e;
 }
@@ -3249,7 +3252,7 @@ pub fn writeViewRead(self: *Checker, e: Sexp, ty: TypeId, how: Checker.ViewRead)
         try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, e, &leaves);
         var any = false;
         for (leaves.items) |leaf| {
-            if (tc.sameExpr(leaf, e)) continue;
+            if (CompatCheck.sameExpr(leaf, e)) continue;
             const leaf_ty = self.ctx.typeOf(leaf) orelse continue;
             if (try writeViewRead(self, leaf, leaf_ty, how)) any = true;
         }
@@ -3295,7 +3298,7 @@ pub fn ignoredWriteView(self: *Checker, e: Sexp, made: Sexp, how: Checker.ViewRe
         .read_view_of_write => return self.errAt(e, head ++ "Write `?{s}`", .{ shown, "`?` passes it on as a read view", place }),
         .read_view => |view| {
             const slot = self.expect.slot;
-            const in_slot = tc.sameExpr(e, slot.value) and slot.call != .nil and argOf(slot.call, e);
+            const in_slot = CompatCheck.sameExpr(e, slot.value) and slot.call != .nil and argOf(slot.call, e);
             const owner = if (!in_slot)
                 try a.print("a `{s}`", .{try self.tyName(view)})
             else if (slot.field)
@@ -3321,17 +3324,17 @@ pub fn ignoredWriteView(self: *Checker, e: Sexp, made: Sexp, how: Checker.ViewRe
         else => return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("only its `{s}` is read here", .{ty}), place }),
     }
     const slot = self.expect.slot;
-    const in_slot = tc.sameExpr(e, slot.value) and slot.call != .nil and argOf(slot.call, e);
+    const in_slot = CompatCheck.sameExpr(e, slot.value) and slot.call != .nil and argOf(slot.call, e);
     if (in_slot and slot.field) self.expect.ignored_in = slot.call;
     // What takes the value, and the value written without the `!`s
     // the slots of the call ignore.
     const what = if (!in_slot)
-        try a.print("{s} `{s}` goes here", .{ tc.article(ty), ty })
+        try a.print("{s} `{s}` goes here", .{ CompatCheck.article(ty), ty })
     else
         try a.print("`{s}` {s} {s} `{s}`", .{
             if (slot.field) slot.owner else try StdFormCheck.calleeName(self, ir.Call.callee(slot.call)),
             if (slot.field) "stores" else "takes",
-            tc.article(ty),
+            CompatCheck.article(ty),
             ty,
         });
     const copy = if (in_slot) try withoutViews(self, slot.call, slot.views, e) else place;
@@ -3385,7 +3388,7 @@ pub fn argOf(call: Sexp, value: Sexp) bool {
     if (!call.isKind(.call)) return false;
     for (ir.Call.args(call)) |arg| {
         const v = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
-        if (tc.sameExpr(v, value)) return true;
+        if (CompatCheck.sameExpr(v, value)) return true;
     }
     return false;
 }
@@ -3398,7 +3401,7 @@ pub fn withoutViews(self: *Checker, call: Sexp, views: []const Sexp, e: Sexp) Er
     var withs: std.ArrayList([]const u8) = .empty;
     var has_e = false;
     for (views) |l| {
-        if (tc.sameExpr(l, e)) has_e = true;
+        if (CompatCheck.sameExpr(l, e)) has_e = true;
         try parts.append(a, l);
         try withs.append(a, CallCheck.sourceText(self, unviewed(l)));
     }
@@ -3502,7 +3505,7 @@ pub fn recordLiteralType(self: *Checker, e: Sexp, target: TypeId) Error!void {
             try recordLiteralType(self, ir.get(e, .left), target);
             if (self.ctx.types.get(target) != .int) return;
             const amount = ir.get(e, .right);
-            const bits = tc.intBounds(self.ctx.types.get(target).int).bits;
+            const bits = CompatCheck.intBounds(self.ctx.types.get(target).int).bits;
             if (ExprCheck.constInt(self, amount)) |v| if (v >= bits) {
                 try self.errAt(amount, "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(target), bits - 1 });
             };
@@ -3517,7 +3520,7 @@ pub fn recordLiteralType(self: *Checker, e: Sexp, target: TypeId) Error!void {
 /// through `/` or `%`. Where the literals' value is a float, reached
 /// that way, it is rejected, since it would silently be `3.0`.
 pub fn checkWholeDivision(self: *Checker, e: Sexp) Error!void {
-    const div = tc.wholeDivision(self.ctx.source, e) orelse return;
+    const div = CompatCheck.wholeDivision(self.ctx.source, e) orelse return;
     const left = ir.get(div, .left);
     const right = ir.get(div, .right);
     const op = @tagName(div.kind().?);
@@ -3530,7 +3533,7 @@ pub fn checkWholeDivision(self: *Checker, e: Sexp) Error!void {
     // float's: only its type differs.
     if (div.isKind(.@"%")) return self.errAt(div, "`{s}` is a whole-number remainder; write `{s}` for a Float", .{ CallCheck.sourceText(self, div), fix });
     const whole: []const u8 = if (ExprCheck.constInt(self, div)) |v| try a.print(" ({d})", .{v}) else "";
-    if (tc.floatConstIn(f64, self.ctx.source, div)) |f| {
+    if (CompatCheck.floatConstIn(f64, self.ctx.source, div)) |f| {
         const shown = if (f == @trunc(f) and @abs(f) < 1e15) try a.print("{d}.0", .{f}) else try a.print("{d}", .{f});
         return self.errAt(div, "`{s}` divides whole numbers{s}; for {s} write `{s}`", .{ CallCheck.sourceText(self, div), whole, shown, fix });
     }
@@ -3552,13 +3555,13 @@ pub fn checkFloatConstant(self: *Checker, e: Sexp, target: TypeId) Error!void {
         .src => {
             const s = self.text(e);
             if (sema.isFloatLiteralText(s)) {
-                const v = tc.floatLiteralValue(s);
+                const v = CompatCheck.floatLiteralValue(s);
                 if (bits == 32 and std.math.isFinite(v) and @abs(v) > std.math.floatMax(f32)) {
                     try self.errAt(e, "float literal `{s}` does not fit in `{s}`", .{ s, try self.tyName(target) });
                 }
             } else if (sema.isIntLiteralText(s)) {
                 const v = std.fmt.parseInt(Wide, s, 0) catch return;
-                if (!tc.holdsInt(self.ctx, target, v) and (bits != 32 or tc.holdsInt(self.ctx, self.t().float_id, v))) {
+                if (!CompatCheck.holdsInt(self.ctx, target, v) and (bits != 32 or CompatCheck.holdsInt(self.ctx, self.t().float_id, v))) {
                     try self.errAt(e, "integer value `{d}` does not fit exactly in `{s}`", .{ v, try self.tyName(target) });
                 }
             }
@@ -3573,9 +3576,9 @@ pub fn checkFloatConstant(self: *Checker, e: Sexp, target: TypeId) Error!void {
                 try checkFloatConstant(self, ir.get(e, .left), target);
                 try checkFloatConstant(self, ir.get(e, .right), target);
                 const overflows = if (bits == 32)
-                    tc.floatOpOverflows(f32, self.ctx.source, e) and !tc.floatOpOverflows(f64, self.ctx.source, e)
+                    CompatCheck.floatOpOverflows(f32, self.ctx.source, e) and !CompatCheck.floatOpOverflows(f64, self.ctx.source, e)
                 else
-                    tc.floatOpOverflows(f64, self.ctx.source, e);
+                    CompatCheck.floatOpOverflows(f64, self.ctx.source, e);
                 if (overflows) try self.errAt(e, "this constant expression overflows `{s}`", .{try self.tyName(target)});
             },
             else => {},

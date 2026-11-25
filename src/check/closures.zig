@@ -15,6 +15,9 @@ const Error = std.mem.Allocator.Error;
 const srcPos = sema.srcPos;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
+const ApiCheck = @import("apis.zig");
+const CompatCheck = @import("compat.zig");
+const GenericCheck = @import("generics.zig");
 const CallCheck = @import("calls.zig");
 const ExprCheck = @import("expr.zig");
 const FlowCheck = @import("flow.zig");
@@ -28,9 +31,9 @@ const ViewCheck = @import("views.zig");
 /// call whose result cannot hold it, since it lives for the call.
 pub fn viewedLambda(self: *Checker, e: Sexp, target: TypeId) Error!TypeId {
     const fn_ty = sema.callableFnTy(self.ctx, target).?;
-    if (tc.sameNode(e, self.expect.callable_kept)) {
+    if (CompatCheck.sameNode(e, self.expect.callable_kept)) {
         try self.errAt(e, "this call's result may hold the closure passed to it, and a closure literal lives only for the call; bind the closure (`f = |...| ...`) and pass it as `?f`", .{});
-    } else if (!tc.sameNode(e, self.expect.viewed_callable)) {
+    } else if (!CompatCheck.sameNode(e, self.expect.viewed_callable)) {
         try self.errAt(e, "a closure literal is passed as `{s}` only as a call's argument; bind the closure (`f = |...| ...`) and pass it as `?f`", .{try self.tyName(target)});
     }
     const ty = try checkLambda(self, e, fn_ty);
@@ -114,7 +117,7 @@ pub fn checkLambdaGiven(self: *Checker, node: Sexp, expected: ?TypeId, given_par
     }
     const param_nodes = ir.Lambda.params(node).items();
     if (want) |w| if (param_nodes.len > w.params.len) {
-        try self.errAt(node, "this closure takes {d} parameter{s}, but its type `{s}` passes {d}; a closure may take fewer, never more", .{ param_nodes.len, tc.plural(param_nodes.len), try self.tyName(expected.?), w.params.len });
+        try self.errAt(node, "this closure takes {d} parameter{s}, but its type `{s}` passes {d}; a closure may take fewer, never more", .{ param_nodes.len, CompatCheck.plural(param_nodes.len), try self.tyName(expected.?), w.params.len });
     };
 
     var params: std.ArrayList(TypeId) = .empty;
@@ -183,7 +186,7 @@ pub fn checkLambdaGiven(self: *Checker, node: Sexp, expected: ?TypeId, given_par
             ends_in_return = last.isKind(.@"return") or last.isKind(.panic);
             // A closure ending in a statement, or an `if` without
             // `else`, returns nothing.
-            const no_value = FlowCheck.yieldsNoValue(self, last.*) or tc.ifWithoutValue(last.*);
+            const no_value = FlowCheck.yieldsNoValue(self, last.*) or CompatCheck.ifWithoutValue(last.*);
             // A closure's value is its result: it leaves the body,
             // as `return` takes it.
             ret = if (no_value) blk: {
@@ -229,7 +232,7 @@ pub fn reconcileReturns(self: *Checker, sites: []const Checker.ReturnSite, body_
         for (sites) |site| if (site.ty) |ty| {
             ret = ExprCheck.canonical(self, ty);
             if (!ends_in_return and !self.isPoison(ret)) {
-                try self.errAt(tc.lastStmt(body), "this closure returns `{s}` with `return`, so its body must end with a value or a `return`", .{try self.tyName(ret)});
+                try self.errAt(CompatCheck.lastStmt(body), "this closure returns `{s}` with `return`, so its body must end with a value or a `return`", .{try self.tyName(ret)});
             }
             break;
         };
@@ -243,7 +246,7 @@ pub fn reconcileReturns(self: *Checker, sites: []const Checker.ReturnSite, body_
         };
         // Each site is a `return`, whose operand may be an error value.
         const fails = self.ctx.types.get(ret) == .fallible and sema.isErrorValue(self.ctx, ty);
-        if (!fails and !tc.compatible(self.ctx, ty, ret)) {
+        if (!fails and !CompatCheck.compatible(self.ctx, ty, ret)) {
             // A generic call only literals typed would take the type.
             const hint = if (CallCheck.literalResult(self, ir.Return.value(site.node)) != null and sema.isNumeric(self.ctx, ret))
                 try self.ctx.arena.allocator().print("; give the closure its type where it goes (`f: fun(...) -> {s} = |...| ...`), and every `return` takes it", .{try self.tyName(ret)})

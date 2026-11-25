@@ -26,6 +26,9 @@ const Error = std.mem.Allocator.Error;
 const identAt = sema.identAt;
 const tc = @import("../typecheck.zig");
 const Checker = tc.Checker;
+const ApiCheck = @import("apis.zig");
+const CompatCheck = @import("compat.zig");
+const GenericCheck = @import("generics.zig");
 const BuiltinCheck = @import("builtins.zig");
 const CallCheck = @import("calls.zig");
 const ClosureCheck = @import("closures.zig");
@@ -82,7 +85,7 @@ pub fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as
     // task another part pins to this thread does not take.
     if (try objectLack(self, part_ty, how)) |lack| {
         const pinned = for (parts) |other| {
-            if (tc.sameNode(other, part)) continue;
+            if (CompatCheck.sameNode(other, part)) continue;
             const oty = try crossingTypeOf(self, other, self.ctx.typeOf(other) orelse continue);
             if (self.isPoison(oty)) continue;
             const ok = self.ctx.types.get(oty);
@@ -170,7 +173,7 @@ pub fn hidesNoTask(self: *Checker, at: Sexp, ty: TypeId, how: Checker.Hidden, wh
     if (sema.holdsTask(self.ctx, ty)) {
         const shown = try self.tyName(ty);
         switch (how) {
-            .erased => try self.errAt(at, "`{s}` is erased to `{s}`, which would hide a task from the rules that wait for one, and {s}: wait for the task before erasing", .{ shown, where, try tc.taskWhy(self.ctx, ty) }),
+            .erased => try self.errAt(at, "`{s}` is erased to `{s}`, which would hide a task from the rules that wait for one, and {s}: wait for the task before erasing", .{ shown, where, try ApiCheck.taskWhy(self.ctx, ty) }),
             .isolated => try self.errAt(at, "a task started in `{s}` ends in it, and `{s}` gives a `{s}`, which holds one: wait for it inside", .{ where, CallCheck.sourceText(self, at), shown }),
             .captured => try self.errAt(at, "an owned closure holds no task: `{s}` is a `{s}`{s}, which only the scope that waits for it may hold; wait for it first and capture its value", .{ CallCheck.sourceText(self, at), shown, if (sema.isTask(self.ctx, ty) or sema.isTaskSet(self.ctx, ty)) "" else " holding one" }),
         }
@@ -229,7 +232,7 @@ pub fn statedCrossing(self: *Checker, blocker: TypeId, how: sema.Crossing, at: u
 
 /// `crossingReason`.
 pub fn blockerReason(self: *Checker, blocker: TypeId, shared: bool, verb: ?[]const u8) Error![]const u8 {
-    return tc.crossingReason(self.ctx, blocker, shared, verb);
+    return GenericCheck.crossingReason(self.ctx, blocker, shared, verb);
 }
 
 /// How a callee is spelled, for messages: `f`, `a.f`, or `.m`.
@@ -308,7 +311,7 @@ pub fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
                 if (sym_id == self.ctx.simd_sym_id) return CallCheck.badCall(self, args, callee, "a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`", .{});
                 if (sym_id == self.ctx.slot_sym_id) return CallCheck.badCall(self, args, callee, "a `Slot[n]` is made by `push`, by `Slot[n].of(i)`, or by a literal below `n`", .{});
                 if (sym_id == self.ctx.table_sym_id) return CallCheck.badCall(self, args, callee, "`Table()` needs its type: give it where the value goes (`t: Table[T, n] = Table()`), or name it, `Table[T, n]()`", .{});
-                if (sym_id == self.ctx.signal_sym_id and !tc.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
+                if (sym_id == self.ctx.signal_sym_id and !CompatCheck.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
                 if (sym_id == self.ctx.actor_sym_id) return actorMake(self, node, callee, args);
                 if (sym_id == self.ctx.frozen_sym_id) return frozenMake(self, node, callee, args);
                 return constructGeneric(self, callee, sym_id, args, name, callee.src.pos);
@@ -351,7 +354,7 @@ pub fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty:
             try checkTableConstruction(self, call);
             return ty;
         }
-        if (nt.id == self.ctx.signal_sym_id and !tc.sameNode(call, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
+        if (nt.id == self.ctx.signal_sym_id and !CompatCheck.sameNode(call, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
         return CallCheck.construct(self, nt.id, args, pos, .{ .params = nt.sym.type_params orelse &.{}, .args = targs }, null);
     }
     if (callee == .src) try self.ctx.recordName(callee, nt.id);
@@ -432,7 +435,7 @@ pub fn discardedSwap(self: *Checker, stmt: Sexp) Error!bool {
     if (callee.isKind(.member) and std.mem.eql(u8, self.text(ir.Member.name(callee)), "swap") and args.len == 1) {
         const obj = ir.Member.object(callee);
         const obj_ty = self.ctx.typeOf(obj) orelse return false;
-        if (tc.cellElementType(self.ctx, obj_ty) == null) return false;
+        if (CompatCheck.cellElementType(self.ctx, obj_ty) == null) return false;
         const c = CallCheck.sourceText(self, if (obj.isKind(.write)) ir.Write.operand(obj) else obj);
         try self.errAt(stmt, "this `swap` gives back the Cell's old value, which a statement throws away: to store `{s}`, write `!{s}.set({s})`", .{ v, c, v });
         return true;
@@ -447,7 +450,7 @@ pub fn discardedSwap(self: *Checker, stmt: Sexp) Error!bool {
 pub fn cellMethod(self: *Checker, obj_ty: TypeId, method: []const u8, pos: u32) Error!bool {
     const counts = std.mem.eql(u8, method, "add") or std.mem.eql(u8, method, "sub");
     if (!counts and !std.mem.eql(u8, method, "compare_swap")) return true;
-    const elem = tc.cellElementType(self.ctx, obj_ty) orelse return true;
+    const elem = CompatCheck.cellElementType(self.ctx, obj_ty) orelse return true;
     if (sema.containsTypeVar(self.ctx, elem)) return true;
     if (counts and elem != self.t().int_id) {
         try self.err(pos, "`{s}` counts, so it is a `Cell[Int]`'s; this is a `Cell[{s}]`: change it with `set`, `swap`, or `compare_swap`", .{ method, try self.tyName(elem) });
@@ -482,7 +485,7 @@ pub fn swapPlace(self: *Checker, arg: Sexp, what: []const u8) Error!?TypeId {
         return null;
     };
     if (sema.isErasedView(self.ctx, ty)) {
-        try self.errAt(arg, "`{s}` cannot exchange through `{s}`, a `{s}`: the value it views may be of another type; call its methods, or hold a `^{s}` and replace the box", .{ what, try ViewCheck.plainText(self, tc.stripSigil(arg)), try self.tyName(ty), try self.tyName(place) });
+        try self.errAt(arg, "`{s}` cannot exchange through `{s}`, a `{s}`: the value it views may be of another type; call its methods, or hold a `^{s}` and replace the box", .{ what, try ViewCheck.plainText(self, CompatCheck.stripSigil(arg)), try self.tyName(ty), try self.tyName(place) });
         return null;
     }
     if (sema.holdsMarkedView(self.ctx, place)) {
@@ -529,7 +532,7 @@ pub fn checkWarn(self: *Checker, args: []const Sexp) Error!TypeId {
 /// `placePanics` allows it.
 pub fn checkPanic(self: *Checker, e: Sexp) Error!TypeId {
     const args = ir.Panic.args(e);
-    const place = self.panic_places.get(tc.nodeId(e)) orelse .value;
+    const place = self.panic_places.get(CompatCheck.nodeId(e)) orelse .value;
     switch (place) {
         .statement => {},
         .value => try self.errAt(e, "`panic` ends the program and gives no value, so it stands as a statement or as a branch's value", .{}),
@@ -552,7 +555,7 @@ pub fn placePanics(self: *Checker, e: Sexp, place: Checker.PanicPlace) Error!voi
     const value: Checker.PanicPlace = if (place == .deferred) .deferred else .value;
     switch (kind) {
         .panic => {
-            try self.panic_places.put(self.ctx.allocator, tc.nodeId(e), place);
+            try self.panic_places.put(self.ctx.allocator, CompatCheck.nodeId(e), place);
             for (ir.Panic.args(e)) |a| try placePanics(self, a, value);
         },
         .block => for (ir.Block.stmts(e)) |s| try placePanics(self, s, stmt),
@@ -581,7 +584,7 @@ pub fn placePanics(self: *Checker, e: Sexp, place: Checker.PanicPlace) Error!voi
         .@"defer", .@"errdefer" => try placePanics(self, ir.get(e, .body), .deferred),
         .fun, .sub, .drop_decl, .@"test", .lambda => {
             const body = ir.get(e, .body);
-            for (rig.children(e)) |c| try placePanics(self, c, if (tc.sameNode(c, body)) .statement else .value);
+            for (rig.children(e)) |c| try placePanics(self, c, if (CompatCheck.sameNode(c, body)) .statement else .value);
         },
         else => for (rig.children(e)) |c| try placePanics(self, c, value),
     }
@@ -617,7 +620,7 @@ pub fn checkFormatArg(self: *Checker, a: Sexp, who: []const u8, verb: []const u8
     defer self.expect.view_arg = saved_view;
     self.expect.view_arg = a;
     const ty = try ViewCheck.synthReadTemp(self, a);
-    if (!self.isPoison(ty) and CallCheck.slicedArg(self, a)) if (tc.sliceArgView(self.ctx, ty, ty)) |view| {
+    if (!self.isPoison(ty) and CallCheck.slicedArg(self, a)) if (CompatCheck.sliceArgView(self.ctx, ty, ty)) |view| {
         var implicit = view;
         implicit.implicit = true;
         try self.ctx.recordImplicitView(a);
@@ -627,7 +630,7 @@ pub fn checkFormatArg(self: *Checker, a: Sexp, who: []const u8, verb: []const u8
     // A task shows nothing of what it gives: what is meant is its
     // result, and `<t` and `>t` are one key apart.
     if (!self.isPoison(ty) and (sema.isTask(self.ctx, sema.unwrapViews(self.ctx, ty)) or sema.isTaskSet(self.ctx, sema.unwrapViews(self.ctx, ty)))) {
-        const shown = try ViewCheck.plainText(self, tc.stripSigil(a));
+        const shown = try ViewCheck.plainText(self, CompatCheck.stripSigil(a));
         try self.errAt(a, "`{s}` is a task, which {s} cannot show: wait for what it gives, `>{s}`", .{ shown, who, shown });
         return;
     }
@@ -719,12 +722,12 @@ pub fn literalSlot(self: *Checker, v: Sexp) Error!bool {
 pub fn synthTemplate(self: *Checker, tpl: Sexp) Error!TypeId {
     try checkTemplateSlots(self, tpl, "a slot", "write");
     // Fixed text, which the program holds as a literal's.
-    if (tc.sameNode(tpl, self.expect.template_fixed) and templateFolds(self, tpl)) {
+    if (CompatCheck.sameNode(tpl, self.expect.template_fixed) and templateFolds(self, tpl)) {
         try self.ctx.recordType(tpl, self.t().static_id);
         return self.t().static_id;
     }
-    if (tc.sameNode(tpl, self.expect.template_ok)) return self.t().string_id;
-    if (tc.sameNode(tpl, self.expect.template_fixed)) {
+    if (CompatCheck.sameNode(tpl, self.expect.template_ok)) return self.t().string_id;
+    if (CompatCheck.sameNode(tpl, self.expect.template_fixed)) {
         try self.errAt(tpl, "a module's constant is fixed text, so a template there takes only constant slots: an Int, a Bool, or a `Static` known when the program is compiled", .{});
         try self.ctx.recordType(tpl, self.t().invalid_id);
         return self.t().invalid_id;
@@ -816,7 +819,7 @@ pub fn stringCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, metho
     const recv = try self.ctx.intern(.{ .write_view = self.t().string_id });
     try noteCallee(self, .{ .params = try self.ctx.dupeIds(&.{recv}), .returns = self.t().void_id, .is_sub = true });
     if (!try ViewCheck.checkSelfSigil(self, obj, .write, self.t().void_id, method)) {
-        const kind: tc.SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
+        const kind: CompatCheck.SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
             .read_view => .read_view,
             .write_view => .write_view,
             else => .owned_nominal,
@@ -886,7 +889,7 @@ pub fn pushWide(self: *Checker, callee: Sexp, b: Sexp, pos: u32, args: []const S
     }
     var one_byte = false;
     switch (self.ctx.types.get(num)) {
-        .int => |info| one_byte = tc.intBounds(info).bits == 8,
+        .int => |info| one_byte = CompatCheck.intBounds(info).bits == 8,
         // A type parameter: each instance must be an integer.
         .type_var => |param| try ExprCheck.require(self, param, .integer, self.startOf(given[0]), "push"),
         else => {
@@ -917,7 +920,7 @@ pub fn pushWide(self: *Checker, callee: Sexp, b: Sexp, pos: u32, args: []const S
     }
     try ViewCheck.checkExpr(self, args[0], num);
     if (keep) |k| try checkKeep(self, ir.Kwarg.value(k), switch (self.ctx.types.get(num)) {
-        .int => |info| tc.intBounds(info).bits / 8,
+        .int => |info| CompatCheck.intBounds(info).bits / 8,
         else => null,
     });
     try self.ctx.recordStringNum(callee, num);
@@ -969,7 +972,7 @@ pub fn pushVector(self: *Checker, callee: Sexp, pos: u32, args: []const Sexp) Er
     const vec = sema.unwrapViews(self.ctx, ty);
     const simd = sema.simdOf(self.ctx, vec);
     const bytes = if (simd) |v| switch (self.ctx.types.get(v.elem)) {
-        .int => |info| if (tc.intBounds(info).bits == 8 and !info.signed) sema.simdLen(self.ctx, v) else null,
+        .int => |info| if (CompatCheck.intBounds(info).bits == 8 and !info.signed) sema.simdLen(self.ctx, v) else null,
         else => null,
     } else null;
     if (bytes == null) {
@@ -1065,11 +1068,11 @@ pub fn hashCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u3
         try self.err(pos, "`hash` takes no arguments; got {d}", .{args.len});
         try CallCheck.synthArgs(self, args);
     }
-    if (!tc.isText(self.ctx, value)) {
+    if (!CompatCheck.isText(self.ctx, value)) {
         var params: std.ArrayList(SymbolId) = .empty;
         defer params.deinit(self.ctx.allocator);
         if (try sema.notHashable(self.ctx, value, &params)) |n| {
-            try self.errAt(obj, "`.hash()` does not take a `{s}`: {s}", .{ try self.tyName(value), try tc.notEquatableReason(self.ctx, n) });
+            try self.errAt(obj, "`.hash()` does not take a `{s}`: {s}", .{ try self.tyName(value), try ApiCheck.notEquatableReason(self.ctx, n) });
             return u64_ty;
         }
         for (params.items) |tv| try ExprCheck.require(self, tv, .hashable, self.startOf(obj), ".hash()");
@@ -1119,9 +1122,9 @@ pub fn orderCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u
 /// `!h.add(x)`: the hash of `x`, any value that provides `Hash`, mixed
 /// into the hash a Hasher makes. `x` is only read.
 pub fn hasherAdd(self: *Checker, callee: Sexp, obj: Sexp, pos: u32, args: []const Sexp) Error!TypeId {
-    if (!obj.isKind(.write)) try self.errAt(obj, "`add` writes the Hasher: `!{s}.add(...)`", .{try ViewCheck.plainText(self, tc.stripSigil(obj))});
+    if (!obj.isKind(.write)) try self.errAt(obj, "`add` writes the Hasher: `!{s}.add(...)`", .{try ViewCheck.plainText(self, CompatCheck.stripSigil(obj))});
     if (args.len != 1 or args[0].isKind(.kwarg)) return CallCheck.badCall(self, args, pos, "`add` takes the one value whose hash it mixes in: `!h.add(x)`", .{});
-    try ViewCheck.recordUse(self, tc.stripSigil(obj), .view);
+    try ViewCheck.recordUse(self, CompatCheck.stripSigil(obj), .view);
     const arg = args[0];
     const saved_view = self.expect.view_arg;
     defer self.expect.view_arg = saved_view;
@@ -1153,9 +1156,9 @@ pub fn hasherAdd(self: *Checker, callee: Sexp, obj: Sexp, pos: u32, args: []cons
 /// only read.
 pub fn printerValue(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u32, args: []const Sexp) Error!TypeId {
     _ = obj_ty;
-    if (!obj.isKind(.write)) try self.errAt(obj, "`value` writes the Printer: `!{s}.value(...)`", .{try ViewCheck.plainText(self, tc.stripSigil(obj))});
+    if (!obj.isKind(.write)) try self.errAt(obj, "`value` writes the Printer: `!{s}.value(...)`", .{try ViewCheck.plainText(self, CompatCheck.stripSigil(obj))});
     if (args.len != 1 or args[0].isKind(.kwarg)) return CallCheck.badCall(self, args, pos, "`value` takes the one value it writes: `!out.value(x)`", .{});
-    try ViewCheck.recordUse(self, tc.stripSigil(obj), .view);
+    try ViewCheck.recordUse(self, CompatCheck.stripSigil(obj), .view);
     try checkFormatArgs(self, args, "`value`", "print");
     const arg_ty = self.ctx.typeOf(args[0]) orelse self.t().invalid_id;
     const printer = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .nominal = self.ctx.printer_sym_id }) });
@@ -1169,7 +1172,7 @@ pub fn printerValue(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos
 pub fn hasDataField(self: *Checker, obj_ty: TypeId, name: []const u8) Error!bool {
     if (try sema.lookupDataField(self.ctx, obj_ty, name)) |_| return true;
     const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return false;
-    return (try tc.findDataField(self.ctx, decl.symbol().fields orelse &.{}, name)) != null;
+    return (try CompatCheck.findDataField(self.ctx, decl.symbol().fields orelse &.{}, name)) != null;
 }
 
 /// `f.fraction()` and `f.exponent()`, the two halves of what C,
@@ -1484,7 +1487,7 @@ pub fn simdCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method:
         .with => "two arguments, the lane's index and its new value",
         .lookup => "one argument, a `Simd[U8, n]` of indexes into the table",
         else => "no arguments",
-    }, args.len, tc.plural(args.len) });
+    }, args.len, CompatCheck.plural(args.len) });
     if (op == .lookup) return try lookupCall(self, callee, obj, vt, args[0]);
     var elem = v.elem;
     const result: TypeId = switch (op) {
@@ -1568,7 +1571,7 @@ pub fn lagCall(self: *Checker, callee: Sexp, vt: TypeId, b: Sexp, pos: u32, args
     const given = sema.bracketArgs(b);
     if (given.len != 1) return try CallCheck.badCall(self, args, b, "`lag` takes one compile-time argument, how many lanes back: `v.lag[1](prev)`", .{});
     for (args) |a| if (a.isKind(.kwarg)) return try CallCheck.badCall(self, args, a, "`lag` takes no keyword arguments", .{});
-    if (args.len != 1) return try CallCheck.badCall(self, args, pos, "`lag` takes one argument, the vector before this one; got {d} argument{s}", .{ args.len, tc.plural(args.len) });
+    if (args.len != 1) return try CallCheck.badCall(self, args, pos, "`lag` takes one argument, the vector before this one; got {d} argument{s}", .{ args.len, CompatCheck.plural(args.len) });
     const n = sema.simdLen(self.ctx, self.ctx.types.get(vt).simd);
     const mark = self.ctx.diagnostics.items.len;
     try self.checkCtValue(given[0], self.t().int_id, 0, "lag");
@@ -1738,12 +1741,12 @@ pub fn maskAsBool(self: *Checker, e: Sexp, actual: TypeId) Error!void {
     const shown = try ViewCheck.plainText(self, e);
     const recv = try selfText(self, e);
     const ty = try self.tyName(actual);
-    if (tc.sameSite(e, self.expect.not_operand)) return self.errAt(e, "`not` takes a Bool, and `{s}` is a mask, `{s}`: write `{s}.not()` for its lanes flipped, or reduce it with `.any()` or `.all()`", .{ shown, ty, recv });
-    if (self.expect.logic_op.len > 0 and (tc.sameSite(e, self.expect.logic_operands[0]) or tc.sameSite(e, self.expect.logic_operands[1]))) {
+    if (CompatCheck.sameSite(e, self.expect.not_operand)) return self.errAt(e, "`not` takes a Bool, and `{s}` is a mask, `{s}`: write `{s}.not()` for its lanes flipped, or reduce it with `.any()` or `.all()`", .{ shown, ty, recv });
+    if (self.expect.logic_op.len > 0 and (CompatCheck.sameSite(e, self.expect.logic_operands[0]) or CompatCheck.sameSite(e, self.expect.logic_operands[1]))) {
         const sym: []const u8 = if (std.mem.eql(u8, self.expect.logic_op, "and")) "&" else "|";
         return self.errAt(e, "`{s}` takes Bools, and `{s}` is a mask, `{s}`: combine masks lane by lane with `{s}`, each in parentheses, or reduce each with `.any()` or `.all()`", .{ self.expect.logic_op, shown, ty, sym });
     }
-    if (tc.sameSite(e, self.expect.ternary_cond)) return self.errAt(e, "`{s}` is a mask, `{s}`, not a `Bool`: a ternary runs one side, so pick lanes with `{s}.select(a, b)`, or reduce the mask with `.any()` or `.all()`", .{ shown, ty, recv });
+    if (CompatCheck.sameSite(e, self.expect.ternary_cond)) return self.errAt(e, "`{s}` is a mask, `{s}`, not a `Bool`: a ternary runs one side, so pick lanes with `{s}.select(a, b)`, or reduce the mask with `.any()` or `.all()`", .{ shown, ty, recv });
     try self.errAt(e, "`{s}` is a mask, `{s}`, not a `Bool`: write `{s}.any()` or `{s}.all()`", .{ shown, ty, recv, recv });
 }
 
@@ -1970,7 +1973,7 @@ pub fn friendlyNs(a: std.mem.Allocator, ns: i64) Error![]const u8 {
 /// A negative constant, `value` as Rig computes it, given to a wait
 /// (`ParamInfo.waits`).
 pub fn negativeWait(self: *Checker, arg: Sexp, shown: []const u8, value: []const u8) Error!void {
-    if (std.mem.eql(u8, std.mem.trim(u8, shown, "() "), value) or tc.constFloatOf(self.ctx.source, arg) != null)
+    if (std.mem.eql(u8, std.mem.trim(u8, shown, "() "), value) or CompatCheck.constFloatOf(self.ctx.source, arg) != null)
         return self.errAt(arg, "a wait of `{s}` is negative: a constant wait is zero or more", .{shown});
     try self.errAt(arg, "a wait of `{s}` is negative, {s}: a constant wait is zero or more", .{ shown, value });
 }
@@ -1981,24 +1984,24 @@ pub fn negativeWait(self: *Checker, arg: Sexp, shown: []const u8, value: []const
 /// and the arithmetic of these, each operation in `F64`; as the one
 /// classifier of an integer constant (`sema.constIntOf`) does for an
 /// `Int`.
-pub fn floatConst(self: *Checker, e: Sexp) tc.FloatConst {
-    if (tc.isNotFinite(self.ctx.source, e)) return .not_finite;
+pub fn floatConst(self: *Checker, e: Sexp) CompatCheck.FloatConst {
+    if (CompatCheck.isNotFinite(self.ctx.source, e)) return .not_finite;
     switch (e) {
         .src => {
             const lit = identAt(self.ctx.source, e) orelse return .unknown;
             if (sema.isFloatLiteralText(lit)) {
-                const v = tc.floatLiteralValue(lit);
+                const v = CompatCheck.floatLiteralValue(lit);
                 return if (std.math.isFinite(v)) .{ .value = v } else .not_finite;
             }
-            if (sema.isIntLiteralText(lit)) return .{ .value = tc.wideToFloat(f64, std.fmt.parseInt(Wide, lit, 0) catch return .unknown) };
+            if (sema.isIntLiteralText(lit)) return .{ .value = CompatCheck.wideToFloat(f64, std.fmt.parseInt(Wide, lit, 0) catch return .unknown) };
             const id = self.ctx.symbolOf(e) orelse return .unknown;
             if (self.ctx.const_floats.get(id)) |v| return .{ .value = v };
-            if (self.ctx.const_ints.get(id)) |c| return .{ .value = tc.wideToFloat(f64, c.value) };
+            if (self.ctx.const_ints.get(id)) |c| return .{ .value = CompatCheck.wideToFloat(f64, c.value) };
             return .unknown;
         },
         .list => {
             const h = e.kind() orelse return .unknown;
-            if (h == .member) return if (tc.floatLimit(f64, self.ctx.source, e)) |v| .{ .value = v } else .unknown;
+            if (h == .member) return if (CompatCheck.floatLimit(f64, self.ctx.source, e)) |v| .{ .value = v } else .unknown;
             if (h == .neg) return switch (floatConst(self, ir.Neg.operand(e))) {
                 .value => |v| .{ .value = -v },
                 else => |o| o,
@@ -2011,7 +2014,7 @@ pub fn floatConst(self: *Checker, e: Sexp) tc.FloatConst {
             const b = floatConst(self, ir.get(e, .right));
             if (a == .unknown or b == .unknown) return .unknown;
             if (a == .not_finite or b == .not_finite) return .not_finite;
-            const v = tc.floatOp(f64, h, a.value, b.value);
+            const v = CompatCheck.floatOp(f64, h, a.value, b.value);
             return if (std.math.isFinite(v)) .{ .value = v } else .not_finite;
         },
         else => return .unknown,
@@ -2022,7 +2025,7 @@ pub fn floatConst(self: *Checker, e: Sexp) tc.FloatConst {
 /// named, and no unit nor length of the calendar (`calendarKeyword`):
 /// a spelling of `seconds:`, or neither.
 pub fn badDurationKeyword(self: *Checker, at: Sexp, kname: []const u8, value: Sexp, callee: []const u8, option: ?[]const u8) Error!void {
-    if (tc.isSecondsName(kname)) return self.errAt(at, "`{s}` has no parameter `{s}`; did you mean `seconds: {s}`?", .{ callee, kname, try ViewCheck.plainText(self, value) });
+    if (CompatCheck.isSecondsName(kname)) return self.errAt(at, "`{s}` has no parameter `{s}`; did you mean `seconds: {s}`?", .{ callee, kname, try ViewCheck.plainText(self, value) });
     // A duration with a default is an option, given by its name.
     if (option) |name| return self.errAt(at, "`{s}` has no parameter `{s}`; its duration is an option, given by name, `{s}: {s}`, or by units' keywords, `ms: 40` or `minutes: 1, seconds: 30`, from `ns:` to `hours:`", .{ callee, kname, name, try ViewCheck.plainText(self, value) });
     try self.errAt(at, "`{s}` has no parameter `{s}`; a duration is written bare in seconds, `{s}(2)`, or with units' keywords, `ms: 40` or `minutes: 1, seconds: 30`, from `ns:` to `hours:`", .{ callee, kname, callee });
@@ -2034,7 +2037,7 @@ pub fn badDurationKeyword(self: *Checker, at: Sexp, kname: []const u8, value: Se
 pub fn calendarHours(self: *Checker, value: Sexp, per: i64) Error![]const u8 {
     const a = self.ctx.arena.allocator();
     if (ExprCheck.constInt(self, value)) |n| if (std.math.cast(i64, n)) |k| if (std.math.mul(i64, k, per) catch null) |h| return std.fmt.allocPrint(a, "{d}", .{h});
-    if (tc.constFloatOf(self.ctx.source, value)) |v| {
+    if (CompatCheck.constFloatOf(self.ctx.source, value)) |v| {
         const h = v * @as(f64, @floatFromInt(per));
         if (h == @trunc(h) and @abs(h) < 0x1p53) return std.fmt.allocPrint(a, "{d}", .{@as(i64, @intFromFloat(h))});
     }
@@ -2224,9 +2227,9 @@ pub fn boundForMethod(self: *Checker, pname: []const u8, method: []const u8) Err
 /// The method `method` of the APIs `refs` name and those they build
 /// on: each API that declares it, once, in the order written. More than
 /// one makes a call ambiguous (`reportAmbiguous`).
-pub fn apiMethodsIn(self: *Checker, refs: []const sema.ApiRef, method: []const u8) Error![]const tc.ApiMethod {
+pub fn apiMethodsIn(self: *Checker, refs: []const sema.ApiRef, method: []const u8) Error![]const ApiCheck.ApiMethod {
     const a = self.ctx.arena.allocator();
-    var out: std.ArrayList(tc.ApiMethod) = .empty;
+    var out: std.ArrayList(ApiCheck.ApiMethod) = .empty;
     for (refs) |b| for (try sema.apiClosure(self.ctx, a, b)) |c| {
         const seen = for (out.items) |o| {
             if (o.api.eql(c)) break true;
@@ -2245,7 +2248,7 @@ pub fn apiMethodsIn(self: *Checker, refs: []const sema.ApiRef, method: []const u
 /// The type of the API method `m` in this module's types, `Self` being
 /// `self_ty`: the type a call through a bound, or through the API by
 /// name, is checked against. Null for a method whose type was rejected.
-pub fn apiMethodAt(self: *Checker, m: tc.ApiMethod, self_ty: TypeId) Error!?TypeId {
+pub fn apiMethodAt(self: *Checker, m: ApiCheck.ApiMethod, self_ty: TypeId) Error!?TypeId {
     const local_ty = if (m.home == @as(*const SemContext, self.ctx)) m.field.ty else try sema.importType(self.ctx, m.home, m.field.ty, m.api.module_id);
     if (self.ctx.types.get(local_ty) != .function or sema.containsPoison(self.ctx, local_ty)) return null;
     const api_sym = sema.apiSymbol(self.ctx, m.api) orelse return null;
@@ -2256,7 +2259,7 @@ pub fn apiMethodAt(self: *Checker, m: tc.ApiMethod, self_ty: TypeId) Error!?Type
 
 /// `x.area()` where two APIs that apply to `x`'s type declare `area`:
 /// the call names one, `Shape.area(x)`.
-pub fn reportAmbiguous(self: *Checker, obj: Sexp, method: []const u8, found: []const tc.ApiMethod, ty: TypeId, pos: u32, args: []const Sexp) Error!TypeId {
+pub fn reportAmbiguous(self: *Checker, obj: Sexp, method: []const u8, found: []const ApiCheck.ApiMethod, ty: TypeId, pos: u32, args: []const Sexp) Error!TypeId {
     const a = self.ctx.arena.allocator();
     const call = if (self.expect.current_call) |c| CallCheck.sourceText(self, c) else method;
     const first = try sema.apiName(self.ctx, found[0].api);
@@ -2266,7 +2269,7 @@ pub fn reportAmbiguous(self: *Checker, obj: Sexp, method: []const u8, found: []c
         .read, .none => "",
     };
     var named: std.ArrayList(u8) = .empty;
-    try named.print(a, "{s}.{s}({s}{s}", .{ first, method, sigil, try ViewCheck.plainText(self, tc.stripSigil(obj)) });
+    try named.print(a, "{s}.{s}({s}{s}", .{ first, method, sigil, try ViewCheck.plainText(self, CompatCheck.stripSigil(obj)) });
     for (args) |arg| try named.print(a, ", {s}", .{CallCheck.sourceText(self, arg)});
     try named.append(a, ')');
     return CallCheck.badCall(self, args, pos, "`{s}` could call `{s}.{s}` or `{s}.{s}`, which both apply to `{s}`; name the API: `{s}`", .{ call, first, method, try sema.apiName(self.ctx, found[1].api), method, try self.tyName(ty), named.items });
@@ -2301,14 +2304,14 @@ pub fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv
         }
         // The witness is the value's own, so the value is the `T` or a
         // view of one, not a box or a handle of it.
-        if (sema.unwrapViews(self.ctx, obj_ty) != tv) return CallCheck.badCall(self, args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, CallCheck.sourceText(self, tc.stripSigil(obj)), try self.tyName(obj_ty) });
+        if (sema.unwrapViews(self.ctx, obj_ty) != tv) return CallCheck.badCall(self, args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, CallCheck.sourceText(self, CompatCheck.stripSigil(obj)), try self.tyName(obj_ty) });
         const witness = (try sema.witnessFor(self.ctx, tv, found[0].api)) orelse return CallCheck.skipCall(self, args);
         return apiMethodCall(self, callee, obj, obj_ty, tv, found[0], .{ .witness = witness }, method, pos, args, ct);
     }
     if (ct) |b| return CallCheck.badCall(self, args, b, "a method called on a `{s}` takes no compile-time arguments", .{tname});
     // Emit writes the call as Zig resolves it on the value, so the
     // value is the `T` or a view of one, not a box or a handle of it.
-    if (sema.unwrapViews(self.ctx, obj_ty) != tv) return CallCheck.badCall(self, args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, CallCheck.sourceText(self, tc.stripSigil(obj)), try self.tyName(obj_ty) });
+    if (sema.unwrapViews(self.ctx, obj_ty) != tv) return CallCheck.badCall(self, args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, CallCheck.sourceText(self, CompatCheck.stripSigil(obj)), try self.tyName(obj_ty) });
     const call = self.expect.current_call orelse return CallCheck.skipCall(self, args);
     const mode: SelfMode = if (obj.isKind(.write)) .write else if (obj.isKind(.move)) .value else .read;
     const result = (try typeParamResult(self, call, tv)) orelse return CallCheck.skipCall(self, args);
@@ -2322,7 +2325,7 @@ pub fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv
     const misplaced_sigil = try ViewCheck.checkSelfSigil(self, obj, mode, returns, method);
     switch (mode) {
         .value => try ViewCheck.recordUse(self, obj, .take),
-        .write => try ViewCheck.recordUse(self, tc.stripSigil(obj), .view),
+        .write => try ViewCheck.recordUse(self, CompatCheck.stripSigil(obj), .view),
         .read, .none => {},
     }
     if (mode == .read and !misplaced_sigil and !ViewCheck.hands(self, obj).hasStorage()) {
@@ -2332,7 +2335,7 @@ pub fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv
         const saved_of = self.expect.self_of;
         defer self.expect.self_of = saved_of;
         self.expect.self_of = callee;
-        const kind: tc.SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
+        const kind: CompatCheck.SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
             .read_view => .read_view,
             .write_view => .write_view,
             else => .owned_nominal,
@@ -2359,7 +2362,7 @@ pub fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv
     // A temporary self the result or an argument may keep a view of
     // is kept in its statement's slot, as for any method.
     if ((mode == .read or mode == .write) and !misplaced_sigil and !obj.isKind(.read)) {
-        const viewed = tc.stripSigil(obj);
+        const viewed = CompatCheck.stripSigil(obj);
         const base = if (ViewCheck.hands(self, viewed).kind == .part_of_made) StmtCheck.placeOf(self, viewed).base else viewed;
         const copied = switch (ViewCheck.hands(self, base).kind) {
             .made => true,
@@ -2384,9 +2387,9 @@ pub fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv
         .args = try self.ctx.dupeIds(f.params[1..]),
         .result = result,
         .pos = self.startOf(call),
-        .recv = try a.dupe(u8, CallCheck.sourceText(self, tc.stripSigil(obj))),
+        .recv = try a.dupe(u8, CallCheck.sourceText(self, CompatCheck.stripSigil(obj))),
         .call = try a.dupe(u8, CallCheck.sourceText(self, call)),
-        .owned_recv = if (self.ctx.typeOf(tc.stripSigil(obj))) |recv_ty| self.ctx.types.get(recv_ty) == .type_var else false,
+        .owned_recv = if (self.ctx.typeOf(CompatCheck.stripSigil(obj))) |recv_ty| self.ctx.types.get(recv_ty) == .type_var else false,
     });
     return returns;
 }
@@ -2430,7 +2433,7 @@ pub fn objectCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, o: se
         return CallCheck.badCall(self, args, pos, "`{s}` only reads, as any handle: `{s}` takes `{s}`; hold a `^{s}`, or change the value through a `Cell` it holds", .{ shown, method, if (m.field.self_mode == .write) "!@" else "<@", try sema.objectSpelling(self.ctx, a, h.object) });
     };
     const home = sema.apiContext(self.ctx, m.api) orelse return CallCheck.skipCall(self, args);
-    const am: tc.ApiMethod = .{ .api = m.api, .home = home, .field = m.field };
+    const am: ApiCheck.ApiMethod = .{ .api = m.api, .home = home, .field = m.field };
     const object = try self.ctx.intern(.{ .api_object = o });
     if (!self_arg) return apiMethodCall(self, callee, obj, obj_ty, object, am, .{ .table = .{ .api = o.api, .slot = m.slot.? } }, method, pos, rest, ct);
     // `Shape.area(s)`: self the first argument, with its sigil; a
@@ -2455,20 +2458,20 @@ pub fn iterNextCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv:
     const tname = try self.tyName(tv);
     if (ct) |b| return CallCheck.badCall(self, args, b, "`Iter`'s `next` takes no compile-time arguments", .{});
     if (args.len > 0) return CallCheck.badCall(self, args, pos, "`Iter`'s `next` takes no arguments: `next(!@) -> {s}.Item?`", .{tname});
-    if (sema.unwrapViews(self.ctx, obj_ty) != tv) return CallCheck.badCall(self, args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, CallCheck.sourceText(self, tc.stripSigil(obj)), try self.tyName(obj_ty) });
+    if (sema.unwrapViews(self.ctx, obj_ty) != tv) return CallCheck.badCall(self, args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, CallCheck.sourceText(self, CompatCheck.stripSigil(obj)), try self.tyName(obj_ty) });
     const item = try self.ctx.intern(.{ .type_var = try sema.assocParam(self.ctx, param, .iter, "Item") });
     const returns = try self.ctx.intern(.{ .optional = item });
     _ = try noteMethod(self, callee, .write, returns);
     const misplaced_sigil = try ViewCheck.checkSelfSigil(self, obj, .write, returns, "next");
     if (!misplaced_sigil) {
-        const kind: tc.SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
+        const kind: CompatCheck.SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
             .read_view => .read_view,
             .write_view => .write_view,
             else => .owned_nominal,
         };
         try ViewCheck.checkSelfMode(self, obj, .write, kind, "next", pos, returns);
     }
-    try ViewCheck.recordUse(self, tc.stripSigil(obj), .view);
+    try ViewCheck.recordUse(self, CompatCheck.stripSigil(obj), .view);
     const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .write_view = tv })}), .returns = returns, .is_sub = false };
     try noteCallee(self, f);
     var scratch = std.heap.ArenaAllocator.init(self.ctx.allocator);
@@ -2488,7 +2491,7 @@ pub fn iterNextCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv:
 /// implementation has exactly, and its `from` and `keeps`, which every
 /// implementation is within (docs/design/apis.md, Stage 3). The call
 /// reaches the method through `witness` (`Dispatch.static`).
-pub fn apiMethodCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, self_ty: TypeId, m: tc.ApiMethod, via: Checker.ApiVia, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+pub fn apiMethodCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, self_ty: TypeId, m: ApiCheck.ApiMethod, via: Checker.ApiVia, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
     const fn_ty_id = (try apiMethodAt(self, m, self_ty)) orelse return CallCheck.skipCall(self, args);
     const fn_ty = self.ctx.types.get(fn_ty_id).function;
     const self_mode = m.field.self_mode;
@@ -2497,7 +2500,7 @@ pub fn apiMethodCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, se
     const misplaced_sigil = try ViewCheck.checkSelfSigil(self, obj, self_mode, fn_ty.returns, method);
     switch (self_mode) {
         .value => try ViewCheck.recordUse(self, obj, .take),
-        .write => try ViewCheck.recordUse(self, tc.stripSigil(obj), .view),
+        .write => try ViewCheck.recordUse(self, CompatCheck.stripSigil(obj), .view),
         .read, .none => {},
     }
     if (self_mode == .read and !misplaced_sigil and !ViewCheck.hands(self, obj).hasStorage()) {
@@ -2507,7 +2510,7 @@ pub fn apiMethodCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, se
         const saved_of = self.expect.self_of;
         defer self.expect.self_of = saved_of;
         self.expect.self_of = callee;
-        const kind: tc.SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
+        const kind: CompatCheck.SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
             .read_view => .read_view,
             .write_view => .write_view,
             else => .owned_nominal,
@@ -2522,7 +2525,7 @@ pub fn apiMethodCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, se
     // A temporary self the result or an argument may keep a view of
     // is kept in its statement's slot, as for any method.
     if ((self_mode == .read or self_mode == .write) and !misplaced_sigil and !obj.isKind(.read)) {
-        const viewed = tc.stripSigil(obj);
+        const viewed = CompatCheck.stripSigil(obj);
         const base = if (ViewCheck.hands(self, viewed).kind == .part_of_made) StmtCheck.placeOf(self, viewed).base else viewed;
         const copied = switch (ViewCheck.hands(self, base).kind) {
             .made => true,
@@ -2554,7 +2557,7 @@ pub fn apiMethodCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, se
 /// Record a call through API method `m` on `self_ty`, at the method's
 /// own compile-time arguments `own` (`instantiateCall`), whose
 /// instance of the implementation is checked (`sema.ApiCall`).
-pub fn recordApiCall(self: *Checker, self_ty: TypeId, m: tc.ApiMethod, own: Checker.OwnArgs, pos: u32) Error!void {
+pub fn recordApiCall(self: *Checker, self_ty: TypeId, m: ApiCheck.ApiMethod, own: Checker.OwnArgs, pos: u32) Error!void {
     if (self.tentative != 0 or self.isPoison(self_ty)) return;
     try self.ctx.recordApiCall(.{ .recv = self_ty, .api = m.api, .method = m.field.name, .args = own.args, .slots = own.slots, .pos = pos });
 }
@@ -2573,7 +2576,7 @@ pub fn apiShorthand(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, met
     const visible = try visibleApis(self);
     if (visible.len == 0) return null;
     const a = self.ctx.arena.allocator();
-    var found: std.ArrayList(tc.ApiMethod) = .empty;
+    var found: std.ArrayList(ApiCheck.ApiMethod) = .empty;
     for (visible) |ref| {
         for (try apiMethodsIn(self, &.{ref}, method)) |m| {
             const seen = for (found.items) |o| {
@@ -2588,7 +2591,7 @@ pub fn apiShorthand(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, met
     if (found.items.len > 1) return try reportAmbiguous(self, obj, method, found.items, value, pos, args);
     const witness = (try sema.witnessFor(self.ctx, value, found.items[0].api)) orelse return null;
     // `5.twice()`: a literal self is a value of the type it defaults to.
-    if (obj_ty == self.t().int_literal_id) try ViewCheck.defaultIntLiteral(self, tc.stripSigil(obj));
+    if (obj_ty == self.t().int_literal_id) try ViewCheck.defaultIntLiteral(self, CompatCheck.stripSigil(obj));
     return try apiMethodCall(self, callee, obj, obj_ty, value, found.items[0], .{ .witness = witness }, method, pos, args, ct);
 }
 
@@ -2625,7 +2628,7 @@ pub fn apiNameCall(self: *Checker, ref: sema.ApiRef, api_text: []const u8, metho
     if (found.len == 0) return CallCheck.badCall(self, args, pos, "`{s}` declares no method `{s}`", .{ api_text, method });
     const m = found[0];
     if (args.len == 0 or args[0].isKind(.kwarg)) return CallCheck.badCall(self, args, pos, "`{s}.{s}` takes self first: `{s}.{s}(x)`", .{ api_text, method, api_text, method });
-    const recv_ty = try CallCheck.argType(self, tc.stripSigil(args[0]));
+    const recv_ty = try CallCheck.argType(self, CompatCheck.stripSigil(args[0]));
     if (self.isPoison(recv_ty)) return CallCheck.skipCall(self, args);
     // `Shape.area(s)` of an API object `s` whose API is or builds on
     // `Shape`: a call through the object.
@@ -2676,17 +2679,17 @@ pub fn apiNamedCallee(self: *Checker, obj: Sexp) Error!?sema.ApiRef {
 /// as a binding of it would be. Null after a diagnostic: with none
 /// of these, the body cannot know the result's type.
 pub fn typeParamResult(self: *Checker, call: Sexp, tv: TypeId) Error!?sema.GenericMethodCall.Result {
-    if (tc.sameNode(self.expect.discarded, call)) return if (self.expect.discard_named) .dropped else .nothing;
+    if (CompatCheck.sameNode(self.expect.discarded, call)) return if (self.expect.discard_named) .dropped else .nothing;
     // A statement `x.m()!` gives nothing, or fails.
-    if (!self.expect.discard_named and self.expect.discarded != .nil and !tc.sameNode(self.expect.discarded, call)) if (tc.resultCall(self.expect.discarded)) |c| if (tc.sameNode(c, call)) {
+    if (!self.expect.discard_named and self.expect.discarded != .nil and !CompatCheck.sameNode(self.expect.discarded, call)) if (CompatCheck.resultCall(self.expect.discarded)) |c| if (CompatCheck.sameNode(c, call)) {
         if (try wrapResult(self, self.expect.discarded, call, self.t().void_id)) |ty| return .{ .ty = ty };
     };
-    if (tc.sameNode(self.expect.result_expected.call, call)) {
+    if (CompatCheck.sameNode(self.expect.result_expected.call, call)) {
         const ty = self.expect.result_expected.ty;
         if (self.isPoison(ty)) return .{ .ty = ty };
         if (try wrapResult(self, self.expect.result_expected.value, call, ty)) |wrapped| return .{ .ty = wrapped };
     }
-    if (tc.resultCall(self.expect.beside.node)) |c| if (tc.sameNode(c, call)) {
+    if (CompatCheck.resultCall(self.expect.beside.node)) |c| if (CompatCheck.sameNode(c, call)) {
         const other = self.expect.beside.ty orelse try FlowCheck.synthQuiet(self, self.expect.beside.other);
         const ty = if (other == self.t().int_literal_id) self.t().int_id else if (other == self.t().float_literal_id) self.t().float_id else other;
         if (!self.isPoison(ty) and self.ctx.types.get(ty) != .void) if (try wrapResult(self, self.expect.beside.node, call, ty)) |wrapped| return .{ .ty = wrapped };
@@ -2703,7 +2706,7 @@ pub fn typeParamResult(self: *Checker, call: Sexp, tv: TypeId) Error!?sema.Gener
 /// `value` stands for, is its value `T` there: `x.m() catch |e| 0`
 /// gives a `T`, and the tail wraps it.
 pub fn wrapResult(self: *Checker, value: Sexp, call: Sexp, ty: TypeId) Error!?TypeId {
-    if (tc.sameNode(value, call)) return ty;
+    if (CompatCheck.sameNode(value, call)) return ty;
     const kind = value.kind() orelse return null;
     const ok = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.ok else ty;
     return switch (kind) {
@@ -2753,7 +2756,7 @@ pub fn optionParams(self: *Checker, args: []const Sexp, first: TypeId, name: []c
 /// `mailbox` is how many calls made with `&` may be in flight at
 /// once (64 by default).
 pub fn actorMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) Error!TypeId {
-    if (!tc.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, "an actor lives only behind a shared handle: write `*Actor(x)`", .{});
+    if (!CompatCheck.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, "an actor lives only behind a shared handle: write `*Actor(x)`", .{});
     var positional: usize = 0;
     for (args) |a| {
         if (!a.isKind(.kwarg)) {
@@ -2797,7 +2800,7 @@ pub fn actorMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) E
 /// (`sema.frozenBlocker`). A frozen value is shared, `+f`, never
 /// frozen again.
 pub fn frozenMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) Error!TypeId {
-    if (!tc.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, "a frozen value lives only behind a shared handle: write `*Frozen(x)`", .{});
+    if (!CompatCheck.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, "a frozen value lives only behind a shared handle: write `*Frozen(x)`", .{});
     if (args.len != 1 or args[0].isKind(.kwarg)) return CallCheck.badCall(self, args, callee, "`Frozen` takes the value it freezes: `*Frozen(String(\"home\"))`", .{});
     const value = args[0];
     const ty = ExprCheck.canonical(self, try CallCheck.argType(self, value));
@@ -2829,7 +2832,7 @@ pub fn frozenMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) 
 pub fn actorSupervised(self: *Checker, callee: Sexp, method: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
     if (!std.mem.eql(u8, method, "supervised")) return CallCheck.badCall(self, args, pos, "`Actor` has one function of its own, `supervised`, an actor that starts again when a panic ends it: `*Actor.supervised(*|| Rooms(...))`", .{});
     const node = self.expect.current_call orelse return CallCheck.skipCall(self, args);
-    if (!tc.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, "an actor lives only behind a shared handle: write `*Actor.supervised(...)`", .{});
+    if (!CompatCheck.sameNode(node, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, "an actor lives only behind a shared handle: write `*Actor.supervised(...)`", .{});
     var positional: usize = 0;
     for (args) |a| {
         if (!a.isKind(.kwarg)) {
@@ -2896,7 +2899,7 @@ pub fn actorSupervised(self: *Checker, callee: Sexp, method: []const u8, pos: u3
 /// share), and so does its result, which moves.
 pub fn actorCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
     if (ct) |b| return CallCheck.badCall(self, args, b, "a method called through an actor's handle takes no compile-time arguments", .{});
-    const shown = try ViewCheck.plainText(self, tc.stripSigil(obj));
+    const shown = try ViewCheck.plainText(self, CompatCheck.stripSigil(obj));
     const m = (try sema.lookupMethod(self.ctx, value, method)) orelse {
         if (try hasDataField(self, value, method)) return CallCheck.badCall(self, args, pos, "an actor's fields are its own: reach `{s}` through a method of `{s}`", .{ method, try self.tyName(value) });
         return CallCheck.badCall(self, args, pos, "no method `{s}` on `{s}`, the value of actor `{s}`", .{ method, try self.tyName(value), shown });
@@ -2909,7 +2912,7 @@ pub fn actorCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, method:
         .read => if (obj.isKind(.write)) return CallCheck.badCall(self, args, obj, "`{s}` only reads the actor: call it bare, `{s}.{s}(...)`", .{ method, shown, method }),
         .write => {
             if (!obj.isKind(.write)) return CallCheck.badCall(self, args, obj, "`{s}` changes the actor: mark the call, `!{s}.{s}(...)`", .{ method, shown, method });
-            if (self.ctx.typeOf(tc.stripSigil(obj))) |held| if (self.ctx.types.get(held) == .read_view) {
+            if (self.ctx.typeOf(CompatCheck.stripSigil(obj))) |held| if (self.ctx.types.get(held) == .read_view) {
                 return CallCheck.badCall(self, args, obj, "`{s}` changes the actor, and `{s}` is a read view of its handle, which only reads: call it through a handle you hold", .{ method, shown });
             };
         },
@@ -2943,7 +2946,7 @@ pub fn actorCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, method:
         const ty = try crossingTypeOf(self, arg, arg_ty);
         const k = self.ctx.types.get(ty);
         if (k == .write_view) {
-            try self.errAt(arg, "a method an actor runs takes no write view: `{s}` makes a write view of `{s}`", .{ CallCheck.sourceText(self, arg), try ViewCheck.plainText(self, tc.stripSigil(arg)) });
+            try self.errAt(arg, "a method an actor runs takes no write view: `{s}` makes a write view of `{s}`", .{ CallCheck.sourceText(self, arg), try ViewCheck.plainText(self, CompatCheck.stripSigil(arg)) });
             return self.t().invalid_id;
         }
         const how: sema.Crossing = if (k == .read_view or k == .slice) .shares else .moves;
@@ -3028,7 +3031,7 @@ pub fn bodyRef(self: *Checker) ?sema.FnRef {
 /// is self, no path's base (`checkViewBases`). Returns
 /// `returns`.
 pub fn noteMethod(self: *Checker, callee: Sexp, self_mode: sema.SelfMode, returns: TypeId) Error!TypeId {
-    if (callee == .list) try self.methods.put(self.ctx.allocator, tc.nodeId(callee), .{ .self_mode = self_mode, .returns = returns });
+    if (callee == .list) try self.methods.put(self.ctx.allocator, CompatCheck.nodeId(callee), .{ .self_mode = self_mode, .returns = returns });
     // A self the method views is viewed where it is: each element on
     // its path is reached in place, not copied (`sema.copiesElem`).
     if ((self_mode == .read or self_mode == .write) and callee.isKind(.member)) {
@@ -3083,7 +3086,7 @@ pub fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method
             break :blk a.elem;
         },
         .string_view, .static => try ViewCheck.byteType(self),
-        else => tc.listElementType(self.ctx, peeled) orelse return null,
+        else => CompatCheck.listElementType(self.ctx, peeled) orelse return null,
     };
     if (obj.isKind(.move) and ViewCheck.isSelfSigil(self, obj)) {
         try ViewCheck.misplacedSigil(self, obj, method, "does not consume `self`");
@@ -3145,7 +3148,7 @@ pub fn reduceCall(self: *Checker, obj: Sexp, obj_ty: TypeId, pos: u32, args: []c
     const elem: TypeId = switch (self.ctx.types.get(peeled)) {
         .slice => |sl| sl.elem,
         .array => |a| a.elem,
-        else => tc.listElementType(self.ctx, peeled) orelse return null,
+        else => CompatCheck.listElementType(self.ctx, peeled) orelse return null,
     };
     const example = "`xs.reduce(0, |sum, x| sum + x)`";
     if (ct) |b| return try CallCheck.badCall(self, args, b, "`reduce` takes no compile-time arguments", .{});
@@ -3158,7 +3161,7 @@ pub fn reduceCall(self: *Checker, obj: Sexp, obj_ty: TypeId, pos: u32, args: []c
     const start = try CallCheck.argType(self, args[0]);
     if (self.isPoison(start)) return try CallCheck.skipCall(self, args);
     // A literal start runs as an `Int` or a `Float`.
-    const value = tc.readValue(self.ctx, start);
+    const value = CompatCheck.readValue(self.ctx, start);
     const acc = if (value == self.t().int_literal_id) self.t().int_id else if (value == self.t().float_literal_id) self.t().float_id else value;
     const each = try self.ctx.intern(.{ .read_view = elem });
     const fn_ty = (try reduceFunction(self, args[1], acc, each)) orelse return try CallCheck.skipCall(self, args);
@@ -3188,7 +3191,7 @@ pub fn reduceFunction(self: *Checker, f: Sexp, acc: TypeId, each: TypeId) Error!
         if (plain_errors == 0) return plain;
         const failing_errors = try lambdaErrorsQuietly(self, f, failing);
         if (failing_errors == 0) return failing;
-        try self.closures_in_error.put(self.ctx.allocator, tc.nodeId(f), {});
+        try self.closures_in_error.put(self.ctx.allocator, CompatCheck.nodeId(f), {});
         return if (failing_errors < plain_errors) failing else plain;
     }
     const ty = try CallCheck.argType(self, f);
@@ -3221,7 +3224,7 @@ pub fn chainCall(self: *Checker, callee: Sexp, method: []const u8, args: []const
     const found = (try chainSource(self, root, method, stages)) orelse return null;
     const kind = found.kind;
     const consumer = rig.isChainConsumer(method);
-    const for_source = self.expect.chain_for != .nil and tc.sameNode(call, ir.For.source(self.expect.chain_for));
+    const for_source = self.expect.chain_for != .nil and CompatCheck.sameNode(call, ir.For.source(self.expect.chain_for));
     if (!consumer and !for_source) {
         try self.errAt(call, "a chain is not a value: end it with a consumer (`.count()`, `.collect()`), or make it a `for` loop's source", .{});
         return self.t().invalid_id;
@@ -3290,7 +3293,7 @@ pub fn chainCall(self: *Checker, callee: Sexp, method: []const u8, args: []const
     }
     var views = false;
     if (!try chainTypes(self, call, root, kind, zip, &views)) return self.t().invalid_id;
-    if (views and !for_source) try self.chain_views.put(self.ctx.allocator, tc.nodeId(call), root);
+    if (views and !for_source) try self.chain_views.put(self.ctx.allocator, CompatCheck.nodeId(call), root);
     const node = if (for_source) self.expect.chain_for else call;
     const id = node.list.id;
     if (self.ctx.parser == null) {
@@ -3459,7 +3462,7 @@ pub fn chainTypes(self: *Checker, call: Sexp, root: Sexp, kind: rig.ChainSource,
             };
         } else if (std.mem.eql(u8, name, "take") or std.mem.eql(u8, name, "skip")) {
             const n = try FlowCheck.synthQuiet(self, args[0]);
-            if (!self.isPoison(n) and !sema.isInteger(self.ctx, tc.readValue(self.ctx, n))) {
+            if (!self.isPoison(n) and !sema.isInteger(self.ctx, CompatCheck.readValue(self.ctx, n))) {
                 try self.errAt(args[0], "`{s}` takes a count, an `Int`; `{s}` is a `{s}`", .{ name, try ViewCheck.plainText(self, args[0]), try self.tyName(n) });
                 return false;
             }
@@ -3472,7 +3475,7 @@ pub fn chainTypes(self: *Checker, call: Sexp, root: Sexp, kind: rig.ChainSource,
             mapped = false;
             second = try chainSourceItem(self, args[0], zip);
         } else if (std.mem.eql(u8, name, "sum")) {
-            if (item) |it| if (!sema.isNumeric(self.ctx, tc.readValue(self.ctx, it))) {
+            if (item) |it| if (!sema.isNumeric(self.ctx, CompatCheck.readValue(self.ctx, it))) {
                 try self.errAt(name_node, "`sum` adds numbers, and these items are `{s}`s", .{try self.tyName(sema.unwrapViews(self.ctx, it))});
                 return false;
             };
@@ -3507,7 +3510,7 @@ pub fn chainTypes(self: *Checker, call: Sexp, root: Sexp, kind: rig.ChainSource,
 pub fn chainSourceItem(self: *Checker, src: Sexp, kind: rig.ChainSource) Error!?TypeId {
     if (kind == .range) {
         // The rewrite holds the bounds; the item takes the first's type.
-        const ty = tc.readValue(self.ctx, try FlowCheck.synthQuiet(self, ir.get(src, .left)));
+        const ty = CompatCheck.readValue(self.ctx, try FlowCheck.synthQuiet(self, ir.get(src, .left)));
         if (self.isPoison(ty)) return null;
         return if (ty == self.t().int_literal_id) self.t().int_id else ty;
     }
@@ -3689,7 +3692,7 @@ pub fn bytesCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: 
     const lanes = if (sema.simdOf(self.ctx, num)) |v| v.elem else null;
     var one_byte = false;
     switch (self.ctx.types.get(lanes orelse num)) {
-        .int => |info| one_byte = tc.intBounds(info).bits == 8,
+        .int => |info| one_byte = CompatCheck.intBounds(info).bits == 8,
         .float => {},
         // A type parameter: each instance must be a number.
         .type_var => |param| try ExprCheck.require(self, param, .bytes, self.startOf(given[0]), method),
@@ -3903,7 +3906,7 @@ pub fn parCall(self: *Checker, kind: sema.ParCall, pos: u32, args: []const Sexp)
         else => return try CallCheck.badCall(self, args, xs, "`{s}` runs over the elements of a List, an array, or a slice; `{s}` is a `{s}`", .{ shown, CallCheck.sourceText(self, xs), try self.tyName(xs_ty) }),
     };
     if (kind == .each and !xs.isKind(.write) and self.ctx.types.get(xs_ty) != .write_view) {
-        const place = try ViewCheck.plainText(self, tc.stripSigil(xs));
+        const place = try ViewCheck.plainText(self, CompatCheck.stripSigil(xs));
         return try CallCheck.badCall(self, args, xs, "`par.each` passes each element as a write view: make write views of the elements, `par.each(!{s}, ...)`", .{place});
     }
     const slice = try self.ctx.intern(.{ .slice = .{ .elem = elem } });
@@ -3914,7 +3917,7 @@ pub fn parCall(self: *Checker, kind: sema.ParCall, pos: u32, args: []const Sexp)
     const fails = self.ctx.types.get(returns) == .fallible;
     // A closure that gives a view of a value that copies gives the
     // value, as a generic call's result binds it (`readValue`).
-    const value = tc.readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
+    const value = CompatCheck.readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
     if (self.isPoison(value)) return try CallCheck.skipClosureCall(self, args, f, &.{each_param}, kind == .each);
     if (kind == .map and sema.holdsWriteView(self.ctx, value)) return try givesWriteView(self, args, f, &.{each_param}, shown, value, "x");
     if (kind == .map and f.isKind(.lambda)) {
@@ -3999,7 +4002,7 @@ pub fn parWorkers(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         else => return try CallCheck.badCall(self, args, states, "`par.workers` gives each task one of the states, the elements of a List, an array, or a slice; `{s}` is a `{s}`", .{ CallCheck.sourceText(self, states), try self.tyName(states_ty) }),
     };
     if (!states.isKind(.write) and self.ctx.types.get(states_ty) != .write_view) {
-        const place = try ViewCheck.plainText(self, tc.stripSigil(states));
+        const place = try ViewCheck.plainText(self, CompatCheck.stripSigil(states));
         return try CallCheck.badCall(self, args, states, "`par.workers` gives each task a write view of one state: make write views of the states, `par.workers(!{s}, ...)`", .{place});
     }
     const items_ty = try CallCheck.argType(self, items);
@@ -4017,7 +4020,7 @@ pub fn parWorkers(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     const fails = self.ctx.types.get(returns) == .fallible;
     // A closure that gives a view of a value that copies gives the
     // value, as a generic call's result binds it (`readValue`).
-    const value = tc.readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
+    const value = CompatCheck.readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
     if (self.isPoison(value)) return try CallCheck.skipClosureCall(self, args, f, &.{ state_param, item_param }, false);
     const none = value == self.t().void_id;
     // A write view given back would reach a task's state, or what it
@@ -4097,7 +4100,7 @@ pub fn parPush(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     const table = sema.unwrapViews(self.ctx, t_ty);
     const elem = sema.tableElem(self.ctx, table) orelse return try CallCheck.badCall(self, args, table_arg, "`par.push` pushes the next slots of a Table; `{s}` is a `{s}`", .{ CallCheck.sourceText(self, table_arg), try self.tyName(t_ty) });
     if (!table_arg.isKind(.write) and self.ctx.types.get(t_ty) != .write_view) {
-        const place = try ViewCheck.plainText(self, tc.stripSigil(table_arg));
+        const place = try ViewCheck.plainText(self, CompatCheck.stripSigil(table_arg));
         return try CallCheck.badCall(self, args, table_arg, "`par.push` pushes slots onto the table and writes them: pass a write view of it, `par.push(!{s}, ...)`", .{place});
     }
     const sizes_ty = try CallCheck.argType(self, sizes);
@@ -4171,7 +4174,7 @@ pub fn isolateCall(self: *Checker, supervise: bool, pos: u32, args: []const Sexp
     }
     const returns = self.ctx.types.get(fn_ty).function.returns;
     const fails = self.ctx.types.get(returns) == .fallible;
-    const value = tc.readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
+    const value = CompatCheck.readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
     if (f.isKind(.lambda)) {
         const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
         fn_ty = try self.ctx.intern(.{ .function = .{ .params = &.{}, .returns = gives, .is_sub = sema.returnsNothing(self.ctx, gives) } });
@@ -4213,7 +4216,7 @@ pub fn isolateCall(self: *Checker, supervise: bool, pos: u32, args: []const Sexp
 /// stands only as the operand of `*`, and what it carries holds no
 /// view, as a Cell's value holds none.
 pub fn chanMake(self: *Checker, call: Sexp, e: Sexp, ty: TypeId, args: []const Sexp) Error!TypeId {
-    if (!tc.sameNode(call, self.expect.shared_operand)) return CallCheck.badCall(self, args, e, "a channel lives only behind a shared handle: write `*Chan[T](n)`", .{});
+    if (!CompatCheck.sameNode(call, self.expect.shared_operand)) return CallCheck.badCall(self, args, e, "a channel lives only behind a shared handle: write `*Chan[T](n)`", .{});
     if (args.len != 1 or args[0].isKind(.kwarg)) return CallCheck.badCall(self, args, e, "`Chan[T](n)` takes how many values it holds: `*Chan[Job](64)`", .{});
     const elem = self.ctx.types.get(ty).parameterized_nominal.args[0];
     if (sema.mayHoldView(self.ctx, elem)) {
@@ -4350,7 +4353,7 @@ pub fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeI
             // A task's end: the arm makes a read view of the task, so
             // the select neither waits it nor takes its value, which
             // the winner's body takes with `>t`.
-            if (!obj.isKind(.read)) return try badArms(self, args, obj, "an arm on a task's end makes a read view of the task, and leaves it to its holder: `{s}: ?{s}.on_end()`", .{ name.*, CallCheck.sourceText(self, tc.stripSigil(obj)) });
+            if (!obj.isKind(.read)) return try badArms(self, args, obj, "an arm on a task's end makes a read view of the task, and leaves it to its holder: `{s}: ?{s}.on_end()`", .{ name.*, CallCheck.sourceText(self, CompatCheck.stripSigil(obj)) });
             const task_node = ir.get(obj, .operand);
             const task_ty = try PatternCheck.synthExpr(self, task_node);
             if (self.isPoison(task_ty)) return try skipArms(self, args);
@@ -4553,8 +4556,8 @@ pub fn ioCopy(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
             .write_view => |inner| inner,
             else => ty,
         };
-        if (!namesForeignType(self, base, "std.file", "File") and !namesForeignType(self, base, "std.net", "Stream")) return try CallCheck.badCall(self, args, a, "`io.copy` reads from and writes to a `file.File` or a `net.Stream`; `{s}` is a `{s}`", .{ try ViewCheck.plainText(self, tc.stripSigil(a)), try self.tyName(base) });
-        if (!a.isKind(.write) and self.ctx.types.get(ty) != .write_view) return try CallCheck.badCall(self, args, a, "`io.copy` reads and writes through `{s}`: make a write view of it, `!{s}`", .{ try ViewCheck.plainText(self, tc.stripSigil(a)), try ViewCheck.plainText(self, tc.stripSigil(a)) });
+        if (!namesForeignType(self, base, "std.file", "File") and !namesForeignType(self, base, "std.net", "Stream")) return try CallCheck.badCall(self, args, a, "`io.copy` reads from and writes to a `file.File` or a `net.Stream`; `{s}` is a `{s}`", .{ try ViewCheck.plainText(self, CompatCheck.stripSigil(a)), try self.tyName(base) });
+        if (!a.isKind(.write) and self.ctx.types.get(ty) != .write_view) return try CallCheck.badCall(self, args, a, "`io.copy` reads and writes through `{s}`: make a write view of it, `!{s}`", .{ try ViewCheck.plainText(self, CompatCheck.stripSigil(a)), try ViewCheck.plainText(self, CompatCheck.stripSigil(a)) });
         params[i] = try self.ctx.intern(.{ .write_view = base });
     }
     const result = try self.ctx.intern(.{ .fallible = .{ .ok = self.t().int_id } });
@@ -4592,7 +4595,7 @@ pub fn parFunction(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const 
         const takes = ir.Lambda.params(f).items().len;
         if (!sub and takes > params.len) {
             try self.errAt(f, "this closure takes {d} parameters, but `{s}` passes {d}; a closure may take fewer, never more", .{ takes, shown, params.len });
-            try self.closures_reported.put(self.ctx.allocator, tc.nodeId(f), {});
+            try self.closures_reported.put(self.ctx.allocator, CompatCheck.nodeId(f), {});
             return null;
         }
         return try closureType(self, f, params, sub);
@@ -4608,7 +4611,7 @@ pub fn parFunction(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const 
                 // a write view is passed as itself.
                 const fits = for (got.params, params) |have, given| {
                     if (have == given) continue;
-                    if (self.ctx.types.get(given) != .read_view or have != tc.readValue(self.ctx, given)) break false;
+                    if (self.ctx.types.get(given) != .read_view or have != CompatCheck.readValue(self.ctx, given)) break false;
                 } else true;
                 if (fits) {
                     // `each` and `push` keep nothing `f` gives.
@@ -4668,7 +4671,7 @@ pub fn closureType(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) E
     const plain, const plain_errors = try closureQuietly(self, f, params, sub, false);
     if (plain_errors == 0) return plain;
     const failing, const failing_errors = try closureQuietly(self, f, params, sub, true);
-    if (failing_errors > 0) try self.closures_in_error.put(self.ctx.allocator, tc.nodeId(f), {});
+    if (failing_errors > 0) try self.closures_in_error.put(self.ctx.allocator, CompatCheck.nodeId(f), {});
     if (failing_errors >= plain_errors) return plain;
     // A body whose value is poison gives no failure to its type:
     // the closure still fails, as the call's own check of it must.
@@ -4682,7 +4685,7 @@ pub fn closureType(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) E
 /// is a closure literal in error (`closures_in_error`), whose errors
 /// the call reported.
 pub fn closureResult(self: *Checker, f: Sexp, result: TypeId) TypeId {
-    if (f.isKind(.lambda) and self.closures_in_error.contains(tc.nodeId(f))) return self.t().invalid_id;
+    if (f.isKind(.lambda) and self.closures_in_error.contains(CompatCheck.nodeId(f))) return self.t().invalid_id;
     return result;
 }
 
@@ -4696,7 +4699,7 @@ pub fn closureErrors(self: *Checker, f: Sexp, params: []const TypeId, sub: bool)
     _, const plain = try closureQuietly(self, f, params, sub, false);
     _, const failing = try closureQuietly(self, f, params, sub, true);
     _ = try closureAs(self, f, params, sub, failing < plain);
-    try self.closures_reported.put(self.ctx.allocator, tc.nodeId(f), {});
+    try self.closures_reported.put(self.ctx.allocator, CompatCheck.nodeId(f), {});
 }
 
 /// Closure literal `f` checked quietly as `closureType` checks it, as
@@ -4774,9 +4777,9 @@ pub fn taskSetWait(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, meth
         const saved_of = self.expect.self_of;
         defer self.expect.self_of = saved_of;
         self.expect.self_of = callee;
-        try ViewCheck.checkSelfMode(self, obj, .value, tc.classifySelfType(self.ctx, obj_ty, self.ctx.tasks_sym_id), method, pos, result);
+        try ViewCheck.checkSelfMode(self, obj, .value, CompatCheck.classifySelfType(self.ctx, obj_ty, self.ctx.tasks_sym_id), method, pos, result);
     }
-    const shown = try ViewCheck.plainText(self, tc.stripSigil(obj));
+    const shown = try ViewCheck.plainText(self, CompatCheck.stripSigil(obj));
     // Only tasks that can fail can be stopped: neither the first to
     // finish nor a deadline can leave the others behind.
     if (first and !fails) {
@@ -4796,7 +4799,7 @@ pub fn taskSetWait(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, meth
 /// view of one; the error when it is not, and null when it is, for the
 /// task's `wait` or the set's (`taskSetWait`) to type.
 pub fn waitOperand(self: *Checker, obj: Sexp, obj_ty: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
-    const shown = try ViewCheck.plainText(self, tc.stripSigil(obj));
+    const shown = try ViewCheck.plainText(self, CompatCheck.stripSigil(obj));
     const held = sema.unwrapViews(self.ctx, obj_ty);
     const task = sema.isTask(self.ctx, held) or sema.isTaskSet(self.ctx, held);
     if (task and held == obj_ty) return null;
@@ -4810,7 +4813,7 @@ pub fn waitOperand(self: *Checker, obj: Sexp, obj_ty: TypeId, pos: u32, args: []
 pub fn spelledWait(self: *Checker, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
     const held = sema.unwrapViews(self.ctx, obj_ty);
     if (!sema.isTask(self.ctx, held) or !std.mem.eql(u8, method, "wait")) return null;
-    const task = tc.stripSigil(obj);
+    const task = CompatCheck.stripSigil(obj);
     const shown = try ViewCheck.plainText(self, task);
     // `>` takes a name alone: a task made where it is waited for is
     // the call itself, and any other is bound to a name first.
@@ -4862,7 +4865,7 @@ pub fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, ele
         // method's is (`readLeaf`).
         if (!ViewCheck.hands(self, obj).hasStorage()) try ViewCheck.readLeaf(self, obj);
         if (try ViewCheck.cannotCopy(self, elem, pos, "copies an element out of a Cell's List")) {
-            _ = try CallCheck.badCall(self, args, pos, tc.cell_list_handle, .{try self.tyName(cell)});
+            _ = try CallCheck.badCall(self, args, pos, CompatCheck.cell_list_handle, .{try self.tyName(cell)});
             return f.returns;
         }
     } else {
@@ -4870,13 +4873,13 @@ pub fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, ele
         // (`checkSelfMode`); the Cell is the handle's own, so
         // the handle is viewed, not the Cell exclusively.
         const misplaced_sigil = try ViewCheck.checkSelfSigil(self, obj, .write, f.returns, method);
-        try ViewCheck.recordUse(self, tc.stripSigil(obj), .view);
+        try ViewCheck.recordUse(self, CompatCheck.stripSigil(obj), .view);
         if (!misplaced_sigil and ViewCheck.hands(self, obj).kind != .made) try ViewCheck.rejectResourceTemporary(self, obj, obj_ty);
         if (!misplaced_sigil) {
             const saved_of = self.expect.self_of;
             defer self.expect.self_of = saved_of;
             self.expect.self_of = callee;
-            try ViewCheck.checkSelfMode(self, obj, .write, tc.classifySelfType(self.ctx, obj_ty, self.ctx.cell_sym_id), method, pos, f.returns);
+            try ViewCheck.checkSelfMode(self, obj, .write, CompatCheck.classifySelfType(self.ctx, obj_ty, self.ctx.cell_sym_id), method, pos, f.returns);
         }
     }
     try CallCheck.checkArgs(self, args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub }, .{}, method, pos, .{ .has_self = true });
@@ -4914,7 +4917,7 @@ pub fn sequenceGet(self: *Checker, obj_ty: TypeId, pos: u32, args: []const Sexp)
 pub fn hasBuiltinLen(self: *Checker, ty: TypeId) bool {
     return switch (self.ctx.types.get(ty)) {
         .array, .slice, .string_view, .static, .string => true,
-        .parameterized_nominal => tc.listElementType(self.ctx, ty) != null or tc.cellListElement(self.ctx, ty) != null,
+        .parameterized_nominal => CompatCheck.listElementType(self.ctx, ty) != null or CompatCheck.cellListElement(self.ctx, ty) != null,
         else => false,
     };
 }
@@ -5080,6 +5083,6 @@ pub fn noteTypeArgsHint(self: *Checker, sym_id: SymbolId, member: []const u8, in
     const b = inf.bound[i];
     const took = try a.print("`{s}.{s}` takes `{s} = {s}` from argument {d}", .{ sym.name, member, self.ctx.symbols.items[sym.type_params.?[i]].name, try self.tyName(b.ty), b.arg });
     const named = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(types) } });
-    const hint = if (tc.spelledInBrackets(self.ctx, named)) try a.print("{s}; to pass `{s}` on to it, name the type: `{s}.{s}(...)`", .{ took, try self.tyName(types[i]), try self.tyName(named), member }) else took;
+    const hint = if (CompatCheck.spelledInBrackets(self.ctx, named)) try a.print("{s}; to pass `{s}` on to it, name the type: `{s}.{s}(...)`", .{ took, try self.tyName(types[i]), try self.tyName(named), member }) else took;
     try self.result_hints.put(self.ctx.allocator, call.list.id, hint);
 }
