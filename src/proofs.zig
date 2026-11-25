@@ -1680,13 +1680,13 @@ pub fn check(ctx: *SemContext, root: Sexp) Error!void {
     var p: Pass = .{ .ctx = ctx, .a = arena.allocator() };
     try rig.eachBody(root, &p, Pass.walkBody);
     var it = p.proven.iterator();
-    while (it.next()) |e| if (e.value_ptr.any()) try ctx.proven.put(ctx.allocator, e.key_ptr.*, e.value_ptr.*);
+    while (it.next()) |e| if (e.value_ptr.any()) try ctx.putIn(.proofs, .proven, e.key_ptr.*, e.value_ptr.*);
     // Each flag a test rests on, with its tests as emit writes them.
     const keep = ctx.arena.allocator();
     var cond = p.proven_if.iterator();
     while (cond.next()) |e| {
         if (!e.value_ptr.tests.any()) continue;
-        try ctx.proven_if.put(ctx.allocator, e.key_ptr.*, e.value_ptr.*);
+        try ctx.putIn(.proofs, .proven_if, e.key_ptr.*, e.value_ptr.*);
         const flag = e.value_ptr.flag;
         if (ctx.flags.contains(flag)) continue;
         const facts = p.flag_tests.get(flag).?;
@@ -1699,7 +1699,7 @@ pub fn check(ctx: *SemContext, root: Sexp) Error!void {
             } } },
             else => unreachable,
         };
-        try ctx.flags.put(ctx.allocator, flag, out);
+        try ctx.putIn(.proofs, .flags, flag, out);
     }
 }
 
@@ -1818,7 +1818,7 @@ const Summaries = struct {
             const pos = top.pos;
             _ = stack.pop();
             const b = (try s.summarize(s.fns.get(pos).?, pos)) orelse continue;
-            try s.ctx.result_bounds.put(s.ctx.allocator, pos, b);
+            try s.ctx.putIn(.proofs, .result_bounds, pos, b);
         }
     }
 
