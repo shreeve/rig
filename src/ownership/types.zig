@@ -44,10 +44,10 @@ pub fn typeData(self: *const Checker, id: TypeId) sema.Type {
     return self.sema.types.get(id);
 }
 
-/// The type of the symbol declared at `decl_pos`.
-pub fn symType(self: *const Checker, decl_pos: u32) ?TypeId {
+/// The type of the binding name `name` declares.
+pub fn symType(self: *const Checker, name: Sexp) ?TypeId {
     const ctx = self.sema;
-    const sid = ctx.symbolAt(decl_pos) orelse return null;
+    const sid = ctx.symbolOf(name) orelse return null;
     return known(self, ctx.symbols.items[sid].ty);
 }
 

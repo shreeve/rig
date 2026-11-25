@@ -563,6 +563,9 @@ pub const Checker = struct {
     /// The current read match arm's hidden var (`Var.arm_of`), made when
     /// a binding first needs it.
     arm_var: ?VarId = null,
+    /// The binding each loan on an arm's hidden var stands for, by the
+    /// loan's position (`notes.reportArmView`).
+    arm_binds: sema.FastMap(u32, SymbolId) = .empty,
     /// The subject of the match whose arm is being bound, as written.
     arm_subject: []const u8 = "",
     /// The owner's name that subject could take instead (`Var.arm_take`).
@@ -799,6 +802,7 @@ pub const Checker = struct {
         self.temps.deinit(self.gpa);
         self.reaches.deinit(self.gpa);
         self.lir_bodies.deinit(self.gpa);
+        self.arm_binds.deinit(self.gpa);
         self.paths.deinit(self.gpa);
         self.gpa.destroy(self.paths);
         self.fn_arena_state.deinit();
@@ -911,9 +915,6 @@ pub const Checker = struct {
         const id: VarId = @intCast(self.vars.items.len);
         var v = var_;
         const ctx = self.sema;
-        if (v.kind != .hidden) {
-            v.sym = if (self.lir_body != null) lowered.bindingAt(self, v.decl) else ctx.symbolAt(v.decl);
-        }
         // Emit holds a binding as lowering made its var
         // (`storage.bindingDrop`): the checker treats as owning exactly
         // the bindings whose var holds a value that moves.
@@ -955,6 +956,12 @@ pub const Checker = struct {
         self.vars.shrinkRetainingCapacity(start);
         self.flows.shrinkRetainingCapacity(start);
         self.loan_counts.shrinkRetainingCapacity(start);
+    }
+
+    /// The binding name `node` declares: on the walk of LIR, the one its
+    /// var in the body being walked declares, when that body declares it.
+    pub fn bindingOf(self: *const Checker, node: Sexp) ?SymbolId {
+        return lowered.bindingAt(self, node) orelse self.sema.symbolOf(node);
     }
 
     /// The innermost visible var of the binding leaf `node` names, as

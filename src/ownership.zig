@@ -49,7 +49,7 @@
 //!   parameter's flow, and the parameter is live at every exit (the
 //!   caller uses its value after the return), so the loan stays in
 //!   force for the rest of the body.
-//! * Types come from ctx's facts table (`typeOf`, `symbolAt`); an
+//! * Types come from ctx's facts table (`typeOf`, `symbolOf`); an
 //!   unknown type is assumed to be able to hold a view.
 //! * A loan is in force only while the var holding it is live: while
 //!   it may be used again (see `holderLive`). Views end at their last

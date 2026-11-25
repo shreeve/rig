@@ -28,9 +28,9 @@ pub const Body = struct {
     /// The region made for each block, by its node's key: the body's
     /// by the key of the function's block.
     regions: sema.FastMap(u64, lir.RegionId) = .empty,
-    /// The binding each var of a binding declares, by the position of
-    /// its declaring name.
-    binds: sema.FastMap(u32, SymbolId) = .empty,
+    /// The binding each var of a binding declares, by its declaring
+    /// name's key.
+    binds: sema.FastMap(u64, SymbolId) = .empty,
     /// The nodes whose value a statement holds in a temporary it drops.
     temps: sema.FastMap(u64, void) = .empty,
 };
@@ -52,7 +52,7 @@ pub fn enter(self: *Checker, body: Sexp) Error!?*Body {
     const out = try a.create(Body);
     out.* = .{ .f = f };
     for (f.vars.items) |v| switch (v.name) {
-        .binding => |s| if (v.node == .src) try out.binds.put(a, v.node.src.pos, s),
+        .binding => |s| if (sema.decisionKeyOf(v.node)) |key| try out.binds.put(a, key, s),
         .hidden => |k| if (k == .temp) if (sema.decisionKeyOf(v.node)) |key| try out.temps.put(a, key, {}),
     };
     try out.regions.put(a, sema.decisionKeyOf(body).?, f.body);
@@ -175,10 +175,10 @@ pub fn stmtsOf(self: *Checker, body: Sexp) Error!?Stmts {
 
 pub const Stmts = struct { list: []const Sexp, yields: bool };
 
-/// The binding a var of the lowered body declares at `pos`.
-pub fn bindingAt(self: *const Checker, pos: u32) ?SymbolId {
+/// The binding a var of the lowered body declares at name `node`.
+pub fn bindingAt(self: *const Checker, node: Sexp) ?SymbolId {
     const b = self.lir_body orelse return null;
-    return b.binds.get(pos);
+    return b.binds.get(sema.decisionKeyOf(node) orelse return null);
 }
 
 /// The binding name `node` reads, as the var its use reads in the
