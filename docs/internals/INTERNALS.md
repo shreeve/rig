@@ -1665,7 +1665,7 @@ instead of re-deriving it by name:
 | `sliceViewOf(slice)` | what a slice `xs[a..b]` views of what it slices (`sema.sliceView`): the elements of an array or a List, a String's bytes through handles and boxes, or nothing of a value that is itself a view; the type checker slices by it, and the ownership checker views by it |
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (self too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
-| `ctCallOf(node)` | for a compile-time call, `(ct_call cap 8)`: the value the checker computed and its type (`cteval.Result`), none in a compile-time function's body ([Compile-time functions](#compile-time-functions)) |
+| `get(.ct_calls, node)` | for a compile-time call, `(ct_call cap 8)`: the value the checker computed and its type (`cteval.Result`), none in a compile-time function's body ([Compile-time functions](#compile-time-functions)) |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...), and the functions of a number type or a plain enum (`I32.wrap(x)`, `Status.from_int(n)`, `Color.from_text(word)`) |
 | `builtinCallOf(callee)` | for a call of a built-in type's method that emit lowers on its own (`sema.BuiltinCall`): `x.is_empty()` of a built-in length, a Cell-held List's `push`, `pop`, `clear`, `keep`, and `get`, a task set's `wait_first`, `get` of an array, a slice, or a `?String`, and a Cell's `set`, `swap`, `compare_swap`, `add`, and `sub`, recorded where typecheck resolves each, so emit matches no method name |
@@ -1796,18 +1796,37 @@ check, which a second replaces, give their memory back: from one arena,
 `rig check` of Trig peaked at 2.1 GB, against 0.65 GB
 (docs/history/records/2026-10/check-speed/).
 
+**The recorder.** Every fact a pass records about a node or a symbol
+is a column of one recorder (`sema.Column`): each map of `Facts`, and
+the maps of `SemContext` that `ctx_columns` names (the per-node records
+`write_sites`, `untakeable`, and `discards`, a call's target and its
+inline call, a closure's captures its one call takes, the constant
+values of bindings, a body's units, and the proofs' records). Each
+column declares its one writer pass (`sema.Pass`: the module check,
+storage, the module graph, the ownership checker, or the proof pass)
+and its key (`sema.specs`). It is written only through `putIn` and
+`removeIn`, which name the pass: a write by another pass fails to
+compile, and a self-checking build stops at a write after the pass
+sealed its columns (`SemContext.seal`). The module check writes a
+column by node with `record(.column, node, value)`, which keys the node
+as the column declares, and a reader asks `get` or `has`. The resolver
+and the type checker are one writer, the module check, since a
+rewrite's new nodes are resolved inside the check that finds it. Every
+list node a fact is keyed by has a node id, and recording one for a
+list without an id stops the compiler.
+
 **The trail.** A check can be taken back. `SemContext.mark` opens a
-mark, and while one is open every write to a column of the facts table,
-and to the per-node records `write_sites`, `untakeable`, and `discards`
-(`sema.Column`), goes on the trail with the value it replaced
-(`putIn`, `removeIn`, the one way each is written). `rollback` gives
+mark, and while one is open every write to a column goes on the trail
+with the value it replaced. `rollback` gives
 every column what it held at the mark, drops the diagnostics reported
 and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and
 a write costs nothing more. A symbol written through
 `SemContext.symbolMut` goes on the trail whole, so a rollback gives back
-its type and flags. Scopes and interned types are not taken back: each
-is made once for what it names, and asking again finds the same one. A rewrite of the tree, and the names and scopes of the
+its type and flags. Scopes, interned types, and the lists of what a
+check makes for what it names (generic instances and uses, API calls,
+embedded files) are not taken back: each is made once for what it
+names, and asking again finds the same one. A rewrite of the tree, and the names and scopes of the
 nodes it makes, are written outside every mark (`pauseTrail`), since
 the tree keeps the rewrite.
 
@@ -2815,7 +2834,7 @@ needs its own value is rejected rather than followed forever.
 A call is computed where it is first needed (`cteval.callAt`): where a
 type, a constant, or an enum value is resolved, `ctFoldBy` asks
 `ConstNames.ctCall`, which computes it; in a body, typecheck computes it
-(`Checker.synthCtCall`) and records it (`SemContext.ctCallOf`), which
+(`Checker.synthCtCall`) and records it (`Facts.ct_calls`), which
 `CheckedNames.ctCall`, emit, and the oracle read. Either way its
 arguments go through one check, `cteval.argValues`: each is held to its
 parameter's type, by the checker in a body (`Checker.checkCtValue`),

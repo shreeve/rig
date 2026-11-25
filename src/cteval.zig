@@ -1178,7 +1178,7 @@ pub fn recordedInt(ctx: *const SemContext, e: Sexp) sema.CtFold {
 /// The value the checker recorded for the compile-time call `e`.
 pub fn recorded(ctx: *const SemContext, e: Sexp) ?Result {
     if (!e.isKind(.ct_call)) return null;
-    const c = ctx.ctCallOf(e) orelse return null;
+    const c = ctx.get(.ct_calls, e) orelse return null;
     const i = c.result orelse return null;
     return ctx.ct.results.items[i];
 }

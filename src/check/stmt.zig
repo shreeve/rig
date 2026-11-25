@@ -1050,7 +1050,7 @@ pub fn placeOf(self: *Checker, e: Sexp) Checker.Place {
         } else if (if (sema.namedNoneOf(self.ctx, inner)) |n| std.mem.eql(u8, n.field, self.text(ir.Member.name(step))) else false) {
             place.block(.none_field, self.startOf(ir.Member.name(step)));
             if (!crossed) place.leaf_blocked = true;
-        } else if (self.ctx.readOnlyFieldOf(step)) |field| {
+        } else if (self.ctx.get(.read_only_fields, step)) |field| {
             place.block(.read_only, self.startOf(ir.Member.name(step)));
             if (place.blocked.?.why == .read_only) place.read_only = field;
             if (!crossed) place.leaf_blocked = true;

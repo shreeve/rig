@@ -5886,10 +5886,6 @@ pub const SemContext = struct {
         try self.putIn(.check, .uses, key, use);
     }
 
-    pub fn readOnlyFieldOf(self: *const SemContext, node: Sexp) ?ReadOnlyField {
-        return self.facts.read_only_fields.get(nodeKey(node) orelse return null);
-    }
-
     /// The context of `node` views it, where it was first recorded as
     /// taken: a bare value viewed to read where a view is expected.
     pub fn recordImplicitView(self: *SemContext, node: Sexp) !void {
@@ -5988,10 +5984,6 @@ pub const SemContext = struct {
     /// The integer type `T` of a `t.push[T, e](v)` callee.
     pub fn stringNumOf(self: *const SemContext, callee: Sexp) ?TypeId {
         return self.facts.string_nums.get(nodeKey(callee) orelse return null);
-    }
-
-    pub fn ctCallOf(self: *const SemContext, node: Sexp) ?CtCall {
-        return self.facts.ct_calls.get(nodeKey(node) orelse return null);
     }
 
     pub fn dispatchOf(self: *const SemContext, call: Sexp) ?Dispatch {
@@ -16600,7 +16592,7 @@ fn fixedOwner(ctx: *const SemContext, e: Sexp, sym: Symbol) bool {
     if (copies(ctx, ty) == .yes) return false;
     var p = e;
     while (p.isKind(.member)) {
-        if (ctx.readOnlyFieldOf(p) != null) return false;
+        if (ctx.get(.read_only_fields, p) != null) return false;
         const field = identAt(ctx.source, ir.Member.name(p)) orelse return false;
         p = ir.Member.object(p);
         const obj = ctx.typeOf(p) orelse return false;

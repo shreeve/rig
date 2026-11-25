@@ -3729,7 +3729,7 @@ pub fn isComptimeKnown(self: *Checker, e: Sexp) bool {
                 .template => self.ctx.typeOf(e) == self.t().static_id,
                 // `cap[8]`: a compile-time call, whose value the
                 // checker computed.
-                .ct_call => if (self.ctx.ctCallOf(e)) |c| c.result != null else false,
+                .ct_call => if (self.ctx.get(.ct_calls, e)) |c| c.result != null else false,
                 // `$variants(T)`, and `$embed("f")`, whose bytes Zig
                 // reads when it compiles.
                 .builtin => std.mem.eql(u8, self.text(ir.Builtin.name(e)), "variants") or std.mem.eql(u8, self.text(ir.Builtin.name(e)), "embed"),
