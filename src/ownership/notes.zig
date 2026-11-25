@@ -12,6 +12,12 @@ const TypeId = sema.TypeId;
 const SymbolId = sema.SymbolId;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
+const live = @import("live.zig");
+const transfer = @import("transfer.zig");
+const rules = @import("rules.zig");
+const exits = @import("exits.zig");
+const generic = @import("generic.zig");
+const types = @import("types.zig");
 const Checker = state.Checker;
 const Flow = state.Flow;
 const Loan = state.Loan;
@@ -53,18 +59,18 @@ pub fn article(name: []const u8) []const u8 {
 // -----------------------------------------------------------------------------
 
 pub fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
-    return self.errSpan(.{ .start = pos, .end = pos }, fmt, args);
+    return errSpan(self, .{ .start = pos, .end = pos }, fmt, args);
 }
 
 /// An error about `node`, reported at its span.
 pub fn errAt(self: *Checker, node: Sexp, comptime fmt: []const u8, args: anytype) Error!void {
-    return self.errSpan(self.span(node), fmt, args);
+    return errSpan(self, span(self, node), fmt, args);
 }
 
 /// A bound on the checker's work is hit at `pos`, by `what` there:
 /// the program is rejected, never accepted unchecked.
 pub fn tooComplex(self: *Checker, pos: u32, what: []const u8) Error!void {
-    return self.err(pos, "this {s} is too complex for the ownership checker; split it into smaller functions", .{what});
+    return err(self, pos, "this {s} is too complex for the ownership checker; split it into smaller functions", .{what});
 }
 
 pub fn errSpan(self: *Checker, at: diag.Span, comptime fmt: []const u8, args: anytype) Error!void {
@@ -83,7 +89,7 @@ pub fn errSpan(self: *Checker, at: diag.Span, comptime fmt: []const u8, args: an
 }
 
 pub fn note(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
-    return self.noteIn(0, pos, fmt, args);
+    return noteIn(self, 0, pos, fmt, args);
 }
 
 /// A note at `pos` in module `module_id`'s source (0 for this one).
@@ -95,19 +101,19 @@ pub fn noteIn(self: *Checker, module_id: u32, pos: u32, comptime fmt: []const u8
 
 /// Where the step of `while` loop `node` runs: after its body.
 pub fn stepAt(self: *const Checker, node: Sexp) u32 {
-    return self.extent(ir.While.body(node)).hi +| 1;
+    return extent(self, ir.While.body(node)).hi +| 1;
 }
 
 /// Where a path that skips the rest of `node` goes on: at `next`, a
 /// later part of it, or else past its end.
 pub fn resumeAt(self: *const Checker, next: Sexp, node: Sexp) u32 {
-    return self.resumeBefore(next, self.extent(node).hi +| 1);
+    return resumeBefore(self, next, extent(self, node).hi +| 1);
 }
 
 /// Where a path that skips to `next` goes on, in a node whose end is
 /// `past` (`resumeAt` with that node's end found once).
 pub fn resumeBefore(self: *const Checker, next: Sexp, past: u32) u32 {
-    return if (next == .nil) past else @min(self.extent(next).lo, past);
+    return if (next == .nil) past else @min(extent(self, next).lo, past);
 }
 
 /// The first and last leaf positions in `s`, every one where its
@@ -118,14 +124,14 @@ pub fn resumeBefore(self: *const Checker, next: Sexp, past: u32) u32 {
 pub fn extent(self: *const Checker, s: Sexp) struct { lo: u32, hi: u32 } {
     switch (s) {
         .src => |leaf| {
-            const at = if (leaf.pos < self.source.len) leaf.pos else self.startOf(s);
+            const at = if (leaf.pos < self.source.len) leaf.pos else startOf(self, s);
             return .{ .lo = at, .hi = at };
         },
         .list => {
             var lo: u32 = std.math.maxInt(u32);
             var hi: u32 = 0;
             for (s.items()) |c| {
-                const e = self.extent(c);
+                const e = extent(self, c);
                 if (e.hi < e.lo) continue;
                 lo = @min(lo, e.lo);
                 hi = @max(hi, e.hi);
@@ -143,7 +149,7 @@ pub fn span(self: *const Checker, node: Sexp) diag.Span {
 
 /// Where a node starts in the source.
 pub fn startOf(self: *const Checker, node: Sexp) u32 {
-    return self.span(node).start;
+    return span(self, node).start;
 }
 
 /// Note pointing at the move or drop that invalidated `v`.
@@ -157,26 +163,26 @@ pub fn noteInvalidated(self: *Checker, id: VarId, use_pos: u32) Error!void {
     // Deferred code runs after the code that follows it, and a
     // loop's step after its body.
     if (self.loop != null and f.at >= (self.step_at orelse use_pos) and !self.in_defer) {
-        try self.note(f.at, "`{s}` was {s} here, in a previous iteration of the loop{s}", .{ try self.varText(v), what, why });
+        try note(self, f.at, "`{s}` was {s} here, in a previous iteration of the loop{s}", .{ try varText(self, v), what, why });
     } else {
-        try self.note(f.at, "`{s}` was {s} here{s}", .{ try self.varText(v), what, why });
+        try note(self, f.at, "`{s}` was {s} here{s}", .{ try varText(self, v), what, why });
     }
 }
 
 pub fn noteLoan(self: *Checker, loan: Loan) Error!void {
     if (self.quiet > 0 or !self.last_err_kept) return;
-    const viewed = try self.pathText(loan.root, loan.path);
+    const viewed = try pathText(self, loan.root, loan.path);
     if (loan.place_hold) {
-        try self.note(loan.pos, "a view of `{s}` is made here, and the place is found up to each index before the index runs", .{viewed});
+        try note(self, loan.pos, "a view of `{s}` is made here, and the place is found up to each index before the index runs", .{viewed});
     } else if (loan.held_read != .none) {
-        try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ viewed, heldUse(loan.held_read) });
+        try note(self, loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ viewed, heldUse(loan.held_read) });
     } else if (loan.reserved) {
-        try self.note(loan.pos, "a write view of `{s}` is made here, as `self`, which is read until the call starts", .{viewed});
+        try note(self, loan.pos, "a write view of `{s}` is made here, as `self`, which is read until the call starts", .{viewed});
     } else if (loan.read_of_write) {
-        try self.note(loan.pos, "a write view of `{s}` is made here, and kept as a read view by a value that only reads it", .{viewed});
+        try note(self, loan.pos, "a write view of `{s}` is made here, and kept as a read view by a value that only reads it", .{viewed});
     } else if (self.kept_views.get(loan.pos)) |k| {
-        try self.note(loan.pos, "a {s} view of `{s}` is made here, and `{s}` keeps it in `{s}` (its signature says `keeps {s}`), so the view lasts while `{s}` is used", .{ self.viewWord(loan), viewed, k.callee, k.holder, k.param, k.holder });
-    } else try self.note(loan.pos, "a {s} view of `{s}` is made here", .{ self.viewWord(loan), viewed });
+        try note(self, loan.pos, "a {s} view of `{s}` is made here, and `{s}` keeps it in `{s}` (its signature says `keeps {s}`), so the view lasts while `{s}` is used", .{ viewWord(self, loan), viewed, k.callee, k.holder, k.param, k.holder });
+    } else try note(self, loan.pos, "a {s} view of `{s}` is made here", .{ viewWord(self, loan), viewed });
 }
 
 /// How what reads a value in place uses it, after the operands that
@@ -198,7 +204,7 @@ pub fn heldUse(reader: Reader) []const u8 {
 pub fn viewWord(self: *const Checker, l: Loan) []const u8 {
     if (l.kind == .write or l.reserved) return "write";
     if (l.read_of_write) return "read";
-    return if (self.bangAt(l.pos)) "write" else "read";
+    return if (bangAt(self, l.pos)) "write" else "read";
 }
 
 /// Whether `!` is written at `pos`, or just before it: a loan's
@@ -213,7 +219,7 @@ pub fn bangAt(self: *const Checker, pos: u32) bool {
 /// place `path` of the same var: `a read view of it`, or `a write
 /// view of `p.a`` when that view is of another place.
 pub fn viewOfText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
-    return self.arena().print("a {s} view of {s}", .{ self.viewWord(l), try self.viewedText(l, path) });
+    return self.arena().print("a {s} view of {s}", .{ viewWord(self, l), try viewedText(self, l, path) });
 }
 
 /// How a message names what loan `l` is on, after a use of place
@@ -221,7 +227,7 @@ pub fn viewOfText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
 /// another.
 pub fn viewedText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
     if (l.path == path) return "it";
-    return self.arena().print("`{s}`", .{try self.pathText(l.root, l.path)});
+    return self.arena().print("`{s}`", .{try pathText(self, l.root, l.path)});
 }
 
 // -----------------------------------------------------------------------------
@@ -239,8 +245,8 @@ pub fn viewedText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
 pub fn noteStillUsed(self: *Checker, l: Loan, at: u32) Error!void {
     if (self.quiet > 0 or !self.last_err_kept) return;
     if (l.place_hold or l.held_read != .none) return;
-    if (self.holderOf(l)) |h| return self.noteHolderUse(h, l, at, null, 0);
-    return self.noteStmtUse(l, at);
+    if (holderOf(self, l)) |h| return noteHolderUse(self, h, l, at, null, 0);
+    return noteStmtUse(self, l, at);
 }
 
 /// The var whose value holds loan `l` and is still live after the
@@ -248,7 +254,7 @@ pub fn noteStillUsed(self: *Checker, l: Loan, at: u32) Error!void {
 pub fn holderOf(self: *const Checker, l: Loan) ?VarId {
     for (self.flows.items, 0..) |f, h| {
         for (f.loans) |x| if (x.root == l.root and x.path == l.path and x.pos == l.pos and x.kind == l.kind and !x.ext) {
-            if (self.holderLive(@intCast(h), null)) return @intCast(h);
+            if (live.holderLive(self, @intCast(h), null)) return @intCast(h);
             break;
         };
     }
@@ -265,15 +271,15 @@ pub fn noteStmtUse(self: *Checker, l: Loan, at_sigil: u32) Error!void {
     // A position may be a sigil's, before the leaf it touches.
     var at = at_sigil;
     while (at < self.source.len and std.mem.findScalar(u8, "!?<+~>*^-", self.source[at]) != null) at += 1;
-    if (self.selectWith(stmt, at, l.pos)) |sel|
-        return self.note(self.startOf(sel), "still used here: `task.select` makes every arm before it runs one, and each arm's views last until it returns", .{});
-    const sp = self.span(stmt);
+    if (selectWith(self, stmt, at, l.pos)) |sel|
+        return note(self, startOf(self, sel), "still used here: `task.select` makes every arm before it runs one, and each arm's views last until it returns", .{});
+    const sp = span(self, stmt);
     const inside = l.pos >= sp.start and l.pos < sp.end;
-    const made = if (inside) l.pos else self.carrierIn(stmt, l) orelse return;
-    const call = self.callWith(stmt, made, at, !inside) orelse return;
+    const made = if (inside) l.pos else carrierIn(self, stmt, l) orelse return;
+    const call = callWith(self, stmt, made, at, !inside) orelse return;
     const callee = ir.Call.callee(call);
-    const pos = if (callee.isKind(.member)) self.startOf(ir.Member.name(callee)) else self.startOf(callee);
-    try self.note(pos, "still used here, by the call, which runs after its arguments", .{});
+    const pos = if (callee.isKind(.member)) startOf(self, ir.Member.name(callee)) else startOf(self, callee);
+    try note(self, pos, "still used here, by the call, which runs after its arguments", .{});
 }
 
 /// The innermost call in `node` that has positions `a` and `b` in
@@ -281,14 +287,14 @@ pub fn noteStmtUse(self: *Checker, l: Loan, at_sigil: u32) Error!void {
 /// an argument.
 pub fn callWith(self: *const Checker, node: Sexp, a: u32, b: u32, direct: bool) ?Sexp {
     if (node != .list) return null;
-    const sp = self.span(node);
+    const sp = span(self, node);
     if (a < sp.start or a >= sp.end or b < sp.start or b >= sp.end) return null;
-    for (node.items()) |c| if (self.callWith(c, a, b, direct)) |call| return call;
+    for (node.items()) |c| if (callWith(self, c, a, b, direct)) |call| return call;
     if (!node.isKind(.call)) return null;
     if (!direct) return node;
     const callee = ir.Call.callee(node);
-    if (callee.isKind(.member) and self.extent(ir.Member.object(callee)).hi == a) return node;
-    for (ir.Call.args(node)) |arg| if (self.extent(arg).hi == a) return node;
+    if (callee.isKind(.member) and extent(self, ir.Member.object(callee)).hi == a) return node;
+    for (ir.Call.args(node)) |arg| if (extent(self, arg).hi == a) return node;
     return null;
 }
 
@@ -305,7 +311,7 @@ pub fn carrierIn(self: *const Checker, node: Sexp, l: Loan) ?u32 {
             return null;
         },
         .list => {
-            for (node.items()) |c| if (self.carrierIn(c, l)) |p| return p;
+            for (node.items()) |c| if (carrierIn(self, c, l)) |p| return p;
             return null;
         },
         else => return null,
@@ -321,7 +327,7 @@ pub fn noteHolderUse(self: *Checker, h: VarId, l: Loan, at: u32, end: ?u32, dept
     if (depth > 16) return;
     const ctx = self.sema;
     const v = self.vars.items[h];
-    if (v.call_held) return self.noteStmtUse(l, at);
+    if (v.call_held) return noteStmtUse(self, l, at);
     if (v.kind == .hidden and !v.temp_value and v.arm_of.len == 0 and v.erased_of.len == 0) {
         // The source a loop walks, held while it runs: it takes its
         // next element from it.
@@ -329,57 +335,57 @@ pub fn noteHolderUse(self: *Checker, h: VarId, l: Loan, at: u32, end: ?u32, dept
         while (lp) |c| : (lp = c.parent) {
             if (!c.is_loop) continue;
             const body = if (c.node.isKind(.@"for")) ir.For.body(c.node) else if (c.node.isKind(.@"while")) ir.While.body(c.node) else continue;
-            if (v.decl >= self.startOf(c.node) and v.decl < self.extent(body).lo)
-                return self.note(self.startOf(c.node), "still used here, by the loop, which takes its next element from it", .{});
+            if (v.decl >= startOf(self, c.node) and v.decl < extent(self, body).lo)
+                return note(self, startOf(self, c.node), "still used here, by the loop, which takes its next element from it", .{});
         }
         // What a `match` holds of its subject while it chooses an arm:
         // it reads the subject again after a guard (`walkMatch`).
-        if (v.name.len == 0 and self.afterMatch(v.decl))
-            return self.note(v.decl, "still used here, by the `match`, which reads its subject again after a guard to test the next arm", .{});
+        if (v.name.len == 0 and afterMatch(self, v.decl))
+            return note(self, v.decl, "still used here, by the `match`, which reads its subject again after a guard to test the next arm", .{});
     }
     if (!v.temp_value and v.kind != .hidden and !self.isGlobal(h)) if (v.sym) |sym| {
-        if (self.nextUse(v, sym, at, end)) |u| {
+        if (nextUse(self, v, sym, at, end)) |u| {
             // A use before the statement in flight (before the scope's
             // end) runs again in the loop's next iteration.
-            const before = if (end) |e| u < e else u < self.stmtStart();
+            const before = if (end) |e| u < e else u < live.stmtStart(self);
             // A task's use is its wait, `>t`: point at the wait.
             const wait = u > 0 and u <= self.source.len and self.source[u - 1] == '>' and if (v.ty) |ty| sema.isTask(ctx, ty) or sema.isTaskSet(ctx, ty) else false;
-            if (!before) return self.note(if (wait) u - 1 else u, "still used here", .{});
-            if (self.inDeferred(u)) return self.note(u, "still used here, in deferred code, which runs at the end of its scope", .{});
-            return self.note(u, "still used here, in the next iteration of the loop", .{});
+            if (!before) return note(self, if (wait) u - 1 else u, "still used here", .{});
+            if (inDeferred(self, u)) return note(self, u, "still used here, in deferred code, which runs at the end of its scope", .{});
+            return note(self, u, "still used here, in the next iteration of the loop", .{});
         }
         // The target of an assignment whose value is being walked is
         // used after it.
-        for (self.after_value.items) |a| if (a.sym == sym) if (self.targetUse(sym, at)) |u|
-            return self.note(u, "still used here", .{});
-        if (self.defer_used.contains(sym)) if (self.deferredUse(sym)) |u|
-            return self.note(u, "still used here, in deferred code, which runs at the end of its scope", .{});
+        for (self.after_value.items) |a| if (a.sym == sym) if (targetUse(self, sym, at)) |u|
+            return note(self, u, "still used here", .{});
+        if (self.defer_used.contains(sym)) if (deferredUse(self, sym)) |u|
+            return note(self, u, "still used here, in deferred code, which runs at the end of its scope", .{});
         if (v.kind == .param)
-            return self.note(v.decl, "still used by the caller, through `{s}`, after the function returns", .{v.name});
+            return note(self, v.decl, "still used by the caller, through `{s}`, after the function returns", .{v.name});
     };
     // A value that owns what it holds uses its views where it is
     // dropped only through a `drop` body; a task's waits for its call.
     const owns = !v.payload_view and !v.loop_view and v.ref == .none;
     if (owns and v.name.len > 0) if (v.ty) |ty| if (sema.dropRunsBody(ctx, ty) != .no) {
-        if (self.scopeEnd(h)) |e| {
+        if (scopeEnd(self, h)) |e| {
             if (sema.isTaskSet(ctx, ty))
-                return self.note(e, "`{s}` is dropped here, at the end of its scope, and waits for its tasks, which still use the view", .{v.name});
+                return note(self, e, "`{s}` is dropped here, at the end of its scope, and waits for its tasks, which still use the view", .{v.name});
             if (sema.isTask(ctx, ty))
-                return self.note(e, "`{s}` is dropped here, at the end of its scope, and waits for its task, which still uses the view", .{v.name});
-            return self.note(e, "`{s}` is dropped here, at the end of its scope, and its `drop` body could still read the view", .{v.name});
+                return note(self, e, "`{s}` is dropped here, at the end of its scope, and waits for its task, which still uses the view", .{v.name});
+            return note(self, e, "`{s}` is dropped here, at the end of its scope, and its `drop` body could still read the view", .{v.name});
         }
     };
     // Through a live var that views `h`, or the statement in flight.
     if (self.isViewed(h)) for (self.flows.items, 0..) |f, j| {
         if (j == h) continue;
         for (f.loans) |x| if (x.root == h and !x.ext) {
-            if (self.holderLiveDepth(@intCast(j), end, depth + 1)) return self.noteHolderUse(@intCast(j), x, at, end, depth + 1);
+            if (live.holderLiveDepth(self, @intCast(j), end, depth + 1)) return noteHolderUse(self, @intCast(j), x, at, end, depth + 1);
             break;
         };
     };
     for (self.temps.items) |x| if (x.root == h) {
-        if (x.held_read != .none) return self.note(x.pos, "still used here: {s}", .{heldUse(x.held_read)});
-        return self.noteStmtUse(x, at);
+        if (x.held_read != .none) return note(self, x.pos, "still used here: {s}", .{heldUse(x.held_read)});
+        return noteStmtUse(self, x, at);
     };
 }
 
@@ -394,7 +400,7 @@ pub fn afterMatch(self: *const Checker, pos: u32) bool {
 /// The target of an assignment around `at` whose value is being
 /// walked: the use of `sym` not walked yet nearest before `at`.
 pub fn targetUse(self: *const Checker, sym: SymbolId, at_in: u32) ?u32 {
-    const at = self.usePos(at_in);
+    const at = live.usePos(self, at_in);
     const all = self.uses.get(sym) orelse return null;
     var best: ?u32 = null;
     for (all.items) |p| {
@@ -410,16 +416,16 @@ pub fn targetUse(self: *const Checker, sym: SymbolId, at_in: u32) ?u32 {
 /// the value comes before one that only assigns the var, which
 /// counts too.
 pub fn nextUse(self: *const Checker, v: Var, sym: SymbolId, at_in: u32, end: ?u32) ?u32 {
-    const at = self.usePos(at_in);
+    const at = live.usePos(self, at_in);
     const all = self.uses.get(sym) orelse return null;
-    const from = self.liveFrom(v.decl, end);
-    const any_walked = end != null or from < self.stmtStart();
+    const from = live.liveFrom(self, v.decl, end);
+    const any_walked = end != null or from < live.stmtStart(self);
     // By whether the use only assigns, then whether it is after `at`.
     var best: [2][2]?u32 = .{ .{ null, null }, .{ null, null } };
     for (all.items) |p| {
         if (p < from or p == v.decl) continue;
-        if (!any_walked and p < self.stmtEnd() and std.mem.findScalar(u32, self.walked.items, p) != null) continue;
-        const slot = &best[@intFromBool(self.assignsOnly(p))][@intFromBool(p <= at)];
+        if (!any_walked and p < live.stmtEnd(self) and std.mem.findScalar(u32, self.walked.items, p) != null) continue;
+        const slot = &best[@intFromBool(assignsOnly(self, p))][@intFromBool(p <= at)];
         if (slot.* == null or p < slot.*.?) slot.* = p;
     }
     return best[0][0] orelse best[0][1] orelse best[1][0] orelse best[1][1];
@@ -440,7 +446,7 @@ pub fn assignsOnly(self: *const Checker, pos: u32) bool {
 /// scope still open.
 pub fn inDeferred(self: *const Checker, pos: u32) bool {
     for (self.scopes.items) |s| for (s.defers.items) |d| {
-        const x = self.extent(d.body);
+        const x = extent(self, d.body);
         if (pos >= x.lo and pos <= x.hi) return true;
     };
     return false;
@@ -449,7 +455,7 @@ pub fn inDeferred(self: *const Checker, pos: u32) bool {
 /// A use of symbol `sym` in deferred code of a scope still open.
 pub fn deferredUse(self: *const Checker, sym: SymbolId) ?u32 {
     const all = self.uses.get(sym) orelse return null;
-    for (all.items) |p| if (self.inDeferred(p)) return p;
+    for (all.items) |p| if (inDeferred(self, p)) return p;
     return null;
 }
 
@@ -457,16 +463,16 @@ pub fn deferredUse(self: *const Checker, sym: SymbolId) ?u32 {
 /// scope's last character, or null where the scope's code is not
 /// known.
 pub fn scopeEnd(self: *const Checker, id: VarId) ?u32 {
-    const s = self.scopes.items[self.scopeOf(id)];
-    return self.endOf(if (s.kind == .function) self.fn_body else s.node);
+    const s = self.scopes.items[exits.scopeOf(self, id)];
+    return endOf(self, if (s.kind == .function) self.fn_body else s.node);
 }
 
 /// Just past the last character of `node`, or null for none.
 pub fn endOf(self: *const Checker, node: Sexp) ?u32 {
     if (node == .nil) return null;
-    const ext = self.extent(node);
+    const ext = extent(self, node);
     if (ext.hi < ext.lo) return null;
-    var end = @min(@max(self.span(node).end, ext.hi +| 1), @as(u32, @intCast(self.source.len)));
+    var end = @min(@max(span(self, node).end, ext.hi +| 1), @as(u32, @intCast(self.source.len)));
     while (end > ext.hi +| 1 and std.ascii.isWhitespace(self.source[end - 1])) end -= 1;
     return end;
 }
@@ -482,7 +488,7 @@ pub fn noteKept(self: *Checker, callee: Sexp, v: Value, param: []const u8, write
         };
     };
     const h = holder orelse return;
-    const name = if (callee.isKind(.member)) self.text(ir.Member.name(callee)) else if (callee == .src) self.text(callee) else return;
+    const name = if (callee.isKind(.member)) types.text(self, ir.Member.name(callee)) else if (callee == .src) types.text(self, callee) else return;
     for (v.loans) |l| {
         if (l.ext) continue;
         try self.kept_views.put(self.gpa, l.pos, .{ .callee = name, .param = param, .holder = self.vars.items[h].name });
@@ -517,7 +523,7 @@ pub fn holdsCellHandle(self: *const Checker, id: VarId) bool {
 /// Whether positions `a` and `b` lie in two arms of one `task.select`
 /// in `node`.
 pub fn inTwoArms(self: *const Checker, node: Sexp, a: u32, b: u32) bool {
-    return self.selectWith(node, a, b) != null;
+    return selectWith(self, node, a, b) != null;
 }
 
 /// The `task.select` in `node` that has positions `a` and `b` in two
@@ -530,13 +536,13 @@ pub fn selectWith(self: *const Checker, node: Sexp, a: u32, b: u32) ?Sexp {
         var arm_b: ?usize = null;
         for (ir.Call.args(node), 0..) |arg, i| {
             if (!arg.isKind(.call) or ctx.selectArmOf(arg) == null) continue;
-            const x = self.extent(arg);
+            const x = extent(self, arg);
             if (a >= x.lo and a <= x.hi) arm_a = i;
             if (b >= x.lo and b <= x.hi) arm_b = i;
         }
         if (arm_a != null and arm_b != null) return if (arm_a.? != arm_b.?) node else null;
     }
-    for (node.items()) |c| if (self.selectWith(c, a, b)) |sel| return sel;
+    for (node.items()) |c| if (selectWith(self, c, a, b)) |sel| return sel;
     return null;
 }
 
@@ -545,9 +551,9 @@ pub fn selectWith(self: *const Checker, node: Sexp, a: u32, b: u32) ?Sexp {
 /// views all of its self (Core §5), so view only the fields it writes.
 pub fn noteWholeSelf(self: *Checker, id: VarId, path: PathId, l: Loan, callee: Sexp, pos: u32) Error!void {
     if (self.paths.depth(l.path) <= self.paths.depth(path)) return;
-    const recv = try self.pathText(id, path);
-    const method = self.text(ir.Member.name(callee));
-    try self.note(pos, "the call makes a write view of all of `{s}`: make write views of the fields it writes, `(!{s}.field).method(...)`, or make `{s}` a function of those fields", .{ recv, recv, method });
+    const recv = try pathText(self, id, path);
+    const method = types.text(self, ir.Member.name(callee));
+    try note(self, pos, "the call makes a write view of all of `{s}`: make write views of the fields it writes, `(!{s}.field).method(...)`, or make `{s}` a function of those fields", .{ recv, recv, method });
 }
 
 /// The fix for a call of an owned closure held in what the call
@@ -555,17 +561,17 @@ pub fn noteWholeSelf(self: *Checker, id: VarId, path: PathId, l: Loan, callee: S
 /// whatever the call does to its holder (Core §7).
 pub fn noteCloneCallee(self: *Checker, pos: u32) Error!void {
     const ctx = self.sema;
-    const call = self.callWithCalleeAt(self.cur_stmt, pos) orelse return;
+    const call = callWithCalleeAt(self, self.cur_stmt, pos) orelse return;
     const callee = ctx.calleeOf(call);
-    if (sema.ownedClosureFn(ctx, self.exprType(callee) orelse return) == null) return;
+    if (sema.ownedClosureFn(ctx, types.exprType(self, callee) orelse return) == null) return;
     const args = ir.Call.args(call);
     const a = self.arena();
     var shown: std.ArrayList(u8) = .empty;
     for (args, 0..) |arg, i| {
         if (i > 0) try shown.appendSlice(a, ", ");
-        try shown.appendSlice(a, self.spanText(arg));
+        try shown.appendSlice(a, spanText(self, arg));
     }
-    try self.note(pos, "clone the handle first: `f = +{s}`, then `f({s})`", .{ self.spanText(callee), shown.items });
+    try note(self, pos, "clone the handle first: `f = +{s}`, then `f({s})`", .{ spanText(self, callee), shown.items });
 }
 
 /// The call in `node` whose callee starts at `pos`.
@@ -573,9 +579,9 @@ pub fn callWithCalleeAt(self: *const Checker, node: Sexp, pos: u32) ?Sexp {
     if (node != .list) return null;
     const ctx = self.sema;
     if (node.isKind(.call)) {
-        if (self.startOf(ctx.calleeOf(node)) == pos) return node;
+        if (startOf(self, ctx.calleeOf(node)) == pos) return node;
     }
-    for (node.items()) |c| if (self.callWithCalleeAt(c, pos)) |found| return found;
+    for (node.items()) |c| if (callWithCalleeAt(self, c, pos)) |found| return found;
     return null;
 }
 
@@ -589,10 +595,10 @@ pub fn callWithCalleeAt(self: *const Checker, node: Sexp, pos: u32) ?Sexp {
 /// view.
 pub fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId, drop: ?struct { at: u32, end: u32 }) Error!void {
     const root = self.vars.items[l.root];
-    if (root.erased_of.len > 0) return self.reportErasedCopy(l, root);
-    if (root.arm_of.len > 0) return self.reportArmView(l);
-    if (root.call_held) return self.reportCallHeld(l, holder);
-    if (root.kind == .hidden and root.name.len > 0) return self.reportTempOutlived(l, holder);
+    if (root.erased_of.len > 0) return reportErasedCopy(self, l, root);
+    if (root.arm_of.len > 0) return reportArmView(self, l);
+    if (root.call_held) return reportCallHeld(self, l, holder);
+    if (root.kind == .hidden and root.name.len > 0) return reportTempOutlived(self, l, holder);
     if (drop) |d| if (holder) |h| if (self.vars.items[h].name.len > 0) {
         // A jump out of the scope that drops it first reported it
         // where the view is made: counted, as a repeated error is.
@@ -601,20 +607,20 @@ pub fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId, drop: ?struct {
             self.last_err_kept = false;
             return;
         };
-        try self.err(d.at, "`{s}` is dropped here, at the end of its scope, while {s} is still in use", .{ root.name, try self.viewOfText(l, whole_path) });
-        try self.noteLoan(l);
-        if (self.quiet == 0 and self.last_err_kept) try self.noteHolderUse(h, l, d.end, d.end, 0);
-        return self.noteStringViewOfString(l, self.vars.items[h].ty);
+        try err(self, d.at, "`{s}` is dropped here, at the end of its scope, while {s} is still in use", .{ root.name, try viewOfText(self, l, whole_path) });
+        try noteLoan(self, l);
+        if (self.quiet == 0 and self.last_err_kept) try noteHolderUse(self, h, l, d.end, d.end, 0);
+        return noteStringViewOfString(self, l, self.vars.items[h].ty);
     };
-    try self.err(l.pos, "`{s}` does not live long enough", .{root.name});
+    try err(self, l.pos, "`{s}` does not live long enough", .{root.name});
     if (holder) |h| {
         const hv = self.vars.items[h];
         if (hv.name.len > 0) {
-            try self.note(root.decl, "`{s}` goes out of scope while `{s}` still views it", .{ root.name, hv.name });
-            return self.noteStringViewOfString(l, hv.ty);
+            try note(self, root.decl, "`{s}` goes out of scope while `{s}` still views it", .{ root.name, hv.name });
+            return noteStringViewOfString(self, l, hv.ty);
         }
     }
-    try self.note(root.decl, "`{s}` goes out of scope while a view of it is still in use", .{root.name});
+    try note(self, root.decl, "`{s}` goes out of scope while a view of it is still in use", .{root.name});
 }
 
 /// An API object that views a copy, a local of the block that erased
@@ -627,27 +633,27 @@ pub fn reportErasedCopy(self: *Checker, l: Loan, root: Var) Error!void {
         try std.fmt.allocPrint(self.arena(), "since a `{s}` may be held as a copy", .{try sema.formatTypeIn(ctx, self.arena(), ty)})
     else
         try std.fmt.allocPrint(self.arena(), "since `{s}` is plain data", .{try sema.formatTypeIn(ctx, self.arena(), ty)});
-    try self.err(l.pos, "`{s}` of `{s}` views a copy held in this block, {s}, so it cannot leave the block; make the view of the value where it lives, or take `{s}: {s}`", .{ view, root.erased_of, why, root.erased_of, view });
+    try err(self, l.pos, "`{s}` of `{s}` views a copy held in this block, {s}, so it cannot leave the block; make the view of the value where it lives, or take `{s}: {s}`", .{ view, root.erased_of, why, root.erased_of, view });
 }
 
 /// Where loan `l` of a String outlives the String in a value of type
 /// `held` whose only views are Strings (a `?String` field or result):
 /// the `?String` was meant to own its text.
 pub fn noteStringViewOfString(self: *Checker, l: Loan, held: ?TypeId) Error!void {
-    return self.noteStringView(l, held, "store a `String` to own it");
+    return noteStringView(self, l, held, "store a `String` to own it");
 }
 
 /// `noteStringViewOfString` for a result: the function gives text of
 /// its own by returning a `String`.
 pub fn noteStringResultOfString(self: *Checker, l: Loan, held: ?TypeId) Error!void {
-    return self.noteStringView(l, held, "return a `String` to give text of its own");
+    return noteStringView(self, l, held, "return a `String` to give text of its own");
 }
 
 pub fn noteStringView(self: *Checker, l: Loan, held: ?TypeId, fix: []const u8) Error!void {
     const ctx = self.sema;
     const t = held orelse return;
-    if (!self.isString(self.vars.items[l.root].ty) or !sema.holdsViewOnly(ctx, t)) return;
-    try self.note(l.pos, "a `?String` views text it doesn't own; {s}", .{fix});
+    if (!types.isString(self, self.vars.items[l.root].ty) or !sema.holdsViewOnly(ctx, t)) return;
+    try note(self, l.pos, "a `?String` views text it doesn't own; {s}", .{fix});
 }
 
 /// A view of a read match's binding `l` names, kept past its arm.
@@ -670,7 +676,7 @@ pub fn reportArmView(self: *Checker, l: Loan) Error!void {
         try std.fmt.allocPrint(a, "use it in the arm, or {s}", .{take})
     else
         "use it in the arm";
-    try self.err(l.pos, "a view of `{s}` does not outlive the `match` that reads `{s}`: {s}", .{ name, root.arm_of, hint });
+    try err(self, l.pos, "a view of `{s}` does not outlive the `match` that reads `{s}`: {s}", .{ name, root.arm_of, hint });
 }
 
 /// The owner's name a read match on `scrut` (`x` or `?x`) could take
@@ -680,24 +686,24 @@ pub fn takeableSubject(self: *Checker, scrut: Sexp) []const u8 {
     const ctx = self.sema;
     const name = if (scrut.isKind(.read)) ir.Read.operand(scrut) else scrut;
     if (name != .src) return "";
-    const ty = self.exprType(name) orelse return "";
+    const ty = types.exprType(self, name) orelse return "";
     if (sema.isReadOrWriteView(ctx, ty) or sema.moves(ctx, ty) != .yes) return "";
-    switch (self.typeData(ty)) {
+    switch (types.typeData(self, ty)) {
         .shared, .weak => return "",
         else => {},
     }
-    return self.spanText(name);
+    return spanText(self, name);
 }
 
 /// A view `l` of what a call holds only while it runs, which the
 /// call's result or `holder` keeps after the call returns.
 pub fn reportCallHeld(self: *Checker, l: Loan, holder: ?VarId) Error!void {
     const name = self.vars.items[l.root].name;
-    try self.err(l.pos, "a view of `{s}` outlives the call, which holds `{s}` only while it runs; bind `{s}` to a name first", .{ name, name, name });
+    try err(self, l.pos, "a view of `{s}` outlives the call, which holds `{s}` only while it runs; bind `{s}` to a name first", .{ name, name, name });
     if (!self.last_err_kept) return;
     const h = holder orelse return;
     const hv = self.vars.items[h];
-    if (hv.name.len > 0) try self.note(hv.decl, "`{s}` still holds it after the call", .{hv.name});
+    if (hv.name.len > 0) try note(self, hv.decl, "`{s}` still holds it after the call", .{hv.name});
 }
 
 /// A view `l` of a statement's temporary that `holder` keeps past
@@ -710,20 +716,20 @@ pub fn reportTempOutlived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
     // it, so holds the view past the temporary's drop.
     if (holder) |h| if (self.isStmtTemp(h) and self.vars.items[h].name.len > 0) {
         const hv = self.vars.items[h];
-        try self.err(l.pos, "a view of the temporary {s} is held by `{s}`, a temporary its statement drops after it; bind the value to a name first", .{ temp, hv.name });
-        if (self.last_err_kept) try self.note(hv.decl, "`{s}` is made before `{s}`, so dropped after it", .{ hv.name, name });
+        try err(self, l.pos, "a view of the temporary {s} is held by `{s}`, a temporary its statement drops after it; bind the value to a name first", .{ temp, hv.name });
+        if (self.last_err_kept) try note(self, hv.decl, "`{s}` is made before `{s}`, so dropped after it", .{ hv.name, name });
         return;
     };
     // A view the statement holds owns nothing it could drop: what
     // it views is held only while the statement runs.
     const is_view = if (self.vars.items[l.root].ty) |t| sema.isReadOrWriteView(self.sema, t) else false;
     if (is_view) {
-        try self.err(l.pos, "a view reached through `{s}` outlives its statement, which holds `{s}`, itself a view, only while it runs; bind `{s}` to a name first", .{ name, name, name });
-    } else try self.err(l.pos, "a view of the temporary {s} outlives its statement, which drops it; bind the value to a name first", .{temp});
+        try err(self, l.pos, "a view reached through `{s}` outlives its statement, which holds `{s}`, itself a view, only while it runs; bind `{s}` to a name first", .{ name, name, name });
+    } else try err(self, l.pos, "a view of the temporary {s} outlives its statement, which drops it; bind the value to a name first", .{temp});
     if (!self.last_err_kept) return;
     const h = holder orelse return;
     const hv = self.vars.items[h];
-    if (hv.name.len > 0) try self.note(hv.decl, "`{s}` still holds it after the statement", .{hv.name});
+    if (hv.name.len > 0) try note(self, hv.decl, "`{s}` still holds it after the statement", .{hv.name});
 }
 
 /// A statement's temporary, made since there were `depth` vars, that
@@ -732,7 +738,7 @@ pub fn reportTempOutlived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
 pub fn reportTempHolder(self: *Checker, f: Flow, holder: VarId, depth: u32) Error!void {
     for (f.loans) |l| {
         if (l.root < depth or !self.isStmtTemp(l.root)) continue;
-        if (self.holderLive(holder, self.stmtEnd())) try self.reportTempOutlived(l, holder);
+        if (live.holderLive(self, holder, live.stmtEnd(self))) try reportTempOutlived(self, l, holder);
         return;
     }
 }
@@ -746,7 +752,7 @@ pub fn reportDropped(self: *Checker, depth: u32, at: ?u32) Error!void {
     if (!self.viewedFrom(depth)) return;
     for (self.flows.items[0..@min(depth, self.flows.items.len)], 0..) |f, holder| {
         if (!hasLoanFrom(f.loans, depth)) continue;
-        if (!(try self.reportHolder(f, @intCast(holder), depth, at, .nil))) try self.reportTempHolder(f, @intCast(holder), depth);
+        if (!(try reportHolder(self, f, @intCast(holder), depth, at, .nil))) try reportTempHolder(self, f, @intCast(holder), depth);
     }
 }
 
@@ -756,11 +762,11 @@ pub fn reportDropped(self: *Checker, depth: u32, at: ?u32) Error!void {
 /// code of a scope that ends as the code falls through, which drops
 /// those vars at its end (`.nil` for another exit).
 pub fn reportHolder(self: *Checker, f: Flow, holder: VarId, depth: u32, at: ?u32, scope: Sexp) Error!bool {
-    if (!self.holderLive(holder, at)) return false;
+    if (!live.holderLive(self, holder, at)) return false;
     // Where the scope that drops them ends, when it ends as the code
     // falls through: worked out only here, for the message.
-    const drop_at = self.endOf(scope);
-    for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, holder, if (drop_at) |d| .{ .at = d, .end = at.? } else null);
+    const drop_at = endOf(self, scope);
+    for (f.loans) |l| if (l.root >= depth) try reportShortLived(self, l, holder, if (drop_at) |d| .{ .at = d, .end = at.? } else null);
     return true;
 }
 
@@ -777,7 +783,7 @@ pub fn reportMoveLeaves(self: *Checker, top: Sexp) Error!bool {
         // The type checker reported it.
         .made_part => {},
         else => {
-            try self.reportMoveLeaf(leaf, top);
+            try reportMoveLeaf(self, leaf, top);
             return true;
         },
     };
@@ -787,25 +793,25 @@ pub fn reportMoveLeaves(self: *Checker, top: Sexp) Error!bool {
 pub fn reportMoveLeaf(self: *Checker, leaf: sema.MoveLeaf, top: Sexp) Error!void {
     const place = leaf.node;
     // A part of a branching value is shown as written.
-    const shown = if (leaf.source == .branch_part) self.spanText(place) else try self.placeText(place);
+    const shown = if (leaf.source == .branch_part) spanText(self, place) else try placeText(self, place);
     const at_exit = top.isKind(.propagate) or top.isKind(.propagate_none);
-    const ty = self.exprType(place);
+    const ty = types.exprType(self, place);
     // An optional field that moves like a name (`sema.moveSource`) is
     // moved inside the branch, as a binding is.
-    const moves = leaf.source == .part and ty != null and self.typeData(ty.?) == .optional;
+    const moves = leaf.source == .part and ty != null and types.typeData(self, ty.?) == .optional;
     switch (leaf.source) {
-        .capture => try self.errAt(place, "`<` here would leave `{s}` as it was: the closure keeps its capture for every call; remove the `<` to copy it", .{shown}),
-        .declared => try self.errAt(place, "`<` here would leave `{s}` as it was: it lives for the whole program; remove the `<` to copy it", .{shown}),
+        .capture => try errAt(self, place, "`<` here would leave `{s}` as it was: the closure keeps its capture for every call; remove the `<` to copy it", .{shown}),
+        .declared => try errAt(self, place, "`<` here would leave `{s}` as it was: it lives for the whole program; remove the `<` to copy it", .{shown}),
         else => if (moves or leaf.source == .binding or leaf.source == .optional_part) {
             const verb = if (leaf.source == .optional_part) "take" else "move";
             if (at_exit) {
-                try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it before the `?` or `!`: `(<{s}){s}`", .{ shown, verb, shown, if (top.isKind(.propagate)) "!" else "?" });
-            } else try self.errAt(place, "`<` here would copy `{s}` out without moving it; {s} it inside the branch: `<{s}`", .{ shown, verb, shown });
-        } else if (ty != null and (self.copies(ty) or self.refOfType(ty) == .read)) {
-            try self.errAt(place, "`<` here would leave `{s}` as it was: it copies; remove the `<` to copy it", .{shown});
+                try errAt(self, place, "`<` here would copy `{s}` out without moving it; {s} it before the `?` or `!`: `(<{s}){s}`", .{ shown, verb, shown, if (top.isKind(.propagate)) "!" else "?" });
+            } else try errAt(self, place, "`<` here would copy `{s}` out without moving it; {s} it inside the branch: `<{s}`", .{ shown, verb, shown });
+        } else if (ty != null and (types.copies(self, ty) or types.refOfType(self, ty) == .read)) {
+            try errAt(self, place, "`<` here would leave `{s}` as it was: it copies; remove the `<` to copy it", .{shown});
         } else if (leaf.source == .branch_part) {
-            try self.errAt(place, "`<` here would copy `{s}` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `swap`", .{shown});
-        } else try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; {s}", .{ shown, try self.exchangeHint(ty, shown, "exchange it") }),
+            try errAt(self, place, "`<` here would copy `{s}` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `swap`", .{shown});
+        } else try errAt(self, place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; {s}", .{ shown, try exchangeHint(self, ty, shown, "exchange it") }),
     }
 }
 
@@ -818,7 +824,7 @@ pub const Aliased = enum { name, field, element };
 pub fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased, k: Owning, sink: Sink, ty: ?TypeId, part: ?Sexp) Error!void {
     if (k == .generic) {
         // Fine for plain data: each instantiation is checked.
-        if (ty) |t| try self.requirePlain(pos, t, false);
+        if (ty) |t| try generic.requirePlain(self, pos, t, false);
         return;
     }
     const a = self.arena();
@@ -832,15 +838,15 @@ pub fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased,
     // (`sema.moveSource`).
     // A part of what a match binds by reading a place moves once the
     // match takes the place: `<` there comes first.
-    const subject: []const u8 = if (part) |p| if (self.resolvePlace(p)) |at| self.vars.items[at.root].read_subject else "" else "";
+    const subject: []const u8 = if (part) |p| if (transfer.resolvePlace(self, p)) |at| self.vars.items[at.root].read_subject else "" else "";
     if (!is_name and subject.len > 0 and sema.cloneable(ctx, t) != .bump) {
         try fixes.append(a, try a.print("`<{s}` where it is matched, so its fields are owned, then `<{s}` to move this one", .{ subject, what }));
     }
     if (is_name) {
         try fixes.append(a, try a.print("`<{s}` to move it", .{what}));
-    } else if (self.typeData(t) == .optional and if (part) |p| sema.moveSource(ctx, p) == .part else false) {
+    } else if (types.typeData(self, t) == .optional and if (part) |p| sema.moveSource(ctx, p) == .part else false) {
         try fixes.append(a, try a.print("`<{s}` to move it out", .{what}));
-    } else if (self.typeData(t) == .optional and !(if (part) |p| ctx.untakeableAt(p) else true)) {
+    } else if (types.typeData(self, t) == .optional and !(if (part) |p| ctx.untakeableAt(p) else true)) {
         try fixes.append(a, try a.print("`<{s}` to take it out (leaving `none`)", .{what}));
     }
     switch (sema.cloneable(ctx, t)) {
@@ -849,7 +855,7 @@ pub fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased,
         else => try fixes.append(a, try a.print("`+{s}` to {s}", .{ what, if (sink == .argument) "pass a clone" else "clone it" })),
     }
     if (sink == .binding) try fixes.append(a, try a.print("`?{s}` to view it", .{what}));
-    const callee = if (sink == .argument) try self.ownerCallee(pos) else null;
+    const callee = if (sink == .argument) try ownerCallee(self, pos) else null;
     var msg: std.ArrayList(u8) = .empty;
     if (callee) |f| {
         try msg.print(a, "`{s}` takes ownership of {s} `{s}`, and `{s}` can't be copied", .{ f.name, article(shown), shown, what });
@@ -886,7 +892,7 @@ pub fn reportAlias(self: *Checker, pos: u32, what: []const u8, aliased: Aliased,
             try msg.print(a, "; if `{s}` only reads it, make its parameter a read view", .{f.name});
         } else try msg.print(a, "; if `{s}` only reads it, make its parameter {s} `?{s}`", .{ f.name, article(param), param });
     }
-    try self.err(pos, "{s}", .{msg.items});
+    try err(self, pos, "{s}", .{msg.items});
 }
 
 /// The function or method whose argument at `pos` is the one being
@@ -909,23 +915,23 @@ pub fn ownerCallee(self: *Checker, pos: u32) Error!?struct { name: []const u8, p
         if (sym.kind != .function) return null;
         const f = switch (ctx.types.get(sym.ty)) {
             .function => |f| f,
-            else => return .{ .name = self.text(callee) },
+            else => return .{ .name = types.text(self, callee) },
         };
         // A generic parameter is named as declared; a positional
         // argument fills the parameter at its place.
-        if (!sema.isGenericFn(ctx, f)) return .{ .name = self.text(callee) };
+        if (!sema.isGenericFn(ctx, f)) return .{ .name = types.text(self, callee) };
         // By name, the parameter is not known here: the hint names
         // no type (`param` empty).
-        for (args[0 .. index + 1]) |arg| if (arg.isKind(.kwarg)) return .{ .name = self.text(callee), .param = "" };
-        if (index >= f.params.len) return .{ .name = self.text(callee), .param = "" };
-        if (!sema.containsTypeVar(ctx, f.params[index])) return .{ .name = self.text(callee) };
-        return .{ .name = self.text(callee), .param = try sema.formatTypeIn(ctx, self.arena(), f.params[index]) };
+        for (args[0 .. index + 1]) |arg| if (arg.isKind(.kwarg)) return .{ .name = types.text(self, callee), .param = "" };
+        if (index >= f.params.len) return .{ .name = types.text(self, callee), .param = "" };
+        if (!sema.containsTypeVar(ctx, f.params[index])) return .{ .name = types.text(self, callee) };
+        return .{ .name = types.text(self, callee), .param = try sema.formatTypeIn(ctx, self.arena(), f.params[index]) };
     }
-    if (!callee.isKind(.member) or self.namesType(callee) or self.callsFunctionField(call, callee)) return null;
+    if (!callee.isKind(.member) or rules.namesType(self, callee) or generic.callsFunctionField(self, call, callee)) return null;
     var obj = ir.Member.object(callee);
     if (obj.isKind(.write) or obj.isKind(.read) or obj.isKind(.move)) obj = ir.get(obj, .operand);
-    if (self.builtinName(self.exprType(obj)) != null) return null;
-    return .{ .name = self.text(ir.Member.name(callee)) };
+    if (types.builtinName(self, types.exprType(self, obj)) != null) return null;
+    return .{ .name = types.text(self, ir.Member.name(callee)) };
 }
 
 /// A store of view `l` into var `id`, which `l` is a loan on a part
@@ -935,16 +941,16 @@ pub fn reportSelfView(self: *Checker, id: VarId, l: Loan, views: []const Loan, p
     const into_path = for (views) |x| {
         if (x.root == id and !x.ext) break x.path;
     } else whole_path;
-    const into = try self.pathText(id, into_path);
-    const viewed = try self.pathText(l.root, l.path);
+    const into = try pathText(self, id, into_path);
+    const viewed = try pathText(self, l.root, l.path);
     // One the closure's captures were reported for, where it is made.
     const pair = try std.fmt.allocPrint(self.arena(), "{s} <- {s}", .{ into, viewed });
     for (self.closure_self_views.items) |p| if (std.mem.eql(u8, p, pair)) return;
     if (self.capturing) try self.closure_self_views.append(self.arena(), pair);
     if (via != null) {
-        try self.err(pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ into, viewed });
-    } else try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`: a value never holds a view of itself", .{ viewed, into });
-    try self.noteLoan(l);
+        try err(self, pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ into, viewed });
+    } else try err(self, pos, "cannot let this call store a view of `{s}` in `{s}`: a value never holds a view of itself", .{ viewed, into });
+    try noteLoan(self, l);
 }
 
 /// How a move-out diagnostic says to exchange `path`, of type `ty`:
@@ -969,7 +975,7 @@ pub fn captureFix(self: *Checker, name: []const u8, ty: ?TypeId) Error![]const u
     const a = self.arena();
     return switch (sema.cloneable(ctx, t)) {
         .no, .depends => "",
-        .bump => if (self.owningKind(t)) |k| switch (k) {
+        .bump => if (types.owningKind(self, t)) |k| switch (k) {
             .shared => a.print("; write `+{s}` for another handle, or `~{s}` for a weak one", .{ name, name }),
             else => a.print("; write `+{s}` for another weak handle", .{name}),
         } else "",
@@ -979,12 +985,12 @@ pub fn captureFix(self: *Checker, name: []const u8, ty: ?TypeId) Error![]const u
 
 /// A closure binding used as a value.
 pub fn errClosureValue(self: *Checker, pos: u32, name: []const u8) Error!void {
-    try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or copied; call it as `{s}()`, pass it to a call as `?{s}`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name, name });
+    try err(self, pos, "closure `{s}` cannot be moved, returned, stored, or copied; call it as `{s}()`, pass it to a call as `?{s}`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name, name });
 }
 
 pub fn errOnceUse(self: *Checker, e: Sexp) Error!void {
-    const name = self.text(e);
-    try self.err(e.src.pos, "`{s}` is called at most once (`once`), so it is only called, `{s}()`, or passed to another `once` parameter", .{ name, name });
+    const name = types.text(self, e);
+    try err(self, e.src.pos, "`{s}` is called at most once (`once`), so it is only called, `{s}()`, or passed to another `once` parameter", .{ name, name });
 }
 
 /// `!a[i]` and `!a[j]`: write views of two elements of the one
@@ -994,9 +1000,9 @@ pub fn sameCollection(self: *const Checker, a: Sexp, b: Sexp) ?struct { base: []
     const ea = ir.Write.operand(a);
     const eb = ir.Write.operand(b);
     if (!ea.isKind(.index) or !eb.isKind(.index) or rig.isRangeIndex(ea) or rig.isRangeIndex(eb)) return null;
-    const base = self.spanText(ir.Index.object(ea));
-    if (base.len == 0 or !std.mem.eql(u8, base, self.spanText(ir.Index.object(eb)))) return null;
-    return .{ .base = base, .i = self.spanText(ir.Index.index(ea)), .j = self.spanText(ir.Index.index(eb)) };
+    const base = spanText(self, ir.Index.object(ea));
+    if (base.len == 0 or !std.mem.eql(u8, base, spanText(self, ir.Index.object(eb)))) return null;
+    return .{ .base = base, .i = spanText(self, ir.Index.index(ea)), .j = spanText(self, ir.Index.index(eb)) };
 }
 
 // -----------------------------------------------------------------------------
@@ -1004,7 +1010,7 @@ pub fn sameCollection(self: *const Checker, a: Sexp, b: Sexp) ?struct { base: []
 // -----------------------------------------------------------------------------
 
 pub fn spanText(self: *const Checker, node: Sexp) []const u8 {
-    const sp = self.span(node);
+    const sp = span(self, node);
     return diag.textOf(self.source, sp);
 }
 
@@ -1019,7 +1025,7 @@ pub fn varText(self: *Checker, v: Var) Error![]const u8 {
 
 pub fn pathText(self: *Checker, root: VarId, path: PathId) Error![]const u8 {
     var out: std.ArrayList(u8) = .empty;
-    try out.appendSlice(self.arena(), try self.varText(self.vars.items[root]));
+    try out.appendSlice(self.arena(), try varText(self, self.vars.items[root]));
     try self.paths.appendText(self.arena(), &out, path);
     // Self's member is `@name`, with no `.`.
     if (std.mem.eql(u8, self.vars.items[root].name, "@") and out.items.len > 2) _ = out.orderedRemove(1);
@@ -1028,14 +1034,14 @@ pub fn pathText(self: *Checker, root: VarId, path: PathId) Error![]const u8 {
 
 pub fn placeText(self: *Checker, e: Sexp) Error![]const u8 {
     switch (e) {
-        .src => return self.text(e),
+        .src => return types.text(self, e),
         .list => switch (e.kind() orelse return "expression") {
-            .member => return sema.memberText(self.arena(), try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e))),
-            .index => return self.arena().print("{s}[{s}]", .{ try self.placeText(ir.Index.object(e)), self.spanText(ir.Index.index(e)) }),
+            .member => return sema.memberText(self.arena(), try placeText(self, ir.Member.object(e)), types.text(self, ir.Member.name(e))),
+            .index => return self.arena().print("{s}[{s}]", .{ try placeText(self, ir.Index.object(e)), spanText(self, ir.Index.index(e)) }),
             // A sigil: the place it wraps.
-            .read, .write, .move, .clone, .share, .box, .weak => return self.placeText(ir.get(e, .operand)),
+            .read, .write, .move, .clone, .share, .box, .weak => return placeText(self, ir.get(e, .operand)),
             // Any other value (`mk()`): as written.
-            else => return self.spanText(e),
+            else => return spanText(self, e),
         },
         else => return "expression",
     }

@@ -3227,11 +3227,12 @@ The ownership checker checks one function body at a time as a
 flow-sensitive abstract interpretation of the IR. `src/ownership.zig`
 is its interface (`Checker`) and its tests; the checker itself is laid
 out by docs/CORE.md in `src/ownership/`, so each sentence's rules are
-in one place:
+in one place. Each file's functions take the `*Checker` first, and a
+call names the file it calls into (`rules.checkLive(self, ...)`):
 
 | File | Holds |
 |---|---|
-| `state.zig` | `Var`, `Flow`, `Loan`, `Paths`, points and the trail, join; the `Checker`, which names the methods the other files define |
+| `state.zig` | `Var`, `Flow`, `Loan`, `Paths`, points and the trail, join; the `Checker` |
 | `live.zig` | liveness: whether the var holding a loan may be used again (sentence 6) |
 | `transfer.zig` | the walk: what each construct does to the state, grouped by sentences 1 to 10, then return, branches, and loops |
 | `rules.zig` | the checks that reject a program, grouped by the sentence each enforces |

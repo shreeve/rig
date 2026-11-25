@@ -11,6 +11,12 @@ const ir = parser.ir;
 const TypeId = sema.TypeId;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
+const live = @import("live.zig");
+const transfer = @import("transfer.zig");
+const rules = @import("rules.zig");
+const generic = @import("generic.zig");
+const types = @import("types.zig");
+const notes = @import("notes.zig");
 const Checker = state.Checker;
 const Loan = state.Loan;
 const LoanKind = state.LoanKind;
@@ -45,7 +51,7 @@ pub fn isViewOf(views: []const Loan, l: Loan) bool {
 /// what it keeps are read loans; one holding a write view, a type
 /// parameter, or a type not known keeps every loan.
 pub fn carry(self: *Checker, ty: ?TypeId, v: Value) Error!Value {
-    return self.carryAs(ty, v, false);
+    return carryAs(self, ty, v, false);
 }
 
 /// The loans a call's result keeps of `v` (Core sentence 7), as
@@ -55,7 +61,7 @@ pub fn carry(self: *Checker, ty: ?TypeId, v: Value) Error!Value {
 /// owner may be read but not written. What the call stores keeps its
 /// loans where it stores them (`absorbThroughWrites`).
 pub fn carryResult(self: *Checker, ty: ?TypeId, v: Value) Error!Value {
-    return self.carryAs(ty, v, true);
+    return carryAs(self, ty, v, true);
 }
 
 pub fn carryAs(self: *Checker, ty: ?TypeId, v: Value, result: bool) Error!Value {
@@ -70,10 +76,10 @@ pub fn carryAs(self: *Checker, ty: ?TypeId, v: Value, result: bool) Error!Value 
     // a write view leaves where it is bound, so what it keeps are read
     // loans.
     if (!result and sema.holdsCallLoans(ctx, t)) return v;
-    if (!self.viewsOnlyRead(t)) return v;
+    if (!viewsOnlyRead(self, t)) return v;
     const reads = result or sema.holdsViewOnly(ctx, t);
     var out: std.ArrayList(Loan) = .empty;
-    for (v.loans) |l| try self.carryLoan(&out, t, reads, l, 0);
+    for (v.loans) |l| try carryLoan(self, &out, t, reads, l, 0);
     return .{ .loans = out.items };
 }
 
@@ -85,7 +91,7 @@ pub fn viewsOnlyRead(self: *const Checker, ty: TypeId) bool {
     const ctx = self.sema;
     const info = ctx.typeInfo(ty);
     if (info.poison or info.views.write) return false;
-    if (self.holdsItem(ty)) return true;
+    if (generic.holdsItem(self, ty)) return true;
     if (info.holds_type_var) return false;
     return info.views.marked or info.views.string_view;
 }
@@ -94,8 +100,8 @@ pub fn carryLoan(self: *Checker, out: *std.ArrayList(Loan), ty: TypeId, reads: b
     // A loan on a var whose scope ended was released with it
     // (`releaseVarsFrom`); one that survives is a lost track of the
     // walk, which no program is accepted with.
-    if (l.root >= self.vars.items.len) return self.err(l.pos, "internal error: a loan outlives the var it is on", .{});
-    if (l.ext or depth >= 16 or try self.mayOwnView(l.root, ty)) {
+    if (l.root >= self.vars.items.len) return notes.err(self, l.pos, "internal error: a loan outlives the var it is on", .{});
+    if (l.ext or depth >= 16 or try mayOwnView(self, l.root, ty)) {
         var kept = l;
         if (reads and !l.ext and l.kind == .write) {
             kept.kind = .read;
@@ -108,8 +114,8 @@ pub fn carryLoan(self: *Checker, out: *std.ArrayList(Loan), ty: TypeId, reads: b
         // What self holds, standing for a loan on a path of self, is
         // on that path (`tagSelf`).
         var k = h;
-        if (h.ext and h.root == l.root and self.isSelfVar(l.root) and l.path != whole_path and self.paths.within(l.path, h.path)) k.path = l.path;
-        try self.carryLoan(out, ty, reads, k, depth + 1);
+        if (h.ext and h.root == l.root and isSelfVar(self, l.root) and l.path != whole_path and self.paths.within(l.path, h.path)) k.path = l.path;
+        try carryLoan(self, out, ty, reads, k, depth + 1);
     }
 }
 
@@ -119,11 +125,11 @@ pub fn carryLoan(self: *Checker, out: *std.ArrayList(Loan), ty: TypeId, reads: b
 pub fn mayOwnView(self: *Checker, id: VarId, view: TypeId) Error!bool {
     const ctx = self.sema;
     // An associated type an instance gives may view anything.
-    if (self.holdsItem(view)) return true;
+    if (generic.holdsItem(self, view)) return true;
     const v = self.vars.items[id];
     if (v.closure) return true;
     const t = v.ty orelse return true;
-    if (self.isPoisonType(t) or ctx.types.get(t) == .unknown) return true;
+    if (types.isPoisonType(self, t) or ctx.types.get(t) == .unknown) return true;
     const key: ReachKey = .{ .holder = t, .view = view };
     if (self.reaches.get(key)) |r| return r == .owned;
     var scratch = std.heap.ArenaAllocator.init(self.gpa);
@@ -141,7 +147,7 @@ pub fn throughReadView(self: *const Checker, e: Sexp) bool {
     var p = e;
     while (p.isKind(.member) or p.isKind(.index)) {
         const obj = ir.get(p, .object);
-        if (self.exprType(obj)) |t| switch (self.typeData(t)) {
+        if (types.exprType(self, obj)) |t| switch (types.typeData(self, t)) {
             .read_view, .slice, .string_view => return true,
             else => {},
         };
@@ -156,10 +162,10 @@ pub fn throughReadView(self: *const Checker, e: Sexp) bool {
 /// the place's var holds, and no loan on the var (Core sentence 7).
 /// The var is held while the place's indexes run, as for any view.
 pub fn walkThroughView(self: *Checker, e: Sexp) Error!Value {
-    const place = self.resolvePlace(e) orelse return self.walkViewedPath(e);
-    try self.walkIndicesHeld(e, place.root, place.path);
-    try self.checkReadable(place.root, e, self.startOf(e));
-    return self.tagSelf(self.varValue(place.root), place.root, place.path);
+    const place = transfer.resolvePlace(self, e) orelse return transfer.walkViewedPath(self, e);
+    try transfer.walkIndicesHeld(self, e, place.root, place.path);
+    try rules.checkReadable(self, place.root, e, notes.startOf(self, e));
+    return tagSelf(self, live.varValue(self, place.root), place.root, place.path);
 }
 
 /// Whether call `call` may keep what argument `arg` views. No value
@@ -170,12 +176,12 @@ pub fn keepsCallable(self: *const Checker, call: Sexp, arg: Sexp) bool {
     const ctx = self.sema;
     const value = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
     const fn_ty = ctx.callableOf(value) orelse blk: {
-        const ty = self.exprType(value) orelse return true;
+        const ty = types.exprType(self, value) orelse return true;
         if (sema.callableFn(ctx, ty) == null) return true;
         break :blk sema.callableFnTy(ctx, ty).?;
     };
-    if (sema.holdsCallable(ctx, self.exprType(call) orelse return true)) return true;
-    return self.mayCarryLoan(ctx.types.get(fn_ty).function.returns);
+    if (sema.holdsCallable(ctx, types.exprType(self, call) orelse return true)) return true;
+    return types.mayCarryLoan(self, ctx.types.get(fn_ty).function.returns);
 }
 
 /// The element type of a call of `copy`, a built-in element method
@@ -191,7 +197,7 @@ pub fn copiedElem(self: *const Checker, callee: Sexp) ?TypeId {
 pub fn storesNothing(self: *const Checker, callee: Sexp) bool {
     const ctx = self.sema;
     const ec = ctx.elemCallOf(callee) orelse return false;
-    return !self.mayCarryLoan(ec.elem);
+    return !types.mayCarryLoan(self, ec.elem);
 }
 
 /// A view of a value that copies and carries no loan (`k` with
@@ -200,8 +206,8 @@ pub fn storesNothing(self: *const Checker, callee: Sexp) bool {
 pub fn readsPlainValue(self: *const Checker, e: Sexp) bool {
     const ctx = self.sema;
     const arg = if (e.isKind(.kwarg)) ir.Kwarg.value(e) else e;
-    const value = sema.copiedThrough(ctx, self.exprType(arg) orelse return false) orelse return false;
-    return !self.mayCarryLoan(value);
+    const value = sema.copiedThrough(ctx, types.exprType(self, arg) orelse return false) orelse return false;
+    return !types.mayCarryLoan(self, value);
 }
 
 /// Record that the values the write loans in `v` lead to may now hold
@@ -217,22 +223,22 @@ pub fn readsPlainValue(self: *const Checker, e: Sexp) bool {
 /// views, do not. A write view var on the way (`w2 = !w`) is a
 /// name for what it views, and takes no step of its own.
 pub fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, via: ?[]const u8, depth: ?u32) Error!void {
-    return self.absorbThroughViews(v, stored, v.loans, pos, via, depth);
+    return absorbThroughViews(self, v, stored, v.loans, pos, via, depth);
 }
 
 /// `absorbThroughWrites`, where `views` are the views the store goes
 /// through (`absorbLoans`): `v`'s, and a `swap`'s other place's.
 pub fn absorbThroughViews(self: *Checker, v: Value, stored: Value, views: []const Loan, pos: u32, via: ?[]const u8, depth: ?u32) Error!void {
     var level: std.ArrayList(VarId) = .empty;
-    try self.appendWriteRoots(&level, v, &.{});
+    try appendWriteRoots(self, &level, v, &.{});
     const d = depth orelse {
         for (level.items) |r| {
             // Only a value that can hold a view can have one stored in it.
-            if (!self.mayCarryLoan(self.pointee(self.vars.items[r].ty))) {
-                try self.genericStoreIn(r, stored, pos, 0);
+            if (!types.mayCarryLoan(self, types.pointee(self, self.vars.items[r].ty))) {
+                try generic.genericStoreIn(self, r, stored, pos, 0);
                 continue;
             }
-            try self.absorbLoans(r, stored, pos, level.items, via, true, views);
+            try absorbLoans(self, r, stored, pos, level.items, via, true, views);
         }
         return;
     };
@@ -247,27 +253,27 @@ pub fn absorbThroughViews(self: *Checker, v: Value, stored: Value, views: []cons
             if (std.mem.findScalar(VarId, seen.items, r) != null) continue;
             try seen.append(self.arena(), r);
             const c = self.vars.items[r];
-            if (self.callerOwns(r) or self.isGlobal(r)) continue;
+            if (callerOwns(self, r) or self.isGlobal(r)) continue;
             if (c.ref == .write) {
-                try self.appendWriteRoots(&level, self.varValue(r), seen.items);
-            } else if (remaining > 1) try self.appendWriteRoots(&next, self.varValue(r), seen.items);
+                try appendWriteRoots(self, &level, live.varValue(self, r), seen.items);
+            } else if (remaining > 1) try appendWriteRoots(self, &next, live.varValue(self, r), seen.items);
         }
         if (remaining <= 1) break;
         remaining -= 1;
         level = next;
     }
-    if (seen.items.len > 64) return self.absorbThroughViews(v, stored, views, pos, via, null);
+    if (seen.items.len > 64) return absorbThroughViews(self, v, stored, views, pos, via, null);
     // The write loans that lead from one value reached to the next are
     // views the store goes through too.
     var through_views: std.ArrayList(Loan) = .empty;
     try through_views.appendSlice(self.arena(), views);
-    for (seen.items) |r| for (self.varValue(r).loans) |l| if (l.kind == .write) try through_views.append(self.arena(), l);
+    for (seen.items) |r| for (live.varValue(self, r).loans) |l| if (l.kind == .write) try through_views.append(self.arena(), l);
     for (seen.items) |r| {
-        if (!self.mayCarryLoan(self.pointee(self.vars.items[r].ty))) {
-            try self.genericStoreIn(r, stored, pos, 0);
+        if (!types.mayCarryLoan(self, types.pointee(self, self.vars.items[r].ty))) {
+            try generic.genericStoreIn(self, r, stored, pos, 0);
             continue;
         }
-        try self.absorbLoans(r, stored, pos, seen.items, via, false, through_views.items);
+        try absorbLoans(self, r, stored, pos, seen.items, via, false, through_views.items);
     }
 }
 
@@ -292,7 +298,7 @@ pub fn placeDepth(self: *const Checker, target: Sexp, writes_through: bool) u32 
         // A root var holding a write view (a `match !x` binding
         // among them, whatever its type) is one.
         const root_is_write_view = e == .src and if (self.find(e)) |id| self.vars.items[id].ref == .write else false;
-        const is_write_view = if (self.exprType(e)) |t| self.typeData(t) == .write_view else false;
+        const is_write_view = if (types.exprType(self, e)) |t| types.typeData(self, t) == .write_view else false;
         if (root_is_write_view or is_write_view) n += 1;
     }
     return n;
@@ -313,39 +319,39 @@ pub fn placeDepth(self: *const Checker, target: Sexp, writes_through: bool) u32 
 /// the write loans held on the way), which are the way in, not views
 /// stored.
 pub fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool, views: []const Loan) Error!void {
-    if (try self.selfViewIn(id, v_in.loans, views, through)) |l| return self.reportSelfView(id, l, views, pos, via);
+    if (try selfViewIn(self, id, v_in.loans, views, through)) |l| return notes.reportSelfView(self, id, l, views, pos, via);
     // A value that holds only Strings keeps only what leads to a String.
     // What lands in a value that holds only Strings needs only what
     // could hold them (`carry`).
-    const t = self.pointee(self.vars.items[id].ty);
+    const t = types.pointee(self, self.vars.items[id].ty);
     const strings = if (t) |inner| sema.holdsViewOnly(self.sema, inner) else false;
-    const v = if (strings) try self.carry(t, v_in) else v_in;
+    const v = if (strings) try carry(self, t, v_in) else v_in;
     var out: std.ArrayList(Loan) = .empty;
     for (v.loans) |l| {
         if (l.root != id and std.mem.findScalar(VarId, through, l.root) == null) try out.append(self.arena(), l);
     }
     const c = self.vars.items[id];
-    if (self.callerOwns(id) and self.holdsGeneric(t)) self.noteGenericStore(id, pos);
-    if (self.callerOwns(id) or self.isGlobal(id)) {
+    if (callerOwns(self, id) and generic.holdsGeneric(self, t)) generic.noteGenericStore(self, id, pos);
+    if (callerOwns(self, id) or self.isGlobal(id)) {
         // The caller accounts for views it passed in; only views
         // of this function's own values cannot be stored. Nothing
         // viewed may be stored in a module-level binding.
-        for (out.items) |l| if (self.isLocalLoan(l) or self.isGlobal(id)) {
+        for (out.items) |l| if (isLocalLoan(self, l) or self.isGlobal(id)) {
             const name = self.vars.items[l.root].name;
             if (self.vars.items[l.root].erased_of.len > 0) {
-                try self.reportErasedCopy(l, self.vars.items[l.root]);
+                try notes.reportErasedCopy(self, l, self.vars.items[l.root]);
                 return;
             }
             if (via) |w| {
-                try self.err(pos, "cannot store a view of `{s}` through `{s}`: `{s}` outlives it", .{ name, w, c.name });
-            } else try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`: `{s}` outlives it", .{ name, c.name, c.name });
+                try notes.err(self, pos, "cannot store a view of `{s}` through `{s}`: `{s}` outlives it", .{ name, w, c.name });
+            } else try notes.err(self, pos, "cannot let this call store a view of `{s}` in `{s}`: `{s}` outlives it", .{ name, c.name, c.name });
             return;
         };
         // The parameter holds what is stored in the value the caller
         // gave it a view of. It is live at every exit (`holderLive`),
         // since the caller reads that value after the return, so each
         // loan stays in force for the rest of the body.
-        self.recordStore(id, out.items, pos);
+        recordStore(self, id, out.items, pos);
         var pf = self.flows.items[id];
         pf.loans = try self.unionLoans(pf.loans, out.items);
         return self.setFlow(id, pf);
@@ -358,14 +364,14 @@ pub fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []
     // Only a var that holds a write view writes what its write loans
     // lead to. Any other keeps a write loan only as what it copied
     // out through one (`k.a = r.s`): what is stored in it stays there.
-    if (c.ref != .write and !self.mayWrite(c.ty)) return;
+    if (c.ref != .write and !types.mayWrite(self, c.ty)) return;
     const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
     for (held) |l| {
         if (l.kind != .write or std.mem.findScalar(VarId, next, l.root) != null) continue;
         // Only a value that can hold a view can have one stored in it.
-        if (!self.mayCarryLoan(self.pointee(self.vars.items[l.root].ty))) continue;
-        if (through.len > 16) return self.tooComplex(pos, "store");
-        try self.absorbLoans(l.root, v, pos, next, via, true, try std.mem.concat(self.arena(), Loan, &.{ views, &.{l} }));
+        if (!types.mayCarryLoan(self, types.pointee(self, self.vars.items[l.root].ty))) continue;
+        if (through.len > 16) return notes.tooComplex(self, pos, "store");
+        try absorbLoans(self, l.root, v, pos, next, via, true, try std.mem.concat(self.arena(), Loan, &.{ views, &.{l} }));
     }
 }
 
@@ -377,7 +383,7 @@ pub fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []
 /// outlives this function's own values.
 pub fn callerOwns(self: *const Checker, id: VarId) bool {
     const v = self.vars.items[id];
-    return v.kind == .param and (v.ref != .none or self.carriesWriteView(v.ty));
+    return v.kind == .param and (v.ref != .none or types.carriesWriteView(self, v.ty));
 }
 
 /// A loan on a value owned by the current function (as opposed to one
@@ -407,7 +413,7 @@ pub fn isSelfVar(self: *const Checker, id: VarId) bool {
 /// `from` names paths of self: what the body returns is checked
 /// against them (`checkSelfPaths`). Any other value is `v`.
 pub fn tagSelf(self: *Checker, v: Value, root: VarId, path: PathId) Error!Value {
-    if (!self.isSelfVar(root) or path == whole_path) return v;
+    if (!isSelfVar(self, root) or path == whole_path) return v;
     const retag = struct {
         fn is(c: *const Checker, l: Loan, r: VarId, p: PathId) bool {
             return l.ext and l.root == r and l.path != p and c.paths.within(p, l.path);
@@ -438,7 +444,7 @@ pub fn bindSelfPaths(self: *Checker) Error!void {
     } else return;
     if (self.vars.items[id].kind != .param) return;
     const out = try self.arena().alloc(PathId, sps.len);
-    for (sps, out) |sp, *p| p.* = try self.selfPathId(whole_path, sp);
+    for (sps, out) |sp, *p| p.* = try selfPathId(self, whole_path, sp);
     self.func.self_var = id;
     self.func.self_paths = out;
 }
@@ -486,9 +492,9 @@ pub fn selfPathsResult(self: *Checker, paths: []const sema.SelfPath, root: ?VarI
     for (paths) |sp| {
         var part = holds;
         if (root) |id| {
-            const p = try self.selfPathId(path, sp);
-            if (!sp.via_view) part = try self.valueUnion(part, try self.viewOn(id, .{ .root = id, .path = p, .kind = kind, .pos = pos }));
-            part = try self.tagSelf(part, id, p);
+            const p = try selfPathId(self, path, sp);
+            if (!sp.via_view) part = try self.valueUnion(part, try transfer.viewOn(self, id, .{ .root = id, .path = p, .kind = kind, .pos = pos }));
+            part = try tagSelf(self, part, id, p);
         } else if (!sp.via_view) part = try self.valueUnion(part, viewed);
         out = try self.valueUnion(out, part);
     }
@@ -539,7 +545,7 @@ pub fn declOrigins(self: *const Checker, name: Sexp) sema.Origins {
     if (self.decl_owner) |owner| {
         const fields = ctx.symbols.items[owner].fields orelse &.{};
         // The first method of its name, unless two share it.
-        if (sema.memberIn(ctx, fields, self.text(name), .method)) |i| {
+        if (sema.memberIn(ctx, fields, types.text(self, name), .method)) |i| {
             if (fields[i].decl_pos == name.src.pos) return fields[i].origins;
         }
         for (fields) |f| {
@@ -571,15 +577,15 @@ pub fn typeOrigins(self: *Checker, fn_ty: ?TypeId) Error!sema.Origins {
 pub fn resultPos(self: *const Checker, expr: Sexp, name: []const u8) ?u32 {
     const tail = sema.tailOf(expr);
     if (tail == .nil) return null;
-    if (!tail.isKind(.@"if")) return if (self.startOf(tail) == self.startOf(expr)) null else self.startOf(tail);
+    if (!tail.isKind(.@"if")) return if (notes.startOf(self, tail) == notes.startOf(self, expr)) null else notes.startOf(self, tail);
     const branches = [_]Sexp{ ir.If.then(tail), ir.If.@"else"(tail) };
     for (branches) |b| {
         const bt = sema.tailOf(b);
-        if (bt == .src and std.mem.eql(u8, self.text(bt), name)) return self.startOf(bt);
+        if (bt == .src and std.mem.eql(u8, types.text(self, bt), name)) return notes.startOf(self, bt);
     }
     for (branches) |b| {
         if (b == .nil) continue;
-        if (self.readsName(sema.tailOf(b), name)) return self.resultPos(b, name) orelse self.startOf(sema.tailOf(b));
+        if (transfer.readsName(self, sema.tailOf(b), name)) return resultPos(self, b, name) orelse notes.startOf(self, sema.tailOf(b));
     }
     return null;
 }
@@ -599,11 +605,11 @@ pub fn paramOf(self: *const Checker, l: Loan) ?u8 {
 pub fn recordResult(self: *Checker, v: Value, expr: Sexp) void {
     // A loan on what is the function's own (a parameter taken by
     // value) cannot leave it, which `checkEscape` reports.
-    for (v.loans) |l| if (!self.isLocalLoan(l)) if (self.paramOf(l)) |i| {
-        if (self.func.self_escape == null and self.isSelfVar(l.root) and !self.withinSelfPaths(l.path)) self.func.self_escape = .{ .path = l.path, .at = self.resultPos(expr, "@") orelse self.startOf(expr) };
+    for (v.loans) |l| if (!isLocalLoan(self, l)) if (paramOf(self, l)) |i| {
+        if (self.func.self_escape == null and isSelfVar(self, l.root) and !withinSelfPaths(self, l.path)) self.func.self_escape = .{ .path = l.path, .at = resultPos(self, expr, "@") orelse notes.startOf(self, expr) };
         const bit = sema.paramBit(i);
         if (self.func.returned & bit == 0) {
-            self.func.returned_at[i] = self.startOf(expr);
+            self.func.returned_at[i] = notes.startOf(self, expr);
             self.func.returned_by[i] = expr;
         }
         self.func.returned |= bit;
@@ -616,10 +622,10 @@ pub fn recordResult(self: *Checker, v: Value, expr: Sexp) void {
 pub fn recordStore(self: *Checker, into: VarId, loans: []const Loan, pos: u32) void {
     // What cannot hold a view keeps no loan (`w = other` through
     // `w: !Int` copies a number), unless an instance's may.
-    const held = self.pointee(self.vars.items[into].ty);
-    if (self.holdsGeneric(held)) self.noteGenericStore(into, pos);
-    if (!self.mayCarryLoan(held) and !self.genericType(held)) return;
-    for (loans) |l| if (l.root != into) if (self.paramOf(l)) |i| {
+    const held = types.pointee(self, self.vars.items[into].ty);
+    if (generic.holdsGeneric(self, held)) generic.noteGenericStore(self, into, pos);
+    if (!types.mayCarryLoan(self, held) and !generic.genericType(self, held)) return;
+    for (loans) |l| if (l.root != into) if (paramOf(self, l)) |i| {
         const bit = sema.paramBit(i);
         if (self.func.stored & bit == 0) {
             self.func.stored_at[i] = pos;
@@ -638,16 +644,16 @@ pub fn groupFieldRead(self: *Checker, leaf: Sexp) Error!?[]const u8 {
     if (!p.group_targets.contains(leaf.src.pos)) return null;
     const id = self.sema.symbolOf(leaf) orelse return null;
     const group = self.sema.group_fields.get(id) orelse return null;
-    return try sema.memberText(self.arena(), group, self.text(leaf));
+    return try sema.memberText(self.arena(), group, types.text(self, leaf));
 }
 
 /// How parameter `param` is named to a reader: its name, or, for a
 /// group's field, `group.field`; and how `from` and `keeps` name it:
 /// its name, or its group's.
 pub fn paramShown(self: *Checker, param: Sexp) Error!struct { shown: []const u8, clause: []const u8 } {
-    const pn = if (sema.paramNameNode(param)) |n| self.text(n) else "?";
+    const pn = if (sema.paramNameNode(param)) |n| types.text(self, n) else "?";
     const of = sema.groupFieldOf(param) orelse return .{ .shown = pn, .clause = pn };
-    const group = self.text(ir.FieldOf.group(of));
+    const group = types.text(self, ir.FieldOf.group(of));
     return .{ .shown = try sema.memberText(self.arena(), group, pn), .clause = group };
 }
 
@@ -655,7 +661,7 @@ pub fn paramShown(self: *Checker, param: Sexp) Error!struct { shown: []const u8,
 /// sentence 7): what it returns and stores comes from the parameters
 /// its origins name. `params` are its run-time parameters.
 pub fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) Error!void {
-    try self.checkSelfPaths(what, name);
+    try checkSelfPaths(self, what, name);
     const o = self.func.origins;
     const items = params.items();
     // What reached a value of a type parameter's type is returned and
@@ -678,32 +684,32 @@ pub fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) 
     const n = @min(items.len, @bitSizeOf(sema.ParamMask));
     for (0..n) |i| {
         const bit = sema.paramBit(i);
-        const named = try self.paramShown(items[i]);
+        const named = try paramShown(self, items[i]);
         const pname = named.shown;
         if (self.func.returned & bit != 0 and o.result & bit == 0) {
             if (o.declared) {
-                const only = try self.paramList(items, o.result, true, name);
-                const at = self.resultPos(self.func.returned_by[i], if (sema.paramNameNode(items[i])) |pn| self.text(pn) else pname) orelse self.func.returned_at[i];
+                const only = try paramList(self, items, o.result, true, name);
+                const at = resultPos(self, self.func.returned_by[i], if (sema.paramNameNode(items[i])) |pn| types.text(self, pn) else pname) orelse self.func.returned_at[i];
                 if (only.len == 0) {
-                    try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only what lives for the whole program", .{ what, pname });
-                } else try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
-                if (self.declaredFrom(name)) |d| {
-                    const all = try self.paramList(items, self.func.returned, false, name);
-                    if (self.namesStatic(items, self.func.returned)) {
-                        try self.note(self.startOf(d.returns), "`from static` means what lives for the whole program, not the parameter `static`; rename the parameter to name it in `from`", .{});
-                    } else try self.note(self.startOf(d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ self.spanText(d.returns), all });
+                    try notes.err(self, at, "{s} returns a view of `{s}`, but its signature says it views only what lives for the whole program", .{ what, pname });
+                } else try notes.err(self, at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
+                if (declaredFrom(self, name)) |d| {
+                    const all = try paramList(self, items, self.func.returned, false, name);
+                    if (namesStatic(self, items, self.func.returned)) {
+                        try notes.note(self, notes.startOf(self, d.returns), "`from static` means what lives for the whole program, not the parameter `static`; rename the parameter to name it in `from`", .{});
+                    } else try notes.note(self, notes.startOf(self, d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ notes.spanText(self, d.returns), all });
                 }
                 return;
             }
-            try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but a call of it does not count as a view of `{s}`: its type cannot hold what the result views", .{ what, pname, pname });
+            try notes.err(self, self.func.returned_at[i], "{s} returns a view of `{s}`, but a call of it does not count as a view of `{s}`: its type cannot hold what the result views", .{ what, pname, pname });
         }
         if (self.func.stored & bit != 0 and o.stores & bit == 0) {
             if (o.viewed & bit != 0) {
                 // A view parameter is kept only where `keeps` names it.
                 const into = self.func.stored_in[i];
-                const kept = try self.paramList(items, (o.stores & o.viewed) | (self.func.stored & o.viewed), false, .nil);
-                try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, named.clause, kept });
-            } else try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no view of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
+                const kept = try paramList(self, items, (o.stores & o.viewed) | (self.func.stored & o.viewed), false, .nil);
+                try notes.err(self, self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, named.clause, kept });
+            } else try notes.err(self, self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no view of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
         }
     }
 }
@@ -717,7 +723,7 @@ pub fn checkSelfPaths(self: *Checker, what: []const u8, name: Sexp) Error!void {
     if (self.func.self_var == null) return;
     const e = self.func.self_escape orelse
         (if (self.func.generic_returned_at != null) self.func.generic_self_path else null) orelse return;
-    const d = self.declaredFrom(name) orelse return;
+    const d = declaredFrom(self, name) orelse return;
     // Self's var has left scope: its path is spelled from `@`.
     var path: std.ArrayList(u8) = .empty;
     try path.append(self.arena(), '@');
@@ -730,13 +736,13 @@ pub fn checkSelfPaths(self: *Checker, what: []const u8, name: Sexp) Error!void {
     var fix: std.ArrayList(u8) = .empty;
     for (d.names.items()) |n| {
         if (only.items.len > 0) try only.appendSlice(self.arena(), ", ");
-        try only.print(self.arena(), "`{s}`", .{self.spanText(n)});
+        try only.print(self.arena(), "`{s}`", .{notes.spanText(self, n)});
         if (e.path == whole_path and n.isKind(.member)) continue;
-        try fix.print(self.arena(), "{s}, ", .{self.spanText(n)});
+        try fix.print(self.arena(), "{s}, ", .{notes.spanText(self, n)});
     }
     try fix.appendSlice(self.arena(), got);
-    try self.err(e.at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, got, only.items });
-    try self.note(self.startOf(d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ self.spanText(d.returns), fix.items });
+    try notes.err(self, e.at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, got, only.items });
+    try notes.note(self, notes.startOf(self, d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ notes.spanText(self, d.returns), fix.items });
 }
 
 /// Whether a parameter of `mask` among `items` is named `static`,
@@ -745,7 +751,7 @@ pub fn namesStatic(self: *const Checker, items: []const Sexp, mask: sema.ParamMa
     for (items, 0..) |p, i| {
         if (mask & sema.paramBit(i) == 0) continue;
         const pn = sema.paramNameNode(p) orelse continue;
-        if (std.mem.eql(u8, self.text(pn), "static")) return true;
+        if (std.mem.eql(u8, types.text(self, pn), "static")) return true;
     }
     return false;
 }
@@ -762,13 +768,13 @@ pub fn declaredFrom(self: *const Checker, name: Sexp) ?sema.DeclaredOrigins {
 /// `from` of function `name` names (`from @text`), when it names any.
 pub fn paramList(self: *Checker, items: []const Sexp, mask: sema.ParamMask, quoted: bool, name: Sexp) Error![]const u8 {
     var out: std.ArrayList(u8) = .empty;
-    const clause: []const Sexp = if (self.func.origins.self_paths.len == 0) &.{} else if (self.declaredFrom(name)) |d| d.names.items() else &.{};
+    const clause: []const Sexp = if (self.func.origins.self_paths.len == 0) &.{} else if (declaredFrom(self, name)) |d| d.names.items() else &.{};
     var groups: std.ArrayList([]const u8) = .empty;
     for (items, 0..) |p, i| {
         if (mask & sema.paramBit(i) == 0) continue;
         if (sema.paramNameNode(p) == null) continue;
         // A group's fields are named by the group's name, once.
-        const pn = (try self.paramShown(p)).clause;
+        const pn = (try paramShown(self, p)).clause;
         if (sema.groupFieldOf(p) != null) {
             const seen = for (groups.items) |g| {
                 if (std.mem.eql(u8, g, pn)) break true;
@@ -778,10 +784,10 @@ pub fn paramList(self: *Checker, items: []const Sexp, mask: sema.ParamMask, quot
         }
         var paths: usize = 0;
         if (std.mem.eql(u8, pn, "@")) for (clause) |c| if (c.isKind(.member)) {
-            try self.appendListName(&out, self.spanText(c), quoted);
+            try appendListName(self, &out, notes.spanText(self, c), quoted);
             paths += 1;
         };
-        if (paths == 0) try self.appendListName(&out, pn, quoted);
+        if (paths == 0) try appendListName(self, &out, pn, quoted);
     }
     return out.items;
 }

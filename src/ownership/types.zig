@@ -9,6 +9,9 @@ const Sexp = parser.Sexp;
 const TypeId = sema.TypeId;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
+const live = @import("live.zig");
+const transfer = @import("transfer.zig");
+const generic = @import("generic.zig");
 const Checker = state.Checker;
 const Loan = state.Loan;
 const Owning = state.Owning;
@@ -45,13 +48,13 @@ pub fn typeData(self: *const Checker, id: TypeId) sema.Type {
 pub fn symType(self: *const Checker, decl_pos: u32) ?TypeId {
     const ctx = self.sema;
     const sid = ctx.symbolAt(decl_pos) orelse return null;
-    return self.known(ctx.symbols.items[sid].ty);
+    return known(self, ctx.symbols.items[sid].ty);
 }
 
 /// The type ctx recorded for an expression.
 pub fn exprType(self: *const Checker, e: Sexp) ?TypeId {
     const ctx = self.sema;
-    return self.known(ctx.typeOf(e) orelse return null);
+    return known(self, ctx.typeOf(e) orelse return null);
 }
 
 pub fn known(self: *const Checker, ty: TypeId) ?TypeId {
@@ -62,24 +65,24 @@ pub fn known(self: *const Checker, ty: TypeId) ?TypeId {
 
 pub fn isVoid(self: *const Checker, ty: ?TypeId) bool {
     const t = ty orelse return false;
-    return self.typeData(t) == .void;
+    return typeData(self, t) == .void;
 }
 
 /// The declared return type of the function or method named at `name`.
 pub fn fnReturnType(self: *const Checker, name: Sexp) ?TypeId {
-    const t = self.typeData(self.exprType(name) orelse return null);
+    const t = typeData(self, exprType(self, name) orelse return null);
     if (t != .function) return null;
-    return self.known(t.function.returns);
+    return known(self, t.function.returns);
 }
 
 pub fn returnMayView(self: *Checker, ret_ty: ?TypeId, returns: Sexp) bool {
     if (sexpMentionsView(returns)) return true;
-    return ret_ty != null and self.mayCarryLoan(ret_ty);
+    return ret_ty != null and mayCarryLoan(self, ret_ty);
 }
 
 pub fn refOfType(self: *const Checker, ty: ?TypeId) Ref {
     const t = ty orelse return .none;
-    return switch (self.typeData(t)) {
+    return switch (typeData(self, t)) {
         .read_view => .read,
         .write_view => .write,
         else => .none,
@@ -95,7 +98,7 @@ pub fn isView(self: *const Checker, ty: ?TypeId) bool {
 /// The type a view type refers to.
 pub fn pointee(self: *const Checker, ty: ?TypeId) ?TypeId {
     const t = ty orelse return null;
-    return switch (self.typeData(t)) {
+    return switch (typeData(self, t)) {
         .read_view, .write_view => |inner| inner,
         else => t,
     };
@@ -150,7 +153,7 @@ pub fn isList(self: *const Checker, ty: TypeId) bool {
 /// it owns, not in the var.
 pub fn holdsElems(self: *const Checker, ty: TypeId) bool {
     const ctx = self.sema;
-    return self.isList(ty) or sema.tableElem(ctx, ty) != null;
+    return isList(self, ty) or sema.tableElem(ctx, ty) != null;
 }
 
 /// A List (or a view of one) whose elements move (`sema.moves`):
@@ -164,7 +167,7 @@ pub fn owningKind(self: *const Checker, ty: ?TypeId) ?Owning {
     return switch (sema.moves(ctx, t)) {
         .no => null,
         .depends => .generic,
-        .yes => self.kindLabel(t),
+        .yes => kindLabel(self, t),
     };
 }
 
@@ -204,13 +207,13 @@ pub fn kindLabel(self: *const Checker, t: TypeId) Owning {
 pub fn mayCarryLoan(self: *const Checker, ty: ?TypeId) bool {
     const ctx = self.sema;
     const t = ty orelse return true;
-    return sema.mayHoldView(ctx, t) or self.holdsItem(t);
+    return sema.mayHoldView(ctx, t) or generic.holdsItem(self, t);
 }
 
 /// Whether `v` carries a loan on memory the body owns: a value of its
 /// own, a parameter it was given by value, or self's storage.
 pub fn viewsOwned(self: *Checker, v: Value) bool {
-    for (v.loans) |l| if (self.ownsLoan(l, 0)) return true;
+    for (v.loans) |l| if (ownsLoan(self, l, 0)) return true;
     return false;
 }
 
@@ -218,7 +221,7 @@ pub fn viewsOwned(self: *Checker, v: Value) bool {
 pub fn ownsLoan(self: *Checker, l: Loan, depth: u32) bool {
     if (l.ext or self.isGlobal(l.root)) return false;
     if (l.frame) return true;
-    return self.ownsVar(l.root, depth);
+    return ownsVar(self, l.root, depth);
 }
 
 /// Whether var `id` is memory the body owns: self's storage, a value
@@ -231,11 +234,11 @@ pub fn ownsVar(self: *Checker, id: VarId, depth: u32) bool {
     if (r.kind == .param and r.ref != .none) return false;
     if (self.isGlobal(id)) return false;
     if (depth > 8) return true;
-    if (r.elem_of) |c| if (r.elem_view or r.loop_view) return self.ownsVar(c, depth + 1);
+    if (r.elem_of) |c| if (r.elem_view or r.loop_view) return ownsVar(self, c, depth + 1);
     const ctx = self.sema;
     const viewing = r.ref != .none or if (r.ty) |t| sema.viewParam(ctx, t) else false;
     if (!viewing) return true;
-    for (self.varValue(id).loans) |m| if (self.ownsLoan(m, depth + 1)) return true;
+    for (live.varValue(self, id).loans) |m| if (ownsLoan(self, m, depth + 1)) return true;
     return false;
 }
 
@@ -248,7 +251,7 @@ pub fn reachedType(self: *const Checker, ty: ?TypeId) ?TypeId {
 /// Whether a value of type `ty` may write what it reaches: it holds a
 /// write view, or its type is not known.
 pub fn mayWrite(self: *const Checker, ty: ?TypeId) bool {
-    return ty == null or self.carriesWriteView(ty);
+    return ty == null or carriesWriteView(self, ty);
 }
 
 /// Whether a value of this type holds a write view, which must not
@@ -263,10 +266,10 @@ pub fn carriesWriteView(self: *const Checker, ty: ?TypeId) bool {
 /// anything else reads. A shared handle is only ever read through.
 pub fn selfMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.SelfMode {
     if (obj.isKind(.move)) return .value;
-    if (self.exprType(obj)) |t| if (self.typeData(t) == .shared) return .read;
-    const f = self.typeData(self.exprType(callee) orelse return .read);
+    if (exprType(self, obj)) |t| if (typeData(self, t) == .shared) return .read;
+    const f = typeData(self, exprType(self, callee) orelse return .read);
     if (f != .function or f.function.params.len == 0) return .read;
-    return switch (self.typeData(f.function.params[0])) {
+    return switch (typeData(self, f.function.params[0])) {
         .write_view => .write,
         .nominal, .parameterized_nominal, .imported_nominal => .value,
         else => .read,
@@ -276,7 +279,7 @@ pub fn selfMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.SelfMode {
 /// Whether `ty` is a shared or weak handle.
 pub fn isHandleType(self: *const Checker, ty: ?TypeId) bool {
     const t = ty orelse return false;
-    return switch (self.typeData(t)) {
+    return switch (typeData(self, t)) {
         .shared, .weak => true,
         else => false,
     };
@@ -348,6 +351,6 @@ pub fn erasesCopy(self: *const Checker, e: Sexp) bool {
 
 /// Whether `e` is viewed by `step` of the view table.
 pub fn viewsBy(self: *const Checker, e: Sexp, step: sema.ViewStep) bool {
-    const view = self.viewOf(e) orelse return false;
+    const view = transfer.viewOf(self, e) orelse return false;
     return view.has(step);
 }

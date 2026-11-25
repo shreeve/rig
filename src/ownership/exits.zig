@@ -11,6 +11,10 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
+const live = @import("live.zig");
+const transfer = @import("transfer.zig");
+const rules = @import("rules.zig");
+const notes = @import("notes.zig");
 const AfterValue = state.AfterValue;
 const Checker = state.Checker;
 const Loan = state.Loan;
@@ -94,11 +98,11 @@ pub fn exitTo(self: *Checker, x: ExitTo) Error!State {
         // The defers that `e` runs, re-checked against the state here.
         const back: ?Point = if (e.goesOn()) try self.here() else null;
         const top = self.scopes.items.len - 1;
-        const held = if (e == .scope_end) null else try self.dropPendingHolds(x.to);
+        const held = if (e == .scope_end) null else try dropPendingHolds(self, x.to);
         switch (e) {
-            .scope_end => try self.runDefers(top, false, x.result),
-            .jump => |depth| try self.runDefersTo(depth, false, x.result),
-            .@"return", .propagate => |fails| try self.runDefersTo(0, fails, x.result),
+            .scope_end => try runDefers(self, top, false, x.result),
+            .jump => |depth| try runDefersTo(self, depth, false, x.result),
+            .@"return", .propagate => |fails| try runDefersTo(self, 0, fails, x.result),
         }
         if (held) |h| {
             self.temps.clearRetainingCapacity();
@@ -107,7 +111,7 @@ pub fn exitTo(self: *Checker, x: ExitTo) Error!State {
         if (back) |p| try self.rewind(p);
     }
     const to = x.to orelse return .{ .reachable = false };
-    try self.reportDropped(to.vars, x.resume_at);
+    try notes.reportDropped(self, to.vars, x.resume_at);
     var s = try self.capture(to);
     // A jump leaves the statements it is in, which end there: the
     // loans they took and keep for their own ends (`temps`) do not go
@@ -157,7 +161,7 @@ pub fn dropPendingHolds(self: *Checker, to: ?Point) Error!?[]const Loan {
 /// at each exit of its scope against the state there.
 pub fn walkDefer(self: *Checker, node: Sexp) Error!void {
     const body = ir.get(node, .body);
-    try self.checkDeferBody(body, true);
+    try checkDeferBody(self, body, true);
     try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, .{ .body = body, .vars = @intCast(self.vars.items.len), .err_only = node.isKind(.@"errdefer") });
 }
 
@@ -171,28 +175,28 @@ pub fn checkDeferBody(self: *Checker, body: Sexp, report_changes: bool) Error!vo
     try self.defer_loops.append(self.gpa, self.loop);
     self.loop = null;
     self.in_defer = true;
-    try self.walkStmt(body);
+    try transfer.walkStmt(self, body);
     _ = self.defer_loops.pop();
     self.loop = saved_loop;
     self.in_defer = saved_in_defer;
     if (!report_changes) return;
     // A body that moves an outer binding and assigns it again
     // (`defer x = f(<x)`) leaves it as it was, and still moved it.
-    if (self.movedInDefer(snap)) |m| {
+    if (movedInDefer(self, snap)) |m| {
         if (m.part) {
-            try self.errAt(body, "a `defer` body cannot move a field out of `{s}`; it runs when the scope exits", .{self.vars.items[m.id].name});
-        } else try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[m.id].name});
+            try notes.errAt(self, body, "a `defer` body cannot move a field out of `{s}`; it runs when the scope exits", .{self.vars.items[m.id].name});
+        } else try notes.errAt(self, body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[m.id].name});
         try self.rewind(snap);
         return;
     }
     const after = try self.leave(snap, null);
     for (after.changes) |e| {
         if (e.flow.status != self.flows.items[e.id].status) {
-            try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
+            try notes.errAt(self, body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
             break;
         }
         if (!partSetEql(e.flow.parts, self.flows.items[e.id].parts)) {
-            try self.errAt(body, "a `defer` body cannot move a field out of `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
+            try notes.errAt(self, body, "a `defer` body cannot move a field out of `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
             break;
         }
     }
@@ -237,8 +241,8 @@ pub fn runDefers(self: *Checker, scope_idx: usize, fails: bool, result: []const 
         if (d.err_only and !fails) continue;
         self.defer_floor = d.vars;
         const held = self.temps.items.len;
-        if (!d.err_only) for (result) |l| if (!l.ext) try self.addTemp(l);
-        try self.checkDeferBody(d.body, false);
+        if (!d.err_only) for (result) |l| if (!l.ext) try live.addTemp(self, l);
+        try checkDeferBody(self, d.body, false);
         self.temps.shrinkRetainingCapacity(@min(held, self.temps.items.len));
     }
 }
@@ -252,10 +256,10 @@ pub fn runDefersTo(self: *Checker, scope_depth: usize, fails: bool, result: []co
     var si = self.scopes.items.len;
     while (si > scope_depth) {
         si -= 1;
-        if (self.scopes.items[si].defers.items.len > 0) try self.runDefers(si, fails, result);
+        if (self.scopes.items[si].defers.items.len > 0) try runDefers(self, si, fails, result);
         if (self.scopes.items[si].kind != .block) break;
     }
-    if (si < self.scopes.items.len) try self.checkDropOrder(self.scopes.items[si].start);
+    if (si < self.scopes.items.len) try checkDropOrder(self, self.scopes.items[si].start);
 }
 
 /// Leaving scopes drops vars `>= start`, youngest first. A value whose
@@ -280,9 +284,9 @@ pub fn checkDropOrder(self: *Checker, start: u32) Error!void {
                 const x = self.vars.items[l.root];
                 if (l.root < i or !self.flowLive(l.root)) continue;
                 const glue = if (x.ty) |t| sema.typeHasDropGlue(ctx, t) else true;
-                if (!glue and self.scopeOf(l.root) == self.scopeOf(@intCast(i))) continue;
-                try self.err(l.pos, "`{s}` is dropped before `{s}`, whose `drop` body could still read it through this view", .{ x.name, h.name });
-                try self.note(x.decl, "`{s}` is declared after `{s}`, so it is dropped first; declare it before `{s}`", .{ x.name, h.name, h.name });
+                if (!glue and scopeOf(self, l.root) == scopeOf(self, @intCast(i))) continue;
+                try notes.err(self, l.pos, "`{s}` is dropped before `{s}`, whose `drop` body could still read it through this view", .{ x.name, h.name });
+                try notes.note(self, x.decl, "`{s}` is declared after `{s}`, so it is dropped first; declare it before `{s}`", .{ x.name, h.name, h.name });
             }
         }
     }
@@ -302,8 +306,8 @@ pub fn checkLostTasks(self: *Checker, start: u32) Error!void {
         const result = sema.taskResult(ctx, ty) orelse continue;
         if (ctx.types.get(result) != .fallible) continue;
         if (sema.isTaskSet(ctx, ty)) {
-            try self.err(h.decl, "the tasks of `{s}` can fail, and they are dropped where its scope ends without being waited for, so their errors would be lost: wait for them, `>{s}!`, or handle the error with `catch`", .{ h.name, h.name });
-        } else try self.err(h.decl, "the task `{s}` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost: wait for it, `>{s}!`, or handle its error with `catch`", .{ h.name, h.name });
+            try notes.err(self, h.decl, "the tasks of `{s}` can fail, and they are dropped where its scope ends without being waited for, so their errors would be lost: wait for them, `>{s}!`, or handle the error with `catch`", .{ h.name, h.name });
+        } else try notes.err(self, h.decl, "the task `{s}` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost: wait for it, `>{s}!`, or handle its error with `catch`", .{ h.name, h.name });
     }
 }
 
@@ -342,15 +346,15 @@ pub fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
     // `break x` moves it, as `return x` does, before the scopes the
     // jump leaves run their defers. Any other name stays in scope
     // after the jump, so one that owns is written `<x`.
-    const moved = if (target) |t| try self.breakMovesName(value, t.point.vars) else null;
+    const moved = if (target) |t| try transfer.breakMovesName(self, value, t.point.vars) else null;
     const v: Value = if (value == .nil) .{} else if (moved) |id|
-        (if (self.vars.items[id].payload_view) try self.movePayload(id, value.src.pos, "move") else try self.moveVar(id, value.src.pos, .move))
+        (if (self.vars.items[id].payload_view) try transfer.movePayload(self, id, value.src.pos, "move") else try transfer.moveVar(self, id, value.src.pos, .move))
     else
-        try self.walkConsumed(value, .brk);
+        try transfer.walkConsumed(self, value, .brk);
     self.value_reads = false;
     const t = target orelse {
         // The type checker resolves every jump of a module it accepts.
-        try self.errSpan(self.stmtSpan(node), "internal error: this `{s}` goes to no construct the checker is walking", .{if (jump == .brk) "break" else "continue"});
+        try notes.errSpan(self, stmtSpan(self, node), "internal error: this `{s}` goes to no construct the checker is walking", .{if (jump == .brk) "break" else "continue"});
         self.reachable = false;
         return;
     };
@@ -362,13 +366,13 @@ pub fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
     } else pinned;
     const kept = try self.arena().dupe(AfterValue, self.after_value.items[left..]);
     self.after_value.shrinkRetainingCapacity(left);
-    const left_with = try self.escapeVarsFrom(v, t.point.vars);
+    const left_with = try rules.escapeVarsFrom(self, v, t.point.vars);
     t.value = try self.valueUnion(t.value, left_with);
     // A `continue` to a step that runs in the condition's bindings'
     // scope goes to that point; any other goes back to the loop's
     // head, through a step that is the loop's continue expression.
     const to_step = if (dest.?.to == .step) t.step_point else null;
-    const s = try self.exitTo(.{ .to = to_step orelse t.point, .exit = .{ .jump = if (to_step != null) t.step_depth else t.scope_depth }, .result = try self.withDerefs(left_with, v) });
+    const s = try exitTo(self, .{ .to = to_step orelse t.point, .exit = .{ .jump = if (to_step != null) t.step_depth else t.scope_depth }, .result = try self.withDerefs(left_with, v) });
     switch (dest.?.to) {
         .exit => try t.breaks.append(self.arena(), s),
         .step, .head => try (if (to_step != null) &t.step_conts else &t.conts).append(self.arena(), s),
@@ -383,7 +387,7 @@ pub fn checkAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void 
     if (i == 0) return;
     const prev = stmts[i - 1];
     if (!rig.leaves(prev)) return;
-    try self.errSpan(self.stmtSpan(stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.kind().?)});
+    try notes.errSpan(self, stmtSpan(self, stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.kind().?)});
 }
 
 /// Statements from `i` on, which are not walked: the one before `i`
@@ -394,8 +398,8 @@ pub fn checkAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void 
 pub fn checkRestAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void {
     if (i > 0 and rig.leaves(stmts[i - 1])) return;
     for (stmts[i..], i..) |s, j| {
-        if (j > i) try self.checkAfterJump(stmts, j);
-        try self.checkJumpsUnder(s);
+        if (j > i) try checkAfterJump(self, stmts, j);
+        try checkJumpsUnder(self, s);
     }
 }
 
@@ -404,18 +408,18 @@ pub fn checkJumpsUnder(self: *Checker, e: Sexp) Error!void {
     if (e.isKind(.block)) {
         const stmts = ir.Block.stmts(e);
         for (stmts, 0..) |s, j| {
-            try self.checkAfterJump(stmts, j);
-            try self.checkJumpsUnder(s);
+            try checkAfterJump(self, stmts, j);
+            try checkJumpsUnder(self, s);
         }
         return;
     }
-    for (rig.children(e)) |c| try self.checkJumpsUnder(c);
+    for (rig.children(e)) |c| try checkJumpsUnder(self, c);
 }
 
 /// A statement's range: its span, or the last statement position
 /// when it has none (a bare `break` checked without the parser's
 /// spans).
 pub fn stmtSpan(self: *const Checker, s: Sexp) diag.Span {
-    const sp = self.span(s);
+    const sp = notes.span(self, s);
     return if (sp.isEmpty()) .{ .start = self.anchor, .end = self.anchor } else sp;
 }

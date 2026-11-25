@@ -1,8 +1,8 @@
 //! The ownership checker's abstract state: vars, flows, loans, and their
 //! join, and the `Checker` that holds them. Each other file of
-//! src/ownership/ defines its part of the checker's methods as functions
-//! of `*Checker`, named in `Checker` below; docs/internals/INTERNALS.md
-//! ("The ownership checker") says which file holds what.
+//! src/ownership/ holds its part of the checker as functions whose first
+//! parameter is the `*Checker`; docs/internals/INTERNALS.md ("Ownership")
+//! says which file holds what.
 
 const std = @import("std");
 const parser = @import("../parser.zig");
@@ -18,7 +18,6 @@ const Error = std.mem.Allocator.Error;
 const live = @import("live.zig");
 const transfer = @import("transfer.zig");
 const rules = @import("rules.zig");
-const origins = @import("origins.zig");
 const exits = @import("exits.zig");
 const generic = @import("generic.zig");
 const types = @import("types.zig");
@@ -796,14 +795,14 @@ pub const Checker = struct {
     }
 
     pub fn check(self: *Checker, sexp: Sexp) Error!void {
-        try self.walkDecl(sexp);
-        try self.checkMethodCalls();
+        try transfer.walkDecl(self, sexp);
+        try generic.checkMethodCalls(self);
         self.own_plain_reqs = self.plain_reqs.items.len;
-        try self.checkBoundedCopies();
+        try generic.checkBoundedCopies(self);
         for (self.sema.plain_reqs.items) |r| {
             if (r.module_id != 0) try self.plain_reqs.append(self.gpa, r);
         }
-        try self.checkInstantiations();
+        try generic.checkInstantiations(self);
     }
 
     pub fn hasErrors(self: *const Checker) bool {
@@ -834,7 +833,7 @@ pub const Checker = struct {
     /// view a var declared in it, and what else `v` views is in use while
     /// the scope's defers run (`ExitTo.result`). Gives what `v` keeps.
     pub fn leaveScope(self: *Checker, v: Value) Error!Value {
-        const kept = try self.checkValueEscapesScope(v);
+        const kept = try rules.checkValueEscapesScope(self, v);
         try self.popScopeWith(try self.withDerefs(kept, v));
         return kept;
     }
@@ -855,14 +854,14 @@ pub const Checker = struct {
     pub fn popScopeWith(self: *Checker, result: []const Loan) Error!void {
         const idx = self.scopes.items.len - 1;
         if (self.reachable) {
-            _ = try self.exitTo(.{ .exit = .scope_end, .result = result });
-            try self.checkDropOrder(self.scopes.items[idx].start);
-            try self.checkLostTasks(self.scopes.items[idx].start);
+            _ = try exits.exitTo(self, .{ .exit = .scope_end, .result = result });
+            try exits.checkDropOrder(self, self.scopes.items[idx].start);
+            try exits.checkLostTasks(self, self.scopes.items[idx].start);
         }
         var scope = self.scopes.pop().?;
         defer scope.defers.deinit(self.gpa);
         const start = scope.start;
-        const ext = self.extent(scope.node);
+        const ext = notes.extent(self, scope.node);
         try self.releaseVarsFrom(start, self.reachable, if (ext.hi >= ext.lo) ext.hi +| 1 else null, scope.node);
         self.truncateVars(start);
     }
@@ -875,7 +874,7 @@ pub const Checker = struct {
     pub fn releaseVarsFrom(self: *Checker, start: u32, report: bool, end: ?u32, node: Sexp) Error!void {
         if (self.viewedFrom(start)) {
             if (report) for (self.flows.items[0..@min(start, self.flows.items.len)], 0..) |f, holder| {
-                if (hasLoanFrom(f.loans, start)) _ = try self.reportHolder(f, @intCast(holder), start, end, if (end != null) node else .nil);
+                if (hasLoanFrom(f.loans, start)) _ = try notes.reportHolder(self, f, @intCast(holder), start, end, if (end != null) node else .nil);
             };
             for (0..@min(start, self.flows.items.len)) |holder| {
                 var f = self.flows.items[holder];
@@ -910,8 +909,8 @@ pub const Checker = struct {
         if (self_check) if (v.sym) |sym| if (v.ty) |t| {
             const drop = ctx.vars.binding(sym).drop;
             switch (ctx.symbols.items[sym].kind) {
-                .param, .local, .capture => if ((drop != null) != (self.owningKind(t) != null))
-                    try self.err(v.decl, "internal error: the checker holds `{s}` as {s}, but the storage plan records {s}", .{ v.name, if (self.owningKind(t) != null) "owning" else "owning nothing", if (drop) |h| @tagName(h) else "nothing to drop" }),
+                .param, .local, .capture => if ((drop != null) != (types.owningKind(self, t) != null))
+                    try notes.err(self, v.decl, "internal error: the checker holds `{s}` as {s}, but the storage plan records {s}", .{ v.name, if (types.owningKind(self, t) != null) "owning" else "owning nothing", if (drop) |h| @tagName(h) else "nothing to drop" }),
                 else => {},
             }
         };
@@ -1112,7 +1111,7 @@ pub const Checker = struct {
     /// Leave the current path for point `p`, going on at `resume_at`
     /// (`exitTo`): its state relative to `p`, after going back to `p`.
     pub fn leave(self: *Checker, p: Point, resume_at: ?u32) Error!State {
-        const s = try self.exitTo(.{ .to = p, .resume_at = resume_at });
+        const s = try exits.exitTo(self, .{ .to = p, .resume_at = resume_at });
         try self.rewind(p);
         return s;
     }
@@ -1291,7 +1290,7 @@ pub const Checker = struct {
         if (self.isViewed(root)) for (self.flows.items, self.vars.items, 0..) |f, v, holder| {
             if (skip_alias_of != null and v.alias_of == skip_alias_of) continue;
             for (f.loans) |l| if (self.loanMatches(l, root, path, q)) {
-                if (self.holderLive(@intCast(holder), null)) return l;
+                if (live.holderLive(self, @intCast(holder), null)) return l;
                 break;
             };
         };
@@ -1304,402 +1303,6 @@ pub const Checker = struct {
     pub fn loanMatches(self: *const Checker, l: Loan, root: VarId, path: PathId, q: LoanQuery) bool {
         return l.root == root and !l.ext and (q == .any or l.kind == .write) and self.paths.overlap(l.path, path);
     }
-
-    // -------------------------------------------------------------------------
-    // The methods the other files define, called on the checker
-    // -------------------------------------------------------------------------
-
-    pub const indexUses = live.indexUses;
-    pub const usePos = live.usePos;
-    pub const noteUse = live.noteUse;
-    pub const holdsPastDrop = live.holdsPastDrop;
-    pub const holdsPastDropDepth = live.holdsPastDropDepth;
-    pub const holderLive = live.holderLive;
-    pub const holderLiveDepth = live.holderLiveDepth;
-    pub const viewedByLive = live.viewedByLive;
-    pub const useAhead = live.useAhead;
-    pub const markWalked = live.markWalked;
-    pub const endLate = live.endLate;
-    pub const holdLate = live.holdLate;
-    pub const holdLateParts = live.holdLateParts;
-    pub const liveFrom = live.liveFrom;
-    pub const loopStartFrom = live.loopStartFrom;
-    pub const stmtStart = live.stmtStart;
-    pub const stmtEnd = live.stmtEnd;
-    pub const addTemp = live.addTemp;
-    pub const varValue = live.varValue;
-
-    pub const walkDecl = transfer.walkDecl;
-    pub const walkFun = transfer.walkFun;
-    pub const walkFunOnce = transfer.walkFunOnce;
-    pub const walkBody = transfer.walkBody;
-    pub const bindParams = transfer.bindParams;
-    pub const bindParam = transfer.bindParam;
-    pub const walkStmt = transfer.walkStmt;
-    pub const walkStmtValue = transfer.walkStmtValue;
-    pub const walkBlock = transfer.walkBlock;
-    pub const walkTailStmt = transfer.walkTailStmt;
-    pub const walk = transfer.walk;
-    pub const walkUnerased = transfer.walkUnerased;
-    pub const carriesNoLoan = transfer.carriesNoLoan;
-    pub const copiedOut = transfer.copiedOut;
-    pub const walkPayloadHolder = transfer.walkPayloadHolder;
-    pub const walkList = transfer.walkList;
-    pub const walkRejectedView = transfer.walkRejectedView;
-    pub const walkConsumed = transfer.walkConsumed;
-    pub const setTail = transfer.setTail;
-    pub const markTail = transfer.markTail;
-    pub const takeTail = transfer.takeTail;
-    pub const walkTailPart = transfer.walkTailPart;
-    pub const consumeTailName = transfer.consumeTailName;
-    pub const isWriteViewPlace = transfer.isWriteViewPlace;
-    pub const walkName = transfer.walkName;
-    pub const takePlaceRead = transfer.takePlaceRead;
-    pub const placeBase = transfer.placeBase;
-    pub const viewClosure = transfer.viewClosure;
-    pub const resolvePlace = transfer.resolvePlace;
-    pub const extendsPath = transfer.extendsPath;
-    pub const walkPlaceIndices = transfer.walkPlaceIndices;
-    pub const walkIndicesHeld = transfer.walkIndicesHeld;
-    pub const walkFoundIndices = transfer.walkFoundIndices;
-    pub const walkIndexOf = transfer.walkIndexOf;
-    pub const readsAfterIndex = transfer.readsAfterIndex;
-    pub const stepType = transfer.stepType;
-    pub const staysInRoot = transfer.staysInRoot;
-    pub const holdsInline = transfer.holdsInline;
-    pub const walkMember = transfer.walkMember;
-    pub const walkReadArgs = transfer.walkReadArgs;
-    pub const walkTemplateSlots = transfer.walkTemplateSlots;
-    pub const walkReadArg = transfer.walkReadArg;
-    pub const moveSource = transfer.moveSource;
-    pub const walkMove = transfer.walkMove;
-    pub const moveDeclared = transfer.moveDeclared;
-    pub const namesModule = transfer.namesModule;
-    pub const viewOnPath = transfer.viewOnPath;
-    pub const walkTake = transfer.walkTake;
-    pub const moveVar = transfer.moveVar;
-    pub const holdMoved = transfer.holdMoved;
-    pub const movePayload = transfer.movePayload;
-    pub const movePart = transfer.movePart;
-    pub const moveField = transfer.moveField;
-    pub const fieldPath = transfer.fieldPath;
-    pub const walkCloneWeak = transfer.walkCloneWeak;
-    pub const walkDrop = transfer.walkDrop;
-    pub const loanOf = transfer.loanOf;
-    pub const viewOf = transfer.viewOf;
-    pub const viewsElements = transfer.viewsElements;
-    pub const walkImplicitView = transfer.walkImplicitView;
-    pub const walkView = transfer.walkView;
-    pub const writeViewTemp = transfer.writeViewTemp;
-    pub const walkViewedPath = transfer.walkViewedPath;
-    pub const viewVar = transfer.viewVar;
-    pub const walkElems = transfer.walkElems;
-    pub const walkOperand = transfer.walkOperand;
-    pub const inVarStorage = transfer.inVarStorage;
-    pub const viewOn = transfer.viewOn;
-    pub const throughBinding = transfer.throughBinding;
-    pub const viewTarget = transfer.viewTarget;
-    pub const endWriteViews = transfer.endWriteViews;
-    pub const keepViewTemps = transfer.keepViewTemps;
-    pub const holdTemp = transfer.holdTemp;
-    pub const holdPartTemps = transfer.holdPartTemps;
-    pub const isStmtTempVar = transfer.isStmtTempVar;
-    pub const stmtTempAt = transfer.stmtTempAt;
-    pub const dropStmtTemps = transfer.dropStmtTemps;
-    pub const headerTempLoan = transfer.headerTempLoan;
-    pub const walkSet = transfer.walkSet;
-    pub const useAfterValue = transfer.useAfterValue;
-    pub const useAfterValueIn = transfer.useAfterValueIn;
-    pub const readsName = transfer.readsName;
-    pub const leavesEarly = transfer.leavesEarly;
-    pub const envDropReads = transfer.envDropReads;
-    pub const bindNew = transfer.bindNew;
-    pub const reassign = transfer.reassign;
-    pub const storesLoans = transfer.storesLoans;
-    pub const viewedRoot = transfer.viewedRoot;
-    pub const writesThroughLocal = transfer.writesThroughLocal;
-    pub const storeThroughLocal = transfer.storeThroughLocal;
-    pub const walkFieldAssign = transfer.walkFieldAssign;
-    pub const noteOldNone = transfer.noteOldNone;
-    pub const fillParts = transfer.fillParts;
-    pub const storeThroughView = transfer.storeThroughView;
-    pub const storeInViewed = transfer.storeInViewed;
-    pub const storeThroughCapture = transfer.storeThroughCapture;
-    pub const walkCall = transfer.walkCall;
-    pub const holdForCall = transfer.holdForCall;
-    pub const heldForCall = transfer.heldForCall;
-    pub const endCallHeld = transfer.endCallHeld;
-    pub const walkCallBody = transfer.walkCallBody;
-    pub const callResults = transfer.callResults;
-    pub const walkDestructure = transfer.walkDestructure;
-    pub const pendingView = transfer.pendingView;
-    pub const holdRead = transfer.holdRead;
-    pub const holdBranchReads = transfer.holdBranchReads;
-    pub const selfLeaves = transfer.selfLeaves;
-    pub const isPartOfNoPlace = transfer.isPartOfNoPlace;
-    pub const holdBranchLeaf = transfer.holdBranchLeaf;
-    pub const walkThenHeld = transfer.walkThenHeld;
-    pub const walkSwapCall = transfer.walkSwapCall;
-    pub const takenValue = transfer.takenValue;
-    pub const newHandle = transfer.newHandle;
-    pub const heldThroughHandle = transfer.heldThroughHandle;
-    pub const walkShare = transfer.walkShare;
-    pub const walkLambda = transfer.walkLambda;
-    pub const applyCapture = transfer.applyCapture;
-    pub const storeInCellList = transfer.storeInCellList;
-    pub const inCellList = transfer.inCellList;
-    pub const walkPropagate = transfer.walkPropagate;
-    pub const mayFail = transfer.mayFail;
-    pub const walkCatch = transfer.walkCatch;
-    pub const walkNullish = transfer.walkNullish;
-    pub const walkReturn = transfer.walkReturn;
-    pub const walkReturnValue = transfer.walkReturnValue;
-    pub const returnMoves = transfer.returnMoves;
-    pub const leavesAsWriteView = transfer.leavesAsWriteView;
-    pub const moveWriteView = transfer.moveWriteView;
-    pub const walkIf = transfer.walkIf;
-    pub const useBranchesAfter = transfer.useBranchesAfter;
-    pub const walkIfBinding = transfer.walkIfBinding;
-    pub const walkConditionParts = transfer.walkConditionParts;
-    pub const joinAll = transfer.joinAll;
-    pub const walkConditionPart = transfer.walkConditionPart;
-    pub const walkMayRun = transfer.walkMayRun;
-    pub const headerOf = transfer.headerOf;
-    pub const holdBase = transfer.holdBase;
-    pub const heldPath = transfer.heldPath;
-    pub const takesSubject = transfer.takesSubject;
-    pub const readsInPlace = transfer.readsInPlace;
-    pub const walkMatch = transfer.walkMatch;
-    pub const walkAsMatch = transfer.walkAsMatch;
-    pub const bindPattern = transfer.bindPattern;
-    pub const bindPayload = transfer.bindPayload;
-    pub const walkResultsBinding = transfer.walkResultsBinding;
-    pub const isValue = transfer.isValue;
-    pub const walkWhile = transfer.walkWhile;
-    pub const walkFor = transfer.walkFor;
-    pub const walkLabeled = transfer.walkLabeled;
-    pub const walkLoop = transfer.walkLoop;
-    pub const loopIteration = transfer.loopIteration;
-    pub const walkStep = transfer.walkStep;
-    pub const bindLoopElems = transfer.bindLoopElems;
-    pub const walkPanic = transfer.walkPanic;
-    pub const breakMovesName = transfer.breakMovesName;
-
-    pub const checkReadable = rules.checkReadable;
-    pub const checkCapturable = rules.checkCapturable;
-    pub const checkLive = rules.checkLive;
-    pub const checkLivePath = rules.checkLivePath;
-    pub const checkParts = rules.checkParts;
-    pub const checkDeferredReach = rules.checkDeferredReach;
-    pub const rejectConsumedView = rules.rejectConsumedView;
-    pub const rejectGlobal = rules.rejectGlobal;
-    pub const checkNoImplicitCopy = rules.checkNoImplicitCopy;
-    pub const readsThroughWriteView = rules.readsThroughWriteView;
-    pub const readsValue = rules.readsValue;
-    pub const namesType = rules.namesType;
-    pub const conflicts = rules.conflicts;
-    pub const conflictingLoan = rules.conflictingLoan;
-    pub const checkAssignable = rules.checkAssignable;
-    pub const checkValueEscapesScope = rules.checkValueEscapesScope;
-    pub const escapeVarsFrom = rules.escapeVarsFrom;
-    pub const checkEscape = rules.checkEscape;
-    pub const onceUses = rules.onceUses;
-    pub const onceVar = rules.onceVar;
-
-    pub const carry = origins.carry;
-    pub const carryResult = origins.carryResult;
-    pub const carryAs = origins.carryAs;
-    pub const viewsOnlyRead = origins.viewsOnlyRead;
-    pub const carryLoan = origins.carryLoan;
-    pub const mayOwnView = origins.mayOwnView;
-    pub const throughReadView = origins.throughReadView;
-    pub const walkThroughView = origins.walkThroughView;
-    pub const keepsCallable = origins.keepsCallable;
-    pub const copiedElem = origins.copiedElem;
-    pub const storesNothing = origins.storesNothing;
-    pub const readsPlainValue = origins.readsPlainValue;
-    pub const absorbThroughWrites = origins.absorbThroughWrites;
-    pub const absorbThroughViews = origins.absorbThroughViews;
-    pub const appendWriteRoots = origins.appendWriteRoots;
-    pub const placeDepth = origins.placeDepth;
-    pub const absorbLoans = origins.absorbLoans;
-    pub const callerOwns = origins.callerOwns;
-    pub const isLocalLoan = origins.isLocalLoan;
-    pub const isSelfVar = origins.isSelfVar;
-    pub const tagSelf = origins.tagSelf;
-    pub const bindSelfPaths = origins.bindSelfPaths;
-    pub const selfPathId = origins.selfPathId;
-    pub const withinSelfPaths = origins.withinSelfPaths;
-    pub const selfPathsResult = origins.selfPathsResult;
-    pub const selfViewIn = origins.selfViewIn;
-    pub const declOrigins = origins.declOrigins;
-    pub const typeOrigins = origins.typeOrigins;
-    pub const resultPos = origins.resultPos;
-    pub const paramOf = origins.paramOf;
-    pub const recordResult = origins.recordResult;
-    pub const recordStore = origins.recordStore;
-    pub const groupFieldRead = origins.groupFieldRead;
-    pub const paramShown = origins.paramShown;
-    pub const checkOrigins = origins.checkOrigins;
-    pub const checkSelfPaths = origins.checkSelfPaths;
-    pub const namesStatic = origins.namesStatic;
-    pub const declaredFrom = origins.declaredFrom;
-    pub const paramList = origins.paramList;
-    pub const appendListName = origins.appendListName;
-
-    pub const exitTo = exits.exitTo;
-    pub const dropPendingHolds = exits.dropPendingHolds;
-    pub const walkDefer = exits.walkDefer;
-    pub const checkDeferBody = exits.checkDeferBody;
-    pub const movedInDefer = exits.movedInDefer;
-    pub const runDefers = exits.runDefers;
-    pub const runDefersTo = exits.runDefersTo;
-    pub const checkDropOrder = exits.checkDropOrder;
-    pub const checkLostTasks = exits.checkLostTasks;
-    pub const scopeOf = exits.scopeOf;
-    pub const walkJump = exits.walkJump;
-    pub const checkAfterJump = exits.checkAfterJump;
-    pub const checkRestAfterJump = exits.checkRestAfterJump;
-    pub const checkJumpsUnder = exits.checkJumpsUnder;
-    pub const stmtSpan = exits.stmtSpan;
-
-    pub const checkBoundedCopies = generic.checkBoundedCopies;
-    pub const checkInstantiations = generic.checkInstantiations;
-    pub const checkItems = generic.checkItems;
-    pub const checkViews = generic.checkViews;
-    pub const checkCallables = generic.checkCallables;
-    pub const callableRefuses = generic.callableRefuses;
-    pub const reportCallable = generic.reportCallable;
-    pub const requireCallable = generic.requireCallable;
-    pub const hasRequirement = generic.hasRequirement;
-    pub const checkMethodCalls = generic.checkMethodCalls;
-    pub const checkCopies = generic.checkCopies;
-    pub const staticParamHint = generic.staticParamHint;
-    pub const requirePlain = generic.requirePlain;
-    pub const requireNoView = generic.requireNoView;
-    pub const addRequirement = generic.addRequirement;
-    pub const genericOwner = generic.genericOwner;
-    pub const walkItemInstances = generic.walkItemInstances;
-    pub const holdsItem = generic.holdsItem;
-    pub const noteItems = generic.noteItems;
-    pub const mayHoldInInstance = generic.mayHoldInInstance;
-    pub const genericStoreIn = generic.genericStoreIn;
-    pub const heldStore = generic.heldStore;
-    pub const noteMethodCall = generic.noteMethodCall;
-    pub const genericType = generic.genericType;
-    pub const holdsGeneric = generic.holdsGeneric;
-    pub const taintGeneric = generic.taintGeneric;
-    pub const taintedNone = generic.taintedNone;
-    pub const noteGenericStore = generic.noteGenericStore;
-    pub const isInstance = generic.isInstance;
-    pub const calledValueType = generic.calledValueType;
-    pub const callsFunctionField = generic.callsFunctionField;
-    pub const viewsEntries = generic.viewsEntries;
-
-    pub const text = types.text;
-    pub const typeData = types.typeData;
-    pub const symType = types.symType;
-    pub const exprType = types.exprType;
-    pub const known = types.known;
-    pub const isVoid = types.isVoid;
-    pub const fnReturnType = types.fnReturnType;
-    pub const returnMayView = types.returnMayView;
-    pub const refOfType = types.refOfType;
-    pub const isView = types.isView;
-    pub const pointee = types.pointee;
-    pub const copies = types.copies;
-    pub const copiesNarrowed = types.copiesNarrowed;
-    pub const copiedThrough = types.copiedThrough;
-    pub const isScalar = types.isScalar;
-    pub const isString = types.isString;
-    pub const isList = types.isList;
-    pub const holdsElems = types.holdsElems;
-    pub const owningKind = types.owningKind;
-    pub const kindLabel = types.kindLabel;
-    pub const mayCarryLoan = types.mayCarryLoan;
-    pub const viewsOwned = types.viewsOwned;
-    pub const ownsLoan = types.ownsLoan;
-    pub const ownsVar = types.ownsVar;
-    pub const reachedType = types.reachedType;
-    pub const mayWrite = types.mayWrite;
-    pub const carriesWriteView = types.carriesWriteView;
-    pub const selfMode = types.selfMode;
-    pub const isHandleType = types.isHandleType;
-    pub const isPoisonType = types.isPoisonType;
-    pub const rejected = types.rejected;
-    pub const dropBodyType = types.dropBodyType;
-    pub const builtinName = types.builtinName;
-    pub const hands = types.hands;
-    pub const erasesCopy = types.erasesCopy;
-    pub const viewsBy = types.viewsBy;
-
-    pub const err = notes.err;
-    pub const errAt = notes.errAt;
-    pub const tooComplex = notes.tooComplex;
-    pub const errSpan = notes.errSpan;
-    pub const note = notes.note;
-    pub const noteIn = notes.noteIn;
-    pub const stepAt = notes.stepAt;
-    pub const resumeAt = notes.resumeAt;
-    pub const resumeBefore = notes.resumeBefore;
-    pub const extent = notes.extent;
-    pub const span = notes.span;
-    pub const startOf = notes.startOf;
-    pub const noteInvalidated = notes.noteInvalidated;
-    pub const noteLoan = notes.noteLoan;
-    pub const heldUse = notes.heldUse;
-    pub const viewWord = notes.viewWord;
-    pub const bangAt = notes.bangAt;
-    pub const viewOfText = notes.viewOfText;
-    pub const viewedText = notes.viewedText;
-    pub const noteStillUsed = notes.noteStillUsed;
-    pub const holderOf = notes.holderOf;
-    pub const noteStmtUse = notes.noteStmtUse;
-    pub const callWith = notes.callWith;
-    pub const carrierIn = notes.carrierIn;
-    pub const noteHolderUse = notes.noteHolderUse;
-    pub const afterMatch = notes.afterMatch;
-    pub const targetUse = notes.targetUse;
-    pub const nextUse = notes.nextUse;
-    pub const assignsOnly = notes.assignsOnly;
-    pub const inDeferred = notes.inDeferred;
-    pub const deferredUse = notes.deferredUse;
-    pub const scopeEnd = notes.scopeEnd;
-    pub const endOf = notes.endOf;
-    pub const noteKept = notes.noteKept;
-    pub const heldReadClause = notes.heldReadClause;
-    pub const holdsCellHandle = notes.holdsCellHandle;
-    pub const inTwoArms = notes.inTwoArms;
-    pub const selectWith = notes.selectWith;
-    pub const noteWholeSelf = notes.noteWholeSelf;
-    pub const noteCloneCallee = notes.noteCloneCallee;
-    pub const callWithCalleeAt = notes.callWithCalleeAt;
-    pub const reportShortLived = notes.reportShortLived;
-    pub const reportErasedCopy = notes.reportErasedCopy;
-    pub const noteStringViewOfString = notes.noteStringViewOfString;
-    pub const noteStringResultOfString = notes.noteStringResultOfString;
-    pub const noteStringView = notes.noteStringView;
-    pub const reportArmView = notes.reportArmView;
-    pub const takeableSubject = notes.takeableSubject;
-    pub const reportCallHeld = notes.reportCallHeld;
-    pub const reportTempOutlived = notes.reportTempOutlived;
-    pub const reportTempHolder = notes.reportTempHolder;
-    pub const reportDropped = notes.reportDropped;
-    pub const reportHolder = notes.reportHolder;
-    pub const reportMoveLeaves = notes.reportMoveLeaves;
-    pub const reportMoveLeaf = notes.reportMoveLeaf;
-    pub const reportAlias = notes.reportAlias;
-    pub const ownerCallee = notes.ownerCallee;
-    pub const reportSelfView = notes.reportSelfView;
-    pub const exchangeHint = notes.exchangeHint;
-    pub const captureFix = notes.captureFix;
-    pub const errClosureValue = notes.errClosureValue;
-    pub const errOnceUse = notes.errOnceUse;
-    pub const sameCollection = notes.sameCollection;
-    pub const spanText = notes.spanText;
-    pub const varText = notes.varText;
-    pub const pathText = notes.pathText;
-    pub const placeText = notes.placeText;
 };
 
 // -----------------------------------------------------------------------------

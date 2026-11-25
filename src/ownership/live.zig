@@ -10,6 +10,9 @@ const ir = parser.ir;
 const SymbolId = sema.SymbolId;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
+const generic = @import("generic.zig");
+const types = @import("types.zig");
+const notes = @import("notes.zig");
 const Checker = state.Checker;
 const Loan = state.Loan;
 const LoopCtx = state.LoopCtx;
@@ -32,17 +35,17 @@ pub fn indexUses(self: *Checker, e: Sexp, in_defer: bool, at: ?u32) Error!void {
         .src => |s| {
             const ctx = self.sema;
             const sym = ctx.symbolOf(e) orelse return;
-            try self.noteUse(sym, at orelse s.pos, in_defer);
+            try noteUse(self, sym, at orelse s.pos, in_defer);
             const d = ctx.symbols.items[sym];
             if (d.kind == .capture and d.decl_pos == s.pos and d.origin != sema.symbol_invalid) {
-                try self.noteUse(d.origin, at orelse s.pos, in_defer);
+                try noteUse(self, d.origin, at orelse s.pos, in_defer);
             }
         },
         .list => {
             const deferred = in_defer or e.isKind(.@"defer") or e.isKind(.@"errdefer");
             for (e.items()) |c| {
-                const step_at = if (sema.isWhileStep(e, c)) at orelse self.stepAt(e) else at;
-                try self.indexUses(c, deferred, step_at);
+                const step_at = if (sema.isWhileStep(e, c)) at orelse notes.stepAt(self, e) else at;
+                try indexUses(self, c, deferred, step_at);
             }
         },
         else => {},
@@ -59,7 +62,7 @@ pub fn usePos(self: *const Checker, pos: u32) u32 {
 }
 
 pub fn noteUse(self: *Checker, sym: SymbolId, written: u32, in_defer: bool) Error!void {
-    const pos = self.usePos(written);
+    const pos = usePos(self, written);
     const gop = try self.last_use.getOrPut(self.gpa, sym);
     if (!gop.found_existing or gop.value_ptr.* < pos) gop.value_ptr.* = pos;
     if (in_defer) try self.defer_used.put(self.gpa, sym, {});
@@ -74,18 +77,18 @@ pub fn noteUse(self: *Checker, sym: SymbolId, written: u32, in_defer: bool) Erro
 /// does, only through a `drop` body (Core sentence 6), or through a
 /// live value that views it; any other holder as `holderLive` says.
 pub fn holdsPastDrop(self: *const Checker, holder: VarId) bool {
-    return self.holdsPastDropDepth(holder, 0);
+    return holdsPastDropDepth(self, holder, 0);
 }
 
 pub fn holdsPastDropDepth(self: *const Checker, holder: VarId, depth: u8) bool {
-    if (!self.isStmtTemp(holder) or depth > 16) return self.holderLive(holder, null);
+    if (!self.isStmtTemp(holder) or depth > 16) return holderLive(self, holder, null);
     const ctx = self.sema;
     const ty = self.vars.items[holder].ty orelse return true;
     if (sema.dropRunsBody(ctx, ty) != .no) return true;
     if (self.isViewed(holder)) for (self.flows.items, 0..) |f, j| {
         if (j == holder) continue;
         for (f.loans) |l| if (l.root == holder and !l.ext) {
-            if (self.holdsPastDropDepth(@intCast(j), depth + 1)) return true;
+            if (holdsPastDropDepth(self, @intCast(j), depth + 1)) return true;
             break;
         };
     };
@@ -105,7 +108,7 @@ pub fn holdsPastDropDepth(self: *const Checker, holder: VarId, depth: u8) bool {
 /// uses no view), or when a live var or temporary views it in turn.
 /// Otherwise its last use is behind, and its views have ended.
 pub fn holderLive(self: *const Checker, id: VarId, at: ?u32) bool {
-    return self.holderLiveDepth(id, at, 0);
+    return holderLiveDepth(self, id, at, 0);
 }
 
 pub fn holderLiveDepth(self: *const Checker, id: VarId, at: ?u32, depth: u8) bool {
@@ -116,7 +119,7 @@ pub fn holderLiveDepth(self: *const Checker, id: VarId, at: ?u32, depth: u8) boo
     // views it.
     if (v.temp_value) {
         if (v.ty == null or sema.dropRunsBody(ctx, v.ty.?) != .no) return true;
-        return self.viewedByLive(id, at, depth);
+        return viewedByLive(self, id, at, depth);
     }
     // A parameter is live at every exit: the caller uses the value
     // it gave a view of after the return.
@@ -134,10 +137,10 @@ pub fn holderLiveDepth(self: *const Checker, id: VarId, at: ?u32, depth: u8) boo
         // A use in the statement being walked counts while it is
         // ahead; in a loop the var was declared outside of, every use
         // in the loop runs again.
-        const from = self.liveFrom(v.decl, at);
-        if (last >= from and (at != null or from < self.stmtStart() or last >= self.stmtEnd() or self.useAhead(sym, from))) return true;
+        const from = liveFrom(self, v.decl, at);
+        if (last >= from and (at != null or from < stmtStart(self) or last >= stmtEnd(self) or useAhead(self, sym, from))) return true;
     }
-    return self.viewedByLive(id, at, depth);
+    return viewedByLive(self, id, at, depth);
 }
 
 /// Whether a live var or a temporary views var `id`.
@@ -145,7 +148,7 @@ pub fn viewedByLive(self: *const Checker, id: VarId, at: ?u32, depth: u8) bool {
     if (self.isViewed(id)) for (self.flows.items, 0..) |f, j| {
         if (j == id) continue;
         for (f.loans) |l| if (l.root == id and !l.ext) {
-            if (self.holderLiveDepth(@intCast(j), at, depth + 1)) return true;
+            if (holderLiveDepth(self, @intCast(j), at, depth + 1)) return true;
             break;
         };
     };
@@ -165,7 +168,7 @@ pub fn useAhead(self: *const Checker, sym: SymbolId, from: u32) bool {
 /// The use at `pos` is walked: unless a consumer being walked reads
 /// it where it runs (`late`).
 pub fn markWalked(self: *Checker, at: u32) Error!void {
-    const pos = self.usePos(at);
+    const pos = usePos(self, at);
     if (!self.nll or std.mem.findScalar(u32, self.late.items, pos) != null) return;
     try self.walked.append(self.gpa, pos);
 }
@@ -186,7 +189,7 @@ pub fn holdLate(self: *Checker, e: Sexp) Error!void {
         .list => if ((e.isKind(.read) or e.isKind(.write) or e.isKind(.move)) and ir.get(e, .operand) == .src) ir.get(e, .operand) else return,
         else => return,
     };
-    try self.late.append(self.gpa, self.usePos(name.src.pos));
+    try self.late.append(self.gpa, usePos(self, name.src.pos));
 }
 
 /// The parts of `node`, a call or an array literal, that it reads
@@ -203,7 +206,7 @@ pub fn holdLateParts(self: *Checker, node: Sexp, parts: []const Sexp) Error!void
     }
     for (parts) |a| {
         const v = storage.argValue(a);
-        if (storage.isPureArg(ctx, v)) try self.holdLate(v);
+        if (storage.isPureArg(ctx, v)) try holdLate(self, v);
     }
 }
 
@@ -212,7 +215,7 @@ pub fn holdLateParts(self: *Checker, node: Sexp, parts: []const Sexp) Error!void
 /// enclosing loop the var was declared outside of, one around a
 /// deferred body being walked included (`defer_loops`).
 pub fn liveFrom(self: *const Checker, decl: u32, at: ?u32) u32 {
-    var from: u32 = loopStartFrom(self.loop, decl, if (at) |a| self.usePos(a) else self.stmtStart());
+    var from: u32 = loopStartFrom(self.loop, decl, if (at) |a| usePos(self, a) else stmtStart(self));
     for (self.defer_loops.items) |outer| from = loopStartFrom(outer, decl, from);
     return from;
 }
@@ -233,14 +236,14 @@ pub fn loopStartFrom(loop: ?*LoopCtx, decl: u32, from: u32) u32 {
 /// loop's step runs.
 pub fn stmtStart(self: *const Checker) u32 {
     if (self.step_at) |at| return at;
-    const ext = self.extent(self.cur_stmt);
+    const ext = notes.extent(self, self.cur_stmt);
     return if (ext.hi >= ext.lo) ext.lo else self.anchor;
 }
 
 /// The first position after the current statement.
 pub fn stmtEnd(self: *const Checker) u32 {
     if (self.step_at) |at| return at +| 1;
-    return self.extent(self.cur_stmt).hi +| 1;
+    return notes.extent(self, self.cur_stmt).hi +| 1;
 }
 
 pub fn addTemp(self: *Checker, l: Loan) Error!void {
@@ -250,13 +253,13 @@ pub fn addTemp(self: *Checker, l: Loan) Error!void {
 /// Loans carried by the current value of var `id`.
 pub fn varValue(self: *Checker, id: VarId) Value {
     const v = self.vars.items[id];
-    if (!v.closure and !self.mayCarryLoan(v.ty)) {
-        if (self.genericType(v.ty)) {
+    if (!v.closure and !types.mayCarryLoan(self, v.ty)) {
+        if (generic.genericType(self, v.ty)) {
             // A value of a type parameter's type carries, in an
             // instance, what its binding views (a match payload's
             // view of the matched value), and a parameter taken by
             // value what its caller's argument viewed.
-            self.taintGeneric(v.ty, .{ .loans = self.flows.items[id].loans });
+            generic.taintGeneric(self, v.ty, .{ .loans = self.flows.items[id].loans });
             if (v.kind == .param and v.ref == .none) if (v.param_index) |i| {
                 self.func.generic |= sema.paramBit(i);
             };

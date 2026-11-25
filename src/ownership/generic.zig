@@ -12,6 +12,10 @@ const TypeId = sema.TypeId;
 const SymbolId = sema.SymbolId;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
+const transfer = @import("transfer.zig");
+const origins = @import("origins.zig");
+const types = @import("types.zig");
+const notes = @import("notes.zig");
 const Checker = state.Checker;
 const Loan = state.Loan;
 const PlainRequirement = state.PlainRequirement;
@@ -43,12 +47,12 @@ pub fn checkBoundedCopies(self: *Checker) Error!void {
         // A `pub` declaration's parameter: at the parameter, with the
         // bounds to write, and a note where the body does it.
         if (try sema.statedMessage(ctx, a, r.param, .{ .api = api }, try sema.boundUse(a, api, sym.name, ""))) |msg| {
-            try self.err(sym.decl_pos, "{s}", .{msg});
-            try self.note(r.pos, "here", .{});
+            try notes.err(self, sym.decl_pos, "{s}", .{msg});
+            try notes.note(self, r.pos, "here", .{});
             continue;
         }
         const what = if (r.view) try std.fmt.allocPrint(a, "a value that holds no view, which {s} keeps", .{r.home.keeper()}) else if (r.element) "taking an element its collection still owns" else "a copy";
-        try self.err(r.pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});
+        try notes.err(self, r.pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});
     }
 }
 
@@ -64,22 +68,22 @@ pub fn checkInstantiations(self: *Checker) Error!void {
     for (ctx.fn_instances.items) |f| {
         const shown = try sema.formatFnInstanceIn(ctx, self.arena(), f.inst);
         for (f.inst.ownParams(), f.inst.ownArgs()) |param, arg| {
-            if (self.carriesWriteView(arg)) {
+            if (types.carriesWriteView(self, arg)) {
                 // The call's instance of the API's method reports it.
                 if (f.through_api) continue;
                 const pname = ctx.symbols.items[param].name;
-                try self.err(f.site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value; take `!{s}` in its signature instead", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname });
+                try notes.err(self, f.site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value; take `!{s}` in its signature instead", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname });
                 continue;
             }
-            try self.checkCopies(f.site, shown, param, arg, f.inst.subst());
-            try self.checkViews(f.site, shown, param, arg, f.inst.subst());
-            try self.checkCallables(f.site, shown, param, arg, f.inst.subst(), false);
-            if (try self.checkItems(f.site, shown, param, arg, f.inst.subst())) if (f.via) |via| {
+            try checkCopies(self, f.site, shown, param, arg, f.inst.subst());
+            try checkViews(self, f.site, shown, param, arg, f.inst.subst());
+            try checkCallables(self, f.site, shown, param, arg, f.inst.subst(), false);
+            if (try checkItems(self, f.site, shown, param, arg, f.inst.subst())) if (f.via) |via| {
                 const by = switch (via) {
                     .type => |t| try sema.formatTypeIn(ctx, self.arena(), t),
                     .func => |g| try sema.formatFnInstanceIn(ctx, self.arena(), g),
                 };
-                try self.note(f.site, "`{s}` is made by `{s}`", .{ shown, by });
+                try notes.note(self, f.site, "`{s}` is made by `{s}`", .{ shown, by });
             };
         }
     }
@@ -99,15 +103,15 @@ pub fn checkInstantiations(self: *Checker) Error!void {
             const arg = pn.args[i];
             const pname = ctx.symbols.items[param].name;
             const aname = try sema.formatTypeIn(ctx, self.arena(), arg);
-            if (self.carriesWriteView(arg)) {
-                try self.err(site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value", .{ shown, pname, aname });
+            if (types.carriesWriteView(self, arg)) {
+                try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value", .{ shown, pname, aname });
                 continue;
             }
             const subst: sema.TypeSubst = .{ .params = params, .args = pn.args };
-            try self.checkCopies(site, shown, param, arg, subst);
-            try self.checkViews(site, shown, param, arg, subst);
-            try self.checkCallables(site, shown, param, arg, subst, true);
-            _ = try self.checkItems(site, shown, param, arg, subst);
+            try checkCopies(self, site, shown, param, arg, subst);
+            try checkViews(self, site, shown, param, arg, subst);
+            try checkCallables(self, site, shown, param, arg, subst, true);
+            _ = try checkItems(self, site, shown, param, arg, subst);
         }
     }
 }
@@ -131,8 +135,8 @@ pub fn checkItems(self: *Checker, site: u32, shown: []const u8, param: SymbolId,
         const pname = ctx.symbols.items[param].name;
         const iname = try sema.formatTypeIn(ctx, self.arena(), item);
         const bname = try sema.formatTypeIn(ctx, self.arena(), arg);
-        try self.err(site, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, and the generic body holds an `{s}` past a change of the `{s}` it came from; use `{s}` itself, or give items that own what they hold", .{ shown, aname, iname, iname, bname, aname, pname, bname });
-        try self.noteIn(r.module_id, r.pos, "the `{s}` changes here while an `{s}` it gave is held", .{ pname, aname });
+        try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, and the generic body holds an `{s}` past a change of the `{s}` it came from; use `{s}` itself, or give items that own what they hold", .{ shown, aname, iname, iname, bname, aname, pname, bname });
+        try notes.noteIn(self, r.module_id, r.pos, "the `{s}` changes here while an `{s}` it gave is held", .{ pname, aname });
         return true;
     }
     return false;
@@ -143,14 +147,14 @@ pub fn checkItems(self: *Checker, site: u32, shown: []const u8, param: SymbolId,
 /// where no loan is tracked.
 pub fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst) Error!void {
     const ctx = self.sema;
-    if (!self.mayCarryLoan(arg)) return;
+    if (!types.mayCarryLoan(self, arg)) return;
     const pname = ctx.symbols.items[param].name;
     for (self.plain_reqs.items) |r| {
         if (r.param != param or !r.view) continue;
         if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
         const why = (try sema.objectLoanReason(ctx, self.arena(), arg)) orelse if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views read-only" else "a `?String` may view a String (a `Static` holds no view)";
-        try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body {s}, which holds no view, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), try r.home.doing(self.arena(), pname), why });
-        try self.noteIn(r.module_id, r.pos, "`{s}` {s}", .{ pname, r.home.site() });
+        try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: the generic body {s}, which holds no view, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), try r.home.doing(self.arena(), pname), why });
+        try notes.noteIn(self, r.module_id, r.pos, "`{s}` {s}", .{ pname, r.home.site() });
         return;
     }
 }
@@ -163,12 +167,12 @@ pub fn checkViews(self: *Checker, site: u32, shown: []const u8, param: SymbolId,
 /// instance (`at_type`), a requirement a method's body makes is left
 /// to each call of the method (`checkMethodCalls`).
 pub fn checkCallables(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId, subst: sema.TypeSubst, at_type: bool) Error!void {
-    if (!self.mayCarryLoan(arg)) return;
+    if (!types.mayCarryLoan(self, arg)) return;
     for (self.plain_reqs.items) |r| {
         if (r.param != param or r.callable == null) continue;
         if (at_type and r.method != null) continue;
-        if (try self.callableRefuses(r, subst)) |inst| {
-            try self.reportCallable(site, shown, r, arg, inst);
+        if (try callableRefuses(self, r, subst)) |inst| {
+            try reportCallable(self, site, shown, r, arg, inst);
             return;
         }
     }
@@ -210,11 +214,11 @@ pub fn reportCallable(self: *Checker, site: u32, shown: []const u8, r: PlainRequ
     const aname = try sema.formatTypeIn(ctx, a, arg);
     const fname = try sema.formatTypeIn(ctx, a, inst);
     if (r.in_result) {
-        try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body holds as a `{s}` what a `{s}` gives when passed a view, and tracks no view in it, but a `{s}` can hold a view; use a `{s}` that owns what it holds", .{ shown, pname, aname, pname, fname, aname, pname });
-        try self.noteIn(r.module_id, r.pos, "the body holds the result as a `{s}` here", .{pname});
+        try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: the generic body holds as a `{s}` what a `{s}` gives when passed a view, and tracks no view in it, but a `{s}` can hold a view; use a `{s}` that owns what it holds", .{ shown, pname, aname, pname, fname, aname, pname });
+        try notes.noteIn(self, r.module_id, r.pos, "the body holds the result as a `{s}` here", .{pname});
     } else {
-        try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body passes a `{s}` a view beside a write view of a `{s}` it holds, whose views it does not track, and a `{s}` can hold the view; use a `{s}` that owns what it holds", .{ shown, pname, aname, fname, pname, aname, pname });
-        try self.noteIn(r.module_id, r.pos, "the body passes the views here", .{});
+        try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: the generic body passes a `{s}` a view beside a write view of a `{s}` it holds, whose views it does not track, and a `{s}` can hold the view; use a `{s}` that owns what it holds", .{ shown, pname, aname, fname, pname, aname, pname });
+        try notes.noteIn(self, r.module_id, r.pos, "the body passes the views here", .{});
     }
 }
 
@@ -232,11 +236,11 @@ pub fn requireCallable(self: *Checker, pos: u32, callable: TypeId, in_result: bo
     if (in_result) {
         try sema.reachedTypeVars(ctx, f.returns, &held, self.arena());
     } else for (f.params) |pt| {
-        if (self.carriesWriteView(pt)) try sema.reachedTypeVars(ctx, pt, &held, self.arena());
+        if (types.carriesWriteView(self, pt)) try sema.reachedTypeVars(ctx, pt, &held, self.arena());
     }
     for (held.items) |param| {
         const req: PlainRequirement = .{ .param = param, .pos = pos, .callable = callable, .in_result = in_result, .method = self.method_pos };
-        if (self.hasRequirement(req)) continue;
+        if (hasRequirement(self, req)) continue;
         try self.plain_reqs.append(self.gpa, req);
     }
 }
@@ -291,23 +295,23 @@ pub fn checkMethodCalls(self: *Checker) Error!void {
                     defer self.method_pos = saved;
                     self.method_pos = mc.scope;
                     const before = self.plain_reqs.items.len;
-                    try self.requireCallable(mc.pos, inst, r.in_result);
+                    try requireCallable(self, mc.pos, inst, r.in_result);
                     if (self.plain_reqs.items.len > before) {
                         changed = true;
                         changed_at = mc.pos;
                     }
                     continue;
                 }
-                if (!self.mayCarryLoan(arg)) continue;
+                if (!types.mayCarryLoan(self, arg)) continue;
                 if (reported.contains(mc.pos)) continue;
-                if (try self.callableRefuses(r, subst)) |at| {
+                if (try callableRefuses(self, r, subst)) |at| {
                     try reported.put(self.gpa, mc.pos, {});
-                    try self.reportCallable(mc.pos, try sema.formatTypeIn(ctx, self.arena(), mc.recv), r, arg, at);
+                    try reportCallable(self, mc.pos, try sema.formatTypeIn(ctx, self.arena(), mc.recv), r, arg, at);
                 }
             }
         }
     }
-    if (changed) try self.tooComplex(changed_at, "call");
+    if (changed) try notes.tooComplex(self, changed_at, "call");
 }
 
 /// An instance whose argument for `param` owns a resource, where a
@@ -320,13 +324,13 @@ pub fn checkCopies(self: *Checker, site: u32, shown: []const u8, param: SymbolId
         if (r.param != param or r.view or r.item.len > 0 or r.callable != null) continue;
         if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
         if (sema.typeHasDropGlue(ctx, arg)) {
-            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
-        } else try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, and `{s}` is unique", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
+            try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
+        } else try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, and `{s}` is unique", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
         if (r.element) {
-            try self.noteIn(r.module_id, r.pos, "a `{s}` element is taken here while its collection still owns it; take the elements with `for x in <v`", .{pname});
+            try notes.noteIn(self, r.module_id, r.pos, "a `{s}` element is taken here while its collection still owns it; take the elements with `for x in <v`", .{pname});
         } else if (r.as_view) {
-            try self.noteIn(r.module_id, r.pos, "a `{s}` is taken here from inside an optional that still owns it, where `as` binds it", .{pname});
-        } else try self.noteIn(r.module_id, r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
+            try notes.noteIn(self, r.module_id, r.pos, "a `{s}` is taken here from inside an optional that still owns it, where `as` binds it", .{pname});
+        } else try notes.noteIn(self, r.module_id, r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
         return;
     }
 }
@@ -341,7 +345,7 @@ pub fn staticParamHint(l: Loan) []const u8 {
 /// Every type parameter `ty` holds must be plain data in each
 /// instance, because the value is copied (or taken as an `element`).
 pub fn requirePlain(self: *Checker, pos: u32, ty: TypeId, element: bool) Error!void {
-    return self.addRequirement(pos, ty, .{ .param = 0, .pos = pos, .element = element });
+    return addRequirement(self, pos, ty, .{ .param = 0, .pos = pos, .element = element });
 }
 
 /// Every type parameter `ty` holds must hold no `?String` in each
@@ -349,7 +353,7 @@ pub fn requirePlain(self: *Checker, pos: u32, ty: TypeId, element: bool) Error!v
 /// in a Cell, a Signal, a channel, an actor's value, or an owned
 /// closure.
 pub fn requireNoView(self: *Checker, pos: u32, ty: ?TypeId, home: sema.NoLoanHome) Error!void {
-    return self.addRequirement(pos, ty orelse return, .{ .param = 0, .pos = pos, .view = true, .home = home });
+    return addRequirement(self, pos, ty orelse return, .{ .param = 0, .pos = pos, .view = true, .home = home });
 }
 
 pub fn addRequirement(self: *Checker, pos: u32, ty: TypeId, req: PlainRequirement) Error!void {
@@ -397,7 +401,7 @@ pub fn walkItemInstances(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp
         const diags = self.diagnostics.items.len;
         const found = self.errors_found;
         self.item = assoc;
-        const walked = self.walkFunOnce(name, tparams, params, returns, body);
+        const walked = transfer.walkFunOnce(self, name, tparams, params, returns, body);
         self.item = null;
         try walked;
         const at: ?u32 = for (self.diagnostics.items[diags..]) |d| {
@@ -440,7 +444,7 @@ pub fn noteItems(self: *Checker, ty: ?TypeId) Error!void {
 
 /// Whether a value of `ty` may hold a view, here or in an instance.
 pub fn mayHoldInInstance(self: *const Checker, ty: ?TypeId) bool {
-    return self.mayCarryLoan(ty) or self.genericType(ty);
+    return types.mayCarryLoan(self, ty) or genericType(self, ty);
 }
 
 /// A store of `stored` in what var `id` leads to, a type that holds a
@@ -449,35 +453,35 @@ pub fn mayHoldInInstance(self: *const Checker, ty: ?TypeId) bool {
 /// (`noteGenericStore`, `recordStore`), through the write views a
 /// local holds.
 pub fn genericStoreIn(self: *Checker, id: VarId, stored: Value, pos: u32, depth: u32) Error!void {
-    if (!self.holdsGeneric(self.pointee(self.vars.items[id].ty))) return;
-    if (depth > 16) return self.tooComplex(pos, "store");
+    if (!holdsGeneric(self, types.pointee(self, self.vars.items[id].ty))) return;
+    if (depth > 16) return notes.tooComplex(self, pos, "store");
     const c = self.vars.items[id];
     if (c.kind == .param and c.ref != .none) {
         // The caller's value outlives this function's own values, as
         // for any type (`absorbLoans`): a call through a bound that
         // keeps what it is passed stores it there. (A function value
         // keeps nothing; its default origins only say it may.)
-        if (self.api_call) for (stored.loans) |l| if (l.root != id and self.isLocalLoan(l)) {
-            try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, c.name, c.name });
+        if (self.api_call) for (stored.loans) |l| if (l.root != id and origins.isLocalLoan(self, l)) {
+            try notes.err(self, pos, "cannot let this call store a view of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, c.name, c.name });
             return;
         };
-        try self.heldStore(id, stored, true);
+        try heldStore(self, id, stored, true);
         var out: std.ArrayList(Loan) = .empty;
-        for (stored.loans) |l| if (l.root != id and !self.isLocalLoan(l)) try out.append(self.arena(), l);
-        self.recordStore(id, out.items, pos);
+        for (stored.loans) |l| if (l.root != id and !origins.isLocalLoan(self, l)) try out.append(self.arena(), l);
+        origins.recordStore(self, id, out.items, pos);
         return;
     }
     // A value of a type parameter's type this body owns: it tracks no
     // view in one (SPEC "Generic bodies"), so a call that keeps what
     // it is passed may not store a view there.
     if (self.api_call and c.ref == .none and depth == 0) for (stored.loans) |l| if (l.root != id) {
-        const shown = try sema.formatTypeIn(self.sema, self.arena(), (self.pointee(c.ty) orelse c.ty) orelse sema.type_invalid);
-        try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`, a `{s}`: a generic body tracks no view a value of a type parameter holds", .{ self.vars.items[l.root].name, c.name, shown });
+        const shown = try sema.formatTypeIn(self.sema, self.arena(), (types.pointee(self, c.ty) orelse c.ty) orelse sema.type_invalid);
+        try notes.err(self, pos, "cannot let this call store a view of `{s}` in `{s}`, a `{s}`: a generic body tracks no view a value of a type parameter holds", .{ self.vars.items[l.root].name, c.name, shown });
         return;
     };
-    if (c.ref == .none) try self.heldStore(id, stored, false);
+    if (c.ref == .none) try heldStore(self, id, stored, false);
     for (self.flows.items[id].loans) |l| {
-        if (l.kind == .write and l.root != id) try self.genericStoreIn(l.root, stored, pos, depth + 1);
+        if (l.kind == .write and l.root != id) try genericStoreIn(self, l.root, stored, pos, depth + 1);
     }
 }
 
@@ -499,12 +503,12 @@ pub fn heldStore(self: *Checker, id: VarId, stored: Value, viewed: bool) Error!v
     for (stored.loans) |l| {
         if (containsLoan(hs.own, l)) continue;
         if (viewed) {
-            if (l.root != id and !self.isLocalLoan(l)) continue;
-        } else if (!self.ownsLoan(l, 0)) if (self.paramOf(l)) |i| {
+            if (l.root != id and !origins.isLocalLoan(self, l)) continue;
+        } else if (!types.ownsLoan(self, l, 0)) if (origins.paramOf(self, l)) |i| {
             self.func.generic |= sema.paramBit(i);
             continue;
         };
-        if (!required) try self.requireCallable(hs.pos, hs.callable, false);
+        if (!required) try requireCallable(self, hs.pos, hs.callable, false);
         required = true;
     }
 }
@@ -518,13 +522,13 @@ pub fn noteMethodCall(self: *Checker, node: Sexp, callee: Sexp) Error!void {
         .function => |f| f,
         .none => return,
     };
-    const recv = self.pointee(self.exprType(unsigiled(ir.Member.object(callee)))) orelse return;
+    const recv = types.pointee(self, types.exprType(self, unsigiled(ir.Member.object(callee)))) orelse return;
     const pn = switch (ctx.types.get(recv)) {
         .parameterized_nominal => |pn| pn,
         else => return,
     };
     const params = ctx.symbols.items[pn.sym].type_params orelse return;
-    try self.method_calls.append(self.gpa, .{ .pos = self.startOf(node), .target = target, .recv = recv, .params = params, .args = pn.args, .scope = self.method_pos });
+    try self.method_calls.append(self.gpa, .{ .pos = notes.startOf(self, node), .target = target, .recv = recv, .params = params, .args = pn.args, .scope = self.method_pos });
 }
 
 /// Whether `ty` holds a type parameter by value and so may hold a view
@@ -536,7 +540,7 @@ pub fn noteMethodCall(self: *Checker, node: Sexp, callee: Sexp) Error!void {
 pub fn genericType(self: *const Checker, ty: ?TypeId) bool {
     const ctx = self.sema;
     const t = ty orelse return false;
-    return !self.mayCarryLoan(t) and sema.holdsUnownedParam(ctx, t);
+    return !types.mayCarryLoan(self, t) and sema.holdsUnownedParam(ctx, t);
 }
 
 /// Whether a value of `ty` may hold a value of a type parameter's
@@ -552,17 +556,17 @@ pub fn holdsGeneric(self: *const Checker, ty: ?TypeId) bool {
 /// no loan in (`genericType`): the parameters they are on may be
 /// returned or stored wherever such a value is (`checkOrigins`).
 pub fn taintGeneric(self: *Checker, ty: ?TypeId, v: Value) void {
-    if (v.loans.len == 0 or !self.genericType(ty)) return;
-    for (v.loans) |l| if (self.paramOf(l)) |i| {
+    if (v.loans.len == 0 or !genericType(self, ty)) return;
+    for (v.loans) |l| if (origins.paramOf(self, l)) |i| {
         self.func.generic |= sema.paramBit(i);
-        if (self.func.generic_self_path == null and self.isSelfVar(l.root) and !self.withinSelfPaths(l.path)) self.func.generic_self_path = .{ .path = l.path, .at = l.pos };
+        if (self.func.generic_self_path == null and origins.isSelfVar(self, l.root) and !origins.withinSelfPaths(self, l.path)) self.func.generic_self_path = .{ .path = l.path, .at = l.pos };
     };
 }
 
 /// No loans, for a value of `ty` that carries none, after `v`'s reach
 /// it (`taintGeneric`).
 pub fn taintedNone(self: *Checker, ty: ?TypeId, v: Value) []const Loan {
-    self.taintGeneric(ty, v);
+    taintGeneric(self, ty, v);
     return &.{};
 }
 
@@ -601,7 +605,7 @@ pub fn calledValueType(self: *Checker, node: Sexp, callee: Sexp, field_call: boo
         return ty;
     };
     if (ctx.callTargetOf(node)) |t| if (t == .function) return null;
-    const ty = self.exprType(callee) orelse return null;
+    const ty = types.exprType(self, callee) orelse return null;
     if (!ctx.typeInfo(ty).has_type_var) return null;
     _ = sema.calledFn(ctx, ty) orelse return null;
     return ty;
@@ -621,13 +625,13 @@ pub fn callsFunctionField(self: *const Checker, call: Sexp, callee: Sexp) bool {
 /// (`Field.views_entries`).
 pub fn viewsEntries(self: *const Checker, callee: Sexp) bool {
     const ctx = self.sema;
-    const recv = self.pointee(self.exprType(unsigiled(ir.Member.object(callee)))) orelse return false;
+    const recv = types.pointee(self, types.exprType(self, unsigiled(ir.Member.object(callee)))) orelse return false;
     const pn = switch (ctx.types.get(recv)) {
         .parameterized_nominal => |pn| pn,
         else => return false,
     };
     if (!sema.isHashTable(ctx, pn.sym)) return false;
-    const name = self.text(ir.Member.name(callee));
+    const name = types.text(self, ir.Member.name(callee));
     for (ctx.symbols.items[pn.sym].fields orelse &.{}) |f| {
         if (f.is_method and std.mem.eql(u8, f.name, name)) return f.views_entries;
     }
