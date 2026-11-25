@@ -132,10 +132,7 @@ pub fn resolveFlattened(ctx: *SemContext, def: Sexp, nominal_sym: SymbolId, flat
     for (@constCast(ctx.symbols.items[nominal_sym].fields orelse &.{})) |*f| {
         if (!f.is_method or f.decl_pos != mpos) continue;
         f.ty = fn_ty;
-        f.param_names = try tr.paramNames(params);
-        f.param_defaults = try tr.paramDefaults(fn_ty, params);
-        f.param_durations = try tr.paramDurations(fn_ty, params);
-        f.has_groups = try tr.paramGroups(fn_ty, params, mpos);
+        try tr.methodParams(f, params);
     }
 }
 
@@ -2530,12 +2527,9 @@ pub const TypeResolver = struct {
                 .decl_pos = name.src.pos,
                 .is_method = true,
                 .self_mode = self_mode,
-                .param_names = try self.paramNames(params),
-                .param_defaults = try self.paramDefaults(fn_ty, params),
-                .param_durations = try self.paramDurations(fn_ty, params),
-                .has_groups = try self.paramGroups(fn_ty, params, name.src.pos),
                 .is_default = of == .api and ir.get(m, .body) != .nil,
             });
+            try self.methodParams(&fields.items[fields.items.len - 1], params);
         }
     }
 
@@ -4262,11 +4256,18 @@ pub const TypeResolver = struct {
             .outside = (node.isKind(.fun) or node.isKind(.sub)) and ir.get(node, .outside) != .nil,
             .inline_marked = marked,
             .self_mode = self_mode,
-            .param_names = try self.paramNames(params),
-            .param_defaults = try self.paramDefaults(fn_ty, params),
-            .param_durations = try self.paramDurations(fn_ty, params),
-            .has_groups = try self.paramGroups(fn_ty, params, mpos),
         });
+        try self.methodParams(&fields.items[fields.items.len - 1], params);
+    }
+
+    /// Method `f`'s parameters as a call reads them: their names, their
+    /// defaults, which are durations, and which belong to a group, from
+    /// its signature `f.ty` and `params` as written.
+    fn methodParams(self: *TypeResolver, f: *Field, params: Sexp) Error!void {
+        f.param_names = try self.paramNames(params);
+        f.param_defaults = try self.paramDefaults(f.ty, params);
+        f.param_durations = try self.paramDurations(f.ty, params);
+        f.has_groups = try self.paramGroups(f.ty, params, f.decl_pos);
     }
 
     /// How a method takes self, from the type `?@`, `!@`, or `<@`
