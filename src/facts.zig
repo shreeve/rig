@@ -801,11 +801,6 @@ pub const Facts = struct {
         const kind = f.handsOver(e) orelse return null;
         return (sema.Hands{ .kind = kind }).hasStorage();
     }
-    /// Whether a header's block yields the address of the place its
-    /// subject reaches (`storage.headerPoints`).
-    pub fn headerPoints(f: Facts, e: Sexp) ?bool {
-        return storage.decided(f.c(), e, .header_points);
-    }
     /// Whether an `as` binding views the value inside the optional
     /// (`storage.viewsOptionalValue`).
     pub fn viewsOptionalValue(f: Facts, value: Sexp) ?bool {

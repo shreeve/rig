@@ -2796,7 +2796,7 @@ pub const Emitter = struct {
     /// reaches (`pointer`, `emitSubjectPtr`).
     fn openHeaderBy(self: *Emitter, e: Sexp, by: facts.StorageBy) Error!Header {
         const first = self.temp_slots.items.len;
-        if (!self.hasTemps(e)) return .{ .first = first };
+        if (self.lowered.?.tempsOf(e).len == 0) return .{ .first = first };
         const label = try self.hiddenStorage(e, .header_value, by, .next);
         try self.w.print("({s}: {{ ", .{label});
         try self.emitTempSlots(e);
@@ -2816,11 +2816,12 @@ pub const Emitter = struct {
         try self.closeHeader(h);
     }
 
-    /// `storage.headerPoints`: the header over construct subject `e`
-    /// makes temporaries, and its block yields the address of the place
-    /// `e` reaches.
-    fn headerPoints(self: *Emitter, e: Sexp) Error!bool {
-        return self.need(self.facts.headerPoints(e), e);
+    /// The header over construct subject `e` makes temporaries, and its
+    /// block yields the address of the place `e` reaches: its value's var
+    /// holds a pointer.
+    fn headerPoints(self: *Emitter, e: Sexp) bool {
+        const v = self.varOf(e, .header_value) orelse return false;
+        return v.by == .pointer;
     }
 
     /// The address of the place a construct's subject `e` reaches, which
@@ -4456,7 +4457,7 @@ pub const Emitter = struct {
             if (array_ptr) try self.w.writeAll("&");
             try self.emitMemberBase(source, held_ty);
             try self.writeReach(held_ty.?);
-        } else if (owned) try self.w.print("&{s}", .{taken}) else if (try self.headerPoints(source)) {
+        } else if (owned) try self.w.print("&{s}", .{taken}) else if (self.headerPoints(source)) {
             // A place reached through temporaries is walked where it is.
             try self.emitSubjectPtr(source, mode == .write);
             if (!array_ptr) try self.w.writeAll(".*");
@@ -4507,7 +4508,7 @@ pub const Emitter = struct {
         try self.w.print(" = " ++ rt(.fold) ++ "(.{s}, ", .{@tagName(how)});
         try self.writeLocalPlace(local);
         try self.w.writeAll(", ");
-        if (try self.headerPoints(source)) {
+        if (self.headerPoints(source)) {
             try self.emitSubjectPtr(source, false);
             try self.w.writeAll(".*");
         } else {
@@ -4717,7 +4718,7 @@ pub const Emitter = struct {
             try self.writeErrorCode(info.ty.?, place);
         } else if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
             try self.w.writeAll(info.reread);
-        } else if (try self.headerPoints(subject)) {
+        } else if (self.headerPoints(subject)) {
             // A place reached through temporaries is switched on where it
             // is, so each payload captured by pointer is the place's own.
             try self.emitSubjectPtr(subject, info.mode == .write);
@@ -4924,7 +4925,7 @@ pub const Emitter = struct {
         // which the header's block yields, and a view a call returns
         // (`match get(e)`) as the pointer it is, never copied: the
         // bindings view the value it points to.
-        const points = try self.headerPoints(value);
+        const points = self.headerPoints(value);
         if (!info.subject.isKind(.move) and (points or self.isPtrViewExpr(value))) {
             try self.writeIndent(self.indent);
             try self.w.print("const {s} = ", .{name});
@@ -5830,7 +5831,7 @@ pub const Emitter = struct {
         // no place (`copiesHeader`); a place it reaches, the place's own.
         const owns = value.isKind(.move) or (try self.need(self.facts.handsOver(value), value) == .made and !self.facts.isReadOrWriteView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
         const copies = !owns and self.facts.copiesHeader(cond);
-        const points = try self.headerPoints(value);
+        const points = self.headerPoints(value);
         // An optional that goes through the helpers is tested as the Zig
         // optional `rig.some` gives, and captured by address through
         // `rig.somePtr`.
@@ -8783,7 +8784,7 @@ pub const Emitter = struct {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last) and !try self.hasErasedCopies(last)) return self.emitYield(last, result, how);
+        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and self.lowered.?.tempsOf(last).len == 0 and !try self.hasErasedCopies(last)) return self.emitYield(last, result, how);
 
         const terminates = isTerminatingStmt(last);
         // A block whose value is Void may end in a statement that gives
