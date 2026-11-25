@@ -2171,6 +2171,19 @@ pub const Column = blk: {
 /// The columns' declarations: every column the module check writes,
 /// keyed as its key type says (`NodeKey` by node, `u64` by expression),
 /// except those named here.
+///
+/// Four columns of the check take facts from both its resolver and its
+/// type checker, each key from one of them: `names` (the resolver's for
+/// a declaration, a type's name, an assignment's target, and a constant
+/// pattern, which the type checker names again as a value, alike; the
+/// type checker's for a value's name), `types` (the
+/// resolver's for a function's name; the type checker's for the rest),
+/// `write_sites` (the resolver's for an assignment, a store into a
+/// part, a write view, and a write capture, which a local's declaration
+/// asks of the binding's later writes; the type checker's for a move
+/// and a take, which need types), and `const_ints` (the resolver's for
+/// a module constant, folded before any type names it; the type
+/// checker's for a local).
 pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .names = .{ .key = .raw },
     .writes = .{ .key = .raw },
