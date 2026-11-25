@@ -711,7 +711,7 @@ pub fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
     var op = e;
     while (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) : (op = ir.get(op, .operand)) try handles.append(self.ctx.arena.allocator(), op);
     if (!op.isKind(.propagate_none) and !op.isKind(.propagate)) return null;
-    if (self.ctx.parser) |p| if (p.hasParenSuffix(e)) {
+    if (self.ctx.parser) |p| if (p.marked(.paren_suffix, e)) {
         try self.errAt(e, "a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead", .{});
         return self.t().invalid_id;
     };

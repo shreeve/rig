@@ -100,7 +100,7 @@ pub fn resolveIterWhile(ctx: *SemContext, loop: Sexp, w: rig.Parser.IterWhile) E
     _ = try r.enter(block, .block);
     ctx.scopes.items[scope].parent = r.scope;
     const target = ir.Set.target(hold);
-    const loop_name = if (ctx.parser) |p| p.isLoopName(target) else false;
+    const loop_name = if (ctx.parser) |p| p.marked(.loop_name, hold) else false;
     const h = (try r.declare(target, .local, .{ .pattern_bound = loop_name })).?;
     try ctx.recordWrite(view, h, .write_viewed);
 }
@@ -1239,7 +1239,7 @@ const SymbolResolver = struct {
                 try self.checkCapturedRoot(target);
                 // A name a `for` over a chain binds is a loop binding,
                 // which may not hide a local, as any `for`'s may not.
-                const loop_name = if (self.ctx.parser) |p| p.isLoopName(target) else false;
+                const loop_name = if (self.ctx.parser) |p| p.marked(.loop_name, node) else false;
                 if (loop_name) try self.checkShadowing(target, "`for` binding");
                 _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda), .pattern_bound = loop_name });
             },
