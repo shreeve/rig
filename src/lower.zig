@@ -280,6 +280,9 @@ const Lowerer = struct {
     /// The region that declares the bindings an `as` names: the body
     /// its condition guards.
     guarded: RegionId = 0,
+    /// The region that declares the bindings of the `match` an `as_match`
+    /// condition part is.
+    as_match_scope: ?RegionId = null,
     /// The bindings a use may move out (`storage.Binding.flag`).
     flags: std.DynamicBitSetUnmanaged = .{},
     skip: ?Module.Skip = null,
@@ -532,7 +535,11 @@ const Lowerer = struct {
                 try l.whileLoop(inner, r);
             },
             .@"for" => try l.forLoop(s, r),
-            .match => return l.uncovered(s, "match"),
+            .match => {
+                const c = try l.matchOf(s, false);
+                try l.step(c.scope, .{ .match = c.choice });
+                try l.step(r, .{ .region = c.scope });
+            },
             else => try l.step(r, .{ .eval = try l.expr(s) }),
         }
     }
@@ -729,7 +736,24 @@ const Lowerer = struct {
                 return id;
             },
             .as, .as_results => return l.asExpr(e),
-            .match, .as_match, .matches => return l.uncovered(e, "match"),
+            .match => {
+                const c = try l.matchOf(e, true);
+                const value = try l.addExpr(.{ .choice = c.choice });
+                l.region(c.scope).value = value;
+                const id = try l.addExpr(.{ .block = c.scope });
+                try l.note(e, id);
+                try l.temp(e);
+                try l.viewRules(e, id);
+                try l.matchRules(e, c.scope);
+                return id;
+            },
+            .as_match => {
+                const saved = l.as_match_scope;
+                defer l.as_match_scope = saved;
+                l.as_match_scope = l.guarded;
+                return l.op(e);
+            },
+            .matches => return l.uncovered(e, "match"),
             .lambda => return l.uncovered(e, "closures"),
             .call => {
                 if (ir.get(e, .task) != .nil) return l.uncovered(e, "tasks");
@@ -917,7 +941,8 @@ const Lowerer = struct {
         const Parts = struct {
             l: *Lowerer,
             pub fn part(p: @This(), c: Sexp) Error!void {
-                if (c.isKind(.as_match)) return p.l.uncovered(c, "match");
+                // A `match`'s headers are its own.
+                if (c.isKind(.as_match)) return;
                 const h = if (c.isKind(.as) or c.isKind(.as_results)) ir.get(c, .value) else c;
                 if (sema.firstStmtTemp(p.l.ctx, h) != null) try p.l.headers.put(p.l.a, sema.decisionKeyOf(h).?, null);
             }
@@ -953,6 +978,7 @@ const Lowerer = struct {
             pub fn part(p: @This(), c: Sexp) Error!void {
                 const ll = p.l;
                 if (c.isKind(.as)) return ll.optional(c, p.body);
+                if (c.isKind(.as_match)) return ll.matchRules(rig.asMatchOf(c), p.body);
                 if (c.isKind(.as_results)) {
                     try ll.subjectHeader(ir.AsResults.value(c));
                     _ = try ll.hiddenVar(c, .results, .owned, .body, null, p.body);
@@ -1083,6 +1109,143 @@ const Lowerer = struct {
         }
         try l.step(scope, .{ .each = .{ .node = loop, .source = src, .body = body_r } });
         try l.step(r, .{ .region = scope });
+    }
+
+    const Match = struct { scope: RegionId, choice: lir.Expr.Choice };
+
+    /// `match` node `m`: its subject, a header, in a scope that holds what
+    /// the match keeps for its arms, then each arm in a region of its own.
+    fn matchOf(l: *Lowerer, m: Sexp, value: bool) Error!Match {
+        const ctx = l.ctx;
+        const scope = try l.f.addRegion(l.a, m, .guard);
+        const raw = ir.Match.subject(m);
+        const subject = storage.viewedPlace(raw);
+        for ([_]Sexp{ subject, if (subject.isKind(.move)) ir.Move.operand(subject) else .nil }) |h| {
+            if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.a, sema.decisionKeyOf(h).?, null);
+        }
+        const subject_e = try l.expr(raw);
+        const arms = ir.Match.arms(m);
+        const regions = try l.a.alloc(RegionId, arms.len);
+        for (arms, regions) |a, *r| r.* = try l.arm(a, value);
+        if (!value) try l.matchRules(m, scope);
+        return .{ .scope = scope, .choice = .{ .node = m, .subject = subject_e, .arms = regions } };
+    }
+
+    /// A `match` arm: its pattern's bindings, its guard (a header), and
+    /// its body, a statement of its own.
+    fn arm(l: *Lowerer, a: Sexp, value: bool) Error!RegionId {
+        const r = try l.f.addRegion(l.a, a, .arm);
+        const saved = l.block;
+        defer l.block = saved;
+        l.block = r;
+        // The bindings of `s matches .circle(r)` are the condition's, which
+        // its later parts and its body see.
+        try l.pattern(ir.Arm.pattern(a), l.as_match_scope orelse r);
+        const saved_scope = l.as_match_scope;
+        defer l.as_match_scope = saved_scope;
+        l.as_match_scope = null;
+        const cond = ir.Arm.guard(a);
+        if (cond != .nil and sema.firstStmtTemp(l.ctx, cond) != null) try l.headers.put(l.a, sema.decisionKeyOf(cond).?, null);
+        const g: ?ExprId = if (cond != .nil) try l.expr(cond) else null;
+        const body = ir.Arm.body(a);
+        const b = try l.f.addRegion(l.a, body, .block);
+        // The body is a statement of its own (`sema.isArmBody`).
+        if (body.isKind(.block)) {
+            try l.branch(body, b, value);
+        } else if (value and sema.yieldsValue(l.ctx.source, body) and !isStmtKind(body)) {
+            const v = try l.valueStmt(body);
+            l.region(b).value = v;
+        } else try l.stmt(body, b);
+        if (g) |guarded_by| {
+            try l.step(r, .{ .@"if" = .{ .node = a, .cond = guarded_by, .then = b, .@"else" = null } });
+        } else try l.step(r, .{ .region = b });
+        return r;
+    }
+
+    /// A pattern: each name it declares is a binding of the arm.
+    fn pattern(l: *Lowerer, p: Sexp, r: RegionId) Error!void {
+        switch (p) {
+            .src => {
+                const sym = l.ctx.symbolOf(p) orelse return;
+                if (l.ctx.symbols.items[sym].decl_pos != p.src.pos) return;
+                if (l.bindings.contains(sym)) return;
+                _ = try l.bindingVar(p, r);
+            },
+            .list => {
+                try l.consumed(p);
+                for (p.items()) |c| try l.pattern(c, r);
+            },
+            else => {},
+        }
+    }
+
+    /// The vars match `m` makes (`storage.Planner.match`), declared in
+    /// `scope`, or for an arm's, in the arm's region.
+    fn matchRules(l: *Lowerer, m: Sexp, scope: RegionId) Error!void {
+        const ctx = l.ctx;
+        const mode = storage.matchMode(ctx, m);
+        const subject = storage.viewedPlace(ir.Match.subject(m));
+        if (ctx.headerOf(m) == .held) _ = try l.hiddenVar(m, .held, .owned, .construct, if (ctx.heldBaseOf(m)) |b| storage.dropOf(ctx, b) else null, scope);
+        var reread = false;
+        var temp_subject = false;
+        if (storage.matchBlock(ctx, m)) {
+            if (storage.subjectHold(ctx, m)) |by| {
+                _ = try l.hiddenVar(m, .subject, by, .construct, null, scope);
+                const value = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
+                if (subject.isKind(.move)) try l.headerVar(value) else try l.subjectHeader(value);
+                temp_subject = mode == .consume and by == .owned;
+            }
+            reread = true;
+            if (storage.matchSelects(ctx, m)) {
+                for (ir.Match.arms(m)) |a| {
+                    try l.headerVar(ir.Arm.guard(a));
+                    if (mode == .consume) _ = try l.hiddenVar(a, .whole, .owned, .arm, null, l.armRegion(a));
+                }
+                return;
+            }
+        } else if (storage.matchRereads(ctx, m)) reread = true;
+        if (!(temp_subject or (reread and mode != .consume))) try l.subjectHeader(subject);
+        const ty = storage.matchedType(ctx, m);
+        for (ir.Match.arms(m)) |a| {
+            const in = l.armRegion(a);
+            const pat = ir.Arm.pattern(a);
+            if (storage.catchesAll(ctx, a)) {
+                if (mode == .consume) _ = try l.hiddenVar(a, .whole, .owned, .arm, null, in);
+                continue;
+            }
+            const prongs = storage.prongsOf(ctx, &pat);
+            if (mode == .consume) {
+                var payload = false;
+                for (prongs) |prong| {
+                    const variant = prong.isKind(.variant_pattern) or prong.isKind(.enum_lit) or (prong.isKind(.member) and ctx.isErrorMember(prong));
+                    if (!variant) {
+                        _ = try l.hiddenVar(a, .whole, .owned, .arm, null, in);
+                    } else if (storage.variantPayload(ctx, storage.armType(ctx, prong, ty) orelse continue, rig.leafText(ctx.source, (if (prong.isKind(.variant_pattern)) rig.variantPatternName(prong) else ir.get(prong, .name)).src))) |fields| {
+                        if (fields.len > 0) payload = true;
+                    }
+                }
+                if (payload) _ = try l.hiddenVar(a, .payload, .owned, .arm, null, in);
+                continue;
+            }
+            var any = false;
+            var by_addr = mode == .write;
+            for (prongs) |prong| if (prong.isKind(.variant_pattern)) {
+                for (ctx.payloadBindings(prong) orelse continue) |b| {
+                    if (b != .src) continue;
+                    const s = ctx.symbolOf(b) orelse continue;
+                    if (!ctx.isUsed(s)) continue;
+                    any = true;
+                    if (storage.bindsByAddress(ctx, b, m)) by_addr = true;
+                }
+            };
+            if (any) _ = try l.hiddenVar(a, .payload, if (by_addr) .pointer else .copy, .arm, null, in);
+        }
+    }
+
+    /// The region arm `a` was lowered to.
+    fn armRegion(l: *Lowerer, a: Sexp) RegionId {
+        for (l.f.regions.items, 0..) |r, i| if (r.kind == .arm and r.node == .list and r.node.list.id == a.list.id and r.node.list.ptr == a.list.ptr) return @intCast(i);
+        return l.stmt_region;
     }
 
     // -------------------------------------------------------------------------

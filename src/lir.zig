@@ -65,8 +65,13 @@ pub const Expr = union(enum) {
     block: RegionId,
     /// `if cond, then, else` where a value goes: each branch yields one.
     branch: struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId },
+    /// `match` where a value goes: each arm yields one.
+    choice: Choice,
 
     pub const Op = struct { node: Sexp, args: []const ExprId };
+
+    /// A `match`: its subject, then the arm whose pattern it fits.
+    pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId };
 };
 
 /// A step of a region, run in order.
@@ -90,6 +95,8 @@ pub const Step = union(enum) {
     loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId },
     /// `for x in source`, running `body` once for each element.
     each: struct { node: Sexp, source: ExprId, body: RegionId },
+    /// `match`, running the arm its subject fits.
+    match: Expr.Choice,
 };
 
 /// A stretch of a function that declares vars, which live until it ends.
@@ -119,6 +126,9 @@ pub const Region = struct {
         /// An `if` or a `while` and the bindings its condition names,
         /// which the condition's later parts and its body see.
         guard,
+        /// A `match` arm: its pattern, which declares its bindings, its
+        /// guard, and its body.
+        arm,
     };
 };
 
@@ -249,6 +259,7 @@ const Verifier = struct {
                 try v.expr(gpa, ea.source);
                 try v.region(gpa, ea.body);
             },
+            .match => |c| try v.choice(gpa, c),
         };
         if (r.value) |e| try v.expr(gpa, e);
         for (r.decls.items) |x| v.open.unset(x);
@@ -277,7 +288,13 @@ const Verifier = struct {
                 try v.region(gpa, b.then);
                 if (b.@"else") |e| try v.region(gpa, e);
             },
+            .choice => |c| try v.choice(gpa, c),
         }
+    }
+
+    fn choice(v: *Verifier, gpa: std.mem.Allocator, c: Expr.Choice) Error!void {
+        try v.expr(gpa, c.subject);
+        for (c.arms) |a| try v.region(gpa, a);
     }
 };
 
@@ -364,6 +381,7 @@ const Printer = struct {
                     try p.w.writeAll(" do ");
                     try p.region(lp.body, depth + 1);
                 },
+                .match => |c| try p.choice(c, depth + 1),
                 .each => |ea| {
                     try p.w.writeAll("for ");
                     try p.expr(ea.source, depth + 1);
@@ -405,6 +423,16 @@ const Printer = struct {
             },
             .block => |r| try p.region(r, depth),
             .branch => |b| try p.branch(b.cond, b.then, b.@"else", depth),
+            .choice => |c| try p.choice(c, depth),
+        }
+    }
+
+    fn choice(p: *Printer, c: Expr.Choice, depth: usize) std.Io.Writer.Error!void {
+        try p.w.writeAll("match ");
+        try p.expr(c.subject, depth);
+        for (c.arms) |a| {
+            try p.w.writeAll(" ");
+            try p.region(a, depth);
         }
     }
 
