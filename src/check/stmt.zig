@@ -113,7 +113,7 @@ pub fn checkStmt(self: *Checker, stmt: Sexp) Error!void {
             const inner = ir.Labeled.stmt(stmt);
             const label = self.text(ir.Labeled.label(stmt));
             if (inner.isKind(.@"while") or inner.isKind(.@"for")) {
-                self.loop_label = label;
+                self.expect.loop_label = label;
                 return checkStmt(self, inner);
             }
             // Only a loop, a `match`, a `raw` block, or the block a
@@ -197,23 +197,23 @@ pub fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
         } else try self.errAt(stmt, "this expression does nothing as a statement: `{s}` negates a value and discards it", .{CallCheck.sourceText(self, stmt)});
         return;
     }
-    const saved = self.discarded;
-    defer self.discarded = saved;
-    self.discarded = stmt;
-    const saved_named = self.discard_named;
-    defer self.discard_named = saved_named;
-    self.discard_named = false;
+    const saved = self.expect.discarded;
+    defer self.expect.discarded = saved;
+    self.expect.discarded = stmt;
+    const saved_named = self.expect.discard_named;
+    defer self.expect.discard_named = saved_named;
+    self.expect.discard_named = false;
     try self.ctx.recordDiscard(stmt);
     // A call's several results are discarded whole, as one result is.
-    const saved_ok = self.results_ok;
-    defer self.results_ok = saved_ok;
-    self.results_ok = tc.resultCall(stmt) orelse .nil;
+    const saved_ok = self.expect.results_ok;
+    defer self.expect.results_ok = saved_ok;
+    self.expect.results_ok = tc.resultCall(stmt) orelse .nil;
     const ty = try PatternCheck.synthExpr(self, stmt);
     // A closure literal alone is reported by the ownership checker.
     if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
     if (try StdFormCheck.discardedSwap(self, stmt)) return;
     // A test's last line is its value: a `Bool` decides the test.
-    if (self.body.in_test and tc.sameSite(stmt, self.test_tail) and ExprCheck.canonical(self, ty) == self.t().bool_id) return self.ctx.recordTestCheck(stmt, try testReport(self, stmt));
+    if (self.body.in_test and tc.sameSite(stmt, self.expect.test_tail) and ExprCheck.canonical(self, ty) == self.t().bool_id) return self.ctx.recordTestCheck(stmt, try testReport(self, stmt));
     if (!hasEffect(stmt)) {
         // A statement `<e` is a drop everywhere but on a line whose
         // value is used, which a closure's last line is, though this
@@ -279,9 +279,9 @@ pub fn checkReturn(self: *Checker, node: Sexp) Error!void {
     if (self.body.in_test and value.isKind(.results)) return self.errAt(value, "a test returns one `Bool`, and `false` fails it; it gives no several results", .{});
     if (value.isKind(.results)) return checkReturnResults(self, node, value);
     // `return f()` gives the several results `f` gives, whole.
-    const saved_ok = self.results_ok;
-    defer self.results_ok = saved_ok;
-    if (sema.resultsOf(self.ctx, self.body.ret) != null) self.results_ok = tc.resultCall(value) orelse .nil;
+    const saved_ok = self.expect.results_ok;
+    defer self.expect.results_ok = saved_ok;
+    if (sema.resultsOf(self.ctx, self.body.ret) != null) self.expect.results_ok = tc.resultCall(value) orelse .nil;
     if (value != .nil) try ViewCheck.recordUse(self, value, .take);
     const ret = self.body.ret;
     if (self.body.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
@@ -310,9 +310,9 @@ pub fn checkReturn(self: *Checker, node: Sexp) Error!void {
         } else try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
         return;
     }
-    const saved = self.return_operand;
-    defer self.return_operand = saved;
-    self.return_operand = value;
+    const saved = self.expect.return_operand;
+    defer self.expect.return_operand = saved;
+    self.expect.return_operand = value;
     try ViewCheck.checkExpr(self, value, ret);
     // A fallible `sub` returns an error or nothing: a value that gives
     // nothing (`return say(1)!`) is no error, and runs as a statement.
@@ -347,7 +347,7 @@ pub fn testReport(self: *Checker, node: Sexp) Error![]const u8 {
 /// branch of a ternary or an arm of a `match` that is a leaf, never
 /// anything deeper.
 pub fn isReturnLeaf(self: *const Checker, e: Sexp) bool {
-    return isBranchLeaf(self.return_operand, e);
+    return isBranchLeaf(self.expect.return_operand, e);
 }
 
 pub fn isBranchLeaf(value: Sexp, e: Sexp) bool {
@@ -379,22 +379,22 @@ pub fn checkDestructure(self: *Checker, node: Sexp) Error!void {
         for (targets) |tg| if (tg.isKind(.set)) try poisonTarget(self, tg);
         return;
     }
-    const saved_ok = self.results_ok;
-    defer self.results_ok = saved_ok;
-    self.results_ok = call;
+    const saved_ok = self.expect.results_ok;
+    defer self.expect.results_ok = saved_ok;
+    self.expect.results_ok = call;
     try ViewCheck.recordUse(self, value, .take);
     // `new q, r = f(q)` reads the `q` it shadows, as `new x = e` does.
-    const saved_names = self.pending_names;
-    defer self.pending_names = saved_names;
+    const saved_names = self.expect.pending_names;
+    defer self.expect.pending_names = saved_names;
     if (rig.shadows(ir.Destructure.op(node))) {
         var names: std.ArrayList(SymbolId) = .empty;
         for (targets) |tg| if (tg.isKind(.set) and ir.Set.target(tg) == .src) if (self.ctx.symbolOf(ir.Set.target(tg))) |id| {
             try names.append(self.ctx.arena.allocator(), id);
         };
-        self.pending_names = names.items;
+        self.expect.pending_names = names.items;
     }
     const ty = try PatternCheck.synthExpr(self, value);
-    self.pending_names = saved_names;
+    self.expect.pending_names = saved_names;
     var parts: []const TypeId = &.{};
     if (!self.isPoison(ty)) switch (self.ctx.types.get(ty)) {
         .results => |r| parts = r,
@@ -413,12 +413,12 @@ pub fn checkDestructure(self: *Checker, node: Sexp) Error!void {
         try self.errAt(value, "`{s}` gives {d} results, but {d} names are bound", .{ try StdFormCheck.calleeName(self, ir.Call.callee(call)), parts.len, targets.len });
         ok = false;
     }
-    const saved_part = self.part_ty;
-    defer self.part_ty = saved_part;
+    const saved_part = self.expect.part_ty;
+    defer self.expect.part_ty = saved_part;
     const mark = self.ctx.diagnostics.items.len;
     for (targets, 0..) |tg, j| {
         if (!tg.isKind(.set)) continue;
-        self.part_ty = if (ok and j < parts.len) parts[j] else self.t().invalid_id;
+        self.expect.part_ty = if (ok and j < parts.len) parts[j] else self.t().invalid_id;
         if (ok) try checkSet(self, tg) else try poisonTarget(self, tg);
     }
     // A view a kept result carries is written (Core sentence 4). A
@@ -543,18 +543,18 @@ pub fn resultNames(self: *Checker, n: usize) Error![]const u8 {
 pub fn misplacedResults(self: *Checker, call: Sexp, ty: TypeId) Error!void {
     const n = sema.resultsOf(self.ctx, ty).?.len;
     const name = try StdFormCheck.calleeName(self, ir.Call.callee(call));
-    if (tc.sameNode(call, self.bound_call)) {
-        return self.errAt(call, "`{s}` gives {d} results; bind each: `{s} = {s}`", .{ name, n, try resultNames(self, n), CallCheck.sourceText(self, self.bound_value) });
+    if (tc.sameNode(call, self.expect.bound_call)) {
+        return self.errAt(call, "`{s}` gives {d} results; bind each: `{s} = {s}`", .{ name, n, try resultNames(self, n), CallCheck.sourceText(self, self.expect.bound_value) });
     }
     // A `for` over an iterator calls its `next` for one value a step.
     const callee = ir.Call.callee(call);
     if (callee.isKind(.member) and rig.isHiddenLeaf(ir.Member.name(callee))) {
         return self.errAt(call, "a `for` binds one value each step, and this iterator's `next` gives {d} results: bind them with `while (!it).next() as {s}`", .{ n, try resultNames(self, n) });
     }
-    if (tc.sameNode(call, self.as_call)) {
+    if (tc.sameNode(call, self.expect.as_call)) {
         return self.errAt(call, "`{s}` gives {d} results: bind each, `if {s} as {s}`", .{ name, n, CallCheck.sourceText(self, call), try resultNames(self, n) });
     }
-    if (tc.sameNode(call, self.results_tail)) {
+    if (tc.sameNode(call, self.expect.results_tail)) {
         return self.errAt(call, "several results are given with `return`: `return {s}`", .{CallCheck.sourceText(self, call)});
     }
     try self.errAt(call, "a call that gives several results stands only where each result is bound: `{s} = {s}`", .{ try resultNames(self, n), CallCheck.sourceText(self, call) });
@@ -592,10 +592,10 @@ pub fn checkReturnResults(self: *Checker, node: Sexp, value: Sexp) Error!void {
         for (parts) |p| _ = try PatternCheck.synthExpr(self, p);
         return self.errAt(value, "{s} gives {d} results, but `return` gives {d}", .{ try bodyName(self), want.len, parts.len });
     }
-    const saved = self.return_operand;
-    defer self.return_operand = saved;
+    const saved = self.expect.return_operand;
+    defer self.expect.return_operand = saved;
     for (parts, want) |p, ty| {
-        self.return_operand = p;
+        self.expect.return_operand = p;
         const mark = self.ctx.diagnostics.items.len;
         try ViewCheck.checkExpr(self, p, ty);
         if (self.ctx.diagnostics.items.len == mark) try ViewCheck.keptViews(self, p, .returned);
@@ -614,12 +614,12 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
     const target = ir.Set.target(node);
     const type_node = ir.Set.type(node);
     const rhs = ir.Set.value(node);
-    const saved_bound = .{ self.bound_value, self.bound_call, self.local_value, self.local_target };
-    defer self.bound_value, self.bound_call, self.local_value, self.local_target = saved_bound;
-    self.bound_value = rhs;
-    self.bound_call = tc.resultCall(rhs) orelse .nil;
-    self.local_value = if (target == .src) rhs else .nil;
-    self.local_target = target;
+    const saved_bound = .{ self.expect.bound_value, self.expect.bound_call, self.expect.local_value, self.expect.local_target };
+    defer self.expect.bound_value, self.expect.bound_call, self.expect.local_value, self.expect.local_target = saved_bound;
+    self.expect.bound_value = rhs;
+    self.expect.bound_call = tc.resultCall(rhs) orelse .nil;
+    self.expect.local_value = if (target == .src) rhs else .nil;
+    self.expect.local_target = target;
     if (kind == .default) try StdFormCheck.checkTemplateGrows(self, rhs, target);
     // A binding, an assignment, and `_ = e` take the value.
     try ViewCheck.recordUse(self, rhs, .take);
@@ -639,16 +639,16 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
         if (kind == .fixed) try self.errAt(target, "`_` binds nothing, so it cannot be fixed; discard with `_ = ...`", .{});
         // `_ =` discards the value, so a write call there is a
         // statement's (`isDiscardedCall`).
-        const saved = self.discarded;
-        defer self.discarded = saved;
-        self.discarded = rhs;
-        const saved_named = self.discard_named;
-        defer self.discard_named = saved_named;
-        self.discard_named = true;
+        const saved = self.expect.discarded;
+        defer self.expect.discarded = saved;
+        self.expect.discarded = rhs;
+        const saved_named = self.expect.discard_named;
+        defer self.expect.discard_named = saved_named;
+        self.expect.discard_named = true;
         // `_ = f()` discards every result `f` gives.
-        const saved_ok = self.results_ok;
-        defer self.results_ok = saved_ok;
-        self.results_ok = tc.resultCall(rhs) orelse .nil;
+        const saved_ok = self.expect.results_ok;
+        defer self.expect.results_ok = saved_ok;
+        self.expect.results_ok = tc.resultCall(rhs) orelse .nil;
         _ = try PatternCheck.synthExpr(self, rhs);
         if (rhs.isKind(.lambda)) try self.errAt(rhs, Checker.never_called, .{});
         return;
@@ -737,30 +737,30 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
         else => {},
     }
 
-    const saved_pending = self.pending;
-    defer self.pending = saved_pending;
-    if (rig.shadows(ir.Set.op(node))) self.pending = sym_id;
+    const saved_pending = self.expect.pending;
+    defer self.expect.pending = saved_pending;
+    if (rig.shadows(ir.Set.op(node))) self.expect.pending = sym_id;
     var rhs_ty: TypeId = undefined;
     if (!self.isPoison(declared) or type_node != .nil) {
-        const saved_target = self.static_target;
-        const saved_value = self.static_target_value;
+        const saved_target = self.expect.static_target;
+        const saved_value = self.expect.static_target_value;
         defer {
-            self.static_target = saved_target;
-            self.static_target_value = saved_value;
+            self.expect.static_target = saved_target;
+            self.expect.static_target_value = saved_value;
         }
         if (!is_decl and type_node == .nil and declared == self.t().static_id) {
-            self.static_target = name;
-            self.static_target_value = rhs;
+            self.expect.static_target = name;
+            self.expect.static_target_value = rhs;
         }
         try ViewCheck.checkExpr(self, rhs, declared);
         rhs_ty = declared;
     } else {
         // An unannotated local binding holds the String a template
         // makes; a module's constant is fixed text.
-        const saved_template = .{ self.template_ok, self.template_fixed };
-        defer self.template_ok, self.template_fixed = saved_template;
+        const saved_template = .{ self.expect.template_ok, self.expect.template_fixed };
+        defer self.expect.template_ok, self.expect.template_fixed = saved_template;
         if (rhs.isKind(.template)) {
-            if (self.ctx.symbols.items[sym_id].scope != self.module_scope) self.template_ok = rhs else self.template_fixed = rhs;
+            if (self.ctx.symbols.items[sym_id].scope != self.module_scope) self.expect.template_ok = rhs else self.expect.template_fixed = rhs;
         }
         rhs_ty = try PatternCheck.synthExpr(self, rhs);
         // A binding holds the write view a call or a sigil hands over
@@ -885,9 +885,9 @@ pub fn checkPlaceAssign(self: *Checker, kind: rig.BindingKind, target: Sexp, typ
         },
         else => {},
     }
-    const saved_use = self.index_use;
-    defer self.index_use = saved_use;
-    if (head == .index) self.index_use = .{
+    const saved_use = self.expect.index_use;
+    defer self.expect.index_use = saved_use;
+    if (head == .index) self.expect.index_use = .{
         .at = target,
         .form = if (kind.operator() != null) .compound else .assign,
         .rhs_text = try ViewCheck.plainText(self, rhs),
@@ -896,7 +896,7 @@ pub fn checkPlaceAssign(self: *Checker, kind: rig.BindingKind, target: Sexp, typ
         },
     };
     const place_ty = try PatternCheck.synthExpr(self, target);
-    self.index_use = saved_use;
+    self.expect.index_use = saved_use;
     if (through) return assignThroughCall(self, kind, target, place_ty, rhs);
     if (try StdFormCheck.rejectLane(self, target, .assign)) {
         _ = try PatternCheck.synthExpr(self, rhs);
@@ -1161,9 +1161,9 @@ pub fn viewsPath(self: *Checker, place: Checker.Place) bool {
 /// no exemption for a handle that changes by a marked call.
 pub fn handleWritable(self: *Checker, place: Checker.Place, operand: Sexp) Error!bool {
     const mark = self.ctx.diagnostics.items.len;
-    const saved = self.handle_exempt;
-    self.handle_exempt = false;
-    defer self.handle_exempt = saved;
+    const saved = self.expect.handle_exempt;
+    self.expect.handle_exempt = false;
+    defer self.expect.handle_exempt = saved;
     self.ctx.quiet += 1;
     defer self.ctx.quiet -= 1;
     defer self.ctx.diagnostics.shrinkRetainingCapacity(mark);
@@ -1184,7 +1184,7 @@ pub fn viewsHandle(self: *Checker, place: Checker.Place) bool {
 /// from must be one that may change (`requireBinding`). A diagnostic
 /// with no better position is at `at`. False after a diagnostic.
 pub fn requireAccess(self: *Checker, place_in: Checker.Place, access: Checker.Access, at: Sexp) Error!bool {
-    if (!self.trial_take) try recordTableWrites(self, place_in.node);
+    if (!self.expect.trial_take) try recordTableWrites(self, place_in.node);
     // A write view or a write iteration of a place that holds a read
     // view goes through that view, as a step across one does.
     var place = place_in;
@@ -1211,11 +1211,11 @@ pub fn requireAccess(self: *Checker, place_in: Checker.Place, access: Checker.Ac
         // A handle that changes by a marked call is viewed, wherever
         // it is held: the view writes neither the slice nor the view
         // that holds the handle, nor what it reaches.
-        if (access == .write_viewed and self.handle_exempt and viewsHandle(self, place)) return true;
+        if (access == .write_viewed and self.expect.handle_exempt and viewsHandle(self, place)) return true;
         switch (b.why) {
             // A Cell or a Signal changes through the handle by a
             // marked call, a write view.
-            .shared, .read_view => if (access == .write_viewed and (self.handle_exempt or !viewsHandle(self, place)) and viewsMarked(self, place)) {
+            .shared, .read_view => if (access == .write_viewed and (self.expect.handle_exempt or !viewsHandle(self, place)) and viewsMarked(self, place)) {
                 return true;
             } else if (b.why == .read_view) {
                 const hint = try PatternCheck.readMatchHint(self, place.sym);
@@ -1261,7 +1261,7 @@ pub fn requireAccess(self: *Checker, place_in: Checker.Place, access: Checker.Ac
     if (place.indirect) return true;
     // A handle that changes by a marked call is viewed, not rebound,
     // so the binding that holds it need not be writable.
-    if (access == .write_viewed and self.handle_exempt and place.steps == 0 and viewsHandle(self, place)) return true;
+    if (access == .write_viewed and self.expect.handle_exempt and place.steps == 0 and viewsHandle(self, place)) return true;
     return requireBinding(self, place, access);
 }
 

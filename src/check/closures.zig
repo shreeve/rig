@@ -28,9 +28,9 @@ const ViewCheck = @import("views.zig");
 /// call whose result cannot hold it, since it lives for the call.
 pub fn viewedLambda(self: *Checker, e: Sexp, target: TypeId) Error!TypeId {
     const fn_ty = sema.callableFnTy(self.ctx, target).?;
-    if (tc.sameNode(e, self.callable_kept)) {
+    if (tc.sameNode(e, self.expect.callable_kept)) {
         try self.errAt(e, "this call's result may hold the closure passed to it, and a closure literal lives only for the call; bind the closure (`f = |...| ...`) and pass it as `?f`", .{});
-    } else if (!tc.sameNode(e, self.viewed_callable)) {
+    } else if (!tc.sameNode(e, self.expect.viewed_callable)) {
         try self.errAt(e, "a closure literal is passed as `{s}` only as a call's argument; bind the closure (`f = |...| ...`) and pass it as `?f`", .{try self.tyName(target)});
     }
     const ty = try checkLambda(self, e, fn_ty);
@@ -146,7 +146,7 @@ pub fn checkLambdaGiven(self: *Checker, node: Sexp, expected: ?TypeId, given_par
                 }
                 pty = self.t().invalid_id;
             }
-        } else if (want == null and !self.under_poison and !namesOuterLocal(self, outer, name, srcPos(pn, 0))) {
+        } else if (want == null and !self.expect.under_poison and !namesOuterLocal(self, outer, name, srcPos(pn, 0))) {
             try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
         }
         try params.append(self.ctx.allocator, pty);

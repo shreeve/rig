@@ -359,7 +359,7 @@ pub fn typeMember(self: *Checker, nt: Checker.NamedType, field: []const u8, pos:
             try self.err(pos, "variant of generic enum `{s}` needs its type; write `{s}[...].{s}`, or `.{s}` where a `{s}[...]` is expected", .{ tname, tname, field, field, tname });
             return self.t().invalid_id;
         }
-        if (m.payload != null and m.payload.?.len > 0 and !(nt.sym.flags.error_set and self.member_pattern != .nil and pos == self.startOf(ir.Member.name(self.member_pattern)))) {
+        if (m.payload != null and m.payload.?.len > 0 and !(nt.sym.flags.error_set and self.expect.member_pattern != .nil and pos == self.startOf(ir.Member.name(self.expect.member_pattern)))) {
             try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ tname, field, tname, field });
             return self.t().invalid_id;
         }
@@ -761,7 +761,7 @@ pub fn constructInstance(self: *Checker, call: Sexp, e: Sexp, nt: Checker.NamedT
         try StdFormCheck.checkTableConstruction(self, call);
         return ty;
     }
-    if (nt.id == self.ctx.signal_sym_id and !tc.sameNode(call, self.shared_operand)) return badCall(self, args, e, Checker.stack_signal, .{});
+    if (nt.id == self.ctx.signal_sym_id and !tc.sameNode(call, self.expect.shared_operand)) return badCall(self, args, e, Checker.stack_signal, .{});
     if (nt.id == self.ctx.chan_sym_id) return StdFormCheck.chanMake(self, call, e, ty, args);
     if (nt.id == self.ctx.frozen_sym_id) {
         const made = try StdFormCheck.frozenMake(self, call, e, args);
@@ -985,7 +985,7 @@ pub fn hashFix(self: *Checker, e: Sexp, obj_ty: TypeId, idx_ty: TypeId) Error!bo
     const k_text = try ViewCheck.plainText(self, index);
     const key_fits = tc.compatible(self.ctx, idx_ty, key) or (sema.isStringLiteralText(k_text) and key == self.t().string_id and idx_ty == self.t().static_id);
     const k = try asType(self, k_text, key);
-    const use = if (tc.sameExpr(e, self.index_use.at)) self.index_use else Checker.IndexUse{};
+    const use = if (tc.sameExpr(e, self.expect.index_use.at)) self.expect.index_use else Checker.IndexUse{};
     if (is_set) {
         try self.errAt(object, "cannot index a value of type `{s}`: a {s} holds keys and no values, so `{s}[k]` is no place; test a key with `{s}.has({s})`, add one with `!{s}.add({s})`", .{ shown, sym.name, m_plain, m, if (key_fits) k_text else "k", m_plain, if (key_fits) k else "k" });
         return true;
@@ -1059,7 +1059,7 @@ pub fn listSliceElem(self: *Checker, object: Sexp, obj_ty: TypeId, peeled: TypeI
 pub fn synthSlice(self: *Checker, e: Sexp, written: bool) Error!TypeId {
     const object = ir.Index.object(e);
     const range = ir.Index.index(e);
-    const arg = !written and tc.sameExpr(e, self.view_arg);
+    const arg = !written and tc.sameExpr(e, self.expect.view_arg);
     // A slice of a temporary is reported below, once. An argument's
     // is viewed only where the slice views what it slices.
     const obj_ty = if (ViewCheck.hands(self, object).hasStorage() or !(written or arg)) try ViewCheck.synthOperand(self, object) else if (written) try PatternCheck.synthExpr(self, object) else blk: {
@@ -1141,7 +1141,7 @@ pub fn sliceViewsObject(self: *Checker, obj_ty: TypeId) bool {
 /// Whether `e` is a slice written with no sigil that an argument
 /// views, as `?e` would (`synthSlice`).
 pub fn slicedArg(self: *Checker, e: Sexp) bool {
-    if (!rig.isRangeIndex(e) or !tc.sameExpr(e, self.view_arg)) return false;
+    if (!rig.isRangeIndex(e) or !tc.sameExpr(e, self.expect.view_arg)) return false;
     const ty = self.ctx.typeOf(ir.Index.object(e)) orelse return false;
     return !self.isPoison(ty) and sliceViewsObject(self, ty);
 }
@@ -1215,16 +1215,16 @@ pub fn synthArray(self: *Checker, node: Sexp) Error!TypeId {
     // of a `T` needs each instance to own nothing.
     _ = try ViewCheck.needsCleanup(self, concrete, self.startOf(node), "puts in an array a value");
     const ty = try self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
-    if (self.under_poison) return ty;
+    if (self.expect.under_poison) return ty;
     return if (try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) ty else self.t().invalid_id;
 }
 
 /// An array literal's element: a template there is a String the
 /// array holds, as one bound to a name is (SPEC "Templates").
 pub fn synthElem(self: *Checker, e: Sexp) Error!TypeId {
-    const saved = self.template_ok;
-    defer self.template_ok = saved;
-    if (e.isKind(.template)) self.template_ok = e;
+    const saved = self.expect.template_ok;
+    defer self.expect.template_ok = saved;
+    if (e.isKind(.template)) self.expect.template_ok = e;
     return PatternCheck.synthExpr(self, e);
 }
 
@@ -1274,7 +1274,7 @@ pub fn checkArrayFill(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeI
     const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
     // An expected array type was checked where it was spelled or
     // inferred.
-    if (expected == null and !self.under_poison and !try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) return self.t().invalid_id;
+    if (expected == null and !self.expect.under_poison and !try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) return self.t().invalid_id;
     if (expected) |ex| if (ex != ty) {
         try self.errAt(node, "`{s}` has length `{s}`; `{s}` needs `{s}`", .{ sourceText(self, node), try self.tyName(len), try self.tyName(ex), try self.tyName(self.ctx.types.get(ex).array.len) });
         return self.t().invalid_id;
@@ -1310,25 +1310,25 @@ pub fn inlineResult(self: *Checker, callee: Sexp, ty: TypeId) Error!TypeId {
 /// A call whose type is `T!` must be the operand of `!` or `catch`:
 /// the failure path is never implicit.
 pub fn synthCall(self: *Checker, node: Sexp) Error!TypeId {
-    const handled = tc.sameNode(node, self.handled);
-    const saved = self.current_call;
-    self.current_call = node;
-    defer self.current_call = saved;
-    const saved_callee = self.callee_node;
-    self.callee_node = null;
-    defer self.callee_node = saved_callee;
+    const handled = tc.sameNode(node, self.expect.handled);
+    const saved = self.expect.current_call;
+    self.expect.current_call = node;
+    defer self.expect.current_call = saved;
+    const saved_callee = self.expect.callee_node;
+    self.expect.callee_node = null;
+    defer self.expect.callee_node = saved_callee;
     // What the call reaches, recorded where it resolves to a Rig
     // function (`noteTarget`); any other call reaches none.
     try self.ctx.recordCallTarget(node, .none);
     // `>t` (the wrapper's `<t.wait()`), `<t.cancel()`: the move of `t` there takes a task
     // given a write view.
-    const saved_wait = self.task_wait;
-    defer self.task_wait = saved_wait;
+    const saved_wait = self.expect.task_wait;
+    defer self.expect.task_wait = saved_wait;
     const callee_node = ir.Call.callee(node);
     const member_name = if (callee_node.isKind(.member)) self.text(ir.Member.name(callee_node)) else "";
     if (std.mem.eql(u8, member_name, "wait") or std.mem.eql(u8, member_name, "cancel")) {
         const obj = ir.Member.object(callee_node);
-        if (obj.isKind(.move)) self.task_wait = ir.Move.operand(obj);
+        if (obj.isKind(.move)) self.expect.task_wait = ir.Move.operand(obj);
     }
     try self.checkShorthands(ir.Call.args(node));
     const ty = try inlineResult(self, callee_node, try StdFormCheck.synthCallInner(self, node));
@@ -1346,7 +1346,7 @@ pub fn synthCall(self: *Checker, node: Sexp) Error!TypeId {
     };
     // A call that gives several results stands only where each is
     // bound at once, or where they are returned whole.
-    if (sema.resultsOf(self.ctx, ty) != null and !tc.sameNode(node, self.results_ok)) {
+    if (sema.resultsOf(self.ctx, ty) != null and !tc.sameNode(node, self.expect.results_ok)) {
         try StmtCheck.misplacedResults(self, node, ty);
         return self.t().invalid_id;
     }
@@ -1357,11 +1357,11 @@ pub fn synthCall(self: *Checker, node: Sexp) Error!TypeId {
         const callee = ir.Call.callee(node);
         const name = try StdFormCheck.calleeName(self, callee);
         try self.errAt(callee, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
-        if (tc.sameNode(self.maker_runtime.call, node)) {
-            if (self.maker_runtime.literal)
-                try self.noteAt(self.maker_runtime.arg, "`{s}` is not a plain string literal, so `{s}` can fail as the program runs; with a plain string literal it is checked as Rig compiles", .{ try ViewCheck.plainText(self, self.maker_runtime.arg), try ViewCheck.plainText(self, node) })
+        if (tc.sameNode(self.expect.maker_runtime.call, node)) {
+            if (self.expect.maker_runtime.literal)
+                try self.noteAt(self.expect.maker_runtime.arg, "`{s}` is not a plain string literal, so `{s}` can fail as the program runs; with a plain string literal it is checked as Rig compiles", .{ try ViewCheck.plainText(self, self.expect.maker_runtime.arg), try ViewCheck.plainText(self, node) })
             else
-                try self.noteAt(self.maker_runtime.arg, "`{s}` is not a constant, so `{s}` can fail as the program runs; with every argument a constant it is checked as Rig compiles", .{ try ViewCheck.plainText(self, self.maker_runtime.arg), try ViewCheck.plainText(self, node) });
+                try self.noteAt(self.expect.maker_runtime.arg, "`{s}` is not a constant, so `{s}` can fail as the program runs; with every argument a constant it is checked as Rig compiles", .{ try ViewCheck.plainText(self, self.expect.maker_runtime.arg), try ViewCheck.plainText(self, node) });
         }
         if (self.ctx.symbolOf(callee)) |id| {
             const sym = self.ctx.symbols.items[id];
@@ -1434,7 +1434,7 @@ pub fn taskOf(self: *Checker, node: Sexp, ty: TypeId) Error!TypeId {
         if (self.ctx.typeOf(part)) |pt| if (self.ctx.types.get(pt) == .write_view) break true;
     } else false;
     if (views_write) {
-        if (!tc.sameNode(node, self.local_value)) {
+        if (!tc.sameNode(node, self.expect.local_value)) {
             // A method's self given a write view shows its `!`, which
             // the call's own text, from its self on, leaves out.
             const shown = sourceText(self, node);
@@ -1442,7 +1442,7 @@ pub fn taskOf(self: *Checker, node: Sexp, ty: TypeId) Error!TypeId {
             try self.errAt(callee, "this task holds a write view while it runs, so it stays where it is bound: `t = {s}{s}`, then `>t`", .{ if (bang) "!" else "", shown });
             return self.t().invalid_id;
         }
-        if (self.ctx.symbolOf(self.local_target)) |id| try self.write_tasks.put(self.ctx.arena.allocator(), id, {});
+        if (self.ctx.symbolOf(self.expect.local_target)) |id| try self.write_tasks.put(self.ctx.arena.allocator(), id, {});
     }
     var gone: std.ArrayList(Checker.Gone) = .empty;
     for (parts.items, 0..) |part, i| {
@@ -1523,19 +1523,19 @@ pub fn badCall(self: *Checker, args: []const Sexp, at: anytype, comptime fmt: []
 /// A closure literal whose errors were reported is left out
 /// (`closures_reported`).
 pub fn synthArgs(self: *Checker, args: []const Sexp) Error!void {
-    const saved = self.under_poison;
-    const saved_view = self.view_arg;
+    const saved = self.expect.under_poison;
+    const saved_view = self.expect.view_arg;
     defer {
-        self.under_poison = saved;
-        self.view_arg = saved_view;
+        self.expect.under_poison = saved;
+        self.expect.view_arg = saved_view;
     }
-    self.under_poison = true;
+    self.expect.under_poison = true;
     for (args) |a| {
         const e = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
         if (e.isKind(.array) and ir.Array.elems(e).len == 0) continue;
         const literal = if (e.isKind(.share)) ir.Share.operand(e) else e;
         if (literal.isKind(.lambda) and self.closures_reported.contains(tc.nodeId(literal))) continue;
-        self.view_arg = e;
+        self.expect.view_arg = e;
         _ = try PatternCheck.synthExpr(self, e);
     }
 }
@@ -1719,19 +1719,19 @@ pub fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info_group
     const info_in = withGroups(self, info_grouped);
     if (try self.optionsCall(args, info_in, callee)) return;
     var info = info_in;
-    const call = self.current_call;
+    const call = self.expect.current_call;
     // A task's arguments are made as it starts, and its failure is
     // taken where it is waited, so a conversion joins no failure there.
     if (info.durations != 0) info.fold = if (call != null and ir.Call.task(call.?) != .nil) null else StdFormCheck.durationFold(self, f.returns, info.datetime);
     const mark = self.ctx.diagnostics.items.len;
-    const saved_slot = self.slot;
-    defer self.slot = saved_slot;
-    self.slot = .{ .call = call orelse .nil, .params = site.declared, .views = try argViews(self, args, f, info) };
-    const retains = StdFormCheck.callRetains(self, f, self.view_recv);
-    const recv_param = self.view_recv;
-    const views = self.view_call and !retains;
-    self.view_call = false;
-    self.view_recv = null;
+    const saved_slot = self.expect.slot;
+    defer self.expect.slot = saved_slot;
+    self.expect.slot = .{ .call = call orelse .nil, .params = site.declared, .views = try argViews(self, args, f, info) };
+    const retains = StdFormCheck.callRetains(self, f, self.expect.view_recv);
+    const recv_param = self.expect.view_recv;
+    const views = self.expect.view_call and !retains;
+    self.expect.view_call = false;
+    self.expect.view_recv = null;
     var first_kw: ?usize = null;
     for (args, 0..) |a, i| {
         if (a.isKind(.kwarg)) {
@@ -1888,10 +1888,10 @@ pub fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info_group
             // is meant for the parameter that takes one, which only a
             // closure fills by position.
             if (i == args.len - 1 and !takesFunction(self, f.params[i])) if (trailingParam(self, args, f.params, info.names, info.groups)) |cb| {
-                const saved = self.under_poison;
-                self.under_poison = true;
+                const saved = self.expect.under_poison;
+                self.expect.under_poison = true;
                 const ty = ExprCheck.canonical(self, try PatternCheck.synthExpr(self, a));
-                self.under_poison = saved;
+                self.expect.under_poison = saved;
                 if (takesFunction(self, sema.unwrapAccess(self.ctx, ty))) {
                     try self.errAt(a, "`{s}` has a default, so it is an option, given by name, and a function given last fills `{s}`: `{s}: {s}`", .{ names[i], names[cb], names[cb], shown });
                     return synthArgs(self, args);
@@ -2067,7 +2067,7 @@ pub fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info_group
 /// `m`): the clone ends the view before the write starts (Core §6).
 /// `recv` is a method's self parameter, null for a function.
 pub fn wastedClones(self: *Checker, args: []const Sexp, slots: []const ?sema.ArgSlot, f: FunctionType, recv: ?TypeId) Error!void {
-    const call = self.current_call orelse return;
+    const call = self.expect.current_call orelse return;
     // A task holds its arguments while it runs.
     if (call.isKind(.call) and ir.Call.task(call) != .nil) return;
     for (slots, 0..) |sl, k| {
@@ -2092,7 +2092,7 @@ pub fn wastedClones(self: *Checker, args: []const Sexp, slots: []const ?sema.Arg
 /// makes any write view or moves anything.
 pub fn wastedCloneSelf(self: *Checker, obj: Sexp, args: []const Sexp) Error!void {
     if (!obj.isKind(.clone)) return;
-    const call = self.current_call orelse return;
+    const call = self.expect.current_call orelse return;
     if (call.isKind(.call) and ir.Call.task(call) != .nil) return;
     const operand = ir.get(obj, .operand);
     if (!clonesOwner(self, operand)) return;
@@ -2306,7 +2306,7 @@ pub fn stdArgChecks(self: *Checker, module: ?u32, owner: []const u8, method: []c
 /// the call is checked the same, and holds what the maker gives as
 /// declared, `Task[T!]`, as a task of any fallible call does.
 pub fn constMakerCall(self: *Checker, home: *const SemContext, maker: sema.ConstMaker, args: []const Sexp, returns: TypeId) Error!TypeId {
-    const call = self.current_call orelse return returns;
+    const call = self.expect.current_call orelse return returns;
     const ok = switch (self.ctx.types.get(returns)) {
         .fallible => |fl| fl.ok,
         else => return returns,
@@ -2323,7 +2323,7 @@ pub fn constMakerCall(self: *Checker, home: *const SemContext, maker: sema.Const
             .arg => |ai| {
                 const value = if (args[ai].isKind(.kwarg)) ir.Kwarg.value(args[ai]) else args[ai];
                 values[i] = ExprCheck.constInt(self, value) orelse {
-                    self.maker_runtime = .{ .call = call, .arg = value };
+                    self.expect.maker_runtime = .{ .call = call, .arg = value };
                     return returns;
                 };
                 nodes[i] = value;
@@ -2385,7 +2385,7 @@ pub fn zoneNamedCall(self: *Checker, home: *const SemContext, call: Sexp, args: 
     // By position or by its name, `name: "..."`, the one argument.
     const value = if (args[0].isKind(.kwarg)) ir.Kwarg.value(args[0]) else args[0];
     const name = sema.zoneNameLiteral(self.ctx.source, value) orelse {
-        self.maker_runtime = .{ .call = call, .arg = value, .literal = true };
+        self.expect.maker_runtime = .{ .call = call, .arg = value, .literal = true };
         return returns;
     };
     if (sema.zoneNamed(home.zone_names, name)) {
@@ -2410,7 +2410,7 @@ pub fn zoneNamedCall(self: *Checker, home: *const SemContext, call: Sexp, args: 
 /// `try_format`. The call is recorded as a maker's of constants is
 /// (`recordConstMaker`), so emit unwraps it as one.
 pub fn formatCall(self: *Checker, ft: sema.FormatType, args: []const Sexp, returns: TypeId) Error!TypeId {
-    const call = self.current_call orelse return returns;
+    const call = self.expect.current_call orelse return returns;
     const ok = switch (self.ctx.types.get(returns)) {
         .fallible => |fl| fl.ok,
         else => return returns,
@@ -2492,9 +2492,9 @@ pub fn checkCalendarAdd(self: *Checker, method: []const u8, args: []const Sexp) 
             // A `Float` or a `Duration` is a time of day, which a date
             // has none of; any other argument by position is an
             // amount, an option given by name (`checkArgs`).
-            const saved = self.under_poison;
-            self.under_poison = true;
-            defer self.under_poison = saved;
+            const saved = self.expect.under_poison;
+            self.expect.under_poison = true;
+            defer self.expect.under_poison = saved;
             const ty = ExprCheck.canonical(self, try PatternCheck.synthExpr(self, a));
             if (self.isPoison(ty)) return false;
             // An `Int` by position is most likely days.
@@ -2784,7 +2784,7 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
     };
     if (bad) return null;
     if (own.items.len == 0) {
-        if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .self_arg = self_arg, .sets = setArgs(self, f), .fails_by_set = failsBySet(self, f), .witnesses = try ctWitnesses(self, f, type_args), .params = try ctParamSyms(self, f) });
+        if (ct != null) try self.ctx.recordGenericCall(self.expect.current_call.?, .{ .type_args = type_args, .self_arg = self_arg, .sets = setArgs(self, f), .fails_by_set = failsBySet(self, f), .witnesses = try ctWitnesses(self, f, type_args), .params = try ctParamSyms(self, f) });
         self.inst_own = .empty;
         self.inst_slots = &.{};
         return f;
@@ -2802,7 +2802,7 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
         return null;
     };
     const result = self.ctx.types.get(instance).function;
-    try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .self_arg = self_arg, .sets = setArgs(self, f), .fails_by_set = failsBySet(self, f), .witnesses = try ctWitnesses(self, f, type_args), .params = try ctParamSyms(self, f) });
+    try self.ctx.recordGenericCall(self.expect.current_call.?, .{ .type_args = type_args, .self_arg = self_arg, .sets = setArgs(self, f), .fails_by_set = failsBySet(self, f), .witnesses = try ctWitnesses(self, f, type_args), .params = try ctParamSyms(self, f) });
     self.inst_own = .{ .params = own.items, .args = own_args };
     self.inst_slots = own_slots.items;
     if (self.tentative == 0) {
@@ -3084,9 +3084,9 @@ pub fn lambdaLeftUnbound(self: *Checker, inf: *const Checker.Inference, param: S
 /// The call being checked's declared result `pattern`, with the type
 /// expected of the call, when one is.
 pub fn expectedResult(self: *Checker, pattern: TypeId) ?Checker.ResultType {
-    const call = self.current_call orelse return null;
-    if (!tc.sameNode(call, self.result_expected.call)) return null;
-    return .{ .pattern = pattern, .expected = self.result_expected.ty };
+    const call = self.expect.current_call orelse return null;
+    if (!tc.sameNode(call, self.expect.result_expected.call)) return null;
+    return .{ .pattern = pattern, .expected = self.expect.result_expected.ty };
 }
 
 /// The declared result with what the call's value becomes where it
@@ -3155,9 +3155,9 @@ pub fn argType(self: *Checker, e: Sexp) Error!TypeId {
     self.tentative += 1;
     defer self.tentative -= 1;
     // A slice there is viewed as it is where the argument is checked.
-    const saved_view = self.view_arg;
-    defer self.view_arg = saved_view;
-    self.view_arg = e;
+    const saved_view = self.expect.view_arg;
+    defer self.expect.view_arg = saved_view;
+    self.expect.view_arg = e;
     if (e != .list or e.list.id == 0) return FlowCheck.synthQuiet(self, e);
     if (self.arg_types.get(e.list.id)) |ty| return ty;
     var ty = try FlowCheck.synthQuiet(self, e);
@@ -3244,7 +3244,7 @@ pub fn boundFrom(self: *Checker, arg: u32) Error![]const u8 {
 /// the type expected of its result (`inferBindings`). Null after a
 /// diagnostic.
 pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId, args: []const Sexp, info: Checker.ParamInfo, skip: usize, callee: []const u8, pos: u32) Error!?[]TypeId {
-    const call = self.current_call orelse Sexp.nil;
+    const call = self.expect.current_call orelse Sexp.nil;
     const inf = try inferBindings(self, own, args, .{ .params = .{ .params = f.params[@min(skip, f.params.len)..], .names = info.names, .defaults = info.defaults } }, expectedResult(self, f.returns));
     const result = try self.ctx.arena.allocator().alloc(TypeId, own.len);
     for (inf.bound, result) |b, *r| r.* = b.ty;
@@ -3264,7 +3264,7 @@ pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId,
                 break;
             };
             if (inf.result_mismatch) {
-                try self.err(pos, "type mismatch: expected `{s}`, but `{s}` returns `{s}`", .{ try self.tyName(self.result_expected.ty), callee, try self.tyName(f.returns) });
+                try self.err(pos, "type mismatch: expected `{s}`, but `{s}` returns `{s}`", .{ try self.tyName(self.expect.result_expected.ty), callee, try self.tyName(f.returns) });
                 break;
             }
             try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments or the type expected of its result; {s}", .{ pname, callee, try inferHint(self, f, own, result, i, callee, parens) });
@@ -3980,11 +3980,11 @@ pub fn checkConstructible(self: *Checker, sym: sema.Symbol, fields: []const Fiel
 /// `.some(7)`.
 pub fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: Checker.FieldArgs) Error!void {
     const noun = if (info.kind == .constructor) "constructor of" else "variant";
-    const saved_slot = self.slot;
-    defer self.slot = saved_slot;
-    self.slot = try fieldSlot(self, info, args, fields);
-    const saved_home = self.cell_home;
-    defer self.cell_home = saved_home;
+    const saved_slot = self.expect.slot;
+    defer self.expect.slot = saved_slot;
+    self.expect.slot = try fieldSlot(self, info, args, fields);
+    const saved_home = self.expect.cell_home;
+    defer self.expect.cell_home = saved_home;
     // A built-in generic's value (a List's, box's, or Cell's) is no
     // field a Cell may be made in.
     const homes = switch (self.ctx.types.get(info.instance)) {
@@ -3994,9 +3994,9 @@ pub fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field,
     if (args.len == 1 and !args[0].isKind(.kwarg)) {
         if (soleField(fields)) |f| {
             const ty = try fieldType(self, f, info);
-            self.slot.value = args[0];
-            self.slot.declared = f.ty;
-            self.cell_home = if (homes) args[0] else .nil;
+            self.expect.slot.value = args[0];
+            self.expect.slot.declared = f.ty;
+            self.expect.cell_home = if (homes) args[0] else .nil;
             try ViewCheck.checkExpr(self, args[0], ty);
             return StdFormCheck.checkViewsVisibly(self, args[0], ty, "the field writes through");
         }
@@ -4042,9 +4042,9 @@ pub fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field,
             continue;
         };
         const ty = try fieldType(self, f, info);
-        self.slot.value = value;
-        self.slot.declared = f.ty;
-        self.cell_home = if (homes) value else .nil;
+        self.expect.slot.value = value;
+        self.expect.slot.declared = f.ty;
+        self.expect.cell_home = if (homes) value else .nil;
         try ViewCheck.checkExpr(self, value, ty);
         try StdFormCheck.checkViewsVisibly(self, value, ty, "the field writes through");
     }
@@ -4058,7 +4058,7 @@ pub fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field,
 /// The slot each field of a construction fills (`Slot`): the call,
 /// and what it makes as written.
 pub fn fieldSlot(self: *Checker, info: Checker.FieldArgs, args: []const Sexp, fields: []const Field) Error!Checker.Slot {
-    const call = if (info.call != .nil) info.call else self.current_call orelse return .{ .field = true, .owner = info.owner };
+    const call = if (info.call != .nil) info.call else self.expect.current_call orelse return .{ .field = true, .owner = info.owner };
     const callee = ir.Call.callee(call);
     var slot: Checker.Slot = .{
         .call = call,
@@ -4129,13 +4129,13 @@ pub fn memberType(self: *Checker, foreign: ?Checker.ForeignFields, ty: TypeId) E
 /// for a method, or the index of an element of a field holding
 /// functions.
 pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Sexp) Error!TypeId {
-    const saved = self.callee_node;
-    self.callee_node = callee;
-    defer self.callee_node = saved;
+    const saved = self.expect.callee_node;
+    self.expect.callee_node = callee;
+    defer self.expect.callee_node = saved;
     var obj = ir.Member.object(callee);
-    const saved_in_place = self.in_place;
-    defer self.in_place = saved_in_place;
-    self.in_place = obj;
+    const saved_in_place = self.expect.in_place;
+    defer self.expect.in_place = saved_in_place;
+    self.expect.in_place = obj;
     const name_node = ir.Member.name(callee);
     const method = self.text(name_node);
     const pos = srcPos(name_node, self.startOf(obj));
@@ -4183,10 +4183,10 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
     if (ct == null and misreached == null and (rig.isChainConsumer(method) or rig.isChainStage(method))) {
         if (try StdFormCheck.chainCall(self, callee, method, args)) |ty| return ty;
     }
-    const saved_self = self.self_obj;
-    self.self_obj = obj;
+    const saved_self = self.expect.self_obj;
+    self.expect.self_obj = obj;
     const obj_ty = try PatternCheck.synthExpr(self, obj);
-    self.self_obj = saved_self;
+    self.expect.self_obj = saved_self;
     if (self.isPoison(obj_ty)) {
         try synthArgs(self, args);
         return obj_ty;
@@ -4374,9 +4374,9 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
         return resolved.fn_ty.returns;
     }
     if (!misplaced_sigil) {
-        const saved_of = self.self_of;
-        defer self.self_of = saved_of;
-        self.self_of = callee;
+        const saved_of = self.expect.self_of;
+        defer self.expect.self_of = saved_of;
+        self.expect.self_of = callee;
         try ViewCheck.checkSelfMode(self, obj, self_mode, tc.classifySelfType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, resolved.fn_ty.returns);
     }
     if (!try stdArgChecks(self, resolved.module, resolved.owner, method, args, pos)) return skipCall(self, args);
@@ -4413,8 +4413,8 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
         };
         if (copied and ViewCheck.isTemporary(self, viewed) and (sema.mayHoldView(self.ctx, f.returns) or StdFormCheck.callRetains(self, rest, f.params[0]))) try ViewCheck.viewTemp(self, viewed);
     }
-    self.view_call = true;
-    self.view_recv = f.params[0];
+    self.expect.view_call = true;
+    self.expect.view_recv = f.params[0];
     const mark = self.ctx.diagnostics.items.len;
     try checkArgs(self, args, rest, info, method, pos, .{ .has_self = true, .origins = resolved.field.origins, .declared = declaredParams(self, resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..] });
     try stdArgTypes(self, resolved.module, resolved.owner, method, args);
@@ -4423,7 +4423,7 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
     // sentence 4).
     const o = resolved.field.origins;
     if (self_mode == .read and !misplaced_sigil and self.ctx.diagnostics.items.len == mark and o.stores & o.viewed & sema.paramBit(0) != 0 and ViewCheck.implicitSelf(self, obj)) {
-        if (self.current_call) |call| try ViewCheck.reportKept(self, call, obj, .{ .stored = method });
+        if (self.expect.current_call) |call| try ViewCheck.reportKept(self, call, obj, .{ .stored = method });
     }
     // std.datetime's `format` checks its string (§8.4); an argument
     // with an error of its own asks for no `!` besides.

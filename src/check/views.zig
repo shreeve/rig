@@ -44,7 +44,7 @@ pub fn recordLoan(self: *Checker, e: Sexp, view: TypeId) Error!void {
         .write_view => |base| base,
         else => return self.ctx.recordLoan(e, .write),
     };
-    if (tc.sameNode(e, self.self_obj)) switch (self.ctx.types.get(viewed)) {
+    if (tc.sameNode(e, self.expect.self_obj)) switch (self.ctx.types.get(viewed)) {
         .shared => |inner| viewed = inner,
         else => {},
     };
@@ -54,18 +54,18 @@ pub fn recordLoan(self: *Checker, e: Sexp, view: TypeId) Error!void {
 pub fn makeViewOf(self: *Checker, e: Sexp, kind: Checker.ViewKind) Error!TypeId {
     const operand = ir.get(e, .operand);
     try recordUse(self, operand, .view);
-    const saved_in_place = self.in_place;
-    defer self.in_place = saved_in_place;
-    self.in_place = operand;
+    const saved_in_place = self.expect.in_place;
+    defer self.expect.in_place = saved_in_place;
+    self.expect.in_place = operand;
     if (rig.isRangeIndex(operand)) {
         return viewSlice(self, operand, kind);
     }
-    const saved_use = self.index_use;
-    defer self.index_use = saved_use;
-    if (operand.isKind(.index)) self.index_use = .{ .at = operand, .form = if (kind == .write) .write_view else .read };
-    const saved_outer = self.outer_write;
-    defer self.outer_write = saved_outer;
-    if (kind == .write and operand.isKind(.call)) self.outer_write = operand;
+    const saved_use = self.expect.index_use;
+    defer self.expect.index_use = saved_use;
+    if (operand.isKind(.index)) self.expect.index_use = .{ .at = operand, .form = if (kind == .write) .write_view else .read };
+    const saved_outer = self.expect.outer_write;
+    defer self.expect.outer_write = saved_outer;
+    if (kind == .write and operand.isKind(.call)) self.expect.outer_write = operand;
     // A viewed temporary lives until its statement ends, which drops
     // it; the ownership checker keeps a view of it from outliving
     // the statement.
@@ -98,7 +98,7 @@ pub fn makeViewOf(self: *Checker, e: Sexp, kind: Checker.ViewKind) Error!TypeId 
     }
     // Anywhere but where a `!Bool` is expected, `!flag` is read as
     // a `Bool`: the habit of `!` as negation.
-    if (kind == .write and tc.readValue(self.ctx, inner) == self.t().bool_id and !tc.sameNode(e, self.viewed_write)) {
+    if (kind == .write and tc.readValue(self.ctx, inner) == self.t().bool_id and !tc.sameNode(e, self.expect.viewed_write)) {
         try self.errAt(e, "`!` makes a write view; use `not` for negation (a `Bool` gets a write view only where a `!Bool` is expected: `f(!flag)`)", .{});
         return self.t().invalid_id;
     }
@@ -130,7 +130,7 @@ pub fn makeViewOf(self: *Checker, e: Sexp, kind: Checker.ViewKind) Error!TypeId 
     // only where `c` may be written (`handleWritable`, the one fact
     // `requireAccess` decides). Anywhere else, and as a self never
     // matters, it views what the handle holds: that value's write view.
-    if (kind == .write and StmtCheck.viewsHandle(self, place) and !tc.sameNode(e, self.self_obj) and !try StmtCheck.handleWritable(self, place, operand)) {
+    if (kind == .write and StmtCheck.viewsHandle(self, place) and !tc.sameNode(e, self.expect.self_obj) and !try StmtCheck.handleWritable(self, place, operand)) {
         const handle = sema.unwrapViews(self.ctx, inner);
         const view = try self.ctx.intern(.{ .write_view = self.ctx.types.get(handle).shared });
         if (sema.viewAs(self.ctx, handle, .write, view)) |made| try self.ctx.recordView(e, made);
@@ -681,7 +681,7 @@ pub fn shareOfNone(self: *Checker, e: Sexp, target: ?TypeId) Error!bool {
     const operand = ir.Share.operand(e);
     if (operand != .src or !std.mem.eql(u8, self.text(operand), "none")) return false;
     // Where the expected type was reported, nothing more is.
-    if (self.under_poison) return false;
+    if (self.expect.under_poison) return false;
     if (target) |want| switch (self.ctx.types.get(want)) {
         .shared => |inner| if (self.ctx.types.get(inner) == .optional) return false,
         else => {},
@@ -693,9 +693,9 @@ pub fn shareOfNone(self: *Checker, e: Sexp, target: ?TypeId) Error!bool {
 /// The operand of `*x`, checked against `expected` when given: the
 /// one place a `Signal(...)` constructor may stand.
 pub fn shareOperand(self: *Checker, operand: Sexp, expected: ?TypeId) Error!TypeId {
-    const prev = self.shared_operand;
-    defer self.shared_operand = prev;
-    self.shared_operand = operand;
+    const prev = self.expect.shared_operand;
+    defer self.expect.shared_operand = prev;
+    self.expect.shared_operand = operand;
     const e = expected orelse return PatternCheck.synthExpr(self, operand);
     try checkExpr(self, operand, e);
     return e;
@@ -752,7 +752,7 @@ pub fn synthBox(self: *Checker, e: Sexp, target: ?TypeId) Error!TypeId {
 pub fn boxOfNone(self: *Checker, e: Sexp, target: ?TypeId) Error!bool {
     const operand = ir.Box.operand(e);
     if (operand != .src or !std.mem.eql(u8, self.text(operand), "none")) return false;
-    if (self.under_poison) return false;
+    if (self.expect.under_poison) return false;
     if (target) |want| if (sema.boxedType(self.ctx, want)) |inner| if (self.ctx.types.get(inner) == .optional) return false;
     try self.errAt(e, "`^none` makes a box of nothing; write `none` where a `^T?` is expected", .{});
     return true;
@@ -1135,7 +1135,7 @@ pub fn meetsOwnerBounds(self: *Checker, m: Field, owner: sema.Symbol, module: ?u
         }
     }
     const ws = (try sema.ownerWitnesses(self.ctx, m.owner_bounds, args)) orelse return false;
-    if (ws.len > 0) if (self.current_call) |call| try self.ctx.recordOwnerWitnesses(call, .{ .witnesses = ws, .self_arg = self_arg });
+    if (ws.len > 0) if (self.expect.current_call) |call| try self.ctx.recordOwnerWitnesses(call, .{ .witnesses = ws, .self_arg = self_arg });
     return true;
 }
 
@@ -1237,7 +1237,7 @@ pub fn readLeaf(self: *Checker, e: Sexp) Error!void {
 /// (a handle given a write view has its use recorded as a view).
 pub fn readLeafAs(self: *Checker, e: Sexp, record_use: bool) Error!void {
     // A value a header holds is taken there, not read as a temporary.
-    if (e == .list and tc.sameNode(e, self.held_base)) return recordUse(self, e, .take);
+    if (e == .list and tc.sameNode(e, self.expect.held_base)) return recordUse(self, e, .take);
     if (record_use) try recordUse(self, e, .read);
     var leaves: std.ArrayList(Sexp) = .empty;
     defer leaves.deinit(self.ctx.allocator);
@@ -1277,9 +1277,9 @@ pub fn synthMember(self: *Checker, e: Sexp) Error!TypeId {
     const field_node = ir.Member.name(e);
     const field = self.text(field_node);
     const pos = srcPos(field_node, self.startOf(obj));
-    const saved_in_place = self.in_place;
-    defer self.in_place = saved_in_place;
-    self.in_place = obj;
+    const saved_in_place = self.expect.in_place;
+    defer self.expect.in_place = saved_in_place;
+    self.expect.in_place = obj;
 
     if (try CallCheck.moduleMember(self, obj, field, pos)) |ty| return ty;
     if (try numberType(self, obj)) |ty| return numberLimit(self, obj, ty, field, pos);
@@ -1296,9 +1296,9 @@ pub fn synthMember(self: *Checker, e: Sexp) Error!TypeId {
     // A field read of a group as written reads the field's parameter
     // once the group is rewritten (`rig.GroupUse`).
     if (self.in_group_body and obj == .src) if (CallCheck.lookupQuiet(self, obj)) |id| if (self.ctx.symbols.items[id].flags.group) {
-        const saved = self.group_member;
-        defer self.group_member = saved;
-        self.group_member = obj.src.pos;
+        const saved = self.expect.group_member;
+        defer self.expect.group_member = saved;
+        self.expect.group_member = obj.src.pos;
         const mark = self.ctx.diagnostics.items.len;
         const ty = try CallCheck.memberOf(self, e, obj, try synthOperand(self, obj));
         const read = self.ctx.diagnostics.items.len == mark and e.list.id != 0;
@@ -1360,7 +1360,7 @@ pub fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, p
     const found = (try CallCheck.foreignSymbol(self, module_sym, name, pos)) orelse return CallCheck.skipCall(self, args);
     const qualified = try self.ctx.arena.allocator().print("{s}.{s}", .{ module_name, name });
     switch (found.sym.kind) {
-        .type_alias => return StdFormCheck.aliasCall(self, self.current_call orelse Sexp.nil, self.callee_node orelse Sexp.nil, qualified, try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id), args, pos),
+        .type_alias => return StdFormCheck.aliasCall(self, self.expect.current_call orelse Sexp.nil, self.expect.callee_node orelse Sexp.nil, qualified, try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id), args, pos),
         .function, .@"extern" => {
             const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
             const fty = self.ctx.types.get(local);
@@ -1371,7 +1371,7 @@ pub fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, p
             if (found.sym.kind == .function) try StdFormCheck.noteTarget(self, found.module_id, found.sym.decl_pos, found.sym.flags.inline_marked, .empty);
             // A generic function's callee has the instance's signature.
             try StdFormCheck.noteCallee(self, f);
-            self.view_call = true;
+            self.expect.view_call = true;
             const mark = self.ctx.diagnostics.items.len;
             try CallCheck.checkArgs(self, args, f, info, qualified, pos, .{ .origins = found.sym.origins, .declared = fty.function.params });
             // `time.duration` of a form that cannot fail gives the
@@ -1379,7 +1379,7 @@ pub fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, p
             // as a maker's call of constants is (`sema.ConstMaker`); one
             // whose form has an error of its own asks for no `!` besides.
             if (sema.duration.isMaker(found.ctx, name) and self.ctx.diagnostics.items.len > mark) return self.t().invalid_id;
-            if (sema.duration.isMaker(found.ctx, name)) if (self.current_call) |call| if (!StdFormCheck.formFolds(self, call, args) and ir.Call.task(call) == .nil) {
+            if (sema.duration.isMaker(found.ctx, name)) if (self.expect.current_call) |call| if (!StdFormCheck.formFolds(self, call, args) and ir.Call.task(call) == .nil) {
                 try self.ctx.recordConstMaker(call);
                 return switch (self.ctx.types.get(f.returns)) {
                     .fallible => |fl| fl.ok,
@@ -1391,7 +1391,7 @@ pub fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, p
         .nominal_type => if (ct == null) return CallCheck.construct(self, found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return CallCheck.badCall(self, args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),
         .generic_type => {
             const nt = try CallCheck.foreignGeneric(self, found);
-            return StdFormCheck.constructGeneric(self, self.callee_node orelse Sexp.nil, nt.id, args, qualified, pos);
+            return StdFormCheck.constructGeneric(self, self.expect.callee_node orelse Sexp.nil, nt.id, args, qualified, pos);
         },
         else => return CallCheck.badCall(self, args, pos, "`{s}` cannot be called", .{qualified}),
     }
@@ -1455,15 +1455,15 @@ pub fn checkSelfSigil(self: *Checker, recv: Sexp, mode: SelfMode, returns: TypeI
             // not to parenthesize.
             if (place.isKind(.write)) {
                 const viewed = CallCheck.sourceText(self, ir.get(place, .operand));
-                const call = if (self.current_call) |c| try spliced(self, c, &.{recv}, &.{CallCheck.sourceText(self, recv)[1..]}) else try self.ctx.arena.allocator().print("(!{s}).{s}(...)", .{ viewed, method });
+                const call = if (self.expect.current_call) |c| try spliced(self, c, &.{recv}, &.{CallCheck.sourceText(self, recv)[1..]}) else try self.ctx.arena.allocator().print("(!{s}).{s}(...)", .{ viewed, method });
                 try self.errAt(recv, "`(!{s})` already makes a write view of `{s}`: remove the outer `!` and write `{s}`", .{ viewed, viewed, call });
                 return true;
             }
             if (!FlowCheck.isBoolResult(self, returns)) return false;
             const long = try self.ctx.arena.allocator().print("({s})", .{CallCheck.sourceText(self, recv)});
-            const call = if (self.current_call) |c| try spliced(self, c, &.{recv}, &.{long}) else try self.ctx.arena.allocator().print("{s}.{s}(...)", .{ long, method });
+            const call = if (self.expect.current_call) |c| try spliced(self, c, &.{recv}, &.{long}) else try self.ctx.arena.allocator().print("{s}.{s}(...)", .{ long, method });
             // Under `not` the negation is meant: only its long form.
-            if (self.current_call) |c| if (tc.sameSite(c, self.not_operand)) {
+            if (self.expect.current_call) |c| if (tc.sameSite(c, self.expect.not_operand)) {
                 try self.errAt(recv, "`!` makes a write view of `{s}` and never negates: write `not {s}`", .{ name, call });
                 return true;
             };
@@ -1498,8 +1498,8 @@ pub fn writeOfTemporary(self: *Checker, recv: Sexp, method: []const u8, returns:
     const viewed = if (sigilReaches(recv)) try a.print("!{s}", .{shown}) else try a.print("!({s})", .{shown});
     const call = try FlowCheck.callWith(self, recv, if (FlowCheck.parenthesized(self, recv, returns)) try a.print("({s})", .{viewed}) else viewed, method);
     // A `!` that is there but does not reach self.
-    const outer = self.outer_write;
-    if (outer.isKind(.call) and tc.sameNode(ir.Call.callee(outer), self.self_of)) {
+    const outer = self.expect.outer_write;
+    if (outer.isKind(.call) and tc.sameNode(ir.Call.callee(outer), self.expect.self_of)) {
         return self.errAt(recv, "`{s}` changes `self`, a temporary no name holds; the `!` here makes a write view of what `{s}` returns, not of `self`: write `{s}`", .{ method, method, call });
     }
     try self.errAt(recv, "`{s}` changes `self`, a temporary no name holds; add `!`: `{s}`", .{ method, call });
@@ -1598,7 +1598,7 @@ pub fn checkSelfMode(self: *Checker, recv: Sexp, mode: SelfMode, kind: tc.SelfTy
                     // An API object's view: only its box gives the
                     // value up.
                     if (self.ctx.typeOf(recv)) |rt| if (sema.objectHeld(self.ctx, sema.unwrapViews(self.ctx, rt)) orelse sema.objectHeld(self.ctx, rt)) |ov| {
-                        const call = CallCheck.sourceText(self, self.current_call orelse recv);
+                        const call = CallCheck.sourceText(self, self.expect.current_call orelse recv);
                         const box = try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), ov.object);
                         return self.err(pos, "`{s}{s}` consumes self, and `{s}` is a `{s}`, a view: only a box, `^{s}`, gives its value up", .{ if (std.mem.startsWith(u8, call, "<")) "" else "<", call, CallCheck.sourceText(self, tc.stripSigil(recv)), try self.tyName(rt), box });
                     };
@@ -1681,20 +1681,20 @@ pub fn checkExprAgainstType(self: *Checker, e: Sexp, expected: TypeId) Error!voi
     // result.
     try recordUse(self, e, .take);
     if (e == .list and self.ctx.quiet == 0) try self.expected.put(self.ctx.allocator, tc.nodeId(e), expected);
-    const prev_viewed = self.viewed_write;
-    defer self.viewed_write = prev_viewed;
-    if (e.isKind(.write) and self.ctx.types.get(expected) == .write_view) self.viewed_write = e;
-    const saved_result = self.result_expected;
-    defer self.result_expected = saved_result;
-    if (tc.resultCall(e)) |call| self.result_expected = .{ .call = call, .ty = expected, .value = e };
+    const prev_viewed = self.expect.viewed_write;
+    defer self.expect.viewed_write = prev_viewed;
+    if (e.isKind(.write) and self.ctx.types.get(expected) == .write_view) self.expect.viewed_write = e;
+    const saved_result = self.expect.result_expected;
+    defer self.expect.result_expected = saved_result;
+    if (tc.resultCall(e)) |call| self.expect.result_expected = .{ .call = call, .ty = expected, .value = e };
     // A poisoned expected type still reaches a generic call's
     // inference, which then reports nothing more.
     if (self.isPoison(expected)) {
         // `[]` has no type of its own to report on.
         if (e.isKind(.array) and ir.Array.elems(e).len == 0) return;
-        const saved = self.under_poison;
-        defer self.under_poison = saved;
-        self.under_poison = true;
+        const saved = self.expect.under_poison;
+        defer self.expect.under_poison = saved;
+        self.expect.under_poison = true;
         _ = try PatternCheck.synthExpr(self, e);
         return;
     }
@@ -1746,7 +1746,7 @@ pub fn checkActual(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Er
     // reported the missing `!` / `catch`.
     const at = self.ctx.types.get(actual);
     if (at == .fallible and tc.compatible(self.ctx, at.fallible.ok, expected)) return;
-    if (tc.sameExpr(e, self.ignored_in)) return;
+    if (tc.sameExpr(e, self.expect.ignored_in)) return;
     if (tc.resultCall(e)) |call| if (call.list.id != 0) if (self.result_hints.get(call.list.id)) |hint| {
         return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; {s}", .{ try self.tyName(expected), try self.tyName(actual), hint });
     };
@@ -1814,7 +1814,7 @@ pub fn unionViewed(self: *Checker, from: TypeId, expected: TypeId) ?TypeId {
 /// take the slice's element type. True when handled.
 pub fn viewedTempLiteral(self: *Checker, e: Sexp, expected: TypeId) Error!bool {
     if (!e.isKind(.array) and !e.isKind(.array_fill)) return false;
-    if (!tc.sameNode(e, self.viewed_temp)) return false;
+    if (!tc.sameNode(e, self.expect.viewed_temp)) return false;
     const elem = switch (self.ctx.types.get(expected)) {
         .slice => |sl| sl.elem,
         else => return false,
@@ -1868,8 +1868,8 @@ pub fn viewByRows(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Err
     const function = made.callable() != null and self.ctx.types.get(from) == .function and !closureBinding(self, e);
     // (A temporary array viewed as a `[]T` by a call that keeps no view
     // of it lives in a slot of the call: `arrayAsSlice`.)
-    const temp_array = tc.sameNode(e, self.viewed_temp) and self.ctx.types.get(from) == .array;
-    if (!view and tc.sameExpr(e, self.view_arg) and !function and !temp_array) {
+    const temp_array = tc.sameNode(e, self.expect.viewed_temp) and self.ctx.types.get(from) == .array;
+    if (!view and tc.sameExpr(e, self.expect.view_arg) and !function and !temp_array) {
         switch (hands(self, e).kind) {
             .place, .part_of_made, .made => {},
             .view, .branches, .jump, .none => return false,
@@ -2143,7 +2143,7 @@ pub fn erasable(self: *Checker, e: Sexp, viewed: Sexp, actual: TypeId, reached: 
         }
         const tname = try self.tyName(reached);
         const fix = try sema.unprovidedFix(self.ctx, reached, object.api);
-        if (self.current_call) |call| {
+        if (self.expect.current_call) |call| {
             try self.errAt(e, "`{s}` cannot make a view of `{s}` as a `{s}`: `{s}` does not provide `{s}`{s}", .{ CallCheck.sourceText(self, call), CallCheck.sourceText(self, viewed), shown_view, tname, api_name, fix });
         } else try self.errAt(e, "`{s}` cannot be viewed as a `{s}`: `{s}` does not provide `{s}`{s}", .{ CallCheck.sourceText(self, viewed), shown_view, tname, api_name, fix });
         return null;
@@ -2248,7 +2248,7 @@ pub fn checkKeptSet(self: *Checker, stmt: Sexp) Error!void {
 /// used only within its statement views implicitly, since its loan
 /// ends with the statement.
 pub fn keptViews(self: *Checker, value: Sexp, kept: Checker.Kept) Error!void {
-    if (value != .list or self.under_poison) return;
+    if (value != .list or self.expect.under_poison) return;
     // A value that holds no view keeps no loan, whatever views were
     // read to make it: `m.get(k) ?? 0`, or a view read through where
     // its value is expected.
@@ -2369,7 +2369,7 @@ pub fn reportKept(self: *Checker, call: Sexp, viewed: Sexp, kept: Checker.Kept) 
 /// reported; any other type is a mismatch, as for `?xs[a..b]`.
 pub fn sliceArgRejected(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
     const a = self.ctx.arena.allocator();
-    const slot = self.slot;
+    const slot = self.expect.slot;
     const in_call = tc.sameExpr(e, slot.value) and slot.call != .nil and !slot.field and argOf(slot.call, e);
     const shown = try plainText(self, e);
     const callee = if (in_call) try a.print("`{s}`", .{try StdFormCheck.calleeName(self, ir.Call.callee(slot.call))}) else "the call";
@@ -2433,7 +2433,7 @@ pub fn arrayAsSlice(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) E
                 try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; write `{c}{s}` or `{c}{s}[..]`", .{ try self.tyName(expected), try self.tyName(actual), sigil, shown, sigil, shown });
                 return true;
             }
-            if (!want_write and tc.sameNode(e, self.viewed_temp)) {
+            if (!want_write and tc.sameNode(e, self.expect.viewed_temp)) {
                 try viewTempArray(self, e, actual, expected);
                 return true;
             }
@@ -2474,8 +2474,8 @@ pub fn stringAsStringView(self: *Checker, e: Sexp, actual: TypeId, expected: Typ
 
 pub fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
     // `o or 0` for an optional `o`: a fallback, which `??` writes.
-    if (std.mem.eql(u8, self.logic_op, "or") and tc.sameSite(e, self.logic_operands[0]) and expected == self.t().bool_id and self.ctx.types.get(actual) == .optional) {
-        return self.errAt(e, "`or` joins Bools; an optional's fallback is `{s} ?? {s}`", .{ CallCheck.sourceText(self, e), CallCheck.sourceText(self, self.logic_operands[1]) });
+    if (std.mem.eql(u8, self.expect.logic_op, "or") and tc.sameSite(e, self.expect.logic_operands[0]) and expected == self.t().bool_id and self.ctx.types.get(actual) == .optional) {
+        return self.errAt(e, "`or` joins Bools; an optional's fallback is `{s} ?? {s}`", .{ CallCheck.sourceText(self, e), CallCheck.sourceText(self, self.expect.logic_operands[1]) });
     }
     // `!c` of a handle that may not be written here views what it holds
     // (`synthView`), which a `!*T` parameter cannot take.
@@ -2525,7 +2525,7 @@ pub fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error
     // A mask is no `Bool`: it is reduced or combined.
     if (expected == self.t().bool_id and sema.isMask(self.ctx, actual)) return StdFormCheck.maskAsBool(self, e, sema.unwrapViews(self.ctx, actual));
     // `not n` of an integer: the complement is a method.
-    if (tc.sameSite(e, self.not_operand) and expected == self.t().bool_id and sema.isInteger(self.ctx, sema.unwrapViews(self.ctx, actual))) {
+    if (tc.sameSite(e, self.expect.not_operand) and expected == self.t().bool_id and sema.isInteger(self.ctx, sema.unwrapViews(self.ctx, actual))) {
         return self.errAt(e, "`not` takes a Bool; for the bitwise complement write `x.not()`", .{});
     }
     const match_hint = if (self.ctx.types.get(expected) == .write_view) try PatternCheck.readMatchHint(self, place.sym) else "";
@@ -2557,7 +2557,7 @@ pub fn staticHint(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) []c
         else => actual,
     });
     if (got != self.t().string_view_id and got != self.t().string_id) return "";
-    if (self.static_target.len > 0 and tc.sameSite(e, self.static_target_value)) return self.ctx.arena.allocator().print("; `{s}` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `{s}: ?String = ...` to hold other text", .{ self.static_target, self.static_target }) catch "";
+    if (self.expect.static_target.len > 0 and tc.sameSite(e, self.expect.static_target_value)) return self.ctx.arena.allocator().print("; `{s}` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `{s}: ?String = ...` to hold other text", .{ self.expect.static_target, self.expect.static_target }) catch "";
     return "; a `Static` is a literal, or text derived only from literals, and a `?String` may view a `String`. A parameter or field that only reads its text is declared `?String`, which takes a `Static` too";
 }
 
@@ -2723,7 +2723,7 @@ pub fn contextualCall(self: *Checker, e: Sexp, expected: TypeId, target: TypeId)
     // (`frozenMake`, `actorMake`).
     if (id == self.ctx.frozen_sym_id or id == self.ctx.actor_sym_id) return null;
     _ = try ExprCheck.useName(self, callee);
-    if (id == self.ctx.signal_sym_id and !tc.sameNode(e, self.shared_operand)) {
+    if (id == self.ctx.signal_sym_id and !tc.sameNode(e, self.expect.shared_operand)) {
         try self.errAt(callee, Checker.stack_signal, .{});
         try CallCheck.synthArgs(self, ir.Call.args(e));
     } else if (id == self.ctx.list_sym_id) {
@@ -2747,7 +2747,7 @@ pub fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId 
             if (std.mem.eql(u8, s, "none")) return try checkNone(self, e, expected);
             // A number literal where a view argument `?N` goes is viewed
             // as `?5` is: a copy of the number.
-            if (tc.sameExpr(e, self.view_arg) and (sema.isIntLiteralText(s) or sema.isFloatLiteralText(s))) switch (self.ctx.types.get(expected)) {
+            if (tc.sameExpr(e, self.expect.view_arg) and (sema.isIntLiteralText(s) or sema.isFloatLiteralText(s))) switch (self.ctx.types.get(expected)) {
                 .read_view => |inner| if (sema.isNumeric(self.ctx, inner)) {
                     try checkExpr(self, e, inner);
                     return inner;
@@ -2799,7 +2799,7 @@ pub fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId 
         .lambda => {
             if (self.ctx.types.get(target) == .function) {
                 const ty = try ClosureCheck.checkLambda(self, e, target);
-                if (!tc.sameNode(e, self.viewed_callable) and !tc.sameNode(e, self.callable_kept)) return ty;
+                if (!tc.sameNode(e, self.expect.viewed_callable) and !tc.sameNode(e, self.expect.callable_kept)) return ty;
                 // Reported here; the closure is not checked as escaping.
                 try self.errAt(e, "a closure literal is not a function value `{s}`; declare the parameter `?{s}` to pass the closure to the call as a view", .{ try self.tyName(target), try self.tyName(target) });
                 return self.t().invalid_id;
@@ -3294,7 +3294,7 @@ pub fn ignoredWriteView(self: *Checker, e: Sexp, made: Sexp, how: Checker.ViewRe
         .slot => {},
         .read_view_of_write => return self.errAt(e, head ++ "Write `?{s}`", .{ shown, "`?` passes it on as a read view", place }),
         .read_view => |view| {
-            const slot = self.slot;
+            const slot = self.expect.slot;
             const in_slot = tc.sameExpr(e, slot.value) and slot.call != .nil and argOf(slot.call, e);
             const owner = if (!in_slot)
                 try a.print("a `{s}`", .{try self.tyName(view)})
@@ -3314,15 +3314,15 @@ pub fn ignoredWriteView(self: *Checker, e: Sexp, made: Sexp, how: Checker.ViewRe
             return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("`{s}` only reads the place it reaches", .{CallCheck.sourceText(self, path)}), fix });
         },
         .read_self => |method| {
-            const call = self.current_call orelse Sexp.nil;
+            const call = self.expect.current_call orelse Sexp.nil;
             const fix = if (call != .nil) try unparenthesized(self, call, e, place) else try a.print("{s}(...)", .{try sema.memberText(a, place, method)});
             return self.errAt(e, "`{s}` here is read, not held: `{s}` only reads `{s}`; write `{s}`", .{ shown, method, place, fix });
         },
         else => return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("only its `{s}` is read here", .{ty}), place }),
     }
-    const slot = self.slot;
+    const slot = self.expect.slot;
     const in_slot = tc.sameExpr(e, slot.value) and slot.call != .nil and argOf(slot.call, e);
-    if (in_slot and slot.field) self.ignored_in = slot.call;
+    if (in_slot and slot.field) self.expect.ignored_in = slot.call;
     // What takes the value, and the value written without the `!`s
     // the slots of the call ignore.
     const what = if (!in_slot)

@@ -42,15 +42,15 @@ pub fn checkIfValue(self: *Checker, node: Sexp, expected: ?TypeId, position: Che
     const prev = self.scope;
     // A ternary or a postfix guard has no block to hold what its
     // condition makes.
-    const saved_hold = self.no_hold;
-    self.no_hold = saved_hold or position == .value;
-    const saved_cond = self.ternary_cond;
-    if (position == .value) self.ternary_cond = cond;
+    const saved_hold = self.expect.no_hold;
+    self.expect.no_hold = saved_hold or position == .value;
+    const saved_cond = self.expect.ternary_cond;
+    if (position == .value) self.expect.ternary_cond = cond;
     // An `if`, an `else if`, or a statement's guard narrows what it runs
     // (`plainTest`); a ternary does not.
-    const saved_plain = self.plain_cond;
-    defer self.plain_cond = saved_plain;
-    self.plain_cond = if (isBlockIf(self, node) or (position == .statement and else_node == .nil)) try BuiltinCheck.plainCondOf(self, cond, &.{then_node}) else null;
+    const saved_plain = self.expect.plain_cond;
+    defer self.expect.plain_cond = saved_plain;
+    self.expect.plain_cond = if (isBlockIf(self, node) or (position == .statement and else_node == .nil)) try BuiltinCheck.plainCondOf(self, cond, &.{then_node}) else null;
     // A ternary's names reach the value before `if`, as a block's
     // reach the block; a postfix guard, which has no `else`, binds
     // none.
@@ -58,9 +58,9 @@ pub fn checkIfValue(self: *Checker, node: Sexp, expected: ?TypeId, position: Che
         try self.errAt(cond, "a postfix guard's condition binds no names; write an `if` block", .{});
     }
     try checkCondition(self, cond);
-    self.plain_cond = saved_plain;
-    self.ternary_cond = saved_cond;
-    self.no_hold = saved_hold;
+    self.expect.plain_cond = saved_plain;
+    self.expect.ternary_cond = saved_cond;
+    self.expect.no_hold = saved_hold;
     const then_ty = try branch(self, then_node, expected, position);
     self.scope = prev;
 
@@ -137,9 +137,9 @@ pub fn branch(self: *Checker, node: Sexp, expected: ?TypeId, position: Checker.P
 /// parts in order, each `(as expr name)` entering the scope that
 /// binds `name`; the caller restores the scope.
 pub fn checkCondition(self: *Checker, cond: Sexp) Error!void {
-    const saved_hold = self.no_hold;
-    defer self.no_hold = saved_hold;
-    if (rig.isConditionJoin(cond)) self.no_hold = true;
+    const saved_hold = self.expect.no_hold;
+    defer self.expect.no_hold = saved_hold;
+    if (rig.isConditionJoin(cond)) self.expect.no_hold = true;
     const Parts = struct {
         c: *Checker,
         pub fn part(v: @This(), p: Sexp) Error!void {
@@ -251,7 +251,7 @@ pub fn isBlockIf(self: *Checker, node: Sexp) bool {
 /// is written `(!s).m(...)`, so its `!` never reads as negation
 /// (`parenthesized`).
 pub fn usesValue(self: *Checker, recv: Sexp, returns: TypeId) bool {
-    if (self.current_call) |c| if (ir.Call.task(c) != .nil) {
+    if (self.expect.current_call) |c| if (ir.Call.task(c) != .nil) {
         const callee = ir.Call.callee(c);
         if (callee.isKind(.member) and tc.sameNode(ir.Member.object(callee), recv)) return true;
     };
@@ -292,7 +292,7 @@ pub fn writeCallText(self: *Checker, recv: Sexp, method: []const u8, returns: Ty
 /// self `recv` (with any sigil before it) as `with`: `<c.take()`
 /// for `c.take()`. Without that call, `with.method(...)`.
 pub fn callWith(self: *Checker, recv: Sexp, with: []const u8, method: []const u8) Error![]const u8 {
-    if (self.current_call) |c| {
+    if (self.expect.current_call) |c| {
         const callee = ir.Call.callee(c);
         if (callee.isKind(.member) and tc.sameSite(ir.Member.object(callee), recv)) {
             // A self written in parentheses, `(mk() if c else
@@ -314,7 +314,7 @@ pub fn callWith(self: *Checker, recv: Sexp, with: []const u8, method: []const u8
 /// operand of a `!`, `?`, or `catch` that is, or is that operand in
 /// turn.
 pub fn isDiscardedCall(self: *const Checker, recv: Sexp) bool {
-    var e = self.discarded;
+    var e = self.expect.discarded;
     while (true) switch (e.kind() orelse return false) {
         .propagate => e = ir.Propagate.value(e),
         .propagate_none => e = ir.PropagateNone.value(e),
@@ -340,13 +340,13 @@ pub fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
     try ViewCheck.recordUse(self, expr, .take);
     // A part of a value made here is bound in that value, which the
     // `if` holds (`Header.held`).
-    const saved_held = self.held_base;
-    defer self.held_base = saved_held;
-    if (!self.no_hold) self.held_base = PatternCheck.madeBase(self, expr);
-    const saved_as = self.as_call;
-    self.as_call = tc.resultCall(expr) orelse .nil;
+    const saved_held = self.expect.held_base;
+    defer self.expect.held_base = saved_held;
+    if (!self.expect.no_hold) self.expect.held_base = PatternCheck.madeBase(self, expr);
+    const saved_as = self.expect.as_call;
+    self.expect.as_call = tc.resultCall(expr) orelse .nil;
     const ty = try PatternCheck.synthExpr(self, expr);
-    self.as_call = saved_as;
+    self.expect.as_call = saved_as;
     var inner = self.t().invalid_id;
     if (!self.isPoison(ty)) switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
         .optional => |i| inner = i,
@@ -401,10 +401,10 @@ pub fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
             try self.ctx.recordHeader(node, .viewed, .nil);
             try self.ctx.recordImplicitView(expr);
         },
-        .part_of_made => if (self.held_base != .nil) {
+        .part_of_made => if (self.expect.held_base != .nil) {
             if (try PatternCheck.holdsHeld(self, expr)) {
                 viewed = true;
-                try self.ctx.recordHeader(node, .held, self.held_base);
+                try self.ctx.recordHeader(node, .held, self.expect.held_base);
             } else inner = self.t().invalid_id;
         } else {
             try self.errAt(expr, "`as` binds the value inside a place or takes one made here: bind this `{s}` to a name first", .{try self.tyName(ty)});
@@ -413,7 +413,7 @@ pub fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         .made, .view, .branches, .jump, .none => {},
     };
     // A part of plain data is read in the header, as any value is.
-    if (!viewed and self.held_base != .nil) try PatternCheck.releaseHeld(self);
+    if (!viewed and self.expect.held_base != .nil) try PatternCheck.releaseHeld(self);
     if (viewed) reach = .read;
     // What the binding views, unless it owns a value made here or
     // taken with `<`, may be a copy (`rejectHeaderCopy`).
@@ -456,9 +456,9 @@ pub fn checkResultsBinding(self: *Checker, node: Sexp) Error!void {
         ok = false;
     };
     try ViewCheck.recordUse(self, value, .take);
-    const saved_ok = self.results_ok;
-    defer self.results_ok = saved_ok;
-    if (value.isKind(.call)) self.results_ok = value;
+    const saved_ok = self.expect.results_ok;
+    defer self.expect.results_ok = saved_ok;
+    if (value.isKind(.call)) self.expect.results_ok = value;
     const ty = try PatternCheck.synthExpr(self, value);
     var parts: []const TypeId = &.{};
     if (ok and !self.isPoison(ty)) {
@@ -479,11 +479,11 @@ pub fn checkResultsBinding(self: *Checker, node: Sexp) Error!void {
         ok = false;
     }
     _ = self.enter(node);
-    const saved_part = self.part_ty;
-    defer self.part_ty = saved_part;
+    const saved_part = self.expect.part_ty;
+    defer self.expect.part_ty = saved_part;
     for (names, 0..) |n, j| {
         if (!n.isKind(.set)) continue;
-        self.part_ty = if (ok and j < parts.len) parts[j] else self.t().invalid_id;
+        self.expect.part_ty = if (ok and j < parts.len) parts[j] else self.t().invalid_id;
         if (ok) try StmtCheck.checkSet(self, n) else try StmtCheck.poisonTarget(self, n);
     }
 }
@@ -491,9 +491,9 @@ pub fn checkResultsBinding(self: *Checker, node: Sexp) Error!void {
 /// The frame of the loop being entered, which takes the pending label
 /// and value.
 pub fn enterLoop(self: *Checker, frame: *Checker.LoopFrame, node: Sexp) Error!void {
-    frame.* = .{ .label = self.loop_label, .node = node, .value = self.loop_value, .parent = self.body.loops };
-    self.loop_label = "";
-    self.loop_value = null;
+    frame.* = .{ .label = self.expect.loop_label, .node = node, .value = self.expect.loop_value, .parent = self.body.loops };
+    self.expect.loop_label = "";
+    self.expect.loop_value = null;
     try enterFrame(self, frame);
 }
 
@@ -520,13 +520,13 @@ pub fn checkWhile(self: *Checker, node: Sexp) Error!void {
     const step = ir.While.step(node);
     frame.has_step = step != .nil;
     frame.part = .cond;
-    const saved_hold = self.no_hold;
-    self.no_hold = true;
-    const saved_plain = self.plain_cond;
-    self.plain_cond = try BuiltinCheck.plainCondOf(self, cond, &.{ step, ir.While.body(node) });
+    const saved_hold = self.expect.no_hold;
+    self.expect.no_hold = true;
+    const saved_plain = self.expect.plain_cond;
+    self.expect.plain_cond = try BuiltinCheck.plainCondOf(self, cond, &.{ step, ir.While.body(node) });
     try checkCondition(self, cond);
-    self.plain_cond = saved_plain;
-    self.no_hold = saved_hold;
+    self.expect.plain_cond = saved_plain;
+    self.expect.no_hold = saved_hold;
     frame.part = .step;
     const call_step = step.isKind(.call) or (step.isKind(.propagate) and ir.Propagate.value(step).isKind(.call));
     if (step != .nil and !step.isKind(.set) and !call_step) {
@@ -566,7 +566,7 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
     }
 
     var elem_ty = self.t().invalid_id;
-    self.loop_access = null;
+    self.expect.loop_access = null;
     // The loop's mode once a bare source is classified.
     var eff = mode;
     // A held source was rejected (`holdsHeld`).
@@ -581,13 +581,13 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
         const peeled_source = if (source.isKind(.read)) ir.Read.operand(source) else source;
         // A part of a value made here is walked in that value, which
         // the loop holds (`Header.held`).
-        const saved_held = self.held_base;
-        defer self.held_base = saved_held;
-        if (mode == .iter) self.held_base = PatternCheck.madeBase(self, source);
+        const saved_held = self.expect.held_base;
+        defer self.expect.held_base = saved_held;
+        if (mode == .iter) self.expect.held_base = PatternCheck.madeBase(self, source);
         // `for x in ?xs[a..b]` walks a slice of `xs`.
-        const saved_chain_for = self.chain_for;
-        self.chain_for = node;
-        defer self.chain_for = saved_chain_for;
+        const saved_chain_for = self.expect.chain_for;
+        self.expect.chain_for = node;
+        defer self.expect.chain_for = saved_chain_for;
         // What checking the source records is taken back when the loop
         // is over an iterator (`elaborateFor`).
         const mark = self.ctx.mark();
@@ -636,10 +636,10 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
                     eff = .read;
                     try self.ctx.recordHeader(node, .viewed, .nil);
                 },
-                .part_of_made => if (self.held_base != .nil and sema.copies(self.ctx, source_ty) == .no) {
+                .part_of_made => if (self.expect.held_base != .nil and sema.copies(self.ctx, source_ty) == .no) {
                     eff = .read;
                     if (try PatternCheck.holdsHeld(self, source)) {
-                        try self.ctx.recordHeader(node, .held, self.held_base);
+                        try self.ctx.recordHeader(node, .held, self.expect.held_base);
                     } else elem_poisoned = true;
                 },
                 .made => if (self.ctx.types.get(source_ty) == .array and sema.copies(self.ctx, self.ctx.types.get(source_ty).array.elem) == .no) {
@@ -649,13 +649,13 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
                 .view, .branches, .jump, .none => {},
             };
             // A part of plain data is read in the header, as any value is.
-            if (self.held_base != .nil and self.ctx.headerOf(node) != .held and !elem_poisoned) try PatternCheck.releaseHeld(self);
+            if (self.expect.held_base != .nil and self.ctx.headerOf(node) != .held and !elem_poisoned) try PatternCheck.releaseHeld(self);
             // A loop walks a place, or takes a value made here. A branching
             // value that may be a name's (`o?`, `a if c else mk()`) may be
             // a place on one path and a new value on another, which one
             // loop cannot both view and take, unless its elements copy.
             const peeled_hands = ViewCheck.hands(self, peeled_source);
-            const unbound = (!peeled_hands.hasStorage() and peeled_hands.kind != .made) or (mode == .iter and peeled_hands.kind == .part_of_made and self.held_base == .nil);
+            const unbound = (!peeled_hands.hasStorage() and peeled_hands.kind != .made) or (mode == .iter and peeled_hands.kind == .part_of_made and self.expect.held_base == .nil);
             const list = tc.listElementType(self.ctx, source_ty) != null or sema.tableElem(self.ctx, source_ty) != null;
             const moving = list or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, source_ty))) {
                 .array => |a| sema.copies(self.ctx, a.elem) == .no,
@@ -667,7 +667,7 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
                 const what = if (list) "a List held in a place or made by a call" else "a place or takes a value made here";
                 try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
             }
-            self.loop_access = null;
+            self.expect.loop_access = null;
             elem_ty = try elementTypeForLoop(self, source, peeled_source, source_ty, eff);
             if (elem_poisoned) elem_ty = self.t().invalid_id;
             // What the loop binds views the source, unless it takes it or
@@ -691,8 +691,8 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
     }
     if (rewrite) |r| {
         self.body.loops = frame.parent;
-        self.loop_label = frame.label;
-        self.loop_value = frame.value;
+        self.expect.loop_label = frame.label;
+        self.expect.loop_value = frame.value;
         return elaborateFor(self, node, r.how, r.mark);
     }
 
@@ -700,7 +700,7 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
         const prev = self.enter(node);
         defer self.scope = prev;
         if (self.ctx.symbolOf(binding)) |sym| {
-            (try self.ctx.symbolMut(sym)).access = if (self.isPoison(elem_ty)) null else self.loop_access;
+            (try self.ctx.symbolMut(sym)).access = if (self.isPoison(elem_ty)) null else self.expect.loop_access;
             (try self.ctx.symbolMut(sym)).flags.access_decided = true;
             (try self.ctx.symbolMut(sym)).ty = elem_ty;
             try self.ctx.recordType(binding, elem_ty);
@@ -892,8 +892,8 @@ pub fn checkLoopValue(self: *Checker, node: Sexp, expected: ?TypeId, used: bool)
     const loop = if (node.isKind(.labeled)) ir.Labeled.stmt(node) else node;
     var lv: Checker.LoopValue = .{ .expected = expected };
     defer lv.values.deinit(self.ctx.allocator);
-    if (node.isKind(.labeled)) self.loop_label = self.text(ir.Labeled.label(node));
-    self.loop_value = &lv;
+    if (node.isKind(.labeled)) self.expect.loop_label = self.text(ir.Labeled.label(node));
+    self.expect.loop_value = &lv;
     try checkWhile(self, loop);
     const ty = if (expected) |e| e else ExprCheck.canonical(self, lv.ty orelse self.t().invalid_id);
     if (expected == null) for (lv.values.items) |v| try adaptLiteral(self, v.node, v.ty, ty);
@@ -1014,7 +1014,7 @@ pub fn writeElement(self: *Checker, source: Sexp, inner_source: Sexp, elem: Type
 pub fn loopElement(self: *Checker, mode: sema.LoopMode, elem: TypeId) Error!TypeId {
     if (self.isPoison(elem)) return elem;
     const access = sema.decideBindingAccess(self.ctx, .{ .loop = .{ .mode = mode, .elem = elem } });
-    self.loop_access = access;
+    self.expect.loop_access = access;
     return PatternCheck.viewOfAccess(self, access, elem);
 }
 
@@ -1152,10 +1152,10 @@ pub fn checkMatchSubject(self: *Checker, node: Sexp) Error!Checker.MatchSubject 
     // reads ends with it.
     // A part of a value made here is matched in that value, which the
     // match holds (`Header.held`).
-    if (mode == .read) self.held_base = PatternCheck.madeBase(self, subject);
+    if (mode == .read) self.expect.held_base = PatternCheck.madeBase(self, subject);
     // A header's subject is matched where it stands, which
     // `headerViewsBranch` decides for a branch.
-    self.in_place = subject;
+    self.expect.in_place = subject;
     var scrutinee = if (mode == .write) try ViewCheck.synthOperand(self, subject) else try PatternCheck.synthExpr(self, subject);
     const subject_hands = ViewCheck.hands(self, subject);
     if (mode == .read and !self.isPoison(scrutinee)) switch (subject_hands.kind) {
@@ -1171,7 +1171,7 @@ pub fn checkMatchSubject(self: *Checker, node: Sexp) Error!Checker.MatchSubject 
         // match holds that value. (A part of plain data is read in the
         // header, and a part of a branching value, which may be a
         // name's part, is checked below as a branching value is.)
-        .place, .part_of_made => if (subject_hands.kind == .place or self.held_base != .nil) {
+        .place, .part_of_made => if (subject_hands.kind == .place or self.expect.held_base != .nil) {
             const reached = sema.unwrapAccess(self.ctx, scrutinee);
             const plain = sema.copies(self.ctx, reached) != .no;
             const held = subject_hands.kind == .part_of_made and !plain;
@@ -1181,7 +1181,7 @@ pub fn checkMatchSubject(self: *Checker, node: Sexp) Error!Checker.MatchSubject 
             if (held and !try PatternCheck.holdsHeld(self, subject)) {
                 scrutinee = self.t().invalid_id;
             } else if (held or views_inner or (!plain and !sema.isReadOrWriteView(self.ctx, scrutinee))) {
-                try self.ctx.recordHeader(node, if (held) .held else .viewed, if (held) self.held_base else .nil);
+                try self.ctx.recordHeader(node, if (held) .held else .viewed, if (held) self.expect.held_base else .nil);
                 // A box or a handle gives a view of the value it holds:
                 // plain data is read as its value, anything else
                 // viewed.
@@ -1218,7 +1218,7 @@ pub fn checkMatchSubject(self: *Checker, node: Sexp) Error!Checker.MatchSubject 
     // A value that may be a name's, or a part of one, is matched
     // where it is, and one made here is taken: a branching value
     // that may be either is bound to a name first.
-    const branching = subject_hands.kind == .branches or (subject_hands.kind == .part_of_made and self.held_base == .nil);
+    const branching = subject_hands.kind == .branches or (subject_hands.kind == .part_of_made and self.expect.held_base == .nil);
     if (mode == .read and branching and !self.isPoison(scrutinee) and sema.moves(self.ctx, scrutinee) != .no) {
         try self.errAt(subject, "a `match` reads a place or takes a call's result; bind this `{s}` to a name first", .{try self.tyName(scrutinee)});
         scrutinee = self.t().invalid_id;

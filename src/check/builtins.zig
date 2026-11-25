@@ -215,10 +215,10 @@ pub fn errorArmKey(self: *Checker, subject: TypeId, set: TypeId, name: []const u
 /// `E.name` or `m.E.name` as a pattern: a member of error set `E`,
 /// where the subject is of that set or is any error.
 pub fn checkQualifiedPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *Checker.MatchCoverage) Error!void {
-    const saved = self.member_pattern;
-    self.member_pattern = pattern;
+    const saved = self.expect.member_pattern;
+    self.expect.member_pattern = pattern;
     const ty = try PatternCheck.synthExpr(self, pattern);
-    self.member_pattern = saved;
+    self.expect.member_pattern = saved;
     const subject = sema.unwrapViews(self.ctx, scrutinee);
     const obj = ir.Member.object(pattern);
     const shown = try ViewCheck.plainText(self, pattern);
@@ -381,9 +381,9 @@ pub fn listFromElems(self: *Checker, arg: Sexp, want: ?TypeId) Error!TypeId {
     // An array literal takes the element type the List is given; a
     // temporary array is viewed as the slice it is copied from.
     const ty = if (want != null and arg.isKind(.array)) blk: {
-        const saved = self.viewed_temp;
-        defer self.viewed_temp = saved;
-        self.viewed_temp = arg;
+        const saved = self.expect.viewed_temp;
+        defer self.expect.viewed_temp = saved;
+        self.expect.viewed_temp = arg;
         try ViewCheck.checkExpr(self, arg, try self.ctx.intern(.{ .slice = .{ .elem = want.? } }));
         break :blk self.ctx.typeOf(arg) orelse return self.t().invalid_id;
     } else try PatternCheck.synthExpr(self, arg);
@@ -565,7 +565,7 @@ pub fn plainTest(self: *Checker, node: Sexp, args: []const Sexp, pos: u32) Error
         .type_var => |sym| sym,
         else => return self.t().bool_id,
     };
-    const cond = self.plain_cond orelse return self.t().bool_id;
+    const cond = self.expect.plain_cond orelse return self.t().bool_id;
     const operand = for (cond.operands) |o| {
         if (tc.sameNode(o, node)) break true;
     } else false;

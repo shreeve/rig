@@ -47,10 +47,10 @@ pub fn checkMatch(self: *Checker, node: Sexp, position: Checker.Position, expect
 /// and the body. Every form checks its patterns here.
 pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expected: ?TypeId, opens: bool) Error!TypeId {
     const subject = ir.Match.subject(node);
-    const saved_held = self.held_base;
-    defer self.held_base = saved_held;
-    const saved_in_place = self.in_place;
-    defer self.in_place = saved_in_place;
+    const saved_held = self.expect.held_base;
+    defer self.expect.held_base = saved_held;
+    const saved_in_place = self.expect.in_place;
+    defer self.expect.in_place = saved_in_place;
     const found = try FlowCheck.checkMatchSubject(self, node);
     const mode = found.mode;
     var scrutinee = found.scrutinee;
@@ -72,12 +72,12 @@ pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expe
     const viewed: ?tc.CopySource = if (mode != .read) null else if (subject.isKind(.read) and ViewCheck.hands(self, ir.Read.operand(subject)).hasStorage())
         .{ .place = ir.Read.operand(subject), .kind = .match_read, .pattern = tested }
     else if (subject_hands.hasStorage()) .{ .place = subject, .kind = .match_copy, .pattern = tested } else null;
-    const saved_arm_local = self.arm_local;
-    defer self.arm_local = saved_arm_local;
-    self.arm_local = mode == .read and !self.isPoison(scrutinee) and !storage.matchesInPlace(self.ctx, node);
-    const saved_matching = self.matching;
-    defer self.matching = saved_matching;
-    self.matching = node;
+    const saved_arm_local = self.expect.arm_local;
+    defer self.expect.arm_local = saved_arm_local;
+    self.expect.arm_local = mode == .read and !self.isPoison(scrutinee) and !storage.matchesInPlace(self.ctx, node);
+    const saved_matching = self.expect.matching;
+    defer self.expect.matching = saved_matching;
+    self.expect.matching = node;
     var cov: Checker.MatchCoverage = .{ .variant_total = try BuiltinCheck.variantTotal(self, sema.unwrapViews(self.ctx, scrutinee)), .subject = scrutinee };
     var arm_values: std.ArrayList(Checker.Typed) = .empty;
     defer arm_values.deinit(self.ctx.allocator);
@@ -141,10 +141,10 @@ pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expe
             } else if (pattern == .src) if (self.ctx.symbolOf(pattern)) |sym| try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = shown_subject, .kind = .match_read, .whole = true });
         }
         if (guard != .nil) {
-            const saved_plain = self.plain_cond;
-            self.plain_cond = try BuiltinCheck.plainCondOf(self, guard, &.{ir.Arm.body(arm)});
+            const saved_plain = self.expect.plain_cond;
+            self.expect.plain_cond = try BuiltinCheck.plainCondOf(self, guard, &.{ir.Arm.body(arm)});
             try ViewCheck.checkExpr(self, guard, self.t().bool_id);
-            self.plain_cond = saved_plain;
+            self.expect.plain_cond = saved_plain;
             if (tc.findMove(guard)) |m| try self.errAt(m, "a guard cannot move a value: when it fails, a later arm matches the same value", .{});
             if (guardWrite(self, guard, subject, pattern)) |w| try self.errAt(w, "a guard cannot change the value being matched: when it fails, a later arm matches the same value", .{});
         }
@@ -479,8 +479,8 @@ pub fn payloadViewTaken(self: *Checker, e: Sexp, verb: []const u8) Error!bool {
 /// The held base turns out to hold nothing (its part is plain data):
 /// it is read in the header as a temporary, as any made value is.
 pub fn releaseHeld(self: *Checker) Error!void {
-    const base = self.held_base;
-    self.held_base = .nil;
+    const base = self.expect.held_base;
+    self.expect.held_base = .nil;
     try self.ctx.forgetUse(base);
     try ViewCheck.readLeaf(self, base);
 }
@@ -490,7 +490,7 @@ pub fn releaseHeld(self: *Checker) Error!void {
 /// end with the header while the held value, and what it views,
 /// lives on. Reported when not.
 pub fn holdsHeld(self: *Checker, subject: Sexp) Error!bool {
-    const base = self.held_base;
+    const base = self.expect.held_base;
     if (!makesTemps(self, base, base)) return true;
     try self.errAt(subject, "this header holds `{s}` for its construct, but a temporary made inside it ends with the header; bind `{s}` to a name first", .{ CallCheck.sourceText(self, base), CallCheck.sourceText(self, base) });
     return false;
@@ -792,7 +792,7 @@ pub fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *Chec
                     // subject, or captured as a copy, is usable in its
                     // arm only.
                     const ty = try bindMatchView(self, pattern, mode, scrutinee);
-                    const copied = self.arm_local or (mode == .read and !storage.catchAllCaptured(self.ctx, pattern, self.matching));
+                    const copied = self.expect.arm_local or (mode == .read and !storage.catchAllCaptured(self.ctx, pattern, self.expect.matching));
                     if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) (try self.ctx.symbolMut(sym)).flags.arm_view = true;
                     try self.ctx.recordType(pattern, ty);
                 }
@@ -1075,7 +1075,7 @@ pub fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov
         if (self.ctx.symbolOf(b)) |sym| {
             // A binding that is no plain data of a copy of the
             // subject is usable in its arm only.
-            if (self.arm_local and mode == .read and view and sema.copies(self.ctx, field_ty) != .yes) (try self.ctx.symbolMut(sym)).flags.arm_view = true;
+            if (self.expect.arm_local and mode == .read and view and sema.copies(self.ctx, field_ty) != .yes) (try self.ctx.symbolMut(sym)).flags.arm_view = true;
         }
     }
 }
@@ -1120,8 +1120,8 @@ pub fn matchReach(self: *Checker, mode: tc.MatchMode) Error!sema.MatchReach {
         .write => .written,
         .consume => .owned,
         .read => blk: {
-            if (self.matching == .nil) break :blk .read;
-            const subject = ir.Match.subject(self.matching);
+            if (self.expect.matching == .nil) break :blk .read;
+            const subject = ir.Match.subject(self.expect.matching);
             // A write view the subject makes, a call's or a branch of
             // write views (`match (!a if c else !b)`), is passed on, as
             // `if … as` passes one on (`sema.makesWriteView`).
@@ -1385,7 +1385,7 @@ pub fn cellMadeAway(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
     if (self.isPoison(ty) or !sema.holdsCellByValue(self.ctx, ty)) return false;
     // Typed only to infer a call's type arguments, it stands nowhere
     // yet: it is decided where it is checked.
-    if (tc.sameNode(e, self.shared_operand) or tc.sameNode(e, self.cell_home) or self.ctx.quiet > 0) return false;
+    if (tc.sameNode(e, self.expect.shared_operand) or tc.sameNode(e, self.expect.cell_home) or self.ctx.quiet > 0) return false;
     if (!e.isKind(.call)) return cellCopiedByBranch(self, e, ty);
     const src = CallCheck.sourceText(self, e);
     try self.errAt(e, "`{s}` makes a `{s}`, which holds a Cell, so it lives only behind a shared handle: write `*{s}`", .{ src, try self.tyName(ty), src });
@@ -1397,7 +1397,7 @@ pub fn cellMadeAway(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
 /// list of what may stand there: a value made there, a view, a jump,
 /// or a constant.
 pub fn cellCopiedByBranch(self: *Checker, e: Sexp, ty: TypeId) Error!bool {
-    if (tc.sameNode(e, self.in_place)) return false;
+    if (tc.sameNode(e, self.expect.in_place)) return false;
     var leaves: std.ArrayList(Sexp) = .empty;
     defer leaves.deinit(self.ctx.allocator);
     try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, e, &leaves);

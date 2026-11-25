@@ -43,9 +43,9 @@ pub fn noteTakeable(self: *Checker, e: Sexp, ty: TypeId) Error!void {
     const place = StmtCheck.placeOf(self, e);
     // A trial: it records nothing a take would, such as a table's
     // slot reached to write.
-    const saved = self.trial_take;
-    defer self.trial_take = saved;
-    self.trial_take = true;
+    const saved = self.expect.trial_take;
+    defer self.expect.trial_take = saved;
+    self.expect.trial_take = true;
     const ok = place.cell_list_elem == null and try StmtCheck.requireAccess(self, place, .take, e);
     self.ctx.diagnostics.shrinkRetainingCapacity(mark);
     if (!ok) try self.ctx.recordUntakeable(e);
@@ -125,7 +125,7 @@ pub fn synthLeaf(self: *Checker, leaf: Sexp) Error!TypeId {
     // A task given a write view is only waited for or canceled where
     // it is bound: no use of its name moves it on, a `return` or a last
     // value among them.
-    if (self.write_tasks.count() != 0 and !tc.sameSite(leaf, self.task_wait) and self.write_tasks.contains(id)) {
+    if (self.write_tasks.count() != 0 and !tc.sameSite(leaf, self.expect.task_wait) and self.write_tasks.contains(id)) {
         try self.errAt(leaf, "`{s}` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>{s}`", .{ s, s });
         return self.t().invalid_id;
     }
@@ -371,7 +371,7 @@ pub fn visibleIn(self: *Checker, scope: ScopeId, name: []const u8, pos: u32) ?Sy
         // A module-level constant is visible in every function body,
         // and in every constant (`SemContext.const_order`).
         const later = scope != self.module_scope and sym.declaredAfter(pos);
-        if (sym.kind == .local and (later or id == self.pending or std.mem.findScalar(SymbolId, self.pending_names, id) != null)) {
+        if (sym.kind == .local and (later or id == self.expect.pending or std.mem.findScalar(SymbolId, self.expect.pending_names, id) != null)) {
             id = sym.prev_in_scope;
             continue;
         }
@@ -410,22 +410,22 @@ pub fn synthList(self: *Checker, e: Sexp) Error!TypeId {
         .@"<", .@">", .@"<=", .@">=" => synthOrdering(self, e, @tagName(head)),
         .@"==", .@"!=" => synthEquality(self, e),
         .@"and", .@"or" => blk: {
-            const saved_op = self.logic_op;
-            const saved_operands = self.logic_operands;
+            const saved_op = self.expect.logic_op;
+            const saved_operands = self.expect.logic_operands;
             defer {
-                self.logic_op = saved_op;
-                self.logic_operands = saved_operands;
+                self.expect.logic_op = saved_op;
+                self.expect.logic_operands = saved_operands;
             }
-            self.logic_op = @tagName(head);
-            self.logic_operands = .{ ir.get(e, .left), ir.get(e, .right) };
+            self.expect.logic_op = @tagName(head);
+            self.expect.logic_operands = .{ ir.get(e, .left), ir.get(e, .right) };
             try ViewCheck.checkExpr(self, ir.get(e, .left), self.t().bool_id);
             try ViewCheck.checkExpr(self, ir.get(e, .right), self.t().bool_id);
             break :blk self.t().bool_id;
         },
         .not => blk: {
-            const saved_not = self.not_operand;
-            defer self.not_operand = saved_not;
-            self.not_operand = ir.Not.operand(e);
+            const saved_not = self.expect.not_operand;
+            defer self.expect.not_operand = saved_not;
+            self.expect.not_operand = ir.Not.operand(e);
             try ViewCheck.checkExpr(self, ir.Not.operand(e), self.t().bool_id);
             try checkNotScope(self, e);
             break :blk self.t().bool_id;
@@ -495,7 +495,7 @@ pub fn synthList(self: *Checker, e: Sexp) Error!TypeId {
             break :blk self.t().invalid_id;
         },
         // A destructure's target takes the result in its position.
-        .result_part => self.part_ty,
+        .result_part => self.expect.part_ty,
         .tuple => StmtCheck.tupleValue(self, e),
         .template => StdFormCheck.synthTemplate(self, e),
         else => blk: {
@@ -557,12 +557,12 @@ pub fn synthOrdering(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
         if (self.ctx.diagnostics.items.len == mark) try checkOrderedEnum(self, l, ty, op);
         return self.t().bool_id;
     }
-    const saved = self.beside;
-    self.beside = .{ .node = l, .other = r };
+    const saved = self.expect.beside;
+    self.expect.beside = .{ .node = l, .other = r };
     const a = try ViewCheck.synthReached(self, l);
-    self.beside = .{ .node = r, .other = l, .ty = a };
+    self.expect.beside = .{ .node = r, .other = l, .ty = a };
     const b = try ViewCheck.synthReached(self, r);
-    self.beside = saved;
+    self.expect.beside = saved;
     if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
     if (try ViewCheck.byteBeside(self, .{ l, r }, a, b) != null) return self.t().bool_id;
     if (try literalBesideSlot(self, l, r, a, b)) return self.t().bool_id;
@@ -815,12 +815,12 @@ pub fn constInt(self: *Checker, e: Sexp) ?Wide {
 
 pub fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
     const operands = [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
-    const saved = self.beside;
-    self.beside = .{ .node = operands[0], .other = operands[1] };
+    const saved = self.expect.beside;
+    self.expect.beside = .{ .node = operands[0], .other = operands[1] };
     const a = if (synthesized) |ts| ts[0] else try ViewCheck.synthOperandValue(self, operands[0]);
-    self.beside = .{ .node = operands[1], .other = operands[0], .ty = a };
+    self.expect.beside = .{ .node = operands[1], .other = operands[0], .ty = a };
     const b = if (synthesized) |ts| ts[1] else try ViewCheck.synthOperandValue(self, operands[1]);
-    self.beside = saved;
+    self.expect.beside = saved;
     const pos = self.startOf(operands[0]);
     if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
     if (try ViewCheck.byteBeside(self, operands, a, b)) |ty| return ty;
@@ -1167,11 +1167,11 @@ pub fn synthEquality(self: *Checker, e: Sexp) Error!TypeId {
         const lit_ty = try ViewCheck.synthReached(self, lit);
         a, b = if (l_array) .{ lit_ty, other_ty } else .{ other_ty, lit_ty };
     } else {
-        const saved = self.beside;
-        defer self.beside = saved;
-        self.beside = .{ .node = l, .other = r };
+        const saved = self.expect.beside;
+        defer self.expect.beside = saved;
+        self.expect.beside = .{ .node = l, .other = r };
         a = try synthEqOperand(self, l);
-        self.beside = .{ .node = r, .other = l, .ty = a };
+        self.expect.beside = .{ .node = r, .other = l, .ty = a };
         b = try synthEqOperand(self, r);
     }
     if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
@@ -1661,10 +1661,10 @@ pub fn synthCatch(self: *Checker, e: Sexp, expected: ?TypeId) Error!TypeId {
     // value gives the fallback, as anywhere (`run() catch 0`). A
     // value that owns what it must release is dropped visibly, by
     // `_ =`, so only there.
-    if (tc.sameNode(e, self.discarded) and inner != self.t().void_id) {
+    if (tc.sameNode(e, self.expect.discarded) and inner != self.t().void_id) {
         if (try FlowCheck.synthQuiet(self, handler) == self.t().void_id) {
             const owned = sema.typeHasDropGlue(self.ctx, inner) or sema.maybeDropGlue(self.ctx, inner);
-            if (owned and !self.discard_named) {
+            if (owned and !self.expect.discard_named) {
                 const shown = CallCheck.sourceText(self, value);
                 try self.errAt(value, "`{s}` gives a `{s}`, which owns what it must release, and this `catch` throws it away: drop it by name, `_ = {s} catch ...`", .{ shown, try self.tyName(inner), shown });
             }
@@ -1816,7 +1816,7 @@ pub fn synthPropagateNone(self: *Checker, e: Sexp) Error!TypeId {
         .optional => |i| i,
         else => {
             // `*w?` is `*(w?)`; propagating a gone value is `(*w)?`.
-            if (tc.sameNode(e, self.shared_operand) and self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .weak) {
+            if (tc.sameNode(e, self.expect.shared_operand) and self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .weak) {
                 const shown = try ViewCheck.plainText(self, operand);
                 try self.errAt(operand, "`*{s}?` is `*({s}?)`, and `{s}` is a weak handle, not an optional: to return `none` once its value is gone, write `(*{s})?`", .{ shown, shown, shown, shown });
                 return self.t().invalid_id;
@@ -1891,9 +1891,9 @@ pub fn returnsOptional(self: *Checker, ret: TypeId) bool {
 
 /// The operand of `!` or `catch`, where a fallible call is handled.
 pub fn synthHandled(self: *Checker, operand: Sexp) Error!TypeId {
-    const prev = self.handled;
-    defer self.handled = prev;
-    self.handled = operand;
+    const prev = self.expect.handled;
+    defer self.expect.handled = prev;
+    self.expect.handled = operand;
     return PatternCheck.synthExpr(self, operand);
 }
 

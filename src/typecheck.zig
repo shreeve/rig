@@ -176,35 +176,16 @@ pub const Checker = struct {
     ctx: *SemContext,
     scope: ScopeId,
     module_scope: ScopeId,
+    expect: Expect = .{},
     /// The module's tree, where a group's type declared here is found
     /// (`groupSite`).
     tree: Sexp = .nil,
-    /// The position of a name that is the object of a field read or a
-    /// spread's operand being checked: a group's name there reads its
-    /// fields, not the group whole (`noteGroupUse`).
-    group_member: u32 = std.math.maxInt(u32),
     /// The function being checked has a group as written, whose field
     /// reads its body records (`synthMember`).
     in_group_body: bool = false,
     /// The function, method, closure, test, or drop body being checked.
     body: Body,
     nominal: NominalContext = NominalContext.none,
-    /// Callee node of the method call being checked; its resolved
-    /// signature is recorded as the node's type. Each call starts with
-    /// none (`synthCall`), so a call in an argument never records its
-    /// signature on the callee of the call around it.
-    callee_node: ?Sexp = null,
-    /// The call being checked, for its argument-slot fact.
-    current_call: ?Sexp = null,
-    /// A std maker's call left fallible by an argument that is not a
-    /// constant (`constMakerCall`), and that argument: the error that
-    /// asks for its `!` names it.
-    /// `literal` when the maker takes a plain string literal
-    /// (`TimeZone.named`), so the error says that is what it lacks.
-    maker_runtime: struct { call: Sexp = .nil, arg: Sexp = .nil, literal: bool = false } = .{},
-    /// The `for` whose source is being checked, which a chain of stages
-    /// may be (`chainCall`).
-    chain_for: Sexp = .nil,
     /// The APIs the module declares and imports, found once
     /// (`visibleApis`).
     visible_apis: ?[]const sema.ApiRef = null,
@@ -231,75 +212,14 @@ pub const Checker = struct {
     spreads: std.ArrayList(rig.SpreadSite) = .empty,
     refused: std.AutoHashMapUnmanaged(u32, void) = .empty,
     rewrites_open: u32 = 0,
-    /// The `new x` binding whose value is being checked: not visible yet.
-    pending: SymbolId = sema.symbol_invalid,
-    /// The names `new q, r = f()` declares, while its call is checked.
-    pending_names: []const SymbolId = &.{},
     /// Enclosing `raw` blocks.
     raw_depth: u32 = 0,
-    /// The operand of the `!` or `catch` being checked: a fallible call
-    /// there is handled.
-    handled: Sexp = .nil,
-    /// The operand of the `*x` being checked.
-    shared_operand: Sexp = .nil,
-    /// The value and target of the binding of a name being checked
-    /// (`t = f(!x)&`), where a task given a write view may stand.
-    local_value: Sexp = .nil,
-    local_target: Sexp = .nil,
     /// The locals that hold a task given a write view, each moved only
     /// into its own wait, `>t`, or `<t.cancel()`.
     write_tasks: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// A binding that never changes whose value is a plain enum's
     /// variant the checker knows, by name (`constVariant`).
     fixed_variants: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
-    /// The task a wait, `>t`, or a `<t.cancel()` being checked takes.
-    task_wait: Sexp = .nil,
-    /// The value of the object or enum field, or the field default, being
-    /// checked: a value holding a Cell may be made there (`cellMadeAway`).
-    cell_home: Sexp = .nil,
-    /// The object of the member, method call, or view being checked: a
-    /// branch there is read in place, by address, never copied
-    /// (`cellMadeAway`).
-    in_place: Sexp = .nil,
-    /// How the element `index_use.at` is used (`indexUse`), so the error
-    /// for a type with no index names the form that fits that use.
-    index_use: IndexUse = .{},
-    /// The member pattern being checked, `E.name =>`, which tests the
-    /// member whether or not it has fields.
-    member_pattern: Sexp = .nil,
-    /// The operand of the `return` being checked: an error value meets a
-    /// `T!` only in its branch leaves (`isReturnLeaf`).
-    return_operand: Sexp = .nil,
-    /// The expression statement being checked, whose value is
-    /// discarded (`isDiscardedCall`).
-    discarded: Sexp = .nil,
-    /// `discarded` is the value of `_ =`, which drops it by name.
-    discard_named: bool = false,
-    /// The last line of the test being checked: a `Bool` there is the
-    /// test's value, which decides it (`checkExprStmt`).
-    test_tail: Sexp = .nil,
-    /// The call that gives several results where they may stand: the
-    /// value of a destructure, of `return` in a function that gives
-    /// them, or of `if ... as a, b` (docs/internals/INTERNALS.md, "Several
-    /// results"). Any other such call is reported (`misplacedResults`).
-    results_ok: Sexp = .nil,
-    /// The type of the result the `result_part` being checked takes:
-    /// a destructure's target binds it as `x = e` binds `e`.
-    part_ty: TypeId = sema.type_invalid,
-    /// The value of the single binding being checked, and the call it
-    /// is, for the hint that binds each of several results.
-    bound_value: Sexp = .nil,
-    bound_call: Sexp = .nil,
-    /// The last line of a function that gives several results, which
-    /// gives them with `return`.
-    results_tail: Sexp = .nil,
-    /// The call `if c as x` binds one name of, for the hint that binds
-    /// each of several results.
-    as_call: Sexp = .nil,
-    /// The name an assignment re-binds while its value is checked, when
-    /// that name holds a `Static` (`staticHint`).
-    static_target: []const u8 = "",
-    static_target_value: Sexp = .nil,
     /// The calls whose lasting views were reported (`keptViews`), so that
     /// one reached from two kept values is reported once.
     kept_reported: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
@@ -321,98 +241,13 @@ pub const Checker = struct {
     /// The closures and outer locals whose missing capture was reported
     /// (`useName`), each a closure's scope above a local's symbol.
     uncaptured_reported: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    /// The `!x` being checked where a write view is expected, the one
-    /// place a write view of a `Bool` is not read as its value.
-    viewed_write: Sexp = .nil,
-    /// Whether a view of a handle that changes by a marked call skips the
-    /// writability checks (`handleWritable` turns it off).
-    handle_exempt: bool = true,
-    /// The self of the method call being checked, while it is typed.
-    self_obj: Sexp = .nil,
-    /// The operand of the `not` being checked, which must be a `Bool`.
-    not_operand: Sexp = .nil,
-    /// The `and` or `or` being checked, and its operands, which must be
-    /// `Bool`s.
-    logic_op: []const u8 = "",
-    logic_operands: [2]Sexp = .{ .nil, .nil },
-    /// The condition of the `if` value being checked.
-    ternary_cond: Sexp = .nil,
     /// The binding conditions whose `else` is being checked, innermost
     /// last: a name one binds is unbound there (`unboundHint`).
     else_conds: std.ArrayList(Sexp) = .empty,
-    /// The condition being checked whose `and` chain narrows, at a
-    /// `$plain(T)` operand, what runs once the test has held
-    /// (`sema.PlainRegion`).
-    plain_cond: ?PlainCond = null,
-    /// A call whose value a `!` written before it makes a write view of,
-    /// with the sigil outside the call (`!(v.pop())`, `!o?.pop()`): a write
-    /// method on a temporary self there has a `!` that does not reach it.
-    outer_write: Sexp = .nil,
-    /// The member a method call is checked through, while its self
-    /// mode is checked.
-    self_of: Sexp = .nil,
-    /// The argument being checked, when the call keeps no view of its
-    /// arguments: a temporary array there may be viewed as a `[]T`.
-    viewed_temp: Sexp = .nil,
-    /// The argument being checked, or a generic call's type parameters
-    /// inferred from: a bare value there is passed as a read view where a
-    /// view is expected (`viewByRows`), and a slice there as `?xs[a..b]`
-    /// would be (`synthSlice`).
-    view_arg: Sexp = .nil,
-    /// The template whose context takes its value (`synthTemplate`): an
-    /// unannotated binding's, or one where a `String` or `?String` goes.
-    template_ok: Sexp = .nil,
-    /// The template whose context takes it as fixed text when its slots
-    /// are constant (`templateFolds`): where a `?String` or a `Static`
-    /// goes, or a module's constant.
-    template_fixed: Sexp = .nil,
-    /// The parameter or field the argument being checked fills, which a
-    /// diagnostic names (`ignoredWriteView`).
-    slot: Slot = .{},
-    /// A construction a field of which `writeViewRead` rejected: its own
-    /// type, built without the view, is not reported again.
-    ignored_in: Sexp = .nil,
-    /// The value a header makes and holds for its construct, of which
-    /// its subject is a part (`Header.held`): it is no temporary of the
-    /// header.
-    held_base: Sexp = .nil,
-    /// The arms of a read `match` whose subject emit matches as a copy
-    /// (not `storage.matchesInPlace`) are being bound: a binding that is
-    /// no plain data views that copy, so it is usable within its arm only
-    /// (`SymbolFlags.arm_view`).
-    arm_local: bool = false,
-    /// The `match` whose arms are being checked.
-    matching: Sexp = .nil,
     /// A read match's binding whose subject has no storage, `copied_from`
     /// records none for: the subject, for the hint that names the match
     /// that writes (`readMatchHint`).
     read_subjects: std.AutoHashMapUnmanaged(SymbolId, CopySource) = .empty,
-    /// The access `loopElement` decided for the element binding of the
-    /// `for` being checked, which `checkFor` records.
-    loop_access: ?sema.Access = null,
-    /// A condition is being checked where nothing it makes can be held
-    /// for the construct: a `while`'s, which runs again each iteration,
-    /// a joined one, whose later parts may use earlier bindings, and a
-    /// value `if`'s.
-    no_hold: bool = false,
-    /// The argument being checked, where a closure literal may be passed
-    /// as a callable view, and the call when its result could hold
-    /// the literal instead.
-    viewed_callable: Sexp = .nil,
-    callable_kept: Sexp = .nil,
-    /// Set by a caller of `checkArgs` whose call may take a temporary
-    /// array as a `[]T` argument (a function or method, not a closure),
-    /// with a method's self parameter.
-    view_call: bool = false,
-    view_recv: ?TypeId = null,
-    /// Checking an expression where a rejected type is expected, or an
-    /// argument of a call that cannot be checked: a size it would have is
-    /// not reported.
-    under_poison: bool = false,
-    /// The label, and the value when it is used as one, of the loop
-    /// about to be checked.
-    loop_label: []const u8 = "",
-    loop_value: ?*LoopValue = null,
     /// Each `break` and `continue` that names a construct being checked,
     /// and that construct (`sema.eachJumpTo`), recorded as the construct
     /// is entered (`enterFrame`).
@@ -443,16 +278,6 @@ pub const Checker = struct {
     loop_pairs: std.AutoHashMapUnmanaged(SymbolId, LoopPair) = .empty,
     /// The bindings of a `match <x` arm: each owns what it binds.
     owned_bindings: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
-    /// The call whose value goes where a `ty` is expected (`checkExpr`),
-    /// directly or through `!`, `?`, `catch`, or `??` (`resultCall`):
-    /// inference binds the type parameters its arguments leave open from
-    /// `ty`. `value` is the expression checked, the call or what wraps
-    /// it.
-    result_expected: struct { call: Sexp = .nil, ty: TypeId = sema.type_invalid, value: Sexp = .nil } = .{},
-    /// The operand of an arithmetic or comparison operator being
-    /// synthesized, beside `other`, whose type is `ty` once known: where
-    /// a call on a type parameter takes its type (`typeParamResult`).
-    beside: struct { node: Sexp = .nil, other: Sexp = .nil, ty: ?TypeId = null } = .{},
     /// Inside `argType`, whose argument the call checks again with the
     /// type it is expected to have: the generic instances found there
     /// are not recorded.
@@ -463,9 +288,6 @@ pub const Checker = struct {
     /// elsewhere, and in a method called without a call written: a
     /// `drop`, or one that gives a built-in API its meaning.
     body_pos: u32 = sema.no_body,
-    /// Inside `noteTakeable`'s trial of a take, which only asks whether
-    /// `<e` would be accepted: `requireAccess` records nothing.
-    trial_take: bool = false,
     /// The body being checked is a compile-time function's
     /// (`checkCtFun`): a compile-time call there is run by the evaluator,
     /// which knows every value, so its arguments may be any expression.
@@ -547,6 +369,192 @@ pub const Checker = struct {
     pub const Typed = struct { node: Sexp, ty: TypeId };
 
     pub const ReturnSite = struct { node: Sexp, ty: ?TypeId };
+
+    /// What the node being checked stands in, which its context sets for
+    /// the check below it and puts back after: one value, saved and put
+    /// back whole or by field (docs/internals/INTERNALS.md, "Typecheck's
+    /// context").
+    pub const Expect = struct {
+        /// The position of a name that is the object of a field read or a
+        /// spread's operand being checked: a group's name there reads its
+        /// fields, not the group whole (`noteGroupUse`).
+        group_member: u32 = std.math.maxInt(u32),
+        /// Callee node of the method call being checked; its resolved
+        /// signature is recorded as the node's type. Each call starts with
+        /// none (`synthCall`), so a call in an argument never records its
+        /// signature on the callee of the call around it.
+        callee_node: ?Sexp = null,
+        /// The call being checked, for its argument-slot fact.
+        current_call: ?Sexp = null,
+        /// A std maker's call left fallible by an argument that is not a
+        /// constant (`constMakerCall`), and that argument: the error that
+        /// asks for its `!` names it.
+        /// `literal` when the maker takes a plain string literal
+        /// (`TimeZone.named`), so the error says that is what it lacks.
+        maker_runtime: struct { call: Sexp = .nil, arg: Sexp = .nil, literal: bool = false } = .{},
+        /// The `for` whose source is being checked, which a chain of stages
+        /// may be (`chainCall`).
+        chain_for: Sexp = .nil,
+        /// The `new x` binding whose value is being checked: not visible yet.
+        pending: SymbolId = sema.symbol_invalid,
+        /// The names `new q, r = f()` declares, while its call is checked.
+        pending_names: []const SymbolId = &.{},
+        /// The operand of the `!` or `catch` being checked: a fallible call
+        /// there is handled.
+        handled: Sexp = .nil,
+        /// The operand of the `*x` being checked.
+        shared_operand: Sexp = .nil,
+        /// The value and target of the binding of a name being checked
+        /// (`t = f(!x)&`), where a task given a write view may stand.
+        local_value: Sexp = .nil,
+        local_target: Sexp = .nil,
+        /// The task a wait, `>t`, or a `<t.cancel()` being checked takes.
+        task_wait: Sexp = .nil,
+        /// The value of the object or enum field, or the field default, being
+        /// checked: a value holding a Cell may be made there (`cellMadeAway`).
+        cell_home: Sexp = .nil,
+        /// The object of the member, method call, or view being checked: a
+        /// branch there is read in place, by address, never copied
+        /// (`cellMadeAway`).
+        in_place: Sexp = .nil,
+        /// How the element `index_use.at` is used (`indexUse`), so the error
+        /// for a type with no index names the form that fits that use.
+        index_use: IndexUse = .{},
+        /// The member pattern being checked, `E.name =>`, which tests the
+        /// member whether or not it has fields.
+        member_pattern: Sexp = .nil,
+        /// The operand of the `return` being checked: an error value meets a
+        /// `T!` only in its branch leaves (`isReturnLeaf`).
+        return_operand: Sexp = .nil,
+        /// The expression statement being checked, whose value is
+        /// discarded (`isDiscardedCall`).
+        discarded: Sexp = .nil,
+        /// `discarded` is the value of `_ =`, which drops it by name.
+        discard_named: bool = false,
+        /// The last line of the test being checked: a `Bool` there is the
+        /// test's value, which decides it (`checkExprStmt`).
+        test_tail: Sexp = .nil,
+        /// The call that gives several results where they may stand: the
+        /// value of a destructure, of `return` in a function that gives
+        /// them, or of `if ... as a, b` (docs/internals/INTERNALS.md, "Several
+        /// results"). Any other such call is reported (`misplacedResults`).
+        results_ok: Sexp = .nil,
+        /// The type of the result the `result_part` being checked takes:
+        /// a destructure's target binds it as `x = e` binds `e`.
+        part_ty: TypeId = sema.type_invalid,
+        /// The value of the single binding being checked, and the call it
+        /// is, for the hint that binds each of several results.
+        bound_value: Sexp = .nil,
+        bound_call: Sexp = .nil,
+        /// The last line of a function that gives several results, which
+        /// gives them with `return`.
+        results_tail: Sexp = .nil,
+        /// The call `if c as x` binds one name of, for the hint that binds
+        /// each of several results.
+        as_call: Sexp = .nil,
+        /// The name an assignment re-binds while its value is checked, when
+        /// that name holds a `Static` (`staticHint`).
+        static_target: []const u8 = "",
+        static_target_value: Sexp = .nil,
+        /// The `!x` being checked where a write view is expected, the one
+        /// place a write view of a `Bool` is not read as its value.
+        viewed_write: Sexp = .nil,
+        /// Whether a view of a handle that changes by a marked call skips the
+        /// writability checks (`handleWritable` turns it off).
+        handle_exempt: bool = true,
+        /// The self of the method call being checked, while it is typed.
+        self_obj: Sexp = .nil,
+        /// The operand of the `not` being checked, which must be a `Bool`.
+        not_operand: Sexp = .nil,
+        /// The `and` or `or` being checked, and its operands, which must be
+        /// `Bool`s.
+        logic_op: []const u8 = "",
+        logic_operands: [2]Sexp = .{ .nil, .nil },
+        /// The condition of the `if` value being checked.
+        ternary_cond: Sexp = .nil,
+        /// The condition being checked whose `and` chain narrows, at a
+        /// `$plain(T)` operand, what runs once the test has held
+        /// (`sema.PlainRegion`).
+        plain_cond: ?PlainCond = null,
+        /// A call whose value a `!` written before it makes a write view of,
+        /// with the sigil outside the call (`!(v.pop())`, `!o?.pop()`): a write
+        /// method on a temporary self there has a `!` that does not reach it.
+        outer_write: Sexp = .nil,
+        /// The member a method call is checked through, while its self
+        /// mode is checked.
+        self_of: Sexp = .nil,
+        /// The argument being checked, when the call keeps no view of its
+        /// arguments: a temporary array there may be viewed as a `[]T`.
+        viewed_temp: Sexp = .nil,
+        /// The argument being checked, or a generic call's type parameters
+        /// inferred from: a bare value there is passed as a read view where a
+        /// view is expected (`viewByRows`), and a slice there as `?xs[a..b]`
+        /// would be (`synthSlice`).
+        view_arg: Sexp = .nil,
+        /// The template whose context takes its value (`synthTemplate`): an
+        /// unannotated binding's, or one where a `String` or `?String` goes.
+        template_ok: Sexp = .nil,
+        /// The template whose context takes it as fixed text when its slots
+        /// are constant (`templateFolds`): where a `?String` or a `Static`
+        /// goes, or a module's constant.
+        template_fixed: Sexp = .nil,
+        /// The parameter or field the argument being checked fills, which a
+        /// diagnostic names (`ignoredWriteView`).
+        slot: Slot = .{},
+        /// A construction a field of which `writeViewRead` rejected: its own
+        /// type, built without the view, is not reported again.
+        ignored_in: Sexp = .nil,
+        /// The value a header makes and holds for its construct, of which
+        /// its subject is a part (`Header.held`): it is no temporary of the
+        /// header.
+        held_base: Sexp = .nil,
+        /// The arms of a read `match` whose subject emit matches as a copy
+        /// (not `storage.matchesInPlace`) are being bound: a binding that is
+        /// no plain data views that copy, so it is usable within its arm only
+        /// (`SymbolFlags.arm_view`).
+        arm_local: bool = false,
+        /// The `match` whose arms are being checked.
+        matching: Sexp = .nil,
+        /// The access `loopElement` decided for the element binding of the
+        /// `for` being checked, which `checkFor` records.
+        loop_access: ?sema.Access = null,
+        /// A condition is being checked where nothing it makes can be held
+        /// for the construct: a `while`'s, which runs again each iteration,
+        /// a joined one, whose later parts may use earlier bindings, and a
+        /// value `if`'s.
+        no_hold: bool = false,
+        /// The argument being checked, where a closure literal may be passed
+        /// as a callable view, and the call when its result could hold
+        /// the literal instead.
+        viewed_callable: Sexp = .nil,
+        callable_kept: Sexp = .nil,
+        /// Set by a caller of `checkArgs` whose call may take a temporary
+        /// array as a `[]T` argument (a function or method, not a closure),
+        /// with a method's self parameter.
+        view_call: bool = false,
+        view_recv: ?TypeId = null,
+        /// Checking an expression where a rejected type is expected, or an
+        /// argument of a call that cannot be checked: a size it would have is
+        /// not reported.
+        under_poison: bool = false,
+        /// The label, and the value when it is used as one, of the loop
+        /// about to be checked.
+        loop_label: []const u8 = "",
+        loop_value: ?*LoopValue = null,
+        /// The call whose value goes where a `ty` is expected (`checkExpr`),
+        /// directly or through `!`, `?`, `catch`, or `??` (`resultCall`):
+        /// inference binds the type parameters its arguments leave open from
+        /// `ty`. `value` is the expression checked, the call or what wraps
+        /// it.
+        result_expected: struct { call: Sexp = .nil, ty: TypeId = sema.type_invalid, value: Sexp = .nil } = .{},
+        /// The operand of an arithmetic or comparison operator being
+        /// synthesized, beside `other`, whose type is `ty` once known: where
+        /// a call on a type parameter takes its type (`typeParamResult`).
+        beside: struct { node: Sexp = .nil, other: Sexp = .nil, ty: ?TypeId = null } = .{},
+        /// Inside `noteTakeable`'s trial of a take, which only asks whether
+        /// `<e` would be accepted: `requireAccess` records nothing.
+        trial_take: bool = false,
+    };
 
     pub const FailTarget = union(enum) {
         /// The caller: in a `fun ...() -> T!`, a `sub ...()!`, `sub main()`, or a test.
@@ -657,9 +665,9 @@ pub const Checker = struct {
                 // reports, or by giving `false`: from its last line, or
                 // from a `return`.
                 const body = ir.Test.body(sexp);
-                const saved_tail = self.test_tail;
-                defer self.test_tail = saved_tail;
-                self.test_tail = lastStmt(body);
+                const saved_tail = self.expect.test_tail;
+                defer self.expect.test_tail = saved_tail;
+                self.expect.test_tail = lastStmt(body);
                 try self.checkBody(body, .{ .ret = self.t().void_id, .fail_to = .caller, .in_test = true });
             },
             .set => try self.checkModuleConst(sexp),
@@ -1332,7 +1340,7 @@ pub const Checker = struct {
     /// used whole, unless it is the object of a field read or a spread's
     /// operand being checked (`group_member`), which records its own use.
     pub fn noteGroupUse(self: *Checker, leaf: Sexp, sym: sema.Symbol) Error!void {
-        if (leaf.src.pos == self.group_member) return;
+        if (leaf.src.pos == self.expect.group_member) return;
         try self.group_uses.append(self.ctx.allocator, .{ .group = sym.decl_pos, .pos = leaf.src.pos });
     }
 
@@ -1366,9 +1374,9 @@ pub const Checker = struct {
             _ = try FlowCheck.synthQuiet(self, operand);
             return null;
         }
-        const saved = self.group_member;
-        defer self.group_member = saved;
-        if (operand == .src) self.group_member = operand.src.pos;
+        const saved = self.expect.group_member;
+        defer self.expect.group_member = saved;
+        if (operand == .src) self.expect.group_member = operand.src.pos;
         const ty = try PatternCheck.synthExpr(self, operand);
         if (self.isPoison(ty)) return null;
         const value = sema.unwrapAccess(self.ctx, ty);
@@ -1692,9 +1700,9 @@ pub const Checker = struct {
             } else try self.errAt(value, "a default parameter value must be a literal, a module constant, or a number type's limit", .{});
             return;
         }
-        const saved_home = self.cell_home;
-        defer self.cell_home = saved_home;
-        if (field) self.cell_home = value;
+        const saved_home = self.expect.cell_home;
+        defer self.expect.cell_home = saved_home;
+        if (field) self.expect.cell_home = value;
         try ViewCheck.checkExpr(self, value, ty);
     }
 
@@ -1829,9 +1837,9 @@ pub const Checker = struct {
             try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
             return;
         }
-        const saved_tail = self.results_tail;
-        defer self.results_tail = saved_tail;
-        if (sema.resultsOf(self.ctx, ret) != null) self.results_tail = resultCall(s) orelse .nil;
+        const saved_tail = self.expect.results_tail;
+        defer self.expect.results_tail = saved_tail;
+        if (sema.resultsOf(self.ctx, ret) != null) self.expect.results_tail = resultCall(s) orelse .nil;
         try self.checkTail(s, ret);
     }
 
