@@ -8406,13 +8406,27 @@ pub fn proxyOrigin(ctx: *const SemContext, sym: Symbol) ?struct { module_id: u32
 /// fallible's value then its set, a slice's element, an array's element
 /// then its length, a function's
 /// parameters then its return type, a generic instance's arguments.
+/// `held` gives only the parts a value of the type holds, which a walk
+/// of what it holds folds over after its own arms: an optional's,
+/// view's, or handle's value, a failure's value, an array's or slice's
+/// element, and a generic instance's arguments.
 pub const TypeChildren = struct {
     ty: Type,
     i: usize = 0,
+    held_only: bool = false,
+
+    pub fn held(ctx: *const SemContext, ty: TypeId) TypeChildren {
+        return .{ .ty = ctx.types.get(ty), .held_only = true };
+    }
 
     pub fn next(self: *TypeChildren) ?TypeId {
         const i = self.i;
         self.i += 1;
+        if (self.held_only) switch (self.ty) {
+            .range, .callable, .simd, .slot, .function, .results => return null,
+            .fallible, .array => if (i > 0) return null,
+            else => {},
+        };
         return switch (self.ty) {
             .optional, .read_view, .write_view, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
             .fallible => |inner| if (i == 0) inner.ok else if (i == 1) inner.set else null,
@@ -8423,32 +8437,6 @@ pub const TypeChildren = struct {
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
             .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
             .results => |parts| if (i < parts.len) parts[i] else null,
-            else => null,
-        };
-    }
-};
-
-/// The parts a value of a type holds, which a walk of what it holds
-/// folds over after its own arms: an optional's, view's, or handle's
-/// value, a failure's value, an array's or slice's element, and a
-/// generic instance's arguments.
-pub const HeldParts = struct {
-    ty: Type,
-    i: usize = 0,
-
-    pub fn of(ctx: *const SemContext, ty: TypeId) HeldParts {
-        return .{ .ty = ctx.types.get(ty) };
-    }
-
-    pub fn next(self: *HeldParts) ?TypeId {
-        const i = self.i;
-        self.i += 1;
-        return switch (self.ty) {
-            .optional, .read_view, .write_view, .shared, .weak => |inner| if (i == 0) inner else null,
-            .fallible => |f| if (i == 0) f.ok else null,
-            .array => |a| if (i == 0) a.elem else null,
-            .slice => |sl| if (i == 0) sl.elem else null,
-            .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
             else => null,
         };
     }
@@ -8945,7 +8933,7 @@ pub fn callableOfFn(ctx: *SemContext, fn_ty: TypeId) !TypeId {
 /// callable view is only ever a parameter, a local, or a result.
 pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
     if (ctx.types.get(ty) == .callable) return true;
-    var parts: HeldParts = .of(ctx, ty);
+    var parts: TypeChildren = .held(ctx, ty);
     while (parts.next()) |part| if (holdsCallable(ctx, part)) return true;
     return false;
 }
@@ -9030,7 +9018,7 @@ pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, pn.args[0])) return ty,
         else => {},
     }
-    var parts: HeldParts = .of(ctx, ty);
+    var parts: TypeChildren = .held(ctx, ty);
     while (parts.next()) |part| if (findHeapStacked(ctx, part)) |found| return found;
     return null;
 }
@@ -9157,7 +9145,7 @@ fn handleAt(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) bool {
         .range, .callable => |inner| handleAt(ctx, inner, path),
         .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, path),
         else => blk: {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (handleAt(ctx, part, path)) break :blk true;
             break :blk ctx.types.get(ty) == .parameterized_nominal and fieldsHoldHandle(ctx, ty, path);
         },
@@ -9731,7 +9719,7 @@ fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey,
             return if (try objectUnownedFields(decl.ctx, decl.sym, seen) != null) ty else null;
         },
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (try objectUnownedIn(ctx, part, seen)) |o| return o;
             const pn = switch (ctx.types.get(ty)) {
                 .parameterized_nominal => |pn| pn,
@@ -11402,7 +11390,7 @@ fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
 /// copies it, as one of a number does (`copiedByReadView`), and emit
 /// marks it (`__rig_word_sized`) so the runtime's `ReadView` agrees. Emit
 /// holds it as one word, a Zig `packed struct`, unless the program views
-/// one of its fields by address (`storage.decideWords`).
+/// one of its fields by address (`program.decideWords`).
 pub fn wordBits(ctx: *const SemContext, ty: TypeId) ?u8 {
     const decl = switch (ctx.types.get(ty)) {
         .nominal, .imported_nominal => nominalDecl(ctx, ty) orelse return null,
@@ -12124,7 +12112,7 @@ fn isHeldWriteView(ctx: *const SemContext, ty: TypeId) bool {
 /// declared type's fields are decided where they are declared.
 fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
     if (ctx.types.get(ty) == .write_view) return true;
-    var parts: HeldParts = .of(ctx, ty);
+    var parts: TypeChildren = .held(ctx, ty);
     while (parts.next()) |part| if (nestsWriteView(ctx, part)) return true;
     return false;
 }
@@ -12911,39 +12899,9 @@ pub const Duration = struct {
     }
 };
 
-/// `x * unit`, `x` a finite double and `unit` a positive integer, rounded
-/// from its exact value to the nearest integer, a half away from zero,
-/// and held within ±2^100; null when `x` is not finite. A double is an
-/// integer times a power of two, so the product is exact before the one
-/// rounding (the runtime's `rig.floatToNs` is the same, as a constant must
-/// convert as the program would).
-pub fn floatToNs(x: f64, unit: i64) ?i128 {
-    if (!std.math.isFinite(x)) return null;
-    const cap: i128 = 1 << 100;
-    const bits: u64 = @bitCast(x);
-    const exp_bits: i32 = @intCast((bits >> 52) & 0x7ff);
-    const frac: u64 = bits & ((@as(u64, 1) << 52) - 1);
-    const m: u64 = if (exp_bits == 0) frac else frac | (@as(u64, 1) << 52);
-    const e: i32 = (if (exp_bits == 0) @as(i32, 1) else exp_bits) - 1075;
-    const neg = bits >> 63 == 1;
-    // |x * unit| = m * unit * 2^e, m below 2^53 and unit below 2^42.
-    const num: u128 = @as(u128, m) * @as(u128, @intCast(unit));
-    var q: u128 = 0;
-    if (e >= 0) {
-        if (num != 0 and (e >= 100 or (@as(u128, cap) >> @intCast(e)) < num)) {
-            q = cap;
-        } else q = num << @intCast(e);
-    } else {
-        const shift: u32 = @intCast(-e);
-        if (shift < 128) {
-            q = num >> @intCast(shift);
-            const rest = num - (q << @intCast(shift));
-            if (rest >= (@as(u128, 1) << @intCast(shift - 1))) q += 1;
-        }
-    }
-    const n: i128 = @intCast(@min(q, cap));
-    return if (neg) -n else n;
-}
+/// `x * unit` rounded once from its exact value, as the program converts
+/// it: a constant converts by the runtime's own `rig.floatToNs`.
+pub const floatToNs = @import("runtime.zig").floatToNs;
 
 /// How a duration form becomes its value (docs/design/datetime.md
 /// §5.2), decided once by the checker on a positive list: `total`, a form
@@ -13378,7 +13336,7 @@ fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *FastMap(SymbolKey, void)) b
             return fieldsHoldTask(decl.ctx, decl.sym, seen);
         },
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (taskIn(ctx, part, seen)) return true;
             const pn = switch (ctx.types.get(ty)) {
                 .parameterized_nominal => |pn| pn,
@@ -14924,7 +14882,7 @@ pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(S
     switch (ctx.types.get(ty)) {
         .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| try reachedTypeVars(ctx, part, out, a);
         },
     }
@@ -14940,7 +14898,7 @@ pub fn reachesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId) bool {
             if (reachesTypeVar(ctx, part, sym)) return true;
         },
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (reachesTypeVar(ctx, part, sym)) return true;
         },
     }
@@ -14964,7 +14922,7 @@ pub fn setParamAsValue(ctx: *const SemContext, ty: TypeId) ?SymbolId {
             return setParamAsValue(ctx, f.returns);
         },
         else => {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (setParamAsValue(ctx, part)) |sym| return sym;
         },
     }
@@ -14993,7 +14951,7 @@ pub fn setParamUnviewed(ctx: *const SemContext, ty: TypeId) ?SymbolId {
             if (setParamUnviewed(ctx, part)) |sym| break sym;
         } else null,
         else => blk: {
-            var parts: HeldParts = .of(ctx, ty);
+            var parts: TypeChildren = .held(ctx, ty);
             while (parts.next()) |part| if (setParamUnviewed(ctx, part)) |sym| break :blk sym;
             break :blk null;
         },
