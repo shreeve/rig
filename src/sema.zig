@@ -5900,7 +5900,7 @@ pub const SemContext = struct {
     /// The context of `node` reads, takes, or views it (`Facts.uses`).
     /// A value has one use: a second record of it must agree. A value
     /// viewed implicitly where a view goes was first recorded as taken
-    /// (`recordImplicitView`); checking its context again records the
+    /// (`record(.uses, node, .view)`); checking its context again records the
     /// take before the view, and keeps the view.
     pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
         const key = recordExprKey(node) orelse return;
@@ -5909,13 +5909,6 @@ pub const SemContext = struct {
             std.debug.assert(old == use);
         }
         try self.putIn(.check, .uses, key, use);
-    }
-
-    /// The context of `node` views it, where it was first recorded as
-    /// taken: a bare value viewed to read where a view is expected.
-    pub fn recordImplicitView(self: *SemContext, node: Sexp) !void {
-        const key = recordExprKey(node) orelse return;
-        try self.putIn(.check, .uses, key, .view);
     }
 
     /// What the context of `node` does with it, where one was recorded.
@@ -17804,7 +17797,7 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     s.flags.comptime_known = !b_was.flags.comptime_known;
     // A nested mark kept is taken back with the one around it.
     const inner = ctx.mark();
-    try ctx.recordImplicitView(plus);
+    try ctx.record(.uses, plus, .view);
     ctx.commit(inner);
     try std.testing.expectEqual(ctx.types.bool_id, ctx.typeOf(plus).?);
     try ctx.rollback(m);

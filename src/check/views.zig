@@ -1884,7 +1884,7 @@ pub fn viewByRows(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Err
         if (!sliced and !made.codeAlone()) try checkReadView(self, e);
         if (made.has(.erase) and !try erase(self, e, actual, from, made)) return true;
         made.implicit = true;
-        try self.ctx.recordImplicitView(e);
+        try self.ctx.record(.uses, e, .view);
         try self.ctx.recordView(e, made);
         return true;
     }
@@ -2415,7 +2415,7 @@ pub fn viewTempArray(self: *Checker, e: Sexp, array: TypeId, expected: TypeId) E
     var view = sema.viewAs(self.ctx, array, .read, expected) orelse return self.ctx.record(.temp_arrays, e, {});
     try checkReadView(self, e);
     view.implicit = true;
-    try self.ctx.recordImplicitView(e);
+    try self.ctx.record(.uses, e, .view);
     try self.ctx.recordView(e, view);
 }
 

@@ -1742,7 +1742,7 @@ loan, and the bytes are the ones `?t[..]` already has.
 value is viewed for reading where it is, as `?e` would view it (Core sentence
 1). One branch of `viewByRows` decides it, for the argument being checked
 (`Checker.view_arg`), and records the view as implicit
-(`View.implicit`, and the use `view`, `recordImplicitView`). A slice is
+(`View.implicit`, and the use `view` recorded over it). A slice is
 viewed the way its name is: a slice argument written with no view,
 `xs[a..b]` of an array, a List, a String, or a `![]T`, desugars to
 `?xs[a..b]` where its parameter takes the read view that makes (a `[]T`

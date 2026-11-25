@@ -400,7 +400,7 @@ pub fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
         .place => {
             viewed = true;
             try self.ctx.recordHeader(node, .viewed, .nil);
-            try self.ctx.recordImplicitView(expr);
+            try self.ctx.record(.uses, expr, .view);
         },
         .part_of_made => if (self.expect.held_base != .nil) {
             if (try PatternCheck.holdsHeld(self, expr)) {

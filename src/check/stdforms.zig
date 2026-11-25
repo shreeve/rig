@@ -623,7 +623,7 @@ pub fn checkFormatArg(self: *Checker, a: Sexp, who: []const u8, verb: []const u8
     if (!self.isPoison(ty) and CallCheck.slicedArg(self, a)) if (CompatCheck.sliceArgView(self.ctx, ty, ty)) |view| {
         var implicit = view;
         implicit.implicit = true;
-        try self.ctx.recordImplicitView(a);
+        try self.ctx.record(.uses, a, .view);
         try self.ctx.recordView(a, implicit);
     };
     if (try ViewCheck.writeViewRead(self, a, ty, .{ .value = sema.unwrapViews(self.ctx, ty) })) return;
