@@ -143,16 +143,15 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp) !Module
         o.skip = if (o.parent) |p| m.owners[p].skip else null;
     };
     // A binding's flag is set by any use in the module that may move it.
-    for (m.owners) |o| if (o.func) |f| for (f.vars.items) |*v| switch (v.name) {
-        .binding => |s| v.flag = l.flags.isSet(s),
-        .hidden => {},
-    };
-    for (m.owners) |o| if (o.func) |f| for (f.vars.items) |*v| switch (v.name) {
-        .binding => |s| try m.bindings.put(a, s, v),
-        .hidden => |k| if (sema.decisionKeyOf(v.node)) |key| try m.vars.put(a, .{ .node = key, .kind = k }, v),
-    };
-    for (m.owners) |o| if (o.func) |f| for (f.regions.items) |r| if (r.kind == .call) {
-        try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
+    for (m.owners) |o| if (o.func) |f| {
+        for (f.vars.items) |*v| switch (v.name) {
+            .binding => |s| {
+                v.flag = l.flags.isSet(s);
+                try m.bindings.put(a, s, v);
+            },
+            .hidden => |k| if (sema.decisionKeyOf(v.node)) |key| try m.vars.put(a, .{ .node = key, .kind = k }, v),
+        };
+        for (f.regions.items) |r| if (r.kind == .call) try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
     };
     return m;
 }
@@ -248,23 +247,23 @@ fn checkVars(ctx: *const SemContext, a: std.mem.Allocator, f: *const lir.Func, m
     const rows = ctx.vars.rows.items;
     var next: usize = 0;
     for (f.vars.items) |v| switch (v.name) {
-            .binding => |s| {
-                const b = ctx.vars.binding(s);
-                if (b.drop != v.drop) return .{ .node = v.node, .what = "a binding drops other than its row says" };
-                if (b.flag != v.flag) return .{ .node = v.node, .what = "a binding's flag differs from its row" };
-            },
-            .hidden => |k| {
-                if (k == .temp or k == .header_copy) continue;
-                if (next == mine.len) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var the plan did not", .{@tagName(k)}) };
-                const row = mine[next];
-                const r = rows[row];
-                const same_node = sema.decisionKeyOf(row_node[row]) == sema.decisionKeyOf(v.node);
-                if (!same_node or row_kind[row] != k) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var where the plan's next is a `{s}` at {d}:{d}", .{ @tagName(k), @tagName(row_kind[row]), diag.lineCol(ctx.source, ctx.startOf(row_node[row])).line, diag.lineCol(ctx.source, ctx.startOf(row_node[row])).col }) };
-                if (r.by != v.by or r.life != v.life or r.drop != v.drop or !std.mem.eql(?sema.ResourceKind, r.parts, v.parts))
-                    return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "a `{s}` var held other than its row: {s} {s} {s}, the row {s} {s} {s}", .{ @tagName(k), @tagName(v.by), @tagName(v.life), if (v.drop) |d| @tagName(d) else "none", @tagName(r.by), @tagName(r.life), if (r.drop) |d| @tagName(d) else "none" }) };
-                next += 1;
-                cov.checked += 1;
-            },
+        .binding => |s| {
+            const b = ctx.vars.binding(s);
+            if (b.drop != v.drop) return .{ .node = v.node, .what = "a binding drops other than its row says" };
+            if (b.flag != v.flag) return .{ .node = v.node, .what = "a binding's flag differs from its row" };
+        },
+        .hidden => |k| {
+            if (k == .temp or k == .header_copy) continue;
+            if (next == mine.len) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var the plan did not", .{@tagName(k)}) };
+            const row = mine[next];
+            const r = rows[row];
+            const same_node = sema.decisionKeyOf(row_node[row]) == sema.decisionKeyOf(v.node);
+            if (!same_node or row_kind[row] != k) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var where the plan's next is a `{s}` at {d}:{d}", .{ @tagName(k), @tagName(row_kind[row]), diag.lineCol(ctx.source, ctx.startOf(row_node[row])).line, diag.lineCol(ctx.source, ctx.startOf(row_node[row])).col }) };
+            if (r.by != v.by or r.life != v.life or r.drop != v.drop or !std.mem.eql(?sema.ResourceKind, r.parts, v.parts))
+                return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "a `{s}` var held other than its row: {s} {s} {s}, the row {s} {s} {s}", .{ @tagName(k), @tagName(v.by), @tagName(v.life), if (v.drop) |d| @tagName(d) else "none", @tagName(r.by), @tagName(r.life), if (r.drop) |d| @tagName(d) else "none" }) };
+            next += 1;
+            cov.checked += 1;
+        },
     };
     if (next < mine.len) return .{ .node = row_node[mine[next]], .what = try std.fmt.allocPrint(a, "the plan made a `{s}` var lowering did not", .{@tagName(row_kind[mine[next]])}) };
     return null;
@@ -1542,4 +1541,3 @@ const Lowerer = struct {
         try sema.eachTailPart(value, l, consumeTail);
     }
 };
-

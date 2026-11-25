@@ -2579,7 +2579,7 @@ pub const Emitter = struct {
     /// How a resource binding's drop is armed: behind an alive flag when
     /// it may be consumed first.
     fn resourceGuard(self: *Emitter, sym: SymbolId) Guard {
-        const v = self.lowered.?.bindingOf(sym) orelse return .scope;
+        const v = self.bindingVar(sym) orelse return .scope;
         return if (v.flag) .flag else .scope;
     }
 
@@ -2776,10 +2776,10 @@ pub const Emitter = struct {
         return null;
     }
 
-    /// Whether statement `stmt` holds an owning temporary its end drops
-    /// (`sema.firstStmtTemp`).
+    /// Whether statement or header `stmt` makes owning temporaries its
+    /// end drops (`lower.Module.tempsOf`).
     fn hasTemps(self: *Emitter, stmt: Sexp) bool {
-        return self.facts.firstStmtTemp(stmt) != null;
+        return self.lowered.?.tempsOf(stmt).len > 0;
     }
 
     /// Start header `e` (`facts.syntax.isHeaderOf`), its own statement: when it
@@ -2796,7 +2796,7 @@ pub const Emitter = struct {
     /// reaches (`pointer`, `emitSubjectPtr`).
     fn openHeaderBy(self: *Emitter, e: Sexp, by: facts.StorageBy) Error!Header {
         const first = self.temp_slots.items.len;
-        if (self.lowered.?.tempsOf(e).len == 0) return .{ .first = first };
+        if (!self.hasTemps(e)) return .{ .first = first };
         const label = try self.hiddenStorage(e, .header_value, by, .next);
         try self.w.print("({s}: {{ ", .{label});
         try self.emitTempSlots(e);
@@ -8786,7 +8786,7 @@ pub const Emitter = struct {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and self.lowered.?.tempsOf(last).len == 0 and !try self.hasErasedCopies(last)) return self.emitYield(last, result, how);
+        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last) and !try self.hasErasedCopies(last)) return self.emitYield(last, result, how);
 
         const terminates = isTerminatingStmt(last);
         // A block whose value is Void may end in a statement that gives
@@ -11739,7 +11739,7 @@ pub const Emitter = struct {
     /// `as` and payload bindings, and an owned closure environment; the
     /// kind picks its drop call.
     fn holdOf(self: *Emitter, sym: SymbolId) ?ResourceKind {
-        return (self.lowered.?.bindingOf(sym) orelse return null).drop;
+        return (self.bindingVar(sym) orelse return null).drop;
     }
 
     /// How the var of `kind` that holds the value of `e`, or a discard of
@@ -11752,6 +11752,11 @@ pub const Emitter = struct {
     /// waited for there, a fork (`StorageKind.task_record`).
     fn taskInFrame(self: *Emitter, call: Sexp) bool {
         return self.varOf(call, .task_record) != null;
+    }
+
+    /// The var of binding `sym`, or null for a symbol no body binds.
+    fn bindingVar(self: *Emitter, sym: SymbolId) ?*const facts.lir.Var {
+        return self.lowered.?.bindingOf(sym);
     }
 
     /// The hidden var of `kind` lowering made for `node`.
@@ -12350,11 +12355,7 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                 // A value loop (`x = loop` ... `break v`), labeled or not.
                 .@"while", .labeled => return true,
                 // `+v` of a value that copies is `v` in Zig.
-                .clone,
-                .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match, .block,
-                .propagate, .propagate_none, .@"catch", .@"??", .neg, .not, .@"and", .@"or",
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^",
-                .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
+                .clone, .array, .array_fill, .index, .member, .inst, .enum_lit, .builtin, .@"..", .@"if", .match, .block, .propagate, .propagate_none, .@"catch", .@"??", .neg, .not, .@"and", .@"or", .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
                     for (rig.children(e)) |c| {
                         if (c == .tag or c == .nil) continue;
                         if (!isZigComptimeIn(em, c, depth + 1)) return false;

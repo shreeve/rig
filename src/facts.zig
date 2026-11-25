@@ -854,9 +854,6 @@ pub const Facts = struct {
     pub fn stmtErasedCopies(f: Facts, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
         return sema.stmtErasedCopies(f.c(), a, stmt, out);
     }
-    pub fn firstStmtTemp(f: Facts, stmt: Sexp) ?Sexp {
-        return sema.firstStmtTemp(f.c(), stmt);
-    }
     /// The value of an integer constant expression.
     pub fn constIntOf(f: Facts, e: Sexp) ?Wide {
         return sema.constIntOf(f.c(), e);
@@ -1333,10 +1330,12 @@ test "a Facts method about a node reads what a checker recorded" {
     // helper of storage or sema, each by the node's shape over recorded
     // symbols, types, and constants; the list only shrinks.
     const readers = [_][]const u8{
-        "callsRigFunction", "patternConst", "stmtErasedCopies", "firstStmtTemp",
-        "constIntOf",       "intLimit",     "stringCall",      "isPrintCall",      "printCall",
-        "isNoneLeaf",       "isTypeCallee", "moduleMemberSym", "selfOf",           "heldFirst",
-        "selfWrites",       "argParams",    "lambdaYields",    "matchedType",
+        "callsRigFunction", "patternConst",    "stmtErasedCopies",
+        "constIntOf",       "intLimit",        "stringCall",
+        "isPrintCall",      "printCall",       "isNoneLeaf",
+        "isTypeCallee",     "moduleMemberSym", "selfOf",
+        "heldFirst",        "selfWrites",      "argParams",
+        "lambdaYields",     "matchedType",
     };
     var seen: [readers.len]bool = @splat(false);
     const begin = std.mem.indexOf(u8, source, "pub const Facts = struct {").?;
