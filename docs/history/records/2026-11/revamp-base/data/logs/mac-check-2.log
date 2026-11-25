@@ -1,0 +1,92 @@
+# Darwin arm64 pop rig rig 0.3.0 load: 4.36 4.45 5.65
+## run 1
+lex and parse    150.932 ms
+resolve          153.530 ms
+typecheck        722.008 ms
+storage          698.804 ms
+ownership        261.120 ms
+proofs            62.882 ms
+inlining          74.287 ms
+other             44.340 ms
+total           2167.903 ms
+        2.18 real         1.99 user         0.18 sys
+           706347008  maximum resident set size
+           699057496  peak memory footprint
+## run 2
+lex and parse    148.036 ms
+resolve          149.025 ms
+typecheck        713.034 ms
+storage          671.529 ms
+ownership        263.294 ms
+proofs            62.873 ms
+inlining          75.447 ms
+other             38.116 ms
+total           2121.354 ms
+        2.13 real         1.96 user         0.16 sys
+           706347008  maximum resident set size
+           699073904  peak memory footprint
+## run 3
+lex and parse    146.775 ms
+resolve          153.691 ms
+typecheck        713.294 ms
+storage          674.708 ms
+ownership        256.291 ms
+proofs            61.510 ms
+inlining          76.732 ms
+other             40.238 ms
+total           2123.238 ms
+        2.14 real         1.96 user         0.17 sys
+           706347008  maximum resident set size
+           699073904  peak memory footprint
+## run 4
+lex and parse    148.671 ms
+resolve          154.551 ms
+typecheck        713.999 ms
+storage          668.193 ms
+ownership        255.111 ms
+proofs            61.566 ms
+inlining          80.351 ms
+other             43.277 ms
+total           2125.718 ms
+        2.15 real         1.95 user         0.17 sys
+           706347008  maximum resident set size
+           699057496  peak memory footprint
+## run 5
+lex and parse    149.966 ms
+resolve          154.808 ms
+typecheck        724.436 ms
+storage          686.357 ms
+ownership        266.230 ms
+proofs            63.195 ms
+inlining          83.373 ms
+other             38.568 ms
+total           2166.933 ms
+        2.20 real         1.99 user         0.19 sys
+           706347008  maximum resident set size
+           699057496  peak memory footprint
+## run 6
+lex and parse    148.899 ms
+resolve          150.511 ms
+typecheck        705.087 ms
+storage          669.150 ms
+ownership        246.751 ms
+proofs            59.808 ms
+inlining          74.448 ms
+other             37.313 ms
+total           2091.966 ms
+        2.11 real         1.94 user         0.15 sys
+           706347008  maximum resident set size
+           699057496  peak memory footprint
+## run 7
+lex and parse    147.098 ms
+resolve          150.609 ms
+typecheck        705.064 ms
+storage          656.353 ms
+ownership        251.143 ms
+proofs            61.070 ms
+inlining          74.466 ms
+other             37.899 ms
+total           2083.703 ms
+        2.10 real         1.93 user         0.16 sys
+           706347008  maximum resident set size
+           699057496  peak memory footprint

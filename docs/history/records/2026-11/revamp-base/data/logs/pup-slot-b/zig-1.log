@@ -1,0 +1,2 @@
+1795580837.368 1795580837.388 rc=0 env
+1795580837.439 1795581886.500 rc=0 build-exe -Osafe -fomit-frame-pointer -fno-stack-protector --cache-dir /zfs/trig-pup/revamp-base/slot-b/trig/trig-out-1/.zig-cache /zfs/trig-pup/revamp-base/slot-b/trig/trig-out-1/__rig_main.zig -femit-bin=/zfs/trig-pup/revamp-base/slot-b/trig/trig-1

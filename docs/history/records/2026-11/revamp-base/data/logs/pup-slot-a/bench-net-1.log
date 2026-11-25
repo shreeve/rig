@@ -1,0 +1,4 @@
+         rig-safe      vs rig-safe
+pingpong 4.95 us/trip  
+echo     936 ns/trip   
+connect  26.19 us/conn 

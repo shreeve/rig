@@ -1,0 +1,7 @@
+note: not under cpuq; see the usage line
+twitter         6.2308 (baseline 6.2299, 0.0% more instructions)
+twitterescaped  7.4077 (baseline 7.4059, 0.0% more instructions)
+canada          14.7895 (baseline 14.7808, 0.1% more instructions)
+citm_catalog    6.0380 (baseline 6.0371, 0.0% more instructions)
+gsoc-2018       2.8976 (baseline 2.8970, 0.0% more instructions)
+github_events   5.2535 (baseline 5.2556, 0.0% fewer instructions)

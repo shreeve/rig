@@ -1,0 +1,4 @@
+emit-diff: differs in 1 of 38 programs, rig at 645996606074 and bin/rig:
+  trig: libtrees.zig  +351 -351
+emit-diff: the emitted Zig is in TMP/base and TMP/cur (a directory per program)
+rc=1

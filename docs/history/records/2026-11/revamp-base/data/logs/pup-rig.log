@@ -1,0 +1,8 @@
+mac-wait: the Mac is held for timing: revamp-base-build, at most 19 min, started 19:23, pid 65344; waiting (at most 45 minutes)
+mac-wait: the Mac is free after 40 s
+pup-rig: building 645996606, not the pin b4d9e7247339ccda614da631cea1efd9a40e7bfe (a Rig under test; run it with TRIG_RIG_OVERRIDE=1)
+building rig-645996606: 645996606 Merge pull request #1251 from shreeve/narrow-placement-record
+rig 0.3.0
+PUP_RIG=/zfs/trig-pup/rig-645996606/bin/rig
+rc=0
+PUP_RIG=/zfs/trig-pup/rig-645996606/bin/rig

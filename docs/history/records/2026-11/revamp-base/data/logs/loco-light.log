@@ -1,0 +1,8 @@
+light gate: loco with /Users/shreeve/Data/Code/rig/.git/rig-baseline/645996606074416e6141eb3d638aa05dacba7451/rig (rig 0.3.0)
+  [x] build loco (--release)                 12 s  
+  [x] build the Rust loc                      0 s  
+  [x] unit tests (rig test rig/loc)           2 s  7 passed, 0 failed
+  [x] checks (rig/test.sh)                    1 s  51 passed, 0 failed
+  [x] byte comparison with the Rust loc     272 s  122 runs, 0 differ
+light gate: GREEN in 287 s
+rc=0 zig 0.17.0
