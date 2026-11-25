@@ -73,17 +73,13 @@ const CompatCheck = @import("check/compat.zig");
 const GenericCheck = @import("check/generics.zig");
 
 /// What other passes use of the check files.
-pub const FrameWalker = GenericCheck.FrameWalker;
 pub const checkApiDecl = ApiCheck.checkApiDecl;
 pub const checkApis = ApiCheck.checkApis;
 pub const checkConformance = ApiCheck.checkConformance;
 pub const checkDeclaredApis = GenericCheck.checkDeclaredApis;
-pub const checkFrames = GenericCheck.checkFrames;
 pub const checkGenericInstantiations = GenericCheck.checkGenericInstantiations;
 pub const checkMethodCalls = GenericCheck.checkMethodCalls;
 pub const checkStatedForwards = GenericCheck.checkStatedForwards;
-pub const inlineFrame = GenericCheck.inlineFrame;
-pub const max_inline_depth = GenericCheck.max_inline_depth;
 pub const meets = CompatCheck.meets;
 pub const recordFrameOwners = GenericCheck.recordFrameOwners;
 
@@ -3432,7 +3428,6 @@ test "check: a quiet check takes back the facts it recorded" {
     try std.testing.expectEqual(null, r.ctx.typeOf(.{ .src = .{ .pos = at, .len = 1, .id = 0 } }));
 }
 
-
 /// Every file of the ownership checker, for the tests that read its
 /// source.
 const ownership_src = @embedFile("ownership.zig") ++ @embedFile("ownership/state.zig") ++ @embedFile("ownership/live.zig") ++
@@ -3568,7 +3563,7 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     const read_fact = "ctx." ++ "bindingAccess(";
     try std.testing.expectEqual(1, std.mem.count(u8, own, read_fact));
     const target_at = std.mem.find(u8, own, "pub fn " ++ "viewTarget(").?;
-    const body = own[target_at .. std.mem.findPos(u8, own, target_at, "\n}\n").?];
+    const body = own[target_at..std.mem.findPos(u8, own, target_at, "\n}\n").?];
     try std.testing.expect(std.mem.find(u8, body, read_fact) != null);
     for ([_][]const u8{ ".ref", "payload_view", "matchMode", "types.get" }) |other| {
         try std.testing.expect(std.mem.find(u8, body, other) == null);
@@ -3719,11 +3714,11 @@ test "check: a frame an inline call cannot count is an error at the call, never 
     const ic = it.next().?;
     const saved = ic.*;
     ic.subst = .empty;
-    try GenericCheck.checkFrames(&r.ctx);
+    try @import("accounts.zig").count(&r.ctx);
     try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (the call does not bind every parameter its values hold)");
     // A function no module declares.
     ic.* = saved;
     ic.fun.module +%= 1000;
-    try GenericCheck.checkFrames(&r.ctx);
+    try @import("accounts.zig").count(&r.ctx);
     try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (its module is not loaded)");
 }

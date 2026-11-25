@@ -7,7 +7,7 @@
 //! `inline` functions is an error (`forcedCycles`). What a marked
 //! function's values land in each frame owner that calls it is
 //! typecheck's to count (the account's `marked` part,
-//! `typecheck.checkFrames`); what the rule inlines into it lands in that
+//! `accounts.count`); what the rule inlines into it lands in that
 //! owner too, so this pass counts it there (`added`). The sizes below
 //! never undo a marker, they only choose among the functions the
 //! compiler picked.
@@ -69,13 +69,13 @@ const Error = std.mem.Allocator.Error;
 /// statement) a body may have and be inlined.
 pub const max_size = 60;
 
-/// The most reach (`typecheck.checkFrames`) the functions the rule
+/// The most reach (`accounts.count`) the functions the rule
 /// inlines may add to one frame owner, and an inlined function may have,
 /// each inlined call counted at every call and at every copy Zig writes
 /// of it. Zig writes an inlined body, its locals and its temporaries,
 /// again at each call, in the caller's frame, so an owner's own frame
 /// with the inlined ones in it also stays within `sema.max_frame_bytes`,
-/// which `typecheck.checkFrames` holds the owner's own frame to, and its
+/// which `accounts.count` holds the owner's own frame to, and its
 /// reach within `sema.max_frame_reach`: inlining stops short of either.
 pub const max_inlined_frame_bytes: u128 = 64 << 10;
 
@@ -137,10 +137,10 @@ const Owner = struct {
     /// nearest function around it; null for a test or a `drop` body
     /// (`oncePerInstance`).
     in_fn: ?u32,
-    /// Its own frame: the count `checkFrames` made, or for a generic one
+    /// Its own frame: the count `accounts.count` made, or for a generic one
     /// the largest of its instances'; null when no count knows it.
     own: ?FrameCount,
-    /// What marked `inline` calls land in it, as `checkFrames` counted
+    /// What marked `inline` calls land in it, as `accounts.count` counted
     /// them, or for a generic one what the largest of its instances adds
     /// to `own` (`collect`).
     marked: FrameCount = .none,
@@ -359,7 +359,7 @@ const Pass = struct {
             return true;
         }
         // No generic frame: the owner holds nothing generic, which
-        // `checkFrames` counted on its own, so it is never per instance.
+        // `accounts.count` counted on its own, so it is never per instance.
         return true;
     }
 
@@ -744,7 +744,7 @@ const Pass = struct {
     ///
     /// A function marked `inline` stays inlined: no rule undoes it. What
     /// its values land in each caller is typecheck's to check
-    /// (`checkFrames`); what the rule inlines into it, here, in each.
+    /// (`accounts.count`); what the rule inlines into it, here, in each.
     fn fit(self: *Pass) !void {
         var i: usize = 0;
         while (i < self.owners.items.len) {

@@ -57,6 +57,7 @@ const resolve = @import("resolve.zig");
 const typecheck = @import("typecheck.zig");
 const storage = @import("storage.zig");
 const lowering = @import("lower.zig");
+const accounts = @import("accounts.zig");
 const timing = @import("timing.zig");
 pub const cteval = @import("cteval.zig");
 const fastmap = @import("fastmap.zig");
@@ -173,14 +174,18 @@ pub const max_value_depth: u32 = 1000;
 /// stack: the guard below the stack (`max_frame_reach`) stops it there.
 pub const max_frame_bytes: u64 = 13 << 20;
 
-/// A frame `checkFrames` counted: what it is, the bytes and reach of its
-/// own values (`typecheck.checkFrames`) and of those the calls of marked
-/// `inline` functions land in it (`marked`), and the frame owner it is
-/// the frame of, at one instance for a generic one: the module that
-/// declares it (its id) and where (`FrameOwner.pos`).
+/// A generic instance whose frames are checked once the module's LIR is
+/// counted.
+pub const InstanceFrames = struct { params: []const SymbolRef, args: []const TypeId, at: u32, of: InstanceRoot };
+
+/// A frame `accounts.count` counted: what it is, the bytes and reach of
+/// its own values and of those the calls of marked `inline` functions
+/// land in it (`marked`), and the frame owner it is the frame of, at one
+/// instance for a generic one: the module that declares it (its id) and
+/// where (`FrameOwner.pos`).
 pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128, marked: FrameCount = .none, params: u128 = 0, module: u32, decl: u32 };
 
-/// A frame as `typecheck.checkFrames` counts it: the bytes of the values
+/// A frame as `accounts.count` counts it: the bytes of the values
 /// it keeps, and its reach.
 pub const FrameCount = struct {
     bytes: u128,
@@ -190,7 +195,7 @@ pub const FrameCount = struct {
 };
 
 /// A value a frame keeps, or (`copy`) a copy its code may make, which
-/// counts in its reach alone (`typecheck.FrameWalker`); `marked` when a
+/// counts in its reach alone (`accounts.Walker`); `marked` when a
 /// call of a marked `inline` function lands it there.
 pub const FrameSlot = struct { ty: TypeId, name: []const u8, copy: bool = false, marked: bool = false };
 
@@ -227,17 +232,20 @@ pub const FrameOwner = struct {
     /// Its calls, as indexes into `SemContext.frame_calls`, in the order
     /// the walk met them.
     calls: []const u32 = &.{},
-    /// Its own frame (`checkFrames`); null when each instance's frame is
+    /// Its own frame (`accounts.count`); null when each instance's frame is
     /// counted on its own (`FrameSize`), or before it is counted.
     own: ?FrameCount = null,
     /// What the calls of marked `inline` functions in it land in its
     /// frame, beside `own`, and as it.
     marked: FrameCount = .none,
     /// The reach of a function's parameters as its code copies them where
-    /// it is inlined, beside `own` (`typecheck.FrameWalker.paramCopies`).
+    /// it is inlined, beside `own` (`accounts.Walker.paramCopies`).
     params: u128 = 0,
     /// Whether `own` is null because its instances count it.
     per_instance: bool = false,
+    /// The operations its LIR runs (`accounts.count`): the size
+    /// `inlining.decide` measures a function by.
+    ops: u32 = 0,
     /// Its frame with what the automatic rule inlines into it, which
     /// `inlining.decide` fills (`SemContext.account`).
     account: Account = .{ .own = null },
@@ -246,11 +254,11 @@ pub const FrameOwner = struct {
 };
 
 /// What a frame owner's frame holds (`SemContext.account`): its own
-/// values (`checkFrames`), or null where no count knows them, which is
+/// values (`accounts.count`), or null where no count knows them, which is
 /// unbounded and fails every limit; what the calls of marked `inline`
 /// functions land in it, their values and their reach, each at the
 /// instance the call makes and at every copy Zig writes of the call
-/// (`checkFrames`); and what the functions the automatic rule inlines
+/// (`accounts.count`); and what the functions the automatic rule inlines
 /// into it add, each counted at every call and at every copy Zig writes
 /// of the call, through the marked functions too (`inlining.decide`).
 pub const Account = struct {
@@ -276,7 +284,7 @@ pub const CallTarget = union(enum) { function: FnRef, none };
 
 /// A call in a frame owner's body: the owner (null for one outside every
 /// owner), and how many times Zig writes it, which a `defer` or `errdefer`
-/// body multiplies by the exits it covers (`typecheck.FrameWalker`).
+/// body multiplies by the exits it covers (`check/generics.zig`, `countExits`).
 pub const FrameCall = struct { node: Sexp, owner: ?u32, copies: u32 };
 
 /// A value of at most this many bytes is held in registers, or spilled
@@ -360,7 +368,7 @@ pub const ForeignFrame = struct { module: u32, pos: u32, bytes: u64 };
 /// so a diagnostic can name the largest.
 ///
 /// The last `copies` types are copies its code may make, which count in
-/// its reach alone (`typecheck.checkFrames`). Of the values, the last
+/// its reach alone (`accounts.count`). Of the values, the last
 /// `marked` are those calls of marked `inline` functions land in it, and
 /// so are the last `marked_copies` of the copies. The last `params` types,
 /// after the copies, are a function's parameters as its code copies them
@@ -4471,17 +4479,21 @@ pub const SemContext = struct {
     /// What each of them lands in the frame of a call of it: its own
     /// values and those of the `inline` functions it calls, in this
     /// module's types, over its own and its type's parameters; null while
-    /// it is being worked out (`typecheck.inlineFrame`).
+    /// it is being worked out (`accounts.inlineFrame`).
     inline_frames: FastMap(u32, ?[]const FrameSlot) = .empty,
     /// How deep the calls of marked `inline` functions nest below each of
-    /// them, which `typecheck.max_inline_depth` limits.
+    /// them, which `accounts.max_inline_depth` limits.
     inline_heights: FastMap(u32, u32) = .empty,
     /// A call (`exprKey`) of a marked `inline` function -> the
     /// function and the instance it makes (`InlineCall`).
     inline_calls: FastMap(u64, InlineCall) = .empty,
-    /// The frames `checkFrames` counted, each of its owner or, for a
+    /// The frames `accounts.count` counted, each of its owner or, for a
     /// generic one, of one instance of it.
     frame_sizes: std.ArrayList(FrameSize) = .empty,
+    /// The generic instances the module makes whose frames are checked
+    /// once its LIR is counted (`check/generics.zig`,
+    /// `checkInstanceFrames`).
+    instance_frames: std.ArrayList(InstanceFrames) = .empty,
     /// The frame owners, in the order the walk met them
     /// (`typecheck.recordFrameOwners`): the one list every frame count,
     /// `inlining.decide`, and `rig check --facts=frames` read.
@@ -4495,7 +4507,7 @@ pub const SemContext = struct {
     /// The functions, by where their names are declared, whose code may
     /// take `noinline_reach` of stack or more, and the most it may take:
     /// emitted `noinline`, never inlined, and sizing the program's task
-    /// guard (`taskGuard`; `typecheck.checkFrames`, `inlining.decide`).
+    /// guard (`taskGuard`; `accounts.count`, `inlining.decide`).
     large_frames: FastMap(u32, u64) = .empty,
     /// Those of other modules, found large at an instance made here;
     /// `inlining.decide` marks them in their own modules.
@@ -4702,6 +4714,7 @@ pub const SemContext = struct {
         self.moved.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);
+        self.instance_frames.deinit(self.allocator);
         self.inline_decls.deinit(self.allocator);
         self.inline_frames.deinit(self.allocator);
         self.inline_heights.deinit(self.allocator);
@@ -6320,7 +6333,6 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     t0 = timing.start(opts.timing);
     try typecheck.checkModule(&ctx, tree, module_scope);
     try typecheck.recordFrameOwners(&ctx, tree);
-    try typecheck.checkFrames(&ctx);
     try checkUnreadLocals(&ctx);
     try typecheck.checkDeclaredApis(&ctx);
     try computePlainBits(&ctx);
@@ -6335,6 +6347,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     timing.stop(opts.timing, .typecheck, t0);
     t0 = timing.start(opts.timing);
     try lowering.lowerChecked(&ctx, tree);
+    try accounts.count(&ctx);
     ctx.seal(.lower);
     timing.stop(opts.timing, .lower, t0);
     try indexAllMembers(&ctx);
@@ -9645,7 +9658,7 @@ pub const InstanceKey = struct {
                     return k.word(ctx, ty);
                 }
                 try k.tag(ctx, 'K');
-                try k.tag(ctx, @intFromEnum(std.meta.activeTag(t)));
+                try k.tag(ctx, @backingInt(std.meta.activeTag(t)));
                 try k.word(ctx, n);
                 parts = .{ .ty = t };
                 while (parts.next()) |part| try k.typ(ctx, part);
