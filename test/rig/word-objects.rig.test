@@ -1,7 +1,7 @@
 # word-objects: objects of integers held as one word (`sema.wordBits`,
 # `storage.decideWords`).
 
-code "word two halves", "pub const P = packed struct(u64) {", "pub const __rig_word_sized = {};"
+code "word two halves", "pub const P = packed struct(u64) {", "pub const __rig_repr: rig.Repr = .{ .drops = false, .copied = true, .zeros = true, .word_sized = true };"
   # An object of integers that fill 64 bits is one word, a Zig packed
   # object: it is made, copied, and compared as one.
   obj P
@@ -32,7 +32,7 @@ code "word sizes", "pub const H = packed struct(u32) {", "pub const B = packed s
     s = S(s: 4, t: 5, n: 6)
     print(h.lo + h.hi, b.v, Int(s.s) + Int(s.t) + Int(s.n))
 
-code "word not a word", /pub const Odd = struct \{/, /pub const Flag = struct \{/, /pub const Wide = struct \{/, /^(?![\s\S]*Odd = struct \{\n    pub const __rig_word_sized)/
+code "word not a word", /pub const Odd = struct \{/, /pub const Flag = struct \{/, /pub const Wide = struct \{/, "pub const __rig_repr: rig.Repr = .{ .drops = false, .copied = false, .zeros = true };"
   # Bits that fill no word, a Bool, or more than 64 bits keep an object
   # a plain object, with read views by address.
   obj Odd
@@ -65,7 +65,7 @@ code "word field of a record", "p: P align(4) =", "pub const Rec = struct {"
     r = Rec(p: P(a: 1, b: 2), k: 3)
     print(Int(r.p.a) + Int(r.k))
 
-code "word field under a write view stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
+code "word field under a write view stays plain", /pub const P = struct \{[^;]*;\n    pub const __rig_repr: rig\.Repr = \.\{ \.drops = false, \.copied = true, \.zeros = true, \.word_sized = true \};/
   # A write view of a field takes its address, which a word's field does
   # not have: the object stays a plain object.
   obj P
@@ -310,7 +310,7 @@ test "word optional in a record", '''
     if xs[1].p as p
       print(p.a, p.b, xs[1].k)
 
-code "word optional written stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
+code "word optional written stays plain", /pub const P = struct \{[^;]*;\n    pub const __rig_repr: rig\.Repr = \.\{ \.drops = false, \.copied = true, \.zeros = true, \.word_sized = true \};/
   # A write view of the word inside an optional would point at it where
   # it is held, at four-byte alignment: it stays a plain object.
   obj P

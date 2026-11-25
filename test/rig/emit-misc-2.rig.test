@@ -1865,3 +1865,16 @@ test "a field of a moved or cloned temporary", "5 6 7 1"
   c = (+User(age: 7)).age
   d = (<[1, 2])[0]
   print(a, b, c, d)
+
+code "a type carries how the checkers classify it", "pub const __rig_repr: rig.Repr = .{ .drops = true, .copied = false };", "pub const __rig_repr: rig.Repr = .{ .drops = false, .copied = false, .zeros = true };"
+  obj Named
+    x: Int
+    s: String
+
+  obj Pair
+    a: Int = 0
+    b: Int = 0
+
+  xs: List[Named] = List()
+  !xs.push(Named(x: 1, s: String("a")))
+  print(xs.len, Pair().b)
