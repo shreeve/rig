@@ -1872,19 +1872,10 @@ fn recordKey(node: Sexp) NodeKey {
     return nodeKey(node) orelse std.debug.panic("sema recorded a fact for a node without a node id: {s}", .{if (node.kind()) |k| @tagName(k) else @tagName(node)});
 }
 
-/// The key of a decision about a node (`Question`): its `exprKey`, or, for
-/// a list node a rewrite built without a number, its items' address, which
-/// no other node shares while the tree lives (bit 33 set).
-fn decisionKey(node: Sexp) ?u64 {
-    if (exprKey(node)) |k| return k;
-    if (node != .list) return null;
-    return @as(u64, @intFromPtr(node.list.items().ptr)) | 1 << 33;
-}
-
-/// `decisionKey` for the passes outside sema that key a fact by node
-/// (`typecheck.recordFrameOwners`).
+/// `exprKey` for the passes outside sema that key a fact by node
+/// (`lower`).
 pub fn decisionKeyOf(node: Sexp) ?u64 {
-    return decisionKey(node);
+    return exprKey(node);
 }
 
 /// The key of a fact about an expression, leaf or list node: a leaf's
@@ -2622,7 +2613,7 @@ pub const Decided = struct {
     /// The first decision about a list node the parser numbered (index +
     /// 1, or 0), at its node id.
     by_list: std.ArrayList(u32) = .empty,
-    /// The first decision about any other node, by `decisionKey`.
+    /// The first decision about any other node, by `exprKey`.
     by_key: FastMap(u64, u32) = .empty,
     /// Set when the storage plan has verified every answer: a question
     /// asked after that (by a classifier emit still calls, `Pending`) is
@@ -2636,7 +2627,7 @@ pub const Decided = struct {
         self.by_key.deinit(a);
     }
 
-    /// The node id a `decisionKey` holds, for a list node the parser
+    /// The node id a `exprKey` holds, for a list node the parser
     /// numbered.
     fn listId(key: u64) ?u32 {
         return if (key >> 32 == 1) @truncate(key) else null;
@@ -2667,7 +2658,7 @@ pub const Decided = struct {
         while (i > n) {
             i -= 1;
             const d = self.entries.items[i];
-            const key = decisionKey(d.node).?;
+            const key = exprKey(d.node).?;
             if (listId(key)) |id| {
                 self.by_list.items[id] = d.next;
             } else if (d.next == 0) {
@@ -4601,7 +4592,7 @@ pub const SemContext = struct {
     /// How deep the calls of marked `inline` functions nest below each of
     /// them, which `typecheck.max_inline_depth` limits.
     inline_heights: FastMap(u32, u32) = .empty,
-    /// A call (`decisionKey`) of a marked `inline` function -> the
+    /// A call (`exprKey`) of a marked `inline` function -> the
     /// function and the instance it makes (`InlineCall`).
     inline_calls: FastMap(u64, InlineCall) = .empty,
     /// The frames `checkFrames` counted, each of its owner or, for a
@@ -4613,9 +4604,9 @@ pub const SemContext = struct {
     frame_owners: std.ArrayList(FrameOwner) = .empty,
     /// Every call, in the order the walk met them, with its owner.
     frame_calls: std.ArrayList(FrameCall) = .empty,
-    /// A call (`decisionKey`) -> its index in `frame_calls` (`ownerOf`).
+    /// A call (`exprKey`) -> its index in `frame_calls` (`ownerOf`).
     call_index: FastMap(u64, u32) = .empty,
-    /// A call (`decisionKey`) -> what it reaches (`callTargetOf`).
+    /// A call (`exprKey`) -> what it reaches (`callTargetOf`).
     call_targets: FastMap(u64, CallTarget) = .empty,
     /// The functions, by where their names are declared, whose code may
     /// take `noinline_reach` of stack or more, and the most it may take:
@@ -5146,29 +5137,25 @@ pub const SemContext = struct {
     /// The frame owner a call is in (`frame_owners`): the innermost one
     /// around it; null for a call outside every owner.
     pub fn ownerOf(self: *const SemContext, call: Sexp) ?u32 {
-        const i = self.call_index.get(decisionKey(call) orelse return null) orelse return null;
+        const i = self.call_index.get(exprKey(call) orelse return null) orelse return null;
         return self.frame_calls.items[i].owner;
     }
 
     /// What a call reaches, as typecheck resolved it; null for a call it
     /// never checked.
     pub fn callTargetOf(self: *const SemContext, call: Sexp) ?CallTarget {
-        return self.call_targets.get(decisionKey(call) orelse return null);
-    }
-
-    pub fn recordCallTarget(self: *SemContext, call: Sexp, target: CallTarget) !void {
-        try self.putIn(.check, .call_targets, decisionKey(call) orelse return, target);
+        return self.get(.call_targets, call);
     }
 
     /// A call of a marked `inline` function (`inline_calls`); null for any
     /// other call.
     pub fn inlineCallOf(self: *const SemContext, call: Sexp) ?InlineCall {
-        return self.inline_calls.get(decisionKey(call) orelse return null);
+        return self.get(.inline_calls, call);
     }
 
     pub fn recordInlineCall(self: *SemContext, call: Sexp, ic: InlineCall) !void {
         const a = self.arena.allocator();
-        try self.putIn(.check, .inline_calls, decisionKey(call) orelse return, .{ .fun = ic.fun, .subst = .{ .params = try a.dupe(SymbolId, ic.subst.params), .args = try a.dupe(TypeId, ic.subst.args) } });
+        try self.record(.inline_calls, call, .{ .fun = ic.fun, .subst = .{ .params = try a.dupe(SymbolId, ic.subst.params), .args = try a.dupe(TypeId, ic.subst.args) } });
     }
 
     /// The context of the module that declares `fun`: this one, or one
@@ -5671,7 +5658,7 @@ pub const SemContext = struct {
     /// The recorded answer to `q` about `node`; null when no pass has
     /// asked it.
     pub fn decision(self: *const SemContext, node: Sexp, q: Question) ?u8 {
-        const d = self.decided.get(decisionKey(node) orelse return null, q) orelse return null;
+        const d = self.decided.get(exprKey(node) orelse return null, q) orelse return null;
         // Two nodes never share a key: the parser numbers each list node,
         // and a rewrite that keeps a number replaces the node it took it
         // from.
@@ -5689,7 +5676,7 @@ pub const SemContext = struct {
     /// infallible for their many callers.
     pub fn recordDecision(self: *const SemContext, node: Sexp, at: Sexp, q: Question, answer: u8) void {
         if (self.decided.sealed) return;
-        const key = decisionKey(node) orelse return;
+        const key = exprKey(node) orelse return;
         self.decided.put(self.allocator, key, .{ .node = node, .at = at, .answer = answer, .q = q }) catch std.debug.panic("out of memory", .{});
     }
 

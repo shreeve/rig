@@ -1321,7 +1321,7 @@ pub fn synthCall(self: *Checker, node: Sexp) Error!TypeId {
     defer self.expect.callee_node = saved_callee;
     // What the call reaches, recorded where it resolves to a Rig
     // function (`noteTarget`); any other call reaches none.
-    try self.ctx.recordCallTarget(node, .none);
+    try self.ctx.record(.call_targets, node, .none);
     // `>t` (the wrapper's `<t.wait()`), `<t.cancel()`: the move of `t` there takes a task
     // given a write view.
     const saved_wait = self.expect.task_wait;

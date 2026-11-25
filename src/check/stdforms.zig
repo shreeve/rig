@@ -2997,7 +2997,7 @@ pub fn noteTarget(self: *Checker, module: u32, pos: u32, marked: bool, recv: Typ
     const call = self.expect.current_call orelse return;
     if (pos >= sema.imported_decl_pos) return;
     const fun: sema.FnRef = .{ .module = module, .pos = pos };
-    try self.ctx.recordCallTarget(call, .{ .function = fun });
+    try self.ctx.record(.call_targets, call, .{ .function = fun });
     if (!marked) return;
     const a = self.ctx.arena.allocator();
     try self.ctx.recordInlineCall(call, .{ .fun = fun, .subst = .{
