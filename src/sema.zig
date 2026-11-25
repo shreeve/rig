@@ -60,6 +60,7 @@ const lowering = @import("lower.zig");
 const timing = @import("timing.zig");
 pub const cteval = @import("cteval.zig");
 const fastmap = @import("fastmap.zig");
+const NodeTable = @import("nodes.zig").NodeTable;
 const program = @import("program.zig");
 /// The hash map of the fact tables and memos (`fastmap.zig`).
 pub const FastMap = fastmap.Map;
@@ -1937,7 +1938,7 @@ pub const Facts = struct {
     /// Checked call node -> what fills each of its callee's run-time
     /// parameters, and which arguments it passes loans on from
     /// (`CallParams`).
-    call_params: FastMap(NodeKey, CallParams) = .empty,
+    call_params: NodeTable(CallParams) = .empty,
     /// Match nodes whose non-default arms cover every value.
     exhaustive: FastMap(NodeKey, void) = .empty,
     /// Bracket-list node (`index` / `inst`) -> what it instantiates,
@@ -2135,7 +2136,7 @@ pub const Facts = struct {
     /// through it).
     read_only_fields: FastMap(NodeKey, ReadOnlyField) = .empty,
     /// Method call node -> how it reaches its method (`Dispatch`).
-    dispatch: FastMap(NodeKey, Dispatch) = .empty,
+    dispatch: NodeTable(Dispatch) = .empty,
     /// A call of a method under bounds -> the witnesses it passes for
     /// them (`OwnerWitnesses`).
     owner_witnesses: FastMap(NodeKey, OwnerWitnesses) = .empty,
@@ -17593,6 +17594,7 @@ test {
     _ = diag;
     _ = resolve;
     _ = typecheck;
+    _ = @import("nodes.zig");
 }
 
 test "TypeStore: primitives are pre-interned and distinct" {
