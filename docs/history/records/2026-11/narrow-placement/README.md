@@ -133,7 +133,7 @@ The raw rows are `race-755/runs`, copied from pup:/zfs/trig-pup/trial/np/races/b
 
   Every wide arm cuts nuxt c4's front end by about 8 ms and gives back 5-9 ms in the check, S and P included. So the
   check's loss after a wide load is not only placement. Over all 16 projects the same holds: the wide arms' parse+bind
-  is 76-82 ms lower than M's at c2 and c4, and their check 86-133 ms higher at c4.
+  is 74-82 ms lower than M's at c2 and c4, and their check 86-133 ms higher at c4.
 - **Giving the heaps away helps a little and costs memory.** F is 0.4-0.7 points faster than P at every count, and its
   webpack check median is 276 ms against P's 285. Its peak RSS is 0.3-0.6 points above P's, and it never beats M.
 - **Peak memory** is 2-6% higher in every wide arm, as in race 754. Q is level with M (0.1-0.3%).
