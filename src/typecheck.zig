@@ -3412,7 +3412,7 @@ test "check: every read of a view as a value is decided by writeViewRead" {
     const at = std.mem.find(u8, src, needle).?;
     const fn_at = std.mem.findLast(u8, src[0..at], "pub fn ").?;
     try std.testing.expect(std.mem.startsWith(u8, src[fn_at..], "pub fn readOf("));
-    try std.testing.expect(std.mem.find(u8, src[fn_at..at], "self.writeViewRead(") != null);
+    try std.testing.expect(std.mem.find(u8, src[fn_at..at], "writeViewRead(self") != null);
     // Every pass after type checking reads the fact; none records it.
     for ([_][]const u8{ @embedFile("emit.zig"), @embedFile("ownership.zig"), @embedFile("storage.zig"), @embedFile("resolve.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, needle));
@@ -3440,12 +3440,12 @@ test "check: where a Cell and a write view stand, and a branch viewed in place, 
     }
     // A value holding a Cell is made only at a home (`cellMadeAway`),
     // asked of every expression typed (`synthExpr`, `checkExpr`).
-    try std.testing.expectEqual(2, std.mem.count(u8, tc, "self." ++ "cellMadeAway("));
+    try std.testing.expectEqual(2, std.mem.count(u8, tc, "cellMadeAway" ++ "(self"));
     // Every view of a branch, written or in place, asks `viewsBranch`:
     // a sigil, a slice, a write view of a temporary, a weak handle `*`
     // upgrades, a temporary viewed to read, a header's subject, and a view
     // a context takes in place.
-    const call = "self." ++ "viewsBranch(";
+    const call = "viewsBranch" ++ "(self";
     var from: usize = 0;
     for ([_][]const u8{ "headerViewsBranch", "makeViewOf", "checkWriteView", "viewSlice", "weakUpgrade", "viewTempIn", "checkExpr" }) |want| {
         from = std.mem.findPos(u8, tc, from, call).?;
@@ -3514,7 +3514,7 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     try std.testing.expectEqual(3, std.mem.count(u8, tc, "flags.access_decided" ++ " = true"));
     // One helper builds a binding's type from its access, for every kind
     // of binding: `viewOfAccess`, called from the three binding sites.
-    const derive = "self." ++ "viewOfAccess(";
+    const derive = "viewOfAccess" ++ "(self";
     try std.testing.expectEqual(3, std.mem.count(u8, tc, derive));
     at = 0;
     for ([_][]const u8{ "pub fn checkOptionalBinding(", "pub fn loopElement(", "pub fn bindMatchView(" }) |want| {
@@ -3533,7 +3533,7 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
         // Every header kind, `match` (and `as` with a pattern, which is
         // one), `if … as` / `while … as`, and `for`, views a branching
         // subject where it stands: none can skip it.
-        .{ .call = "self." ++ "headerViewsBranch(", .callers = &.{ "checkOptionalBinding", "checkFor", "checkMatchSubject" } },
+        .{ .call = "headerViewsBranch" ++ "(self", .callers = &.{ "checkOptionalBinding", "checkFor", "checkMatchSubject" } },
     }) |shared| {
         try std.testing.expectEqual(shared.callers.len, std.mem.count(u8, tc, shared.call));
         var from: usize = 0;
