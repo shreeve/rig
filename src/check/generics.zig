@@ -72,7 +72,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     for (ctx.generic_requirements.items, 0..) |req, i| {
         // A method's own, where the method is reached (`checkReaches`).
         if (req.body != sema.no_body) continue;
-        const gop = try reqs.getOrPut(ctx.allocator, req.param);
+        const gop = try reqs.getOrPut(ctx.allocator, ctx.ref(req.param));
         if (!gop.found_existing) gop.value_ptr.* = .empty;
         try gop.value_ptr.append(ctx.allocator, @intCast(i));
     }
@@ -130,7 +130,7 @@ fn checkedBefore(ctx: *SemContext, key: []const u8) Error!?sema.Checked {
 
 /// Check the generic type's instance `ty`, over `params`, first made at
 /// `site`.
-fn checkTypeInstance(ctx: *SemContext, reqs: *const Requirements, ty: TypeId, params: []const SymbolRef, site: u32) Error!void {
+fn checkTypeInstance(ctx: *SemContext, reqs: *Requirements, ty: TypeId, params: []const SymbolRef, site: u32) Error!void {
     const pn = ctx.types.get(ty).parameterized_nominal;
     // A box holds an API object through its allocation, `^{Shape}`.
     if (pn.sym == ctx.builtins.box and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) return;
@@ -147,7 +147,7 @@ const FnInstanceSite = @typeInfo(@FieldType(@FieldType(SemContext, "fn_instances
 
 /// Check the generic function's instance `f`. False when its bounds
 /// fail.
-fn checkFnInstance(ctx: *SemContext, reqs: *const Requirements, f: FnInstanceSite) Error!bool {
+fn checkFnInstance(ctx: *SemContext, reqs: *Requirements, f: FnInstanceSite) Error!bool {
     // An implementation's method reached through an API has the
     // arguments the call's instance of the API's method checks and
     // reports.
@@ -766,27 +766,27 @@ pub fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, o
 pub fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolRef, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
     for (args) |a| if (sema.containsPoison(ctx, a)) return;
     const subst: sema.TypeSubst = .{ .params = params, .args = args };
-    var entries: std.ArrayList(u32) = .empty;
+    var entries: std.ArrayList(sema.HomeEntry) = .empty;
     defer entries.deinit(ctx.allocator);
     try ctx.genericEntries(.arrays, params, &entries);
-    for (entries.items) |i| {
-        const g = ctx.generic_arrays.items[i];
+    for (entries.items) |e| {
+        const g = e.home.generic_arrays.items[e.index];
         const ty = try sema.substituteType(ctx, g.ty, subst);
         if (sema.containsTypeVar(ctx, ty) or sema.containsPoison(ctx, ty)) continue;
         const bytes = (try sema.arrayOversized(ctx, ty)) orelse continue;
         try ctx.oversized.put(ctx.allocator, ty, {});
         if (of == .type) try ctx.oversized.put(ctx.allocator, of.type, {});
         try ctx.err(at, "`{s}` makes `{s}`, which takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `List`", .{ try sema.rootName(ctx, of), try sema.formatType(ctx, ty), bytes, sema.max_value_bytes });
-        try ctx.noteIn(g.module_id, g.pos, "the array is made here", .{});
+        try ctx.noteIn(e.module(ctx, g.module_id), g.pos, "the array is made here", .{});
         return;
     }
     if (of == .type) {
         const sym = ctx.types.get(of.type).parameterized_nominal.sym;
-        if (try sema.oversizedByItself(ctx, of.type, ctx.localSym(sym), subst)) |bytes| {
+        if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| {
             try sema.reportOversized(ctx, at, of.type, bytes);
             return;
         }
-        if (try sema.tooDeepByItself(ctx, of.type, ctx.localSym(sym), subst)) |depth| {
+        if (try sema.tooDeepByItself(ctx, of.type, sym, subst)) |depth| {
             try sema.reportTooDeep(ctx, at, of.type, depth);
             return;
         }
@@ -800,8 +800,9 @@ pub fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolRef, args: []c
     var buf: std.ArrayList(TypeId) = .empty;
     defer buf.deinit(ctx.allocator);
     try ctx.genericEntries(.frames, own, &entries);
-    frames: for (entries.items) |i| {
-        const fr = ctx.generic_frames.items[i];
+    frames: for (entries.items) |e| {
+        const fr = e.home.generic_frames.items[e.index];
+        const fr_module = e.module(ctx, fr.module_id);
         buf.clearRetainingCapacity();
         for (fr.tys) |ty| {
             const t = try sema.substituteType(ctx, ty, subst);
@@ -809,9 +810,9 @@ pub fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolRef, args: []c
             try buf.append(ctx.allocator, t);
         }
         const before = ctx.diagnostics.items.len;
-        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, .{ .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .params = fr.params }, fr.module_id, fr.pos);
+        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, .{ .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .params = fr.params }, fr_module, fr.pos);
         if (ctx.diagnostics.items.len == before) continue;
-        try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
+        try ctx.noteIn(fr_module, fr.pos, "{s} is declared here", .{fr.label});
         return;
     }
 }
@@ -895,7 +896,11 @@ pub fn checkReaches(ctx: *SemContext) Error!void {
         if (try checkedBefore(ctx, k) != null) continue;
         const mark = ctx.diagnostics.items.len;
         defer sema.noteInstanceChecked(ctx, k, mark);
-        for (ctx.generic_requirements.items) |req| {
+        // The body's requirements are recorded by the module it is in.
+        const home: *const SemContext = if (r.fun.module == ctx.module_id) ctx else ctx.foreign_semas.get(r.fun.module) orelse continue;
+        for (home.generic_requirements.items) |req0| {
+            var req = req0;
+            if (home != @as(*const SemContext, ctx) and req.module_id == 0) req.module_id = home.module_id;
             if (req.body == sema.no_body or req.body != r.fun.pos) continue;
             if ((if (req.module_id == 0) ctx.module_id else req.module_id) != r.fun.module) continue;
             if (req.index >= r.args.len) continue;
@@ -904,18 +909,37 @@ pub fn checkReaches(ctx: *SemContext) Error!void {
             if (!try sema.liveAt(ctx, req.module_id, req.pos, r.params, r.args)) continue;
             if (try ApiCheck.satisfies(ctx, arg, req.req)) continue;
             const inst = try sema.rootName(ctx, .{ .func = try sema.reachInstance(ctx, r) });
-            try reportTaskReq(ctx, req, r.site, inst, ctx.symbols.items[req.param].name, arg);
+            try reportTaskReq(ctx, req, r.site, inst, home.symbols.items[req.param].name, arg);
             if (r.via) |via| try ctx.note(r.site, "`{s}` is reached from `{s}`", .{ inst, try sema.rootName(ctx, via) });
             break;
         }
     }
 }
 
-/// The positions of `generic_requirements` on each parameter, in order.
-pub const Requirements = std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32));
+/// The positions of `generic_requirements` on each parameter of this
+/// module, in order. Another module's parameter's are read in its list
+/// (`requirementsOn`).
+pub const Requirements = std.AutoHashMapUnmanaged(SymbolRef, std.ArrayList(u32));
+
+/// The requirements on `param`, by position in its home module's
+/// `generic_requirements`: this module's from `reqs`, another's found
+/// there and kept in `reqs`.
+fn requirementsOn(ctx: *SemContext, reqs: *Requirements, param: SymbolRef) Error!?[]const u32 {
+    if (ctx.owns(param)) return if (reqs.getPtr(param)) |l| l.items else null;
+    const gop = try reqs.getOrPut(ctx.allocator, param);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .empty;
+        const home = sema.homeOf(ctx, param);
+        for (home.generic_requirements.items, 0..) |req, i| {
+            if (req.body != sema.no_body or req.param != param.sym) continue;
+            try gop.value_ptr.append(ctx.allocator, @intCast(i));
+        }
+    }
+    return gop.value_ptr.items;
+}
 
 /// False after a diagnostic.
-pub fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: []const SymbolRef, given_args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
+pub fn checkRequirements(ctx: *SemContext, reqs: *Requirements, given_params: []const SymbolRef, given_args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
     var ok = true;
     // The associated types of the parameters too (`I.Item`), at what each
     // argument gives them.
@@ -924,18 +948,19 @@ pub fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_para
     const args = all.args;
     for (params, 0..) |param_ref, i| {
         if (i >= args.len) break;
-        const param = ctx.localSym(param_ref);
+        const home = sema.homeOf(ctx, param_ref);
         const arg = args[i];
         // A diagnostic was reported about the argument.
         if (sema.containsPoison(ctx, arg)) continue;
-        const on = reqs.getPtr(param) orelse continue;
-        for (on.items) |r| {
-            const req = ctx.generic_requirements.items[r];
+        const on = (try requirementsOn(ctx, reqs, param_ref)) orelse continue;
+        for (on) |r| {
+            var req = home.generic_requirements.items[r];
+            if (home != @as(*const SemContext, ctx) and req.module_id == 0) req.module_id = home.module_id;
             // What code this instance does not compile needs (`sema.liveAt`).
             if (!try sema.liveAt(ctx, req.module_id, req.pos, params, args)) continue;
             if (try ApiCheck.satisfies(ctx, arg, req.req)) continue;
             const inst = try sema.rootName(ctx, of);
-            const pname = ctx.symbols.items[param].name;
+            const pname = home.symbols.items[param_ref.sym].name;
             const aname = try sema.formatType(ctx, arg);
             const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
             switch (req.req) {
@@ -1021,20 +1046,31 @@ pub fn declaredType(ctx: *const SemContext, ty: TypeId) bool {
 /// parameters or whose types name one. False after a diagnostic.
 pub fn checkMethodCalls(ctx: *SemContext, subst: TypeSubst, own: []const SymbolRef, at: u32, of: sema.InstanceRoot) Error!bool {
     const outer: TypeSubst = .{ .params = subst.params[0 .. subst.params.len - own.len], .args = subst.args[0 .. subst.args.len - own.len] };
-    var i: usize = 0;
-    while (i < ctx.generic_methods.items.len) : (i += 1) {
-        const c = ctx.generic_methods.items[i];
-        if (subst.lookup(ctx.ref(c.param)) == null) continue;
-        if (std.mem.findScalar(SymbolRef, own, ctx.ref(c.param)) == null) {
-            // On a type's parameter: checked with a method's instance only
-            // where it names one of the method's own.
-            if (of == .func and !try namesOwn(ctx, c, outer)) continue;
+    // The calls are recorded by the module that declares the parameters.
+    for (subst.params, 0..) |p, n| {
+        if (p.sym == sema.symbol_invalid) continue;
+        const home = sema.homeOf(ctx, p);
+        const seen = for (subst.params[0..n]) |q| {
+            if (q.sym != sema.symbol_invalid and sema.homeOf(ctx, q) == home) break true;
+        } else false;
+        if (seen) continue;
+        var i: usize = 0;
+        while (i < home.generic_methods.items.len) : (i += 1) {
+            var c = home.generic_methods.items[i];
+            if (home != @as(*const SemContext, ctx) and c.module_id == 0) c.module_id = home.module_id;
+            const param = home.ref(c.param);
+            if (subst.lookup(param) == null) continue;
+            if (std.mem.findScalar(SymbolRef, own, param) == null) {
+                // On a type's parameter: checked with a method's instance only
+                // where it names one of the method's own.
+                if (of == .func and !try namesOwn(ctx, c, outer)) continue;
+            }
+            const arg = subst.lookup(param).?;
+            if (sema.containsPoison(ctx, arg)) continue;
+            // A call in code this instance does not compile (`sema.liveAt`).
+            if (!try sema.liveAt(ctx, c.module_id, c.pos, subst.params, subst.args)) continue;
+            if (!try checkMethodCall(ctx, home, c, subst, arg, at, of)) return false;
         }
-        const arg = subst.lookup(ctx.ref(c.param)).?;
-        if (sema.containsPoison(ctx, arg)) continue;
-        // A call in code this instance does not compile (`sema.liveAt`).
-        if (!try sema.liveAt(ctx, c.module_id, c.pos, subst.params, subst.args)) continue;
-        if (!try checkMethodCall(ctx, c, subst, arg, at, of)) return false;
     }
     return true;
 }
@@ -1051,7 +1087,7 @@ pub fn namesOwn(ctx: *SemContext, c: sema.GenericMethodCall, outer: TypeSubst) E
 /// Call `c` at an instance whose type for its parameter is `arg`. True
 /// when the instance meets it, or when the instance leaves a type of it
 /// open.
-pub fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst, arg: TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
+pub fn checkMethodCall(ctx: *SemContext, home: *const SemContext, c: sema.GenericMethodCall, subst: TypeSubst, arg: TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
     const a = ctx.arena.allocator();
     const args = try a.alloc(TypeId, c.args.len);
     for (c.args, args) |t, *out| out.* = try sema.substituteType(ctx, t, subst);
@@ -1066,7 +1102,7 @@ pub fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeS
     if (result) |t| if (sema.containsPoison(ctx, t)) return true;
 
     const inst = try sema.rootName(ctx, of);
-    const pname = ctx.symbols.items[c.param].name;
+    const pname = home.symbols.items[c.param].name;
     const aname = try sema.formatType(ctx, arg);
     const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
     const viewed = ctx.types.get(arg) == .read_view;
@@ -1102,7 +1138,7 @@ pub fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeS
     };
     const owner = try a.print("{s}.{s}", .{ bname, c.method });
     const why: ?[]const u8 = blk: {
-        const declared = m.module orelse if (sema.isProxy(m.owner)) m.owner.from.module_id else ctx.module_id;
+        const declared = m.module orelse ctx.module_id;
         const body = if (c.module_id == 0) ctx.module_id else c.module_id;
         if (!m.field.is_pub and declared != body) {
             const mname = if (declared == ctx.module_id) ctx.name else if (ctx.foreign_semas.get(declared)) |f| f.name else "?";
@@ -1162,10 +1198,10 @@ pub fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeI
     const a = ctx.arena.allocator();
     var refs: std.ArrayList(sema.ApiRef) = .empty;
     for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = ctx.module_id, .sym = @intCast(i) });
+        if (sym.kind == .api) try refs.append(a, .{ .module_id = ctx.module_id, .sym = @intCast(i) });
     }
     for (ctx.imports) |imp| for (imp.sema.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and sym.flags.is_public and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = imp.module_id, .sym = @intCast(i) });
+        if (sym.kind == .api and sym.flags.is_public) try refs.append(a, .{ .module_id = imp.module_id, .sym = @intCast(i) });
     };
     const api: sema.ApiRef = for (refs.items) |r| {
         const sym = sema.apiSymbol(ctx, r) orelse continue;
@@ -1301,6 +1337,8 @@ pub fn checkStatedForwards(ctx: *SemContext) Error!void {
                 .parameterized_nominal => |pn| pn,
                 else => continue,
             };
+            // Another module's generic's parameters are never this one's.
+            if (!ctx.owns(pn.sym)) continue;
             const params = sema.symbolAt(ctx, pn.sym).type_params orelse continue;
             for (params, pn.args) |p, arg| if (p == g.param) try printedNeeds(Gone, ctx, a, &gone, arg, at, &printed);
         };
@@ -1309,7 +1347,7 @@ pub fn checkStatedForwards(ctx: *SemContext) Error!void {
     defer reported.deinit(ctx.allocator);
     for (gone.items) |g| {
         const sym = ctx.symbols.items[g.param];
-        if (sema.isProxy(sym) or !sema.checkedByBounds(sym)) continue;
+        if (!sema.checkedByBounds(sym)) continue;
         const api: sema.Api, const what: []const u8 = switch (g.need) {
             .task => |reach| if (reach.local) continue else if (reach.how == .moves)
                 .{ .Sends, "a value given to a task that may run on another core" }
@@ -1375,7 +1413,7 @@ pub fn reportUnbounded(ctx: *SemContext, pos: u32, param: SymbolId, api: sema.Ap
 pub fn checkHeaders(ctx: *SemContext) Error!void {
     for (ctx.symbols.items) |sym| {
         if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
-        if (sema.isProxy(sym) or sym.decl_pos == sema.builtin_decl_pos) continue;
+        if (sema.isAlias(sym) or sym.decl_pos == sema.builtin_decl_pos) continue;
         try checkLookAlikes(ctx, sym);
         if (sym.apis.count() == 0) continue;
         var it = sym.apis.iterator();

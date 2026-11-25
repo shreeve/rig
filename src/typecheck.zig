@@ -2335,6 +2335,16 @@ pub const Checker = struct {
         foreign: ?ForeignFields = null,
         /// A generic type's arguments, when given (`Pair[Int, ?String]`).
         args: ?[]const TypeId = null,
+
+        /// The type's ref, in this module or the one that declares it.
+        pub fn ref(nt: NamedType, ctx: *const SemContext) sema.SymbolRef {
+            return if (nt.foreign) |fo| .{ .module_id = fo.module_id, .sym = nt.id } else ctx.ref(nt.id);
+        }
+
+        /// The module whose table holds the type's symbol.
+        pub fn home(nt: NamedType, ctx: *const SemContext) *const SemContext {
+            return if (nt.foreign) |fo| fo.ctx else ctx;
+        }
     };
 
     // ---- compile-time arguments ---------------------------------------------

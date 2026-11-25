@@ -1336,18 +1336,30 @@ pub fn reportMissingVariant(self: *Checker, enum_ty: TypeId, vname: []const u8, 
     const sym = decl.symbol();
     if (sym.fields == null) return;
     try self.err(pos, "no variant `{s}` on enum `{s}`{s}", .{ vname, try self.tyName(sema.unwrapViews(self.ctx, enum_ty)), sema.stdRenamed(decl.ctx, sym.name, vname) orelse "" });
-    try noteDeclared(self, sym, decl.module_id == null);
+    try noteDeclaredAt(self, decl);
 }
 
 /// Point at where type `sym` is declared, when that is in this
-/// module's source (`local`), or where the generic type a proxy
-/// stands for is.
+/// module's source (`local`).
 pub fn noteDeclared(self: *Checker, sym: sema.Symbol, local: bool) Error!void {
-    if (sema.isProxy(sym)) {
-        const origin = sema.proxyOrigin(self.ctx, sym) orelse return;
-        return self.ctx.noteIn(origin.module_id, origin.pos, "`{s}` declared here", .{sym.name});
-    }
     if (local and sym.decl_pos < sema.imported_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+}
+
+/// `noteDeclared` of `decl`: another module's generic type is pointed at
+/// there, named as this module spells it.
+pub fn noteDeclaredAt(self: *Checker, decl: sema.NominalDecl) Error!void {
+    const sym = decl.symbol();
+    const module = decl.module_id orelse return noteDeclared(self, sym, true);
+    if (sym.kind != .generic_type) return;
+    const name = try sema.formatTypeValue(self.ctx, self.ctx.arena.allocator(), .{ .nominal = .{ .module_id = module, .sym = decl.sym } });
+    try self.ctx.noteIn(module, sym.decl_pos, "`{s}` declared here", .{name});
+}
+
+/// `noteDeclared` of named type `nt`, another module's generic type there.
+pub fn noteDeclaredNamed(self: *Checker, nt: Checker.NamedType) Error!void {
+    const fo = nt.foreign orelse return noteDeclared(self, nt.sym, true);
+    if (nt.sym.kind != .generic_type) return;
+    try self.ctx.noteIn(fo.module_id, nt.sym.decl_pos, "`{s}` declared here", .{nt.sym.name});
 }
 
 pub fn synthExpr(self: *Checker, e: Sexp) Error!TypeId {
