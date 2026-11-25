@@ -31,6 +31,7 @@ const ir = parser.ir;
 const Tag = rig.Tag;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const ScopeId = sema.ScopeId;
 const TypeId = sema.TypeId;
 const Type = sema.Type;
@@ -1576,7 +1577,7 @@ fn plusLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp)) Error
 /// any type is resolved, so `sema.provides` answers for them throughout.
 fn recordHeaderConformances(ctx: *SemContext) Error!void {
     for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.user_apis.len == 0 or sema.isProxy(sym)) continue;
+        if (sym.user_apis.len == 0) continue;
         if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
         const id: SymbolId = @intCast(i);
         const ty = (try sema.makeNominalContext(ctx, id)).self_type;
@@ -1642,7 +1643,7 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
         const tparams = sema.symbolAt(ctx, pn.sym).type_params orelse continue;
         for (pn.args, 0..) |arg, i| switch (ctx.types.get(arg)) {
             .ct_param => |p| if (i < tparams.len) {
-                ctx.symbols.items[ctx.localSym(p)].ty = ctx.symbols.items[tparams[i]].ty;
+                ctx.symbols.items[ctx.localSym(p)].ty = sema.homeOf(ctx, pn.sym).symbols.items[tparams[i]].ty;
             },
             else => {},
         };
@@ -1697,8 +1698,9 @@ fn impliedFixpoint(ctx: *SemContext) Error!void {
     while (changed) {
         changed = false;
         for (ctx.implications.items) |imp| {
-            const tparams = ctx.symbols.items[imp.generic].type_params orelse continue;
-            const from = ctx.symbols.items[tparams[imp.index]];
+            const home = sema.homeOf(ctx, imp.generic);
+            const tparams = home.symbols.items[imp.generic.sym].type_params orelse continue;
+            const from = home.symbols.items[tparams[imp.index]];
             const sym = &ctx.symbols.items[imp.param];
             const more = from.apis.unionWith(from.implied);
             if (more.differenceWith(sym.implied).count() == 0) continue;
@@ -2611,7 +2613,7 @@ pub const TypeResolver = struct {
         // `add Wrap[T: Shape]`: the generic type at the addition's own
         // parameters, one for each of the type's.
         const callee = ir.GenericInst.name(tnode);
-        const gid: SymbolId = if (callee.isKind(.member))
+        const gref: SymbolRef = if (callee.isKind(.member))
             (try self.qualifiedGeneric(callee)) orelse return null
         else blk: {
             const name = identAt(self.ctx.source, callee) orelse return null;
@@ -2623,17 +2625,18 @@ pub const TypeResolver = struct {
                 try self.ctx.errAt(callee, "`{s}` is not a generic type; it takes no type arguments: `add {s}: {s}`", .{ name, name, apis_text });
                 return null;
             }
-            break :blk id;
+            break :blk self.ctx.ref(id);
         };
+        const ghome = sema.homeOf(self.ctx, gref);
         // An actor's value stands only behind its handle, whose methods
         // are messages (`sema.actorMisplaced`): no value of `Actor[T]`
         // is viewed as an API object, so an addition to it, for every
         // `T` or for one, could never take effect.
-        if (self.ctx.ref(gid) == self.ctx.builtins.actor) {
+        if (gref == self.ctx.builtins.actor) {
             try self.ctx.errAt(tnode, sema.actor_added, .{text});
             return null;
         }
-        const tparams = self.ctx.symbols.items[gid].type_params orelse &.{};
+        const tparams = ghome.symbols.items[gref.sym].type_params orelse &.{};
         const args = ir.GenericInst.args(tnode);
         var tys: std.ArrayList(TypeId) = .empty;
         defer tys.deinit(self.ctx.allocator);
@@ -2642,9 +2645,9 @@ pub const TypeResolver = struct {
             const pid = self.ctx.symbolOf(leaf);
             // A value parameter of the type (`Slot[n]`, `Table[T, n]`) is
             // one of the addition's, `n`, of the type's parameter's type.
-            const value = i < tparams.len and self.ctx.symbols.items[tparams[i]].kind == .param;
+            const value = i < tparams.len and ghome.symbols.items[tparams[i]].kind == .param;
             if (value and pid != null and self.ctx.symbols.items[pid.?].kind == .param and self.ctx.symbols.items[pid.?].flags.comptime_known and !arg.isKind(.kwarg)) {
-                self.ctx.symbols.items[pid.?].ty = self.ctx.symbols.items[tparams[i]].ty;
+                self.ctx.symbols.items[pid.?].ty = ghome.symbols.items[tparams[i]].ty;
                 try params.append(self.ctx.allocator, pid.?);
                 try tys.append(self.ctx.allocator, try self.ctx.intern(.{ .ct_param = self.ctx.ref(pid.?) }));
                 continue;
@@ -2653,7 +2656,7 @@ pub const TypeResolver = struct {
                 var names: std.ArrayList(u8) = .empty;
                 for (tparams, 0..) |tp, j| {
                     if (j > 0) try names.appendSlice(self.ctx.arena.allocator(), ", ");
-                    try names.appendSlice(self.ctx.arena.allocator(), self.ctx.symbols.items[tp].name);
+                    try names.appendSlice(self.ctx.arena.allocator(), ghome.symbols.items[tp].name);
                 }
                 try self.ctx.errAt(arg, "an addition covers every instance of its type: name each of its compile-time parameters, `add {s}[{s}]: {s}`", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), names.items, apis_text });
                 return null;
@@ -2666,8 +2669,8 @@ pub const TypeResolver = struct {
             return null;
         }
         // `Slot[n]` is a number below `n`, a type of its own kind.
-        if (self.ctx.ref(gid) == self.ctx.builtins.slot) return try self.ctx.intern(.{ .slot = tys.items[0] });
-        return try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(gid), .args = tys.items } });
+        if (gref == self.ctx.builtins.slot) return try self.ctx.intern(.{ .slot = tys.items[0] });
+        return try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = gref, .args = tys.items } });
     }
 
     /// Whether `node`, the named type inside a view, handle, or other
@@ -4605,7 +4608,7 @@ pub const TypeResolver = struct {
     /// a generic type's value parameter.
     pub const CtIntUse = union(enum) {
         array_len,
-        arg: struct { param: SymbolId, owner: []const u8, index: usize },
+        arg: struct { param: SymbolRef, owner: []const u8, index: usize },
     };
 
     /// A compile-time integer in a type: an array length (`[n]T`) or a
@@ -4619,19 +4622,19 @@ pub const TypeResolver = struct {
         const what: []const u8 = if (use == .array_len) "an array length" else "a compile-time argument";
         try self.recordCtNames(node);
         if (use == .arg and self.namesType(node)) {
-            try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is a value of type `{s}`, not a type", .{ use.arg.index + 1, use.arg.owner, try sema.formatType(self.ctx, self.ctx.symbols.items[use.arg.param].ty) });
+            try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is a value of type `{s}`, not a type", .{ use.arg.index + 1, use.arg.owner, try sema.formatType(self.ctx, sema.symbolAt(self.ctx, use.arg.param).ty) });
             return t.invalid_id;
         }
         const folded = (try self.ctIntOf(node, what)) orelse return t.invalid_id;
         const ct = folded.ty;
-        const param_ty = if (use == .arg) self.ctx.symbols.items[use.arg.param].ty else t.int_id;
+        const param_ty = if (use == .arg) sema.symbolAt(self.ctx, use.arg.param).ty else t.int_id;
         // A value argument has its parameter's type, as in an expression.
         if (use == .arg and folded.int != null and !self.isPoison(param_ty)) {
             const ty = try self.ctx.intern(.{ .int = folded.int.? });
             if (ty != param_ty) {
                 const got = try sema.formatType(self.ctx, ty);
                 const want = try sema.formatType(self.ctx, param_ty);
-                try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, try self.sourceText(node), an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
+                try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, try self.sourceText(node), an(got), got, sema.symbolAt(self.ctx, use.arg.param).name, an(want), want });
                 return t.invalid_id;
             }
         }
@@ -4643,7 +4646,7 @@ pub const TypeResolver = struct {
                 },
                 .arg => |a| if (!self.isPoison(param_ty) and !sema.intFits(self.ctx, param_ty, v.int)) {
                     const ty = try sema.formatType(self.ctx, param_ty);
-                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, {s} `{s}`, cannot hold", .{ a.index + 1, a.owner, v.int, self.ctx.symbols.items[a.param].name, an(ty), ty });
+                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, {s} `{s}`, cannot hold", .{ a.index + 1, a.owner, v.int, sema.symbolAt(self.ctx, a.param).name, an(ty), ty });
                     return t.invalid_id;
                 },
             },
@@ -4652,7 +4655,7 @@ pub const TypeResolver = struct {
                 if (use == .arg and !self.isPoison(param_ty) and !self.isPoison(ty) and ty != param_ty) {
                     const got = try sema.formatType(self.ctx, ty);
                     const want = try sema.formatType(self.ctx, param_ty);
-                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, sema.symbolAt(self.ctx, sym).name, an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
+                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, sema.symbolAt(self.ctx, sym).name, an(got), got, sema.symbolAt(self.ctx, use.arg.param).name, an(want), want });
                     return t.invalid_id;
                 }
                 if (use == .array_len) try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = self.ctx.localSym(sym), .req = .array_len, .pos = self.ctx.startOf(node), .op = "an array length" });
@@ -4986,9 +4989,9 @@ pub const TypeResolver = struct {
         return self.ctx.intern(.{ .nominal = .{ .module_id = d.origin, .sym = d.id } });
     }
 
-    /// `module.Wrap` in `module.Wrap[Int]`: the proxy of a public generic
-    /// type of an imported module (`sema.proxyOf`).
-    fn qualifiedGeneric(self: *TypeResolver, member: Sexp) Error!?SymbolId {
+    /// `module.Wrap` in `module.Wrap[Int]`: a public generic type of an
+    /// imported module, by its declaration's ref.
+    fn qualifiedGeneric(self: *TypeResolver, member: Sexp) Error!?SymbolRef {
         const d = (try self.foreignDecl(ir.Member.object(member), ir.Member.name(member))) orelse return null;
         switch (d.sym.kind) {
             .generic_type => {},
@@ -5002,7 +5005,7 @@ pub const TypeResolver = struct {
             },
         }
         if (!try self.checkPublic(d)) return null;
-        return try sema.proxyOf(self.ctx, .{ .module_id = d.origin, .sym = d.id });
+        return .{ .module_id = d.origin, .sym = d.id };
     }
 
     /// What a task gives, `T!E` written as `Task[T!E]` or `Tasks[T!E]`:
@@ -5032,16 +5035,16 @@ pub const TypeResolver = struct {
     fn resolveGenericInst(self: *TypeResolver, sexp: Sexp) Error!TypeId {
         const t = self.ctx.types;
         const name_node = ir.GenericInst.name(sexp);
-        var sym_id: SymbolId = undefined;
+        var gref: SymbolRef = undefined;
         var pos: u32 = undefined;
         if (name_node.isKind(.member)) {
             // `lib.Wrap[Int]`: another module's generic type.
-            sym_id = (try self.qualifiedGeneric(name_node)) orelse return t.invalid_id;
+            gref = (try self.qualifiedGeneric(name_node)) orelse return t.invalid_id;
             pos = srcPos(ir.Member.name(name_node), 0);
         } else {
             const name = identAt(self.ctx.source, name_node).?;
             pos = name_node.src.pos;
-            sym_id = self.ctx.lookup(self.scope, name) orelse {
+            const sym_id = self.ctx.lookup(self.scope, name) orelse {
                 try self.ctx.err(pos, "use of unbound type `{s}`{s}", .{ name, try self.typeHint(name, pos) });
                 return t.invalid_id;
             };
@@ -5050,9 +5053,12 @@ pub const TypeResolver = struct {
                 try self.ctx.err(pos, "`{s}` is not a generic type", .{name});
                 return t.invalid_id;
             }
+            gref = self.ctx.ref(sym_id);
         }
-        const sym = self.ctx.symbols.items[sym_id];
-        const name = sym.name;
+        const home = sema.homeOf(self.ctx, gref);
+        const sym = home.symbols.items[gref.sym];
+        // Another module's generic type is named as this module spells it.
+        const name = if (home == @as(*const SemContext, self.ctx)) sym.name else try sema.formatTypeValue(self.ctx, self.ctx.arena.allocator(), .{ .nominal = gref });
         const tparams = sym.type_params orelse &.{};
         var supplied = ir.GenericInst.args(sexp);
         // `List[T, inline: n]`: the first `n` elements live inside the List.
@@ -5061,7 +5067,7 @@ pub const TypeResolver = struct {
             const kw = supplied[supplied.len - 1];
             supplied = supplied[0 .. supplied.len - 1];
             const key = identAt(self.ctx.source, ir.Kwarg.name(kw)) orelse "";
-            if (self.ctx.ref(sym_id) != self.ctx.builtins.list or !std.mem.eql(u8, key, "inline")) {
+            if (gref != self.ctx.builtins.list or !std.mem.eql(u8, key, "inline")) {
                 try self.ctx.errAt(kw, "`{s}:` names no argument of `{s}`; only a List takes one, `List[T, inline: n]`", .{ key, name });
                 return t.invalid_id;
             }
@@ -5076,12 +5082,12 @@ pub const TypeResolver = struct {
         var any_bad = false;
         // What a task gives may fail: `Task[Int!]`, `Tasks[Int!]` name a
         // call's result.
-        const gives = self.ctx.ref(sym_id) == self.ctx.builtins.task or self.ctx.ref(sym_id) == self.ctx.builtins.tasks;
+        const gives = gref == self.ctx.builtins.task or gref == self.ctx.builtins.tasks;
         for (supplied, tparams, 0..) |a, tp, i| {
-            const arg = if (self.ctx.symbols.items[tp].kind == .param)
-                try self.resolveCtInt(a, .{ .arg = .{ .param = tp, .owner = name, .index = i } })
+            const arg = if (home.symbols.items[tp].kind == .param)
+                try self.resolveCtInt(a, .{ .arg = .{ .param = home.ref(tp), .owner = name, .index = i } })
             else if (gives and a.isKind(.error_union)) try self.taskResult(a, null) else if (isValueSpelling(self.ctx.source, a)) blk: {
-                try self.ctx.errAt(a, "`{s}` is a value; `{s}` takes a type", .{ try self.sourceText(a), self.ctx.symbols.items[tp].name });
+                try self.ctx.errAt(a, "`{s}` is a value; `{s}` takes a type", .{ try self.sourceText(a), home.symbols.items[tp].name });
                 break :blk t.invalid_id;
             } else try self.resolveType(a);
             if (sema.containsPoison(self.ctx, arg) or try self.heldCallable(a, arg) or try self.misplacedAt(a, arg, .type_arg)) any_bad = true;
@@ -5090,9 +5096,9 @@ pub const TypeResolver = struct {
         // An instance with a rejected argument is poison: what follows
         // from it was already reported.
         if (any_bad) return t.invalid_id;
-        const inst = try self.instanceOf(sym_id, args.items, pos);
+        const inst = try self.instanceOf(gref, args.items, pos);
         if (inline_len == 0 or self.isPoison(inst)) return inst;
-        return self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(sym_id), .args = args.items, .inline_len = inline_len } });
+        return self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = gref, .args = args.items, .inline_len = inline_len } });
     }
 
     /// The most elements a List keeps inline: they live in its value, on
@@ -5129,21 +5135,21 @@ pub const TypeResolver = struct {
 
     /// `^T`: the built-in box of `T`, spelled at `pos`.
     pub fn boxOf(self: *TypeResolver, inner: TypeId, pos: u32) Error!TypeId {
-        return self.instanceOf(self.ctx.localSym(self.ctx.builtins.box), &.{inner}, pos);
+        return self.instanceOf(self.ctx.builtins.box, &.{inner}, pos);
     }
 
-    /// The instance of generic `sym_id` at `args`, spelled at `pos`.
-    fn instanceOf(self: *TypeResolver, sym_id: SymbolId, args_in: []const TypeId, pos: u32) Error!TypeId {
-        if (self.ctx.ref(sym_id) == self.ctx.builtins.simd) return simdInstance(self.ctx, args_in, pos);
-        if (self.ctx.ref(sym_id) == self.ctx.builtins.slot) return slotInstance(self.ctx, args_in, pos);
-        const sym = self.ctx.symbols.items[sym_id];
-        const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(sym_id), .args = args_in } });
+    /// The instance of generic `gref` at `args`, spelled at `pos`.
+    fn instanceOf(self: *TypeResolver, gref: SymbolRef, args_in: []const TypeId, pos: u32) Error!TypeId {
+        if (gref == self.ctx.builtins.simd) return simdInstance(self.ctx, args_in, pos);
+        if (gref == self.ctx.builtins.slot) return slotInstance(self.ctx, args_in, pos);
+        const sym = sema.symbolAt(self.ctx, gref).*;
+        const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = gref, .args = args_in } });
         const inst = self.ctx.types.get(ty).parameterized_nominal;
         if (sym.decl_pos == sema.builtin_decl_pos) {
-            try self.checkWhenResolved(.{ .builtin = .{ .pos = pos, .sym = sym_id, .args = inst.args } });
+            try self.checkWhenResolved(.{ .builtin = .{ .pos = pos, .sym = self.ctx.localSym(gref), .args = inst.args } });
         }
         // `*Frozen[T]` of a generic parameter: each instance's must freeze.
-        if (self.ctx.ref(sym_id) == self.ctx.builtins.frozen and inst.args.len == 1) try sema.requireFrozen(self.ctx, inst.args[0], pos);
+        if (gref == self.ctx.builtins.frozen and inst.args.len == 1) try sema.requireFrozen(self.ctx, inst.args[0], pos);
         if (!sema.containsTypeVar(self.ctx, ty)) {
             if (sym.decl_pos != sema.builtin_decl_pos) try self.checkWhenResolved(.{ .instance_stacking = .{ .pos = pos, .ty = ty } });
             const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
@@ -5158,10 +5164,10 @@ pub const TypeResolver = struct {
             // an argument made of other types (`Pair[T, U]`), are asked
             // then, whatever the declarations' order.
             if (sym.type_params) |tps| {
-                try self.implyBounds(sym_id, tps, inst.args);
+                try self.implyBounds(gref, tps, inst.args);
                 if (!self.ctx.contents_ready) {
                     try self.ctx.deferred_checks.append(self.ctx.allocator, .{ .bounds = .{ .pos = pos, .ty = ty, .widened = try sema.snapshotWidened(self.ctx) } });
-                } else _ = try sema.checkBounds(self.ctx, sema.paramRefs(self.ctx, self.ctx.ref(sym_id)), inst.args, pos, .{ .type = ty });
+                } else _ = try sema.checkBounds(self.ctx, sema.paramRefs(self.ctx, gref), inst.args, pos, .{ .type = ty });
             }
             try self.ctx.addUse(ty, self.body, pos);
         }
@@ -5177,7 +5183,7 @@ pub const TypeResolver = struct {
     /// resolved later may still add to (`impliedFixpoint`). An API of a
     /// program's own is never implied: it is a compile-time parameter of
     /// the declaration, its witness, so it is written.
-    fn implyBounds(self: *TypeResolver, generic: SymbolId, tparams: []const SymbolId, args: []const TypeId) Error!void {
+    fn implyBounds(self: *TypeResolver, generic: SymbolRef, tparams: []const SymbolId, args: []const TypeId) Error!void {
         if (self.implying.len == 0) return;
         for (args, 0..) |arg, i| {
             if (i >= tparams.len) break;
@@ -5186,7 +5192,7 @@ pub const TypeResolver = struct {
                 else => continue,
             };
             if (std.mem.findScalar(SymbolId, self.implying, self.ctx.localSym(p)) == null) continue;
-            const from = self.ctx.symbols.items[tparams[i]];
+            const from = sema.homeOf(self.ctx, generic).symbols.items[tparams[i]];
             self.ctx.symbols.items[self.ctx.localSym(p)].implied.setUnion(from.apis.unionWith(from.implied));
             try self.ctx.implications.append(self.ctx.allocator, .{ .param = self.ctx.localSym(p), .generic = generic, .index = @intCast(i) });
         }
@@ -5426,7 +5432,8 @@ pub fn isNumericTypeName(name: []const u8) bool {
 // Built-in generic types
 //
 // `Cell[T]`, `List[T]`, `^T`, and `Signal[T]`, and the enum `Endian`, registered
-// in every module scope before user declarations. The generics' methods
+// once, in module 0, and seeded into every module scope before user
+// declarations (`seedBuiltins`). The generics' methods
 // are ordinary method Fields on generic symbols, so calls go through the
 // same lookup and substitution as user generics; the runtime
 // (`runtime.zig`) implements them.
@@ -5478,11 +5485,12 @@ const signal_get: sema.Needs = .{ .t = .copies, .op = "copies out with `Signal.g
 } };
 
 pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
+    const b = &ctx.program_types.builtins;
     // Cell[T]: the slot a shared handle shares. What changes it takes
     // `!@`, so a call marks the change: `!c.set(5)`.
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Cell", &.{"T"});
-        ctx.builtins.cell = ctx.ref(g.sym);
+        b.cell = ctx.ref(g.sym);
         const t = g.params[0];
         const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
@@ -5507,7 +5515,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // `task.select` (`Checker.taskSelect`).
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Chan", &.{"T"});
-        ctx.builtins.chan = ctx.ref(g.sym);
+        b.chan = ctx.ref(g.sym);
         const t = g.params[0];
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         const fails = try ctx.intern(.{ .fallible = .{ .ok = ctx.types.void_id } });
@@ -5524,7 +5532,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // is a message (`Checker.actorCall`); it has no members of its own.
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Actor", &.{"T"});
-        ctx.builtins.actor = ctx.ref(g.sym);
+        b.actor = ctx.ref(g.sym);
     }
 
     // Frozen[T]: a value no one changes again, behind `*`: `*Frozen(x)`.
@@ -5532,13 +5540,13 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // fields and methods are reached through them (`sema.unwrapAccess`).
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Frozen", &.{"T"});
-        ctx.builtins.frozen = ctx.ref(g.sym);
+        b.frozen = ctx.ref(g.sym);
     }
 
     // List[T]: growable buffer that owns its elements.
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "List", &.{"T"});
-        ctx.builtins.list = ctx.ref(g.sym);
+        b.list = ctx.ref(g.sym);
         const t = g.params[0];
         const read_self = try ctx.intern(.{ .read_view = g.self_ty });
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
@@ -5574,7 +5582,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // a diagnostic would spell it.
     {
         const g = try addGeneric(ctx, null, module_scope, "^", &.{"T"});
-        ctx.builtins.box = ctx.ref(g.sym);
+        b.box = ctx.ref(g.sym);
         const t = g.params[0];
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
@@ -5592,7 +5600,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .scope = module_scope,
         });
         try ctx.addToScope(module_scope, sym);
-        ctx.builtins.endian = ctx.ref(sym);
+        b.endian = ctx.ref(sym);
         try setFields(ctx, sym, &.{
             .{ .name = "little", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
             .{ .name = "big", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
@@ -5611,7 +5619,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .scope = module_scope,
         });
         try ctx.addToScope(module_scope, sym);
-        ctx.builtins.order = ctx.ref(sym);
+        b.order = ctx.ref(sym);
         const self_ty = try ctx.intern(.{ .nominal = ctx.ref(sym) });
         try setFields(ctx, sym, &.{
             .{ .name = "less", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
@@ -5634,7 +5642,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .scope = module_scope,
         });
         try ctx.addToScope(module_scope, sym);
-        ctx.builtins.printer = ctx.ref(sym);
+        b.printer = ctx.ref(sym);
         const self_ty = try ctx.intern(.{ .nominal = ctx.ref(sym) });
         try setFields(ctx, sym, &.{
             try method(ctx, "text", .write, &.{ try ctx.intern(.{ .write_view = self_ty }), ctx.types.string_view_id }, ctx.types.void_id, null),
@@ -5653,7 +5661,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .scope = module_scope,
         });
         try ctx.addToScope(module_scope, sym);
-        ctx.builtins.hasher = ctx.ref(sym);
+        b.hasher = ctx.ref(sym);
         try setFields(ctx, sym, &.{});
     }
 
@@ -5670,7 +5678,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .scope = module_scope,
         });
         try ctx.addToScope(module_scope, sym);
-        ctx.builtins.arch = ctx.ref(sym);
+        b.arch = ctx.ref(sym);
         const names = @typeInfo(std.Target.Cpu.Arch).@"enum".field_names;
         var variants: [names.len]sema.Field = undefined;
         for (names, &variants) |n, *v| v.* = .{ .name = n, .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true };
@@ -5689,7 +5697,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .scope = module_scope,
         });
         try ctx.addToScope(module_scope, sym);
-        ctx.builtins.os = ctx.ref(sym);
+        b.os = ctx.ref(sym);
         const names = @typeInfo(std.Target.Os.Tag).@"enum".field_names;
         var variants: [names.len]sema.Field = undefined;
         for (names, &variants) |n, *v| v.* = .{ .name = n, .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true };
@@ -5708,7 +5716,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .scope = module_scope,
         });
         try ctx.addToScope(module_scope, sym);
-        ctx.builtins.feature = ctx.ref(sym);
+        b.feature = ctx.ref(sym);
         const names = @typeInfo(runtime.Feature).@"enum".field_names;
         var variants: [names.len]sema.Field = undefined;
         for (names, &variants) |n, *v| v.* = .{ .name = n, .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true };
@@ -5720,7 +5728,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // knows; the symbol only names it, so it is reserved like `List`.
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Simd", &.{ "T", "n" });
-        ctx.builtins.simd = ctx.ref(g.sym);
+        b.simd = ctx.ref(g.sym);
         const n = ctx.symbols.items[g.sym].type_params.?[1];
         ctx.symbols.items[n].kind = .param;
         ctx.symbols.items[n].ty = ctx.types.int_id;
@@ -5734,7 +5742,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // a module's own `Table` or `Slot` hides the built-in one.
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Table", &.{ "T", "n" });
-        ctx.builtins.table = ctx.ref(g.sym);
+        b.table = ctx.ref(g.sym);
         const n = ctx.symbols.items[g.sym].type_params.?[1];
         ctx.symbols.items[n].kind = .param;
         ctx.symbols.items[n].ty = ctx.types.int_id;
@@ -5746,7 +5754,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "push", .write, &.{ write_self, g.params[0] }, slot, null),
         });
         const s = try addGeneric(ctx, module_scope, module_scope, "Slot", &.{"n"});
-        ctx.builtins.slot = ctx.ref(s.sym);
+        b.slot = ctx.ref(s.sym);
         const sn = ctx.symbols.items[s.sym].type_params.?[0];
         ctx.symbols.items[sn].kind = .param;
         ctx.symbols.items[sn].ty = ctx.types.int_id;
@@ -5755,7 +5763,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // Signal[T]: a value that copies, plus subscriber closures notified on `set`.
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Signal", &.{"T"});
-        ctx.builtins.signal = ctx.ref(g.sym);
+        b.signal = ctx.ref(g.sym);
         const t = g.params[0];
         const self_ty = try ctx.intern(.{ .read_view = g.self_ty });
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
@@ -5777,7 +5785,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // (docs/design/concurrency.md).
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Task", &.{"T"});
-        ctx.builtins.task = ctx.ref(g.sym);
+        b.task = ctx.ref(g.sym);
         ctx.symbols.items[g.sym].flags.unique = true;
         const t = g.params[0];
         try setFields(ctx, g.sym, &.{
@@ -5791,7 +5799,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         // give depends on whether `T` can fail, so typecheck types their
         // calls (`Checker.taskSetCall`); `len` is a member, as a List's.
         const s = try addGeneric(ctx, module_scope, module_scope, "Tasks", &.{"T"});
-        ctx.builtins.tasks = ctx.ref(s.sym);
+        b.tasks = ctx.ref(s.sym);
         ctx.symbols.items[s.sym].flags.unique = true;
         const st = s.params[0];
         const task_of = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.ref(g.sym), .args = try ctx.dupeIds(&.{st}) } });
@@ -5801,15 +5809,57 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
     ctx.builtin_end = @intCast(ctx.symbols.items.len);
-    try registerPrelude(ctx, module_scope);
+}
+
+/// Start the table and scope of module `ctx` with the built-ins, which
+/// module 0's context registers once for the program (`builtinContext`):
+/// their symbols, at the same ids, so a module reads a built-in from its
+/// own table; the generics' parameters; the types they intern, as this
+/// module's; and their names in the module's scope, where only
+/// std.prelude names the tables. Then the prelude's names, around it.
+pub fn seedBuiltins(ctx: *SemContext) Error!void {
+    const base = try builtinContext(ctx);
+    std.debug.assert(ctx.symbols.items.len == 1);
+    try ctx.symbols.appendSlice(ctx.allocator, base.symbols.items[1..base.builtin_end]);
+    ctx.builtin_end = base.builtin_end;
+    var params = base.param_refs.iterator();
+    while (params.next()) |e| try ctx.param_refs.put(ctx.allocator, e.key_ptr.*, e.value_ptr.*);
+    for (base.interned.items) |t| try ctx.noteInterned(t);
+    const b = ctx.builtins;
+    const names_tables = ctx.is_std and std.mem.eql(u8, ctx.name, "std." ++ rig.builtin_module_name);
+    for (base.scopes.items[sema.module_scope].symbols.items) |id| {
+        const r = ctx.ref(id);
+        if (!names_tables and (r == b.ordered_map or r == b.ordered_set or r == b.unordered_map or r == b.unordered_set)) continue;
+        try ctx.addToScope(sema.module_scope, id);
+    }
+    try registerPrelude(ctx, sema.module_scope);
+}
+
+/// Module 0's context, the program's own, which registers the built-ins
+/// (`program.Types.base`): made by the first module checked, before any
+/// module interns a type of its own.
+fn builtinContext(ctx: *SemContext) Error!*const SemContext {
+    const types = ctx.program_types;
+    if (types.base) |b| return b;
+    const a = ctx.allocator;
+    const base = try a.create(SemContext);
+    errdefer a.destroy(base);
+    base.* = try SemContext.initIn(a, "", types);
+    errdefer base.deinit();
+    const scope = try base.pushScopeKind(sema.scope_invalid, .module);
+    std.debug.assert(scope == sema.module_scope);
+    try registerBuiltins(base, scope);
+    types.base = base;
+    return base;
 }
 
 /// The built-in types written in Rig that the module names
 /// (`Parser.prelude_names`), std/prelude.rig's, in a scope around the
 /// module's, so that any declaration of the module and any name of a
-/// narrower scope hides one, as it would an outer name. A generic type is
-/// the proxy of its declaration (`sema.proxyOf`), and `Lanes`, the one
-/// that is not, an alias of it.
+/// narrower scope hides one, as it would an outer name. Each is an alias
+/// of its declaration: a generic type's names it by its ref (`from`, which
+/// `SemContext.ref` gives), and `Lanes`, the one that is not generic, is
+/// a type alias.
 fn registerPrelude(ctx: *SemContext, module_scope: ScopeId) Error!void {
     const imp = for (ctx.imports) |imp| {
         if (std.mem.eql(u8, imp.local_name, rig.builtin_binding_name)) break imp;
@@ -5823,7 +5873,15 @@ fn registerPrelude(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const fsym = prelude.symbols.items[fid];
         if (names & rig.builtinTypeBit(fsym.name) == 0 or !fsym.flags.is_public or fsym.decl_pos >= sema.imported_decl_pos) continue;
         const id = switch (fsym.kind) {
-            .generic_type => try sema.proxyOf(ctx, .{ .module_id = imp.module_id, .sym = fid }),
+            .generic_type => try ctx.addSymbol(.{
+                .name = fsym.name,
+                .kind = .generic_type,
+                .ty = ctx.types.unknown_id,
+                .decl_pos = sema.imported_decl_pos,
+                .scope = scope,
+                .flags = .{ .is_public = true },
+                .from = .{ .module_id = imp.module_id, .sym = fid },
+            }),
             .nominal_type => try ctx.addSymbol(.{
                 .name = fsym.name,
                 .kind = .type_alias,
@@ -5910,62 +5968,28 @@ fn method(ctx: *SemContext, name: []const u8, self_mode: SelfMode, params: []con
 /// The tables behind `Map` and `Set` (src/ordered.zig), `OrderedMap[K,
 /// V]` and `OrderedSet[K]`, and behind `HashMap` and `HashSet`
 /// (src/unordered.zig), `UnorderedMap[K, V]` and `UnorderedSet[K]`, whose
-/// members std/prelude.rig's types call. Every module registers them, so
-/// their symbols are the same in each, and only std.prelude's scope
-/// names them: no program writes one. Each member's origins are those a
+/// members std/prelude.rig's types call. Module 0 registers them with
+/// the other built-ins, and only std.prelude's scope names them
+/// (`seedBuiltins`): no program writes one. Each member's origins are those a
 /// Rig declaration of its signature with no `from` or `keeps` would have
 /// (`sema.signatureOrigins`), so a wrapper of the same signature passes
 /// on exactly what it does.
 fn registerTables(ctx: *SemContext, module_scope: ScopeId) Error!void {
-    ctx.builtins.ordered_map = ctx.ref(try registerTable(ctx, module_scope, "OrderedMap", true, true, &table_origins[0]));
-    ctx.builtins.ordered_set = ctx.ref(try registerTable(ctx, module_scope, "OrderedSet", false, true, &table_origins[1]));
-    ctx.builtins.unordered_map = ctx.ref(try registerTable(ctx, module_scope, "UnorderedMap", true, false, &table_origins[2]));
-    ctx.builtins.unordered_set = ctx.ref(try registerTable(ctx, module_scope, "UnorderedSet", false, false, &table_origins[3]));
+    const b = &ctx.program_types.builtins;
+    b.ordered_map = ctx.ref(try registerTable(ctx, module_scope, "OrderedMap", true, true));
+    b.ordered_set = ctx.ref(try registerTable(ctx, module_scope, "OrderedSet", false, true));
+    b.unordered_map = ctx.ref(try registerTable(ctx, module_scope, "UnorderedMap", true, false));
+    b.unordered_set = ctx.ref(try registerTable(ctx, module_scope, "UnorderedSet", false, false));
 }
-
-/// The origins of a table's members' signatures (`sema.signatureOrigins`),
-/// in the order `registerTable` makes them: the same in every module, so
-/// worked out by the first module to register the table and read by the
-/// rest (`tableMethod`). `state` is empty, being written by one module, or
-/// ready to read.
-const TableOrigins = struct {
-    of: [max_members]sema.Origins = undefined,
-    state: std.atomic.Value(enum(u8) { empty, writing, ready }) = .init(.empty),
-
-    const max_members = 32;
-};
-
-var table_origins: [4]TableOrigins = @splat(.{});
-
-/// A table being registered, and its members' origins: read when ready,
-/// else worked out, and written when this module is the first.
-const TableBuild = struct {
-    origins: *TableOrigins,
-    read: bool,
-    write: bool,
-    next: usize = 0,
-
-    fn begin(origins: *TableOrigins) TableBuild {
-        if (origins.state.load(.acquire) == .ready) return .{ .origins = origins, .read = true, .write = false };
-        const first = origins.state.cmpxchgStrong(.empty, .writing, .acquire, .monotonic) == null;
-        return .{ .origins = origins, .read = false, .write = first };
-    }
-
-    fn end(t: *const TableBuild) void {
-        if (t.write) t.origins.state.store(.ready, .release);
-    }
-};
 
 /// One table (`registerTables`): a Map's, of keys and values, or a Set's,
 /// of keys; walked in order by runs (`ordered`), or slot by slot.
-fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_map: bool, ordered: bool, origins: *TableOrigins) Error!SymbolId {
-    var t: TableBuild = .begin(origins);
-    const named: ?ScopeId = if (ctx.is_std and std.mem.eql(u8, ctx.name, "std." ++ rig.builtin_module_name)) module_scope else null;
+fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_map: bool, ordered: bool) Error!SymbolId {
     const int = ctx.types.int_id;
     const opt_int = try ctx.intern(.{ .optional = int });
     const boolean = ctx.types.bool_id;
     const void_id = ctx.types.void_id;
-    const g = try addGeneric(ctx, named, module_scope, name, if (is_map) &.{ "K", "V" } else &.{"K"});
+    const g = try addGeneric(ctx, module_scope, module_scope, name, if (is_map) &.{ "K", "V" } else &.{"K"});
     const k = g.params[0];
     const read_self = try ctx.intern(.{ .read_view = g.self_ty });
     const write_self = try ctx.intern(.{ .write_view = g.self_ty });
@@ -5973,8 +5997,8 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
     var fields: std.ArrayList(Field) = .empty;
     defer fields.deinit(ctx.allocator);
     const a = ctx.allocator;
-    try fields.append(a, try tableMethod(ctx, &t, "find", .read, &.{ read_self, read_k }, opt_int));
-    try fields.append(a, try tableMethod(ctx, &t, "key", .read, &.{ read_self, int }, read_k));
+    try fields.append(a, try tableMethod(ctx, "find", .read, &.{ read_self, read_k }, opt_int));
+    try fields.append(a, try tableMethod(ctx, "key", .read, &.{ read_self, int }, read_k));
     if (is_map) {
         const v = g.params[1];
         const read_v = try ctx.intern(.{ .read_view = v });
@@ -5983,31 +6007,31 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
         const update_f = try sema.callableOfFn(ctx, try ctx.intern(.{ .function = .{ .params = try ctx.dupeIds(&.{ read_k, write_v }), .returns = void_id, .is_sub = true } }));
         const retain_f = try sema.callableOfFn(ctx, try ctx.intern(.{ .function = .{ .params = try ctx.dupeIds(&.{ read_k, write_v }), .returns = boolean, .is_sub = false } }));
         try fields.appendSlice(a, &.{
-            try tableMethod(ctx, &t, "value", .read, &.{ read_self, int }, read_v),
-            try tableMethod(ctx, &t, "value_mut", .write, &.{ write_self, int }, write_v),
-            try tableMethod(ctx, &t, "put", .write, &.{ write_self, k, v }, boolean),
-            try tableMethod(ctx, &t, "replace", .write, &.{ write_self, k, v }, opt_v),
-            try tableMethod(ctx, &t, "put_new", .write, &.{ write_self, k, v }, boolean),
+            try tableMethod(ctx, "value", .read, &.{ read_self, int }, read_v),
+            try tableMethod(ctx, "value_mut", .write, &.{ write_self, int }, write_v),
+            try tableMethod(ctx, "put", .write, &.{ write_self, k, v }, boolean),
+            try tableMethod(ctx, "replace", .write, &.{ write_self, k, v }, opt_v),
+            try tableMethod(ctx, "put_new", .write, &.{ write_self, k, v }, boolean),
             // The unordered table's `ensure` gives a view of the value where
             // its probe found or put the key, and writes the count to the
             // HashMap's `len` only for a new one (`notFromLen`); the ordered
             // table's gives the entry's index.
-            if (ordered) try tableMethod(ctx, &t, "ensure", .write, &.{ write_self, k, v }, int) else try notFromLen(try tableMethod(ctx, &t, "ensure", .write, &.{ write_self, k, v, try ctx.intern(.{ .write_view = int }) }, write_v)),
-            try tableMethod(ctx, &t, "insert_new", .write, &.{ write_self, k, v }, int),
-            try tableMethod(ctx, &t, "take", .write, &.{ write_self, read_k }, opt_v),
-            try viewsEntries(try tableMethod(ctx, &t, "update", .write, &.{ write_self, update_f }, void_id)),
-            try viewsEntries(try tableMethod(ctx, &t, "retain", .write, &.{ write_self, retain_f }, void_id)),
+            if (ordered) try tableMethod(ctx, "ensure", .write, &.{ write_self, k, v }, int) else try notFromLen(try tableMethod(ctx, "ensure", .write, &.{ write_self, k, v, try ctx.intern(.{ .write_view = int }) }, write_v)),
+            try tableMethod(ctx, "insert_new", .write, &.{ write_self, k, v }, int),
+            try tableMethod(ctx, "take", .write, &.{ write_self, read_k }, opt_v),
+            try viewsEntries(try tableMethod(ctx, "update", .write, &.{ write_self, update_f }, void_id)),
+            try viewsEntries(try tableMethod(ctx, "retain", .write, &.{ write_self, retain_f }, void_id)),
         });
     } else {
         const opt_k = try ctx.intern(.{ .optional = k });
         const retain_f = try sema.callableOfFn(ctx, try ctx.intern(.{ .function = .{ .params = try ctx.dupeIds(&.{read_k}), .returns = boolean, .is_sub = false } }));
         try fields.appendSlice(a, &.{
-            try tableMethod(ctx, &t, "add", .write, &.{ write_self, k }, boolean),
-            try tableMethod(ctx, &t, "take", .write, &.{ write_self, read_k }, opt_k),
-            try tableMethod(ctx, &t, "retain", .write, &.{ write_self, retain_f }, void_id),
+            try tableMethod(ctx, "add", .write, &.{ write_self, k }, boolean),
+            try tableMethod(ctx, "take", .write, &.{ write_self, read_k }, opt_k),
+            try tableMethod(ctx, "retain", .write, &.{ write_self, retain_f }, void_id),
         });
     }
-    try fields.append(a, try tableMethod(ctx, &t, "count", .read, &.{read_self}, int));
+    try fields.append(a, try tableMethod(ctx, "count", .read, &.{read_self}, int));
     if (is_map) {
         // A lookup that hands back the value's view at once, so the entry
         // it found is read where it was found, in either table: declared
@@ -6017,48 +6041,37 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
         const opt_read_v = try ctx.intern(.{ .optional = try ctx.intern(.{ .read_view = v }) });
         const opt_write_v = try ctx.intern(.{ .optional = try ctx.intern(.{ .write_view = v }) });
         try fields.appendSlice(a, &.{
-            try fromSelf(try tableMethod(ctx, &t, "get", .read, &.{ read_self, read_k }, opt_read_v)),
-            try fromSelf(try tableMethod(ctx, &t, "edit", .write, &.{ write_self, read_k }, opt_write_v)),
+            try fromSelf(try tableMethod(ctx, "get", .read, &.{ read_self, read_k }, opt_read_v)),
+            try fromSelf(try tableMethod(ctx, "edit", .write, &.{ write_self, read_k }, opt_write_v)),
         });
     }
     if (ordered) {
         try fields.appendSlice(a, &.{
-            try tableMethod(ctx, &t, "written", .read, &.{read_self}, int),
-            try tableMethod(ctx, &t, "holes", .read, &.{read_self}, boolean),
-            try tableMethod(ctx, &t, "live_from", .read, &.{ read_self, int }, int),
-            try tableMethod(ctx, &t, "gone_from", .read, &.{ read_self, int }, int),
-            try tableMethod(ctx, &t, "nth", .read, &.{ read_self, int }, int),
+            try tableMethod(ctx, "written", .read, &.{read_self}, int),
+            try tableMethod(ctx, "holes", .read, &.{read_self}, boolean),
+            try tableMethod(ctx, "live_from", .read, &.{ read_self, int }, int),
+            try tableMethod(ctx, "gone_from", .read, &.{ read_self, int }, int),
+            try tableMethod(ctx, "nth", .read, &.{ read_self, int }, int),
         });
     } else {
         try fields.appendSlice(a, &.{
-            try tableMethod(ctx, &t, "next_slot", .read, &.{ read_self, try ctx.intern(.{ .write_view = int }), try ctx.intern(.{ .write_view = int }) }, int),
+            try tableMethod(ctx, "next_slot", .read, &.{ read_self, try ctx.intern(.{ .write_view = int }), try ctx.intern(.{ .write_view = int }) }, int),
         });
     }
     try fields.appendSlice(a, &.{
-        try tableMethod(ctx, &t, "clear", .write, &.{write_self}, void_id),
-        try tableMethod(ctx, &t, "reserve", .write, &.{ write_self, int }, void_id),
+        try tableMethod(ctx, "clear", .write, &.{write_self}, void_id),
+        try tableMethod(ctx, "reserve", .write, &.{ write_self, int }, void_id),
     });
     try setFields(ctx, g.sym, fields.items);
-    t.end();
     return g.sym;
 }
 
-/// A member of a table, with the origins of its signature, read from the
-/// first module's (`TableOrigins`) or worked out. Self-checking builds
-/// work out each and compare.
-fn tableMethod(ctx: *SemContext, t: *TableBuild, name: []const u8, self_mode: SelfMode, params: []const TypeId, returns: TypeId) Error!Field {
+/// A member of a table, with the origins of its signature.
+fn tableMethod(ctx: *SemContext, name: []const u8, self_mode: SelfMode, params: []const TypeId, returns: TypeId) Error!Field {
     var f = try method(ctx, name, self_mode, params, returns, null);
-    const i = t.next;
-    t.next += 1;
-    if (t.read and !@import("build_options").self_check) {
-        f.origins = t.origins.of[i];
-        return f;
-    }
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
     defer scratch.deinit();
     f.origins = try sema.signatureOrigins(ctx, scratch.allocator(), ctx.types.get(f.ty).function);
-    if (t.read) std.debug.assert(std.meta.eql(t.origins.of[i], f.origins));
-    if (t.write) t.origins.of[i] = f.origins;
     return f;
 }
 

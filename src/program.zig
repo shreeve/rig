@@ -99,6 +99,12 @@ pub const Types = struct {
     /// leaves it (`sema.checkedBefore`). Kept in `keys`.
     checked: std.StringHashMapUnmanaged(sema.Checked) = .empty,
     keys: std.heap.ArenaAllocator,
+    /// The built-in types and enums, by their refs in module 0.
+    builtins: sema.Builtins = .{},
+    /// Module 0, the program's own: the one context that registers the
+    /// built-ins, whose symbols every module's table starts with
+    /// (`resolve.seedBuiltins`). Made by the first module checked.
+    base: ?*SemContext = null,
 
     pub fn init(a: std.mem.Allocator) !Types {
         const store = try sema.TypeStore.init(a);
@@ -106,6 +112,10 @@ pub const Types = struct {
     }
 
     pub fn deinit(t: *Types, a: std.mem.Allocator) void {
+        if (t.base) |b| {
+            b.deinit();
+            a.destroy(b);
+        }
         t.store.deinit(a);
         t.info.deinit(a);
         t.keys.deinit();
@@ -166,7 +176,7 @@ pub fn decideWords(mods: []const modules.Module, t: *Table) !void {
 /// whole program at once, since the enum may be another module's.
 pub fn decideExactEnums(mods: []const modules.Module, t: *Table) !void {
     for (mods) |m| for (m.sema.symbols.items) |sym| {
-        if (sema.isProxy(sym) or sym.kind != .nominal_type or !sym.flags.exact) continue;
+        if (sym.kind != .nominal_type or !sym.flags.exact) continue;
         for (sym.fields orelse &.{}) |f| {
             if (f.is_method or f.is_variant or f.is_drop_method) continue;
             try exactEnum(m.sema, f.ty, t);

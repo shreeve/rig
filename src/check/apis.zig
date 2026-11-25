@@ -26,7 +26,7 @@ const CompatCheck = @import("compat.zig");
 /// in the program, written in the type's module or the API's.
 pub fn checkApis(ctx: *SemContext) Error!void {
     for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and !sema.isProxy(sym)) try checkApiDecl(ctx, @intCast(i));
+        if (sym.kind == .api) try checkApiDecl(ctx, @intCast(i));
     }
     for (ctx.conformances.items, 0..) |_, i| try checkConformance(ctx, i);
 }
@@ -370,8 +370,8 @@ pub fn genericSym(ctx: *const SemContext, ty: TypeId) ?sema.SymbolRef {
 /// there a header says the rest. False after a diagnostic.
 pub fn checkAddHome(ctx: *SemContext, conf: sema.Conformance, tname: []const u8, api_name: []const u8) Error!bool {
     const own_type = switch (ctx.types.get(conf.ty)) {
-        .nominal => |s| ctx.owns(s) and !sema.isProxy(ctx.symbols.items[s.sym]) and ctx.symbols.items[s.sym].decl_pos != sema.builtin_decl_pos,
-        .parameterized_nominal => |pn| !sema.isProxy(sema.symbolAt(ctx, pn.sym).*) and sema.symbolAt(ctx, pn.sym).decl_pos != sema.builtin_decl_pos,
+        .nominal => |s| ctx.owns(s) and ctx.symbols.items[s.sym].decl_pos != sema.builtin_decl_pos,
+        .parameterized_nominal => |pn| ctx.owns(pn.sym) and sema.symbolAt(ctx, pn.sym).decl_pos != sema.builtin_decl_pos,
         else => false,
     };
     if (own_type) {
@@ -659,11 +659,10 @@ pub fn apiMethodType(ctx: *SemContext, w: ApiMethod, conf: sema.Conformance, hav
     };
     const api_sym = sema.apiSymbol(ctx, w.api) orelse return null;
     const home_self = (api_sym.type_params orelse return null)[0];
-    const self_param = if (w.home == @as(*const SemContext, ctx)) home_self else try sema.proxyOf(ctx, .{ .module_id = w.api.module_id, .sym = home_self });
     var params: std.ArrayList(SymbolRef) = .empty;
     var args: std.ArrayList(TypeId) = .empty;
     const a = ctx.arena.allocator();
-    try params.append(a, ctx.ref(self_param));
+    try params.append(a, w.home.ref(home_self));
     try args.append(a, conf.ty);
     if (f.ct_syms.len == got.ct_syms.len) for (f.ct_syms, got.ct_syms, 0..) |p, g, i| {
         if (p.sym == sema.symbol_invalid or g.sym == sema.symbol_invalid) continue;
