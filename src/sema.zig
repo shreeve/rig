@@ -2166,7 +2166,7 @@ pub const KeyKind = enum { node, expr, raw };
 pub const ColumnSpec = struct { writer: Pass = .check, key: ?KeyKind = null };
 
 /// The maps of `SemContext` outside `Facts` that are columns too.
-const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards", "call_targets", "inline_calls", "once_captures", "const_ints", "const_floats", "ct_locals" };
+const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards", "call_targets", "inline_calls", "once_captures", "const_ints", "const_floats", "ct_locals", "unit_of", "unit_roots", "proven", "proven_if", "flags", "result_bounds" };
 
 /// Every column of the recorder: each map of `Facts`, then each of
 /// `ctx_columns`. A column has one writer pass (`specs`), and every write
@@ -2196,6 +2196,12 @@ pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .const_ints = .{ .key = .raw },
     .const_floats = .{ .key = .raw },
     .ct_locals = .{ .key = .raw },
+    .unit_of = .{ .writer = .storage },
+    .unit_roots = .{ .writer = .storage },
+    .proven = .{ .writer = .proofs },
+    .proven_if = .{ .writer = .proofs },
+    .flags = .{ .writer = .proofs },
+    .result_bounds = .{ .writer = .proofs, .key = .raw },
 };
 
 fn specOf(comptime c: Column) ColumnSpec {
@@ -5253,7 +5259,7 @@ pub const SemContext = struct {
     /// and, in a self-checking build, only before its writer sealed it.
     fn writing(self: *const SemContext, comptime p: Pass, comptime c: Column) void {
         if (comptime specOf(c).writer != p) @compileError("pass `" ++ @tagName(p) ++ "` writes column `" ++ @tagName(c) ++ "`, which only `" ++ @tagName(specOf(c).writer) ++ "` writes");
-        if (self_check and self.sealed.isSet(@intFromEnum(c))) std.debug.panic("column `{s}` written after its writer, `{s}`, ended", .{ @tagName(c), @tagName(p) });
+        if (self_check and self.sealed.isSet(@backingInt(c))) std.debug.panic("column `{s}` written after its writer, `{s}`, ended", .{ @tagName(c), @tagName(p) });
     }
 
     /// Seal every column pass `p` writes: in a self-checking build, a
@@ -5270,7 +5276,7 @@ pub const SemContext = struct {
     pub fn putIn(self: *SemContext, comptime p: Pass, comptime c: Column, key: MapKey(ColumnMap(c)), value: MapValue(ColumnMap(c))) std.mem.Allocator.Error!void {
         self.writing(p, c);
         const map = self.columnMap(c);
-        if (self.trail.open > 0) try self.trail.log(self.allocator, @intFromEnum(c), key, map.get(key));
+        if (self.trail.open > 0) try self.trail.log(self.allocator, @backingInt(c), key, map.get(key));
         try map.put(self.allocator, key, value);
     }
 
@@ -5287,7 +5293,7 @@ pub const SemContext = struct {
         const map = self.columnMap(c);
         if (self.trail.open > 0) {
             const old = map.get(key) orelse return;
-            try self.trail.log(self.allocator, @intFromEnum(c), key, @as(?@TypeOf(old), old));
+            try self.trail.log(self.allocator, @backingInt(c), key, @as(?@TypeOf(old), old));
         }
         mapRemove(map, key);
     }
@@ -5299,7 +5305,7 @@ pub const SemContext = struct {
                 self.symbols.items[id] = std.mem.bytesToValue(Symbol, self.trail.olds.items[e.old..][0..@sizeOf(Symbol)]);
             },
             inline 0...n_columns - 1 => |i| {
-                const map = self.columnMap(@enumFromInt(i));
+                const map = self.columnMap(@fromBackingInt(@intCast(i)));
                 const M = @TypeOf(map.*);
                 const key = FactTrail.keyOf(MapKey(M), e.key);
                 if (e.old == FactTrail.absent) return mapRemove(map, key);
@@ -5584,19 +5590,12 @@ pub const SemContext = struct {
         return self.write_sites.get(nodeKey(node) orelse return null);
     }
 
-    /// Record which of `node`'s tests are known to pass. Only
-    /// `src/proofs.zig` calls this.
-    pub fn recordProven(self: *SemContext, node: Sexp, p: Proven) !void {
-        if (!p.any()) return;
-        try self.proven.put(self.allocator, recordKey(node), p);
-    }
-
     /// `root` is a unit of kind `kind`, and the one holding each node of
     /// `parts` outside the blocks in them (`rig.eachUnit`).
     pub fn recordUnit(self: *SemContext, root: Sexp, kind: rig.UnitKind, parts: []const Sexp) !void {
         const key = recordKey(root);
-        try self.unit_roots.put(self.allocator, key, kind);
-        try self.unit_of.put(self.allocator, key, key);
+        try self.putIn(.storage, .unit_roots, key, kind);
+        try self.putIn(.storage, .unit_of, key, key);
         for (parts) |p| try self.markUnit(p, key);
     }
 
@@ -5604,7 +5603,7 @@ pub const SemContext = struct {
     /// which hold units of their own and the statements that order them.
     fn markUnit(self: *SemContext, e: Sexp, unit: NodeKey) !void {
         if (e != .list or e.isKind(.block)) return;
-        if (nodeKey(e)) |k| try self.unit_of.put(self.allocator, k, unit);
+        if (nodeKey(e)) |k| try self.putIn(.storage, .unit_of, k, unit);
         for (e.items()) |c| try self.markUnit(c, unit);
     }
 
