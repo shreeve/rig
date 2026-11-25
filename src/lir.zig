@@ -129,6 +129,9 @@ pub const Region = struct {
         header,
         /// Parts evaluated first, then the value they make.
         value,
+        /// The parts a call or an array literal holds, each evaluated
+        /// first, in its turn, then the call or the array.
+        call,
         /// An `if` or a `while` and the bindings its condition names,
         /// which the condition's later parts and its body see.
         guard,

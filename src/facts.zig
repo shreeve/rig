@@ -33,6 +33,8 @@ const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const storage = @import("storage.zig");
 const resolve = @import("resolve.zig");
+const lowering = @import("lower.zig");
+pub const lir = @import("lir.zig");
 const rig = @import("rig.zig");
 
 const Sexp = parser.Sexp;
@@ -82,7 +84,9 @@ pub const PlainBit = sema.PlainBit;
 pub const PlainArg = sema.PlainArg;
 pub const Use = sema.Use;
 pub const Header = sema.Header;
-pub const Var = storage.Var;
+/// A module's bodies lowered (`src/lower.zig`), whose vars are the
+/// storage emit prints.
+pub const Lowered = lowering.Module;
 pub const StorageKind = storage.StorageKind;
 pub const StorageBy = storage.StorageBy;
 pub const Clone = sema.Clone;
@@ -598,12 +602,6 @@ pub const Facts = struct {
     pub fn isLocalTask(f: Facts, call: Sexp) bool {
         return f.c().isLocalTask(call);
     }
-    /// Whether the task `call` makes stays in its maker's frame and is
-    /// waited for there, a fork (`storage.taskStaysInFrame`,
-    /// `StorageKind.task_record`).
-    pub fn taskInFrame(f: Facts, call: Sexp) bool {
-        return f.varOf(call, .task_record) != null;
-    }
     pub fn isIsolateCall(f: Facts, call: Sexp) bool {
         return f.c().isIsolateCall(call);
     }
@@ -615,9 +613,6 @@ pub const Facts = struct {
     }
     pub fn writesTemp(f: Facts, node: Sexp) bool {
         return f.c().writesTemp(node);
-    }
-    pub fn dropsTemp(f: Facts, node: Sexp) bool {
-        return f.c().dropsTemp(node);
     }
     pub fn useOf(f: Facts, node: Sexp) ?Use {
         return f.c().useOf(node);
@@ -705,11 +700,9 @@ pub const Facts = struct {
     pub fn fieldMoves(f: Facts, sym: SymbolId) []const []const u8 {
         return f.c().fieldMoves(sym);
     }
-    pub fn varOf(f: Facts, node: Sexp, kind: StorageKind) ?Var {
-        return f.c().varOf(node, kind);
-    }
-    pub fn binding(f: Facts, sym: SymbolId) storage.Binding {
-        return f.c().vars.binding(sym);
+    /// The module's bodies, lowered: tree `module` is the module's.
+    pub fn lower(f: Facts, gpa: std.mem.Allocator, module: Sexp) !Lowered {
+        return lowering.lowerModule(gpa, @constCast(f.c()), module);
     }
     /// How the walk that reaches a value by address reaches `e`
     /// (`storage.leafStep`, a recorded decision); null when no checker
@@ -735,13 +728,6 @@ pub const Facts = struct {
     }
     pub fn matchBlock(f: Facts, match: Sexp) ?bool {
         return storage.decided(f.c(), match, .match_block);
-    }
-    /// How `__rig_subject` holds the subject (null inside: not at all).
-    pub fn subjectHold(f: Facts, match: Sexp) ??StorageBy {
-        return storage.decided(f.c(), match, .subject_hold);
-    }
-    pub fn holdsView(f: Facts, match: Sexp) ?bool {
-        return storage.decided(f.c(), match, .holds_view);
     }
     /// Whether the pattern of `match` arm `arm` takes every value
     /// (`storage.catchesAll`).
@@ -808,23 +794,10 @@ pub const Facts = struct {
         const kind = f.handsOver(e) orelse return null;
         return (sema.Hands{ .kind = kind }).hasStorage();
     }
-    /// Whether a header's block yields the address of the place its
-    /// subject reaches (`storage.headerPoints`).
-    pub fn headerPoints(f: Facts, e: Sexp) ?bool {
-        return storage.decided(f.c(), e, .header_points);
-    }
     /// Whether an `as` binding views the value inside the optional
     /// (`storage.viewsOptionalValue`).
     pub fn viewsOptionalValue(f: Facts, value: Sexp) ?bool {
         return storage.decided(f.c(), value, .views_optional_value);
-    }
-    /// The decisions about a call or an array literal the plan made
-    /// (`storage`): whether it evaluates its arguments or elements first,
-    /// how it holds its self and each part, whether it consumes a
-    /// temporary self, and whether a part, an assigned value, or an
-    /// index is pure.
-    pub fn hoistsArgs(f: Facts, call: Sexp) ?bool {
-        return storage.decided(f.c(), call, .hoists_args);
     }
     /// Whether the fill a box or a binding takes is built where its value
     /// goes (`storage.fillsInPlace`).
@@ -845,6 +818,8 @@ pub const Facts = struct {
     pub fn jumpDest(f: Facts, jump: Sexp) ?JumpDest {
         return f.c().jumpDestOf(jump);
     }
+    /// How a call holds its self, whether it consumes a temporary self,
+    /// and how it holds each part it evaluates first (`storage`).
     pub fn selfHold(f: Facts, call: Sexp) ??SelfHold {
         return storage.decided(f.c(), call, .self_hold);
     }
@@ -859,17 +834,10 @@ pub const Facts = struct {
     pub fn laneChecked(f: Facts, e: Sexp) ?bool {
         return storage.decided(f.c(), e, .lane_checked);
     }
-    pub fn isPureArg(f: Facts, e: Sexp) ?bool {
-        return storage.decided(f.c(), e, .pure_arg);
-    }
     /// How a `for` folds integers into a local, or null when it is not a
     /// fold (`storage.fold`).
     pub fn fold(f: Facts, loop: Sexp) ??Fold {
         return storage.decided(f.c(), loop, .fold);
-    }
-    /// Whether a `for` consumes its source (`storage.forConsumes`).
-    pub fn forConsumes(f: Facts, loop: Sexp) ?bool {
-        return storage.decided(f.c(), loop, .for_consumes);
     }
     /// Whether a binding is an integer constant the module folds.
     pub fn isConstInt(f: Facts, sym: SymbolId) bool {
@@ -883,16 +851,8 @@ pub const Facts = struct {
     pub fn isCtLocal(f: Facts, sym: SymbolId) bool {
         return f.c().ct_locals.contains(sym);
     }
-    /// The statement temporaries `stmt` makes, in the order they are made
-    /// (the recorded `dropsTemp` facts).
-    pub fn stmtTemps(f: Facts, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-        return sema.stmtTemps(f.c(), a, stmt, out);
-    }
     pub fn stmtErasedCopies(f: Facts, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
         return sema.stmtErasedCopies(f.c(), a, stmt, out);
-    }
-    pub fn firstStmtTemp(f: Facts, stmt: Sexp) ?Sexp {
-        return sema.firstStmtTemp(f.c(), stmt);
     }
     /// The value of an integer constant expression.
     pub fn constIntOf(f: Facts, e: Sexp) ?Wide {
@@ -1370,10 +1330,12 @@ test "a Facts method about a node reads what a checker recorded" {
     // helper of storage or sema, each by the node's shape over recorded
     // symbols, types, and constants; the list only shrinks.
     const readers = [_][]const u8{
-        "callsRigFunction", "patternConst", "stmtTemps",       "stmtErasedCopies", "firstStmtTemp",
-        "constIntOf",       "intLimit",     "stringCall",      "isPrintCall",      "printCall",
-        "isNoneLeaf",       "isTypeCallee", "moduleMemberSym", "selfOf",           "heldFirst",
-        "selfWrites",       "argParams",    "lambdaYields",    "matchedType",
+        "callsRigFunction", "patternConst",    "stmtErasedCopies",
+        "constIntOf",       "intLimit",        "stringCall",
+        "isPrintCall",      "printCall",       "isNoneLeaf",
+        "isTypeCallee",     "moduleMemberSym", "selfOf",
+        "heldFirst",        "selfWrites",      "argParams",
+        "lambdaYields",     "matchedType",
     };
     var seen: [readers.len]bool = @splat(false);
     const begin = std.mem.indexOf(u8, source, "pub const Facts = struct {").?;
@@ -1463,14 +1425,16 @@ test "Facts answers as the context it was made from" {
     var nodes: std.ArrayList(Sexp) = .empty;
     defer nodes.deinit(a);
     try collect(a, tree, &nodes);
+    var lowered = try f.lower(a, tree);
+    defer lowered.deinit();
     var temps: usize = 0;
     for (nodes.items) |n| {
         try std.testing.expectEqual(ctx.symbolOf(n), f.symbolOf(n));
         try std.testing.expectEqual(ctx.typeOf(n), f.typeOf(n));
-        try std.testing.expectEqual(ctx.dropsTemp(n), f.dropsTemp(n));
         try std.testing.expectEqual(ctx.useOf(n), f.useOf(n));
-        for (std.enums.values(StorageKind)) |k| try std.testing.expectEqual(ctx.varOf(n, k), f.varOf(n, k));
-        if (f.dropsTemp(n)) temps += 1;
+        // Its LIR holds a var where the plan made one.
+        for (std.enums.values(StorageKind)) |k| try std.testing.expectEqual(ctx.varOf(n, k) != null, lowered.varOf(n, k) != null);
+        if (lowered.varOf(n, .temp) != null) temps += 1;
     }
     // `mk(2)` is a temporary its statement drops.
     try std.testing.expectEqual(1, temps);
@@ -1500,6 +1464,8 @@ test "Facts reads the leaf walk the storage plan decided" {
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
     const f = Facts.of(&ctx);
+    var lowered = try f.lower(a, tree);
+    defer lowered.deinit();
     var nodes: std.ArrayList(Sexp) = .empty;
     defer nodes.deinit(a);
     try collect(a, tree, &nodes);
@@ -1513,8 +1479,8 @@ test "Facts reads the leaf walk the storage plan decided" {
         }
         if (f.leafStep(n)) |step| if (step == .made) {
             made += 1;
-            // Reached where Zig holds it: a fact names it.
-            try std.testing.expectEqual(StorageBy.owned, (f.varOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
+            // Reached where Zig holds it: its LIR has a var for it.
+            try std.testing.expectEqual(StorageBy.owned, (lowered.varOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
         };
     }
     // `r if k else mkr(5)`, with `mkr(5)` made there.
@@ -1553,8 +1519,7 @@ test "Facts reads every match decision the plan made" {
         // A name's value is matched where it is.
         try std.testing.expect(f.matchesInPlace(n).?);
         try std.testing.expect(f.matchBlock(n).?);
-        try std.testing.expect(!f.holdsView(n).?);
-        try std.testing.expect(f.matchRereads(n) != null and f.subjectHold(n) != null);
+        try std.testing.expect(f.matchRereads(n) != null);
         for (ir.Match.arms(n)) |arm| {
             const pattern = ir.Arm.pattern(arm);
             if (pattern == .src) try std.testing.expect(f.catchAllCaptured(pattern) != null);

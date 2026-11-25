@@ -12,8 +12,9 @@
 //! and `shadow` asserts, per body, that the hidden vars and their order
 //! are the var table's (`storage.Vars`), each held the same way, that
 //! each statement's temporaries are `sema.stmtTemps`', and that each
-//! binding drops as its row says. Nothing reads LIR yet: a body using a
-//! construct lowering does not cover is skipped and counted.
+//! binding drops as its row says. Emit lowers each module it writes and
+//! reads the storage it writes from the vars, regions, and statement
+//! temporaries indexed in `Module`.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -48,6 +49,16 @@ pub const Module = struct {
     owners: []Owner = &.{},
     /// The index of each owner, by its root's key.
     roots: std.AutoHashMapUnmanaged(u64, u32) = .empty,
+    /// The var of each node and kind, and of each binding, in every body
+    /// lowered: the storage emit prints.
+    vars: std.AutoHashMapUnmanaged(storage.Vars.Key, *const lir.Var) = .empty,
+    bindings: std.AutoHashMapUnmanaged(SymbolId, *const lir.Var) = .empty,
+    /// The calls and array literals that hold their parts (a `call`
+    /// region).
+    holders: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The owning temporaries of each statement and header that makes
+    /// any, by its key, in the order they are made.
+    temps: std.AutoHashMapUnmanaged(u64, []const Sexp) = .empty,
 
     pub const Owner = struct {
         root: Sexp,
@@ -63,6 +74,29 @@ pub const Module = struct {
 
     pub fn deinit(m: *Module) void {
         m.arena.deinit();
+    }
+
+    /// The hidden var of `kind` made for `node`.
+    pub fn varOf(m: *const Module, node: Sexp, kind: StorageKind) ?*const lir.Var {
+        return m.vars.get(.{ .node = sema.decisionKeyOf(node) orelse return null, .kind = kind });
+    }
+
+    /// Whether call or array literal `node` holds its parts, each
+    /// evaluated first.
+    pub fn holdsParts(m: *const Module, node: Sexp) bool {
+        return m.holders.contains(sema.decisionKeyOf(node) orelse return false);
+    }
+
+    /// The owning temporaries statement or header `node` makes, in the
+    /// order they are made: not those of the blocks, closures, or headers
+    /// it holds, which are their own.
+    pub fn tempsOf(m: *const Module, node: Sexp) []const Sexp {
+        return m.temps.get(sema.decisionKeyOf(node) orelse return &.{}) orelse &.{};
+    }
+
+    /// The var of binding `sym`.
+    pub fn bindingOf(m: *const Module, sym: SymbolId) ?*const lir.Var {
+        return m.bindings.get(sym);
     }
 };
 
@@ -110,9 +144,15 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp) !Module
         o.skip = if (o.parent) |p| m.owners[p].skip else null;
     };
     // A binding's flag is set by any use in the module that may move it.
-    for (m.owners) |o| if (o.func) |f| for (f.vars.items) |*v| switch (v.name) {
-        .binding => |s| v.flag = l.flags.isSet(s),
-        .hidden => {},
+    for (m.owners) |o| if (o.func) |f| {
+        for (f.vars.items) |*v| switch (v.name) {
+            .binding => |s| {
+                v.flag = l.flags.isSet(s);
+                try m.bindings.put(a, s, v);
+            },
+            .hidden => |k| if (sema.decisionKeyOf(v.node)) |key| try m.vars.put(a, .{ .node = key, .kind = k }, v),
+        };
+        for (f.regions.items) |r| if (r.kind == .call) try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
     };
     return m;
 }
@@ -208,23 +248,23 @@ fn checkVars(ctx: *const SemContext, a: std.mem.Allocator, f: *const lir.Func, m
     const rows = ctx.vars.rows.items;
     var next: usize = 0;
     for (f.vars.items) |v| switch (v.name) {
-            .binding => |s| {
-                const b = ctx.vars.binding(s);
-                if (b.drop != v.drop) return .{ .node = v.node, .what = "a binding drops other than its row says" };
-                if (b.flag != v.flag) return .{ .node = v.node, .what = "a binding's flag differs from its row" };
-            },
-            .hidden => |k| {
-                if (k == .temp or k == .header_copy) continue;
-                if (next == mine.len) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var the plan did not", .{@tagName(k)}) };
-                const row = mine[next];
-                const r = rows[row];
-                const same_node = sema.decisionKeyOf(row_node[row]) == sema.decisionKeyOf(v.node);
-                if (!same_node or row_kind[row] != k) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var where the plan's next is a `{s}` at {d}:{d}", .{ @tagName(k), @tagName(row_kind[row]), diag.lineCol(ctx.source, ctx.startOf(row_node[row])).line, diag.lineCol(ctx.source, ctx.startOf(row_node[row])).col }) };
-                if (r.by != v.by or r.life != v.life or r.drop != v.drop or !std.mem.eql(?sema.ResourceKind, r.parts, v.parts))
-                    return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "a `{s}` var held other than its row: {s} {s} {s}, the row {s} {s} {s}", .{ @tagName(k), @tagName(v.by), @tagName(v.life), if (v.drop) |d| @tagName(d) else "none", @tagName(r.by), @tagName(r.life), if (r.drop) |d| @tagName(d) else "none" }) };
-                next += 1;
-                cov.checked += 1;
-            },
+        .binding => |s| {
+            const b = ctx.vars.binding(s);
+            if (b.drop != v.drop) return .{ .node = v.node, .what = "a binding drops other than its row says" };
+            if (b.flag != v.flag) return .{ .node = v.node, .what = "a binding's flag differs from its row" };
+        },
+        .hidden => |k| {
+            if (k == .temp or k == .header_copy) continue;
+            if (next == mine.len) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var the plan did not", .{@tagName(k)}) };
+            const row = mine[next];
+            const r = rows[row];
+            const same_node = sema.decisionKeyOf(row_node[row]) == sema.decisionKeyOf(v.node);
+            if (!same_node or row_kind[row] != k) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var where the plan's next is a `{s}` at {d}:{d}", .{ @tagName(k), @tagName(row_kind[row]), diag.lineCol(ctx.source, ctx.startOf(row_node[row])).line, diag.lineCol(ctx.source, ctx.startOf(row_node[row])).col }) };
+            if (r.by != v.by or r.life != v.life or r.drop != v.drop or !std.mem.eql(?sema.ResourceKind, r.parts, v.parts))
+                return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "a `{s}` var held other than its row: {s} {s} {s}, the row {s} {s} {s}", .{ @tagName(k), @tagName(v.by), @tagName(v.life), if (v.drop) |d| @tagName(d) else "none", @tagName(r.by), @tagName(r.life), if (r.drop) |d| @tagName(d) else "none" }) };
+            next += 1;
+            cov.checked += 1;
+        },
     };
     if (next < mine.len) return .{ .node = row_node[mine[next]], .what = try std.fmt.allocPrint(a, "the plan made a `{s}` var lowering did not", .{@tagName(row_kind[mine[next]])}) };
     return null;
@@ -484,12 +524,19 @@ const Lowerer = struct {
         try l.step(into, .{ .region = o.region });
     }
 
-    /// The temporaries statement `s` made, from `first` in `temps`, are
-    /// those `sema.stmtTemps` lists, in its order.
+    /// Record the temporaries statement `s` made, from `first` in
+    /// `temps`. A self-checking build asks that they are those
+    /// `sema.stmtTemps` lists, in its order.
     fn checkTemps(l: *Lowerer, s: Sexp, first: usize) Error!void {
+        const have = l.temps.items[first..];
+        if (have.len > 0) {
+            const nodes = try l.a.alloc(Sexp, have.len);
+            for (have, nodes) |v, *n| n.* = l.f.vars.items[v].node;
+            try l.module.temps.put(l.a, sema.decisionKeyOf(s).?, nodes);
+        }
+        if (!enabled) return;
         var want: std.ArrayList(Sexp) = .empty;
         try sema.stmtTemps(l.ctx, l.a, s, &want);
-        const have = l.temps.items[first..];
         var ok = want.items.len == have.len;
         if (ok) for (want.items, have) |w, v| {
             if (sema.decisionKeyOf(w) != sema.decisionKeyOf(l.f.vars.items[v].node)) ok = false;
@@ -541,7 +588,9 @@ const Lowerer = struct {
                 const inner = ir.Labeled.stmt(s);
                 try l.consumed(inner);
                 if (inner.isKind(.@"for")) return l.forLoop(inner, r);
-                if (!inner.isKind(.@"while")) return l.uncovered(inner, "loops");
+                // Any other statement a label names is a statement of its
+                // own, in the block the label makes.
+                if (!inner.isKind(.@"while")) return l.stmt(inner, r);
                 try l.whileLoop(inner, r);
             },
             .@"for" => try l.forLoop(s, r),
@@ -869,8 +918,10 @@ const Lowerer = struct {
                 try l.call(e, id);
                 try l.objectCall(e, id);
             },
-            .array => {
-                if (storage.hoistsArgs(ctx, e)) for (ir.Array.elems(e)) |v| try l.argument(v, null, .call, try l.callBlock(e, id));
+            .array => if (storage.hoistsArgs(ctx, e)) {
+                const r = try l.callBlock(e, id);
+                l.region(r).kind = .call;
+                for (ir.Array.elems(e)) |v| try l.argument(v, null, .call, r);
             },
             // The parts of `return a, b`, made first when a later one can
             // leave, each held as the function's result in its place.
@@ -1362,6 +1413,7 @@ const Lowerer = struct {
         if (callee.isKind(.lambda)) try l.hoistVar(callee, .invoked, .owned, .call, null, try l.callBlock(c, id));
         if (!hoists) return;
         const r = try l.callBlock(c, id);
+        l.region(r).kind = .call;
         // The parts of `task.select` are its arms' (`storage.hoistsArgs`).
         if (ctx.isSelect(c)) {
             for (ir.Call.args(c)) |a| try l.callParts(storage.argValue(a), .select, r);
@@ -1490,4 +1542,3 @@ const Lowerer = struct {
         try sema.eachTailPart(value, l, consumeTail);
     }
 };
-
