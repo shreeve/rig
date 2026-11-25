@@ -3332,7 +3332,15 @@ call names the file it calls into (`rules.checkLive(self, ...)`):
 | `notes.zig` | messages, and the notes that name both ends of a view |
 | `lowered.zig` | the walk's view of each body's [LIR](#lir), and the shadow that compares the two walks |
 
-**The walk on LIR.** Every walk of a lowered body takes the operands
+**The walk on LIR.** The checkers' lowering (`lower.Options.checked`)
+lowers every body the checker walks: the module's constants and what
+its types declare by value are one compile-time body, whose root is
+the module, and the closures of compile-time functions are owners of
+their own. Every walk reads the statements of a body or block from
+its regions (`lowered.stmtsOf`), and the value an assignment stores, a
+jump leaves with, a drop or a destructure takes, and a body yields from
+its statement's step (`lowered.stepOf`, `lowered.stepOperand`). It
+takes the operands
 of an expression from the LIR operation made for its node
 (`lowered.Expr`, `lowered.operand`): those of plain operators, `and`
 and `or`, members, indexes, and every operation walked by its
