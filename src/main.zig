@@ -12,6 +12,7 @@ const build_options = @import("build_options");
 const parser = @import("parser.zig");
 const ir = parser.ir;
 const rig = @import("rig.zig");
+const rt = @import("names.zig").rt;
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const symbols = @import("symbols.zig");
@@ -2363,8 +2364,8 @@ fn splitFiles(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
         if (k < n) {
             try unit_root.writer.writeAll("comptime {\n");
             for (graph.modules.items) |*m| try unit_root.writer.print("    _ = @import(\"{s}\");\n", .{m.out_basename});
-            try unit_root.writer.writeAll("    rig.split.exportUnit(@import(\"__rig_errseed.zig\").All);\n}\n");
-        } else try unit_root.writer.writeAll("pub fn main(init: std.process.Init.Minimal) u8 {\n    return rig.split.start(init);\n}\n");
+            try unit_root.writer.writeAll("    " ++ rt(.split) ++ ".exportUnit(@import(\"__rig_errseed.zig\").All);\n}\n");
+        } else try unit_root.writer.writeAll("pub fn main(init: std.process.Init.Minimal) u8 {\n    return " ++ rt(.split) ++ ".start(init);\n}\n");
         try files.append(allocator, .{ .path = if (k < n) try allocator.print("__rig_unit_{d}.zig", .{k}) else "__rig_entry.zig", .contents = unit_root.written() });
     }
 }
