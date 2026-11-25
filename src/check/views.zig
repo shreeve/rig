@@ -2292,10 +2292,10 @@ pub fn keptLeaf(self: *Checker, e: Sexp, kept: Checker.Kept) Error!void {
     // the source viewed, as a call keeps an argument it carries:
     // `vs = ?names.filter(f).collect()`.
     if (self.chain_views.count() > 0 and e.isKind(.call)) if (self.chain_views.get(CompatCheck.nodeId(e))) |root| {
-        if (self.kept_reported.contains(CompatCheck.nodeId(e))) return;
+        if (self.ctx.kept_reported.contains(CompatCheck.nodeId(e))) return;
         if (!implicitSelf(self, root)) return keptLeaf(self, root, kept);
         if (self.ctx.quiet != 0) return;
-        try self.kept_reported.put(self.ctx.allocator, CompatCheck.nodeId(e), {});
+        try self.ctx.putIn(.{ .ctx = .kept_reported }, CompatCheck.nodeId(e), {});
         // A chain reported is not rewritten into its loop, so the
         // report is the last word on it.
         for (self.chains.items, 0..) |c, i| if (c.node == e.list.id) {
@@ -2314,8 +2314,8 @@ pub fn keptLeaf(self: *Checker, e: Sexp, kept: Checker.Kept) Error!void {
         .call => {
             // Marked reported only where the report is kept: a quiet
             // check's is dropped, and the check that keeps it reports.
-            if (self.kept_reported.contains(CompatCheck.nodeId(e))) return;
-            if (self.ctx.quiet == 0) try self.kept_reported.put(self.ctx.allocator, CompatCheck.nodeId(e), {});
+            if (self.ctx.kept_reported.contains(CompatCheck.nodeId(e))) return;
+            if (self.ctx.quiet == 0) try self.ctx.putIn(.{ .ctx = .kept_reported }, CompatCheck.nodeId(e), {});
             const callee = ir.Call.callee(e);
             const params = self.ctx.callParamsOf(e);
             const has_recv = if (params) |p| p.fills.len > 0 and p.fills[0] == .self else false;
