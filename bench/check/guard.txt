@@ -4,7 +4,7 @@ instructions 1780353622
 ms.lex_and_parse 14.557
 ms.resolve 12.212
 ms.typecheck 20.019
-ms.storage 5.999
+ms.lower 10.945
 ms.ownership 11.297
 ms.proofs 6.962
 ms.inlining 6.537
