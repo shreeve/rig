@@ -430,6 +430,8 @@ const Checker = struct {
         in_closure: bool = false,
         /// A test's body, where `return` gives the `Bool` that decides it.
         in_test: bool = false,
+        /// The body being checked, in which a rewrite finds its node.
+        root: Sexp = .nil,
     };
 
     const LoopFrame = struct {
@@ -1690,6 +1692,7 @@ const Checker = struct {
         const saved = self.body;
         defer self.body = saved;
         self.body = context;
+        self.body.root = body;
         const ret = context.ret;
         const wants_value = !context.is_sub and ret != self.t().void_id;
         if (!body.isKind(.block)) {
@@ -3833,6 +3836,8 @@ const Checker = struct {
         var eff = mode;
         // A held source was rejected (`holdsHeld`).
         var elem_poisoned = false;
+        // A loop over an iterator, checked as the `while` it means.
+        var rewrite: ?struct { how: rig.IterSource, mark: sema.Mark } = null;
         if (source.isKind(.@"..")) {
             // Both bounds are integers of one type, the element's.
             elem_ty = try self.checkIntDefaultOperands(source, if (rig.isInclusive(source)) "..=" else "..", .integer, null);
@@ -3848,12 +3853,18 @@ const Checker = struct {
             const saved_chain_for = self.chain_for;
             self.chain_for = node;
             defer self.chain_for = saved_chain_for;
+            // What checking the source records is taken back when the loop
+            // is over an iterator (`elaborateFor`).
+            const mark = self.ctx.mark();
             var source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
                 try self.viewSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
-            // A `for` over an iterator is the `while` it means (`iterLoop`).
-            if (try self.iterLoop(node, source, mode, source_ty)) {
+            const iter = try self.iterLoop(node, source, mode, source_ty);
+            if (iter == .rewrite and self.ctx.diagnostics.items.len == mark.diagnostics) {
+                rewrite = .{ .how = iter.rewrite, .mark = mark };
+            } else self.ctx.commit(mark);
+            if (iter != .not_iterator) {
                 elem_ty = self.t().invalid_id;
             } else {
                 // A value made here is walked as its type says: a write
@@ -3943,6 +3954,12 @@ const Checker = struct {
                 }
             }
         }
+        if (rewrite) |r| {
+            self.body.loops = frame.parent;
+            self.loop_label = frame.label;
+            self.loop_value = frame.value;
+            return self.elaborateFor(node, r.how, r.mark);
+        }
 
         {
             const prev = self.enter(node);
@@ -3970,6 +3987,24 @@ const Checker = struct {
             try self.checkStmt(ir.For.body(node));
         }
         self.body.loops = frame.parent;
+    }
+
+    /// The `for` over an iterator `node`, checked as the `while` it means
+    /// (docs/internals/INTERNALS.md, "Loops over an iterator"): what
+    /// checking its source recorded since `mark` is taken back, the tree
+    /// is rewritten where the loop stands (`rig.Parser.elaborateIterLoop`),
+    /// the new nodes get their names and scopes (`resolve.resolveIterWhile`),
+    /// and the statement that stands there now is checked.
+    fn elaborateFor(self: *Checker, node: Sexp, how: rig.IterSource, mark: sema.Mark) Error!void {
+        try self.ctx.rollback(mark);
+        const p = self.ctx.parser.?;
+        const w = (try p.elaborateIterLoop(self.body.root, node, how)) orelse (try p.elaborateIterLoop(self.tree, node, how)).?;
+        // The rewritten tree stays, inside a check an open mark may take
+        // back, and so do the names and scopes of its new nodes.
+        const open = self.ctx.pauseTrail();
+        try resolve.resolveIterWhile(self.ctx, node, w);
+        self.ctx.resumeTrail(open);
+        try self.checkStmt(w.stmt);
     }
 
     /// Whether a `for` source of type `ty` is an iterator, as the one
@@ -4002,17 +4037,26 @@ const Checker = struct {
         return e == .src or (e.isKind(.member) and isFieldPath(ir.Member.object(e)));
     }
 
-    /// A `for` over an iterator `it` is the `while` it means: it is
-    /// recorded (`SemContext.iter_loops`) and the module checked again on
-    /// the rewritten tree (`rig.Parser.desugarIterLoops`), so this pass
-    /// binds nothing for it. Returns whether the source is an iterator.
-    fn iterLoop(self: *Checker, node: Sexp, source: Sexp, mode: Tag, source_ty: TypeId) Error!bool {
-        if (self.isPoison(source_ty)) return false;
+    /// What a `for` over `source` is, as `iterLoop` finds it.
+    const IterFor = union(enum) {
+        /// Not a loop over an iterator: the `for` walks its source.
+        not_iterator,
+        /// A loop over an iterator, rejected where it stands.
+        rejected,
+        /// A loop over an iterator, which is the `while` it means
+        /// (`elaborateFor`), walking its source so.
+        rewrite: rig.IterSource,
+    };
+
+    /// Whether a `for` is a loop over an iterator `it`, which is the
+    /// `while` it means, and how it walks its source.
+    fn iterLoop(self: *Checker, node: Sexp, source: Sexp, mode: Tag, source_ty: TypeId) Error!IterFor {
+        if (self.isPoison(source_ty)) return .not_iterator;
         switch (try self.iteratorShape(source_ty)) {
-            .not_iterator => return false,
+            .not_iterator => return .not_iterator,
             .malformed => |why| {
                 try self.errAt(source, "cannot iterate over `{s}`: a `for` walks a type with `next(!@) -> T?`, but its `next` {s}", .{ try self.tyName(source_ty), why });
-                return true;
+                return .rejected;
             },
             .iterator => {},
         }
@@ -4027,7 +4071,7 @@ const Checker = struct {
         if (index != .nil) {
             const bang: []const u8 = if (self.hands(source).kind == .place) "!" else "";
             try self.errAt(index, "an iterator has no index binding; keep a count in the loop: `for {s} in {s}{s}`", .{ name, bang, shown });
-            return true;
+            return .rejected;
         }
         // A place is evaluated again for each `next`, so it is a name or a
         // field path, which names one place however the body runs; an
@@ -4035,47 +4079,44 @@ const Checker = struct {
         const kind = self.hands(source).kind;
         if (kind == .place and !isFieldPath(source)) {
             try self.errAt(source, "a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `{s}` to a name first", .{shown});
-            return true;
+            return .rejected;
         }
         const how: rig.IterSource = switch (mode) {
             .read => {
                 if (kind == .made) {
                     try self.errAt(source, "`{s}?{s}` would only read an iterator made here, which `next` cannot advance; {s}", .{ head, shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "`{s}?{s}` would only read an iterator, which `next` cannot advance; write `{s}!{s}` to advance it in place", .{ head, shown, head, shown });
-                return true;
+                return .rejected;
             },
             .write => if (kind == .place) .place else {
                 if (kind == .made) {
                     try self.errAt(source, "`!{s}` advances a place, and this is a value made here; {s}", .{ shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
-                return true;
+                return .rejected;
             },
             .move => if (kind == .place) .moved else if (kind == .made) .made else {
                 try self.errAt(source, "a `for` takes an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
-                return true;
+                return .rejected;
             },
             else => switch (kind) {
                 // A bare `for x in it` does not advance a place: the
                 // advance is written, `for x in !it`.
                 .place => {
                     try self.errAt(source, "write `{s}!{s}`: the loop advances `{s}`", .{ head, shown, shown });
-                    return true;
+                    return .rejected;
                 },
                 .made => .made,
                 else => {
                     try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
-                    return true;
+                    return .rejected;
                 },
             },
         };
         if (self.ctx.parser == null) {
             try self.errAt(source, "a `for` over an iterator needs the module graph, which rewrites it", .{});
-            return true;
+            return .rejected;
         }
-        const id = node.list.id;
-        for (self.ctx.iter_loops.items) |l| if (l.node == id) return true;
-        try self.ctx.iter_loops.append(self.ctx.allocator, .{ .node = id, .source = how });
-        return true;
+        return .{ .rewrite = how };
     }
 
     const LoopPair = struct { elem: SymbolId, index: SymbolId, source: Sexp };
