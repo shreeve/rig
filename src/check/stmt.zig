@@ -811,8 +811,8 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
     } else if (is_decl and s.kind == .local and s.scope != self.module_scope and !s.flags.reassigned and !s.flags.written) {
         if (CallCheck.constVariant(self, rhs)) |v| try self.fixed_variants.put(self.ctx.arena.allocator(), sym_id, v);
     }
-    // So does one of a `Float`, here and at module level (`floatConst`).
-    if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and ExprCheck.canonical(self, s.ty) == self.t().float_id) switch (StdFormCheck.floatConst(self, rhs)) {
+    // So does one of a `Float`, here and at module level (`cteval.foldFloat`).
+    if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and ExprCheck.canonical(self, s.ty) == self.t().float_id) switch (sema.cteval.foldFloat(f64, self.ctx, rhs, true)) {
         .value => |v| try self.ctx.putIn(.check, .const_floats, sym_id, v),
         else => {},
     };
@@ -1161,14 +1161,13 @@ pub fn viewsPath(self: *Checker, place: Checker.Place) bool {
 /// so that a view of it may be the handle's own: `requireAccess` with
 /// no exemption for a handle that changes by a marked call.
 pub fn handleWritable(self: *Checker, place: Checker.Place, operand: Sexp) Error!bool {
-    const mark = self.ctx.diagnostics.items.len;
     const saved = self.expect.handle_exempt;
     self.expect.handle_exempt = false;
     defer self.expect.handle_exempt = saved;
-    self.ctx.quiet += 1;
-    defer self.ctx.quiet -= 1;
-    defer self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-    return requireAccess(self, place, .write_viewed, operand);
+    const m = FlowCheck.beginQuiet(self);
+    const writable = try requireAccess(self, place, .write_viewed, operand);
+    _ = try FlowCheck.endQuiet(self, m);
+    return writable;
 }
 
 /// Whether `place` is a handle that changes by a marked call

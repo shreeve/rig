@@ -2188,8 +2188,10 @@ pub const Pass = enum { check, storage, modules, ownership, proofs };
 /// something else its writer names (a position, a symbol).
 pub const KeyKind = enum { node, expr, raw };
 
-/// A column's declaration: the one pass that writes it, and its key.
-pub const ColumnSpec = struct { writer: Pass = .check, key: ?KeyKind = null };
+/// A column's declaration: the one pass that writes it, its key, and
+/// whether a rollback leaves it (`kept`): a fact decided by where its
+/// node stands, which no check decides otherwise.
+pub const ColumnSpec = struct { writer: Pass = .check, key: ?KeyKind = null, kept: bool = false };
 
 /// The maps of `SemContext` outside `Facts` that are columns too.
 const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards", "call_targets", "inline_calls", "once_captures", "const_ints", "const_floats", "ct_locals", "unit_of", "unit_roots", "proven", "proven_if", "flags", "result_bounds", "kept_reported", "closures_reported", "closures_in_error", "uncaptured_reported" };
@@ -2223,9 +2225,11 @@ pub const Column = blk: {
 /// asks of the binding's later writes; the type checker's for a move
 /// and a take, which need types), and `const_ints` (the resolver's for
 /// a module constant, folded before any type names it; the type
-/// checker's for a local).
+/// checker's for a local). The symbol a name names is the one in scope
+/// where it stands, so a rollback leaves `names`: a check taken back
+/// names it again alike.
 pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
-    .names = .{ .key = .raw },
+    .names = .{ .key = .raw, .kept = true },
     .writes = .{ .key = .raw },
     .rebinds = .{ .key = .raw },
     .member_compares = .{ .key = .raw },
@@ -2304,8 +2308,9 @@ pub const FactTrail = struct {
     }
 };
 
-/// A point the trail can be rolled back to (`SemContext.rollback`).
-pub const Mark = struct { entries: u32, olds: u32, diagnostics: u32 };
+/// A point the trail can be rolled back to (`SemContext.rollback`), and
+/// how many symbols there were then.
+pub const Mark = struct { entries: u32, olds: u32, diagnostics: u32, symbols: u32 };
 
 fn MapKey(comptime M: type) type {
     return @FieldType(M.KV, "key");
@@ -4310,7 +4315,7 @@ pub const SemContext = struct {
     /// module can name them.
     const_ints: FastMap(SymbolId, ConstVal) = .empty,
     /// `Float` constants: bindings never reassigned or written whose value
-    /// is a constant `Float` (`Checker.floatConst`), for the checks of a
+    /// is a constant `Float` (`cteval.foldFloat`), for the checks of a
     /// duration's value.
     const_floats: FastMap(SymbolId, f64) = .empty,
     /// The fields a use may move out of a binding (`fieldMoves`, recorded
@@ -4364,9 +4369,9 @@ pub const SemContext = struct {
     /// The types reported as too large, each once; a type holding one is
     /// not reported again.
     oversized: FastMap(TypeId, void) = .empty,
-    /// Nonzero while an expression is checked with its diagnostics
-    /// dropped (`typecheck.synthQuiet`): an array too large is left to
-    /// the check that keeps them.
+    /// Nonzero during a quiet check, whose diagnostics and facts are
+    /// taken back (`check/flow.zig`, `beginQuiet`): an array too large
+    /// is left to the check that keeps them.
     quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
     byte_sizes: FastMap(TypeId, ?u128) = .empty,
@@ -5118,7 +5123,7 @@ pub const SemContext = struct {
     /// column of the trail holds, and the diagnostics. Marks nest; each is rolled back or kept (`commit`).
     pub fn mark(self: *SemContext) Mark {
         self.trail.open += 1;
-        return .{ .entries = @intCast(self.trail.entries.items.len), .olds = @intCast(self.trail.olds.items.len), .diagnostics = @intCast(self.diagnostics.items.len) };
+        return .{ .entries = @intCast(self.trail.entries.items.len), .olds = @intCast(self.trail.olds.items.len), .diagnostics = @intCast(self.diagnostics.items.len), .symbols = @intCast(self.symbols.items.len) };
     }
 
     /// Record outside every open mark until `resumeTrail`: what is
@@ -5143,13 +5148,14 @@ pub const SemContext = struct {
 
     /// Close `m` and take back what was recorded since: each fact gets
     /// the value it had at the mark, or none, and the diagnostics made
-    /// since are dropped.
+    /// since are dropped. A symbol made since stays as it was made,
+    /// with what was written to it since.
     pub fn rollback(self: *SemContext, m: Mark) std.mem.Allocator.Error!void {
         const entries = self.trail.entries.items;
         var i = entries.len;
         while (i > m.entries) {
             i -= 1;
-            try self.undo(entries[i]);
+            try self.undo(entries[i], m.symbols);
         }
         self.trail.entries.shrinkRetainingCapacity(m.entries);
         self.trail.olds.shrinkRetainingCapacity(m.olds);
@@ -5183,7 +5189,7 @@ pub const SemContext = struct {
     pub fn putIn(self: *SemContext, comptime p: Pass, comptime c: Column, key: MapKey(ColumnMap(c)), value: MapValue(ColumnMap(c))) std.mem.Allocator.Error!void {
         self.writing(p, c);
         const map = self.columnMap(c);
-        if (self.trail.open > 0) try self.trail.log(self.allocator, @backingInt(c), key, map.get(key));
+        if (!comptime specOf(c).kept) if (self.trail.open > 0) try self.trail.log(self.allocator, @backingInt(c), key, map.get(key));
         try map.put(self.allocator, key, value);
     }
 
@@ -5230,17 +5236,18 @@ pub const SemContext = struct {
     pub fn removeIn(self: *SemContext, comptime p: Pass, comptime c: Column, key: MapKey(ColumnMap(c))) std.mem.Allocator.Error!void {
         self.writing(p, c);
         const map = self.columnMap(c);
-        if (self.trail.open > 0) {
+        if (!comptime specOf(c).kept and self.trail.open > 0) {
             const old = map.get(key) orelse return;
             try self.trail.log(self.allocator, @backingInt(c), key, @as(?@TypeOf(old), old));
         }
         mapRemove(map, key);
     }
 
-    fn undo(self: *SemContext, e: FactTrail.Entry) std.mem.Allocator.Error!void {
+    fn undo(self: *SemContext, e: FactTrail.Entry, symbols: u32) std.mem.Allocator.Error!void {
         switch (e.column) {
             FactTrail.symbol_column => {
                 const id = FactTrail.keyOf(SymbolId, e.key);
+                if (id >= symbols) return;
                 self.symbols.items[id] = std.mem.bytesToValue(Symbol, self.trail.olds.items[e.old..][0..@sizeOf(Symbol)]);
             },
             inline 0...n_columns - 1 => |i| {
@@ -6380,10 +6387,10 @@ fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// A module typecheck accepted types no expression `invalid`, nor with
 /// `invalid` in it (`List[invalid]`): a check
 /// that rejects reports why, so an `invalid` with no error is a verdict
-/// whose diagnostic was dropped (a quiet check's, kept and reused), and
-/// emit would write what nothing checked. Reported at the first such
-/// expression, unless an instance's check in an earlier module reported
-/// the error (`failed_elsewhere`). Debug and test builds only.
+/// whose diagnostic was dropped, and emit would write what nothing
+/// checked. Reported at the first such expression, unless an instance's
+/// check in an earlier module reported the error (`failed_elsewhere`).
+/// Debug and test builds only.
 fn checkTypedClean(ctx: *SemContext, tree: Sexp) std.mem.Allocator.Error!void {
     if (ctx.hasErrors() or ctx.failed_elsewhere) return;
     if (typedInvalid(ctx, tree)) |e| try ctx.errAt(e, "internal error: `{s}` is typed `invalid`, and no error says why", .{diag.textOf(ctx.source, ctx.span(e))});
@@ -16942,251 +16949,8 @@ pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
     return if (sexp == .src) sexp.src.pos else fallback;
 }
 
-/// A constant integer expression's value, or why it has none.
-pub const ConstInt = union(enum) {
-    value: Wide,
-    not_constant,
-    /// Constant, but too large to compute.
-    overflow,
-};
-
-/// The value of a constant integer expression in checked code: literals,
-/// constant bindings, and arithmetic on them.
-pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
-    return constIntBy(ctx, e, CheckedNames{ .ctx = ctx });
-}
-
-/// What `ctFoldBy` knows of checked code, from the facts the checker
-/// recorded: the symbol a name is, a constant binding's value (known once
-/// its declaration is checked) and an imported constant's (`lib.N`), and
-/// the type literal arithmetic was given. The values are untyped here:
-/// the checker gives constant arithmetic its type.
-const CheckedNames = struct {
-    ctx: *const SemContext,
-
-    pub fn symbol(self: CheckedNames, e: Sexp) ?SymbolId {
-        return self.ctx.symbolOf(e) orelse self.ctx.lookupInScopeOnly(module_scope, identAt(self.ctx.source, e) orelse return null);
-    }
-
-    pub fn name(self: CheckedNames, e: Sexp) ?TypedInt {
-        const id = self.ctx.symbolOf(e) orelse return null;
-        return if (self.ctx.const_ints.get(id)) |c| .{ .v = c.value } else null;
-    }
-
-    /// `lib.N`: another module's integer constant.
-    pub fn member(self: CheckedNames, e: Sexp) ?TypedInt {
-        const obj = ir.Member.object(e);
-        if (obj != .src) return null;
-        const id = self.symbol(obj) orelse return null;
-        if (self.ctx.symbols.items[id].kind != .module) return null;
-        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
-        const fid = foreign.moduleMember(identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
-        const c = foreign.const_ints.get(fid) orelse return null;
-        return .{ .v = c.value };
-    }
-
-    pub fn literalInt(self: CheckedNames, e: Sexp) ?IntInfo {
-        return switch (self.ctx.types.get(self.ctx.typeOf(e) orelse return null)) {
-            .int => |i| i,
-            else => null,
-        };
-    }
-
-    /// A compile-time call's integer value, which the checker computed
-    /// and recorded where it typed the call.
-    pub fn ctCall(self: CheckedNames, e: Sexp) CtFold {
-        return cteval.recordedInt(self.ctx, e);
-    }
-};
-
-/// `constInt` with what `names` knows (`ctFoldBy`).
-pub fn constIntBy(ctx: *const SemContext, e: Sexp, names: anytype) ConstInt {
-    return switch (ctFoldBy(ctx, e, names)) {
-        .value => |t| .{ .value = t.v },
-        .not_constant, .mismatch, .failed => .not_constant,
-        .overflow => .overflow,
-    };
-}
-
 /// A module or local integer constant: its value and its type.
 pub const ConstVal = struct { value: Wide, int: IntInfo = .{} };
-
-/// A folded integer and its type; `int` is null for arithmetic on
-/// literals alone, which takes the type it is used as.
-pub const TypedInt = struct { v: Wide, int: ?IntInfo = null };
-
-/// A constant integer expression folded with its types, as constant
-/// arithmetic is checked: each operation is in the type of its typed
-/// operands, and its value must fit that type.
-pub const CtFold = union(enum) {
-    value: TypedInt,
-    not_constant,
-    /// `node`'s value does not fit its type `int`, or (untyped) is too
-    /// large to compute.
-    overflow: struct { node: Sexp, int: ?IntInfo },
-    /// `node` combines constants of two integer types.
-    mismatch: struct { node: Sexp, a: IntInfo, b: IntInfo },
-    /// A compile-time call in it failed, and was reported at the call
-    /// (`cteval.callAt`).
-    failed,
-};
-
-/// The result of one integer operation on constants (`ctArith`).
-pub const Arith = union(enum) {
-    value: Wide,
-    /// The result does not fit the operation's type.
-    overflow,
-    /// `/` or `%` by zero.
-    div_zero,
-    /// A shift by a negative amount, or by the type's width or more.
-    shift_range,
-};
-
-/// The one arithmetic core of constant folding (`ctFoldBy`) and of
-/// compile-time functions (`cteval`): the binary operator `h` on `a` and
-/// `b` in the integer type `int`. Wrapping and saturating operators and
-/// `<<%` need a type; the others compute exactly without one (literals
-/// alone, whose context types them later).
-pub fn ctArith(h: Tag, a: Wide, b: Wide, int: ?IntInfo) Arith {
-    switch (h) {
-        // Wrapping arithmetic keeps the low bits of the result in its
-        // type, which a `Wide` computes exactly (its width is a multiple
-        // of every integer type's).
-        .@"+%", .@"-%", .@"*%" => {
-            const v = switch (h) {
-                .@"+%" => a +% b,
-                .@"-%" => a -% b,
-                else => a *% b,
-            };
-            return .{ .value = wrapTo(int.?, v) };
-        },
-        // Saturating arithmetic stops at the type's limits, which a
-        // `Wide` holds.
-        .@"+|", .@"-|" => {
-            const r = intRange(int.?);
-            const v = if (h == .@"+|") a + b else a - b;
-            return .{ .value = std.math.clamp(v, r.min, r.max) };
-        },
-        // A shift keeps the low bits too, if its amount is below the
-        // width.
-        .@"<<%" => {
-            if (b < 0 or b >= int.?.width()) return .shift_range;
-            return .{ .value = wrapTo(int.?, a << @intCast(b)) };
-        },
-        else => {},
-    }
-    const v: ?Wide = switch (h) {
-        .@"+" => std.math.add(Wide, a, b) catch null,
-        .@"-" => std.math.sub(Wide, a, b) catch null,
-        .@"*" => std.math.mul(Wide, a, b) catch null,
-        .@"/" => if (b == 0) return .div_zero else std.math.divTrunc(Wide, a, b) catch null,
-        .@"%" => if (b == 0) return .div_zero else if (b == -1) 0 else @rem(a, b),
-        // A shift by the width or more is out of range; one that loses
-        // bits overflows.
-        .@"<<" => if (b < 0 or b >= (int orelse IntInfo{}).width()) return .shift_range else blk: {
-            const r = a << @intCast(b);
-            break :blk if (r >> @intCast(b) == a) r else null;
-        },
-        .@">>" => if (b < 0 or b >= (int orelse IntInfo{}).width()) return .shift_range else a >> @intCast(b),
-        .@"&" => a & b,
-        .@"|" => a | b,
-        .@"^" => a ^ b,
-        else => unreachable,
-    };
-    const r = v orelse return .overflow;
-    if (int) |i| if (!intInfoFits(i, r)) return .overflow;
-    return .{ .value = r };
-}
-
-/// The one constant evaluator: the value of a constant integer
-/// expression, for module and local constants, array lengths,
-/// compile-time arguments, and enum values. It reads the program only
-/// through `names`, which answers for the context the expression is in:
-/// `symbol(leaf) ?SymbolId`, the declaration a name is; `name(leaf)`
-/// and `member(e)`, each a `?TypedInt`, the value of a constant and of
-/// another module's (`lib.N`); and `literalInt(e) ?IntInfo`, the integer
-/// type arithmetic on literals alone is computed in (for a wrapping
-/// operation or a shift). A `names` that declares `ctCall(e) CtFold`
-/// gives the value of a compile-time call (`cap[8]`), so every folding
-/// site folds calls too.
-pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
-    switch (e) {
-        .src => {
-            const text_ = identAt(ctx.source, e) orelse "";
-            if (isIntLiteralText(text_)) return if (std.fmt.parseInt(Wide, text_, 0)) |v| .{ .value = .{ .v = v } } else |_| .{ .overflow = .{ .node = e, .int = null } };
-            return if (names.name(e)) |t| .{ .value = t } else .not_constant;
-        },
-        .list => {
-            const h = e.kind() orelse return .not_constant;
-            if (h == .ct_call) {
-                if (comptime @hasDecl(@TypeOf(names), "ctCall")) return names.ctCall(e);
-                return .not_constant;
-            }
-            // `U8(k)` (or `Byte(k)` of an alias) of a constant integer: a
-            // constant of the target type, which must hold it.
-            if (h == .call) {
-                const args = ir.Call.args(e);
-                if (args.len != 1 or args[0].isKind(.kwarg)) return .not_constant;
-                const info = intTypeBy(ctx, ir.Call.callee(e), names) orelse return .not_constant;
-                const a = switch (ctFoldBy(ctx, args[0], names)) {
-                    .value => |t| t,
-                    else => |r| return r,
-                };
-                if (!intInfoFits(info, a.v)) return .{ .overflow = .{ .node = args[0], .int = info } };
-                return .{ .value = .{ .v = a.v, .int = info } };
-            }
-            if (h == .member) {
-                if (intLimitBy(ctx, e, names)) |t| return .{ .value = t };
-                return if (names.member(e)) |t| .{ .value = t } else .not_constant;
-            }
-            if (h == .neg) {
-                const a = switch (ctFoldBy(ctx, ir.Neg.operand(e), names)) {
-                    .value => |t| t,
-                    else => |r| return r,
-                };
-                const v = std.math.negate(a.v) catch return .{ .overflow = .{ .node = e, .int = a.int } };
-                return typedResult(e, v, a.int);
-            }
-            // `a if c else b` with a constant condition: Zig picks the
-            // branch at compile time, so its value is constant.
-            if (h == .@"if" and ir.If.@"else"(e) != .nil) {
-                const c = constBoolBy(ctx, ir.If.cond(e), names) orelse return .not_constant;
-                return ctFoldBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
-            }
-            switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => {},
-                else => return .not_constant,
-            }
-            const a = switch (ctFoldBy(ctx, ir.get(e, .left), names)) {
-                .value => |t| t,
-                else => |r| return r,
-            };
-            const b = switch (ctFoldBy(ctx, ir.get(e, .right), names)) {
-                .value => |t| t,
-                else => |r| return r,
-            };
-            // A shift is in its left operand's type.
-            const shift = h == .@"<<" or h == .@"<<%" or h == .@">>";
-            if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .mismatch = .{ .node = e, .a = ai, .b = bi } };
-            var int = if (shift) a.int orelse names.literalInt(e) else a.int orelse b.int;
-            // Literals alone wrap and saturate in the type their context
-            // gives them; without one, the width is not known here, so
-            // the program computes it.
-            switch (h) {
-                .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<%" => int = int orelse names.literalInt(e) orelse return .not_constant,
-                else => {},
-            }
-            return switch (ctArith(h, a.v, b.v, int)) {
-                .value => |v| .{ .value = .{ .v = v, .int = int } },
-                .overflow => .{ .overflow = .{ .node = e, .int = int } },
-                // Division by zero and shift amounts out of range are
-                // reported where the operator is checked.
-                .div_zero, .shift_range => .not_constant,
-            };
-        },
-        else => return .not_constant,
-    }
-}
 
 /// The integer type a built-in type name spells (`Int`, `U8`, `I128`),
 /// or null.
@@ -17234,53 +16998,6 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
     return null;
 }
 
-/// `U8.max`, `Int.min`: an integer type's limit, a constant of it, named
-/// through the type or an alias of it, this module's or another's
-/// (`util.Byte.max`). Null for anything else.
-pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
-    return intLimitBy(ctx, e, CheckedNames{ .ctx = ctx });
-}
-
-fn intLimitBy(ctx: *const SemContext, e: Sexp, names: anytype) ?TypedInt {
-    const info = intTypeBy(ctx, ir.Member.object(e), names) orelse return null;
-    const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
-    const r = intRange(info);
-    if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
-    if (std.mem.eql(u8, field, "max")) return .{ .v = r.max, .int = info };
-    return null;
-}
-
-/// The integer type `e` names: a built-in one (`U8`), or an alias of
-/// one, this module's (`Byte`) or an imported one (`lib.Byte`).
-fn intTypeBy(ctx: *const SemContext, e: Sexp, names: anytype) ?IntInfo {
-    switch (e) {
-        .src => return if (names.symbol(e)) |id| aliasIntType(ctx, id) else intTypeNamed(identAt(ctx.source, e) orelse return null),
-        .list => {
-            if (!e.isKind(.member) or ir.Member.object(e) != .src) return null;
-            const module = names.symbol(ir.Member.object(e)) orelse return null;
-            if (ctx.symbols.items[module].kind != .module) return null;
-            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
-            const alias = foreign.moduleMember(identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
-            if (!foreign.symbols.items[alias].flags.is_public) return null;
-            return aliasIntType(foreign, alias);
-        },
-        else => return null,
-    }
-}
-
-/// `v` wrapped into integer type `info`: its low bits, read as the
-/// type reads them.
-pub fn wrapTo(info: IntInfo, v: Wide) Wide {
-    const modulus = @as(Wide, 1) << @intCast(info.width());
-    const low = @mod(v, modulus);
-    return if (info.signed and low >= modulus >> 1) low - modulus else low;
-}
-
-fn typedResult(e: Sexp, v: Wide, int: ?IntInfo) CtFold {
-    if (int) |i| if (!intInfoFits(i, v)) return .{ .overflow = .{ .node = e, .int = i } };
-    return .{ .value = .{ .v = v, .int = int } };
-}
-
 /// Whether an integer type holds `v`.
 pub fn intInfoFits(info: IntInfo, v: Wide) bool {
     const r = intRange(info);
@@ -17291,14 +17008,6 @@ pub fn intInfoFits(info: IntInfo, v: Wide) bool {
 pub fn intRange(info: IntInfo) struct { min: Wide, max: Wide } {
     const half = @as(Wide, 1) << @intCast(info.width() - 1);
     return if (info.signed) .{ .min = -half, .max = half - 1 } else .{ .min = 0, .max = 2 * half - 1 };
-}
-
-/// `constInt` as an optional: null when not constant or too large.
-pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?Wide {
-    return switch (constInt(ctx, e)) {
-        .value => |v| v,
-        else => null,
-    };
 }
 
 /// A match pattern that names a module constant: a bare name the
@@ -17376,12 +17085,12 @@ fn scalarOf(ctx: *const SemContext, e: Sexp, depth: u32) ?ConstScalar {
                     return .{ .variant = identAt(ctx.source, ir.Member.name(e)) orelse return null };
                 },
                 .@"if" => if (ir.If.@"else"(e) != .nil) {
-                    const c = constBoolBy(ctx, ir.If.cond(e), CheckedNames{ .ctx = ctx }) orelse return null;
+                    const c = cteval.foldBool(ctx, ir.If.cond(e), cteval.CheckedNames{ .ctx = ctx }) orelse return null;
                     return scalarOf(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), depth);
                 },
                 else => {},
             }
-            return .{ .boolean = constBoolBy(ctx, e, CheckedNames{ .ctx = ctx }) orelse return null };
+            return .{ .boolean = cteval.foldBool(ctx, e, cteval.CheckedNames{ .ctx = ctx }) orelse return null };
         },
         else => return null,
     }
@@ -17426,47 +17135,6 @@ fn foreignMemberOf(ctx: *const SemContext, e: Sexp) ?Symbol {
 /// Why a value Rig needs is not known when it checks the program: the
 /// target sets `leaf` (`perTargetLeaf`).
 pub const per_target_why = "the value of `{s}` is chosen for each target when Zig compiles the program, so Rig does not know it";
-
-/// The value of a constant Bool expression: literals, `not`, `and`,
-/// `or`, and comparisons of constant integers (`ctFoldBy`).
-pub fn constBoolBy(ctx: *const SemContext, e: Sexp, names: anytype) ?bool {
-    switch (e) {
-        .src => {
-            const word = identAt(ctx.source, e) orelse "";
-            if (std.mem.eql(u8, word, "true")) return true;
-            if (std.mem.eql(u8, word, "false")) return false;
-            return null;
-        },
-        .list => {
-            const h = e.kind() orelse return null;
-            switch (h) {
-                .not => return !(constBoolBy(ctx, ir.Not.operand(e), names) orelse return null),
-                .@"and" => return (constBoolBy(ctx, ir.And.left(e), names) orelse return null) and (constBoolBy(ctx, ir.And.right(e), names) orelse return null),
-                .@"or" => return (constBoolBy(ctx, ir.Or.left(e), names) orelse return null) or (constBoolBy(ctx, ir.Or.right(e), names) orelse return null),
-                .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
-                    const a = switch (constIntBy(ctx, ir.get(e, .left), names)) {
-                        .value => |v| v,
-                        else => return null,
-                    };
-                    const b = switch (constIntBy(ctx, ir.get(e, .right), names)) {
-                        .value => |v| v,
-                        else => return null,
-                    };
-                    return switch (h) {
-                        .@"==" => a == b,
-                        .@"!=" => a != b,
-                        .@"<" => a < b,
-                        .@">" => a > b,
-                        .@"<=" => a <= b,
-                        else => a >= b,
-                    };
-                },
-                else => return null,
-            }
-        },
-        else => return null,
-    }
-}
 
 /// The compile-time parameter group of a `fun`, `sub`, generic type, or
 /// generic enum (`[T]`, `[n: Int]`); `_` for none, and for other kinds.
@@ -17789,7 +17457,7 @@ fn findNodes(node: Sexp, tag: Tag, out: *std.ArrayList(Sexp)) !void {
     for (node.items()) |c| try findNodes(c, tag, out);
 }
 
-test "trail: a rollback gives each fact and symbol the value it had at the mark" {
+test "trail: a rollback gives each fact and symbol the value it had at the mark, and leaves names and new symbols" {
     var r = try factsRun(
         \\fun f(a: Int) -> Int
         \\  b = a + 1
@@ -17806,7 +17474,7 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     const plus = findNode(r.tree, .@"+").?;
     const a_ty = r.leafType("a", 1).?;
     const plus_ty = ctx.typeOf(plus).?;
-    const names = ctx.facts.names.count();
+    const b_ty = r.leafType("b", 0).?;
     const plus_use = ctx.useOf(plus);
     const diagnostics = ctx.diagnostics.items.len;
     const b_sym = ctx.symbolAt(b).?;
@@ -17816,9 +17484,13 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     // Changed, added, and removed facts, of a leaf and of a list node.
     try ctx.recordType(leafAt(r.tree, a).?, ctx.types.bool_id);
     try ctx.recordType(plus, ctx.types.bool_id);
-    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, 1);
-    try ctx.removeIn(.check, .names, b);
+    try ctx.recordType(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, ctx.types.bool_id);
+    try ctx.removeIn(.check, .types, exprKey(.{ .src = .{ .pos = b, .len = 1, .id = 0 } }).?);
     try ctx.err(0, "a diagnostic the rollback drops", .{});
+    // A name, and a symbol made since the mark, which stay.
+    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, 1);
+    const made = try ctx.addSymbol(b_was);
+    (try ctx.symbolMut(made)).ty = ctx.types.bool_id;
     // A symbol written through `symbolMut`.
     const s = try ctx.symbolMut(b_sym);
     s.ty = ctx.types.bool_id;
@@ -17832,9 +17504,10 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
 
     try std.testing.expectEqual(a_ty, r.leafType("a", 1).?);
     try std.testing.expectEqual(plus_ty, ctx.typeOf(plus).?);
-    try std.testing.expectEqual(names, ctx.facts.names.count());
-    try std.testing.expect(ctx.symbolAt(b) != null);
-    try std.testing.expect(ctx.symbolAt(b + 1000) == null);
+    try std.testing.expectEqual(b_ty, r.leafType("b", 0).?);
+    try std.testing.expectEqual(null, ctx.typeOf(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }));
+    try std.testing.expectEqual(1, ctx.symbolAt(b + 1000).?);
+    try std.testing.expectEqual(ctx.types.bool_id, ctx.symbols.items[made].ty);
     try std.testing.expectEqual(plus_use, ctx.useOf(plus));
     try std.testing.expectEqual(diagnostics, ctx.diagnostics.items.len);
     try std.testing.expectEqual(b_was.ty, ctx.symbols.items[b_sym].ty);

@@ -111,7 +111,7 @@ pub fn synthLeaf(self: *Checker, leaf: Sexp) Error!TypeId {
     if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false")) return self.t().bool_id;
     if (std.mem.eql(u8, s, "none")) return self.t().none_id;
     if (sema.isFloatLiteralText(s)) {
-        if (!std.math.isFinite(CompatCheck.floatLiteralValue(s))) {
+        if (!std.math.isFinite(sema.cteval.floatLiteralAs(f64, s))) {
             try self.errAt(leaf, "float literal `{s}` is too large", .{s});
             return self.t().invalid_id;
         }
@@ -529,7 +529,7 @@ pub fn checkNumericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requir
 /// (The constant parts of an operation that is not constant were
 /// checked as operands.)
 pub fn checkConstantFits(self: *Checker, e: Sexp, ty: TypeId) Error!void {
-    if (self.ctx.types.get(ty) != .int or sema.constInt(self.ctx, e) == .not_constant) return;
+    if (self.ctx.types.get(ty) != .int or sema.cteval.constInt(self.ctx, e) == .not_constant) return;
     try BuiltinCheck.checkLiteralFits(self, e, ty);
 }
 
@@ -813,7 +813,7 @@ pub fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []con
 }
 
 pub fn constInt(self: *Checker, e: Sexp) ?Wide {
-    return sema.constIntOf(self.ctx, e);
+    return sema.cteval.constIntOf(self.ctx, e);
 }
 
 pub fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
@@ -1729,7 +1729,7 @@ pub fn whyCannotFail(self: *Checker, call: Sexp) []const u8 {
         if (callee.isKind(.member) and std.mem.eql(u8, self.text(ir.Member.name(callee)), "duration")) {
             for (ir.Call.args(call)) |a| {
                 const v = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
-                if (constInt(self, v) == null and StdFormCheck.floatConst(self, v) == .unknown) return "its duration form cannot fail: a `Duration`, or an `Int` of `ns:`, `us:` or `ms:`";
+                if (constInt(self, v) == null and sema.cteval.foldFloat(f64, self.ctx, v, true) == .unknown) return "its duration form cannot fail: a `Duration`, or an `Int` of `ns:`, `us:` or `ms:`";
             }
         }
     }

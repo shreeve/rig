@@ -1,3 +1,13 @@
+//! The one evaluator of constant values: constant expressions, and
+//! compile-time functions.
+//!
+//! - `fold` folds a constant expression, integer or `Bool`, through a
+//!   `names` that answers for its context: checked code
+//!   (`CheckedNames`), a declaration (`resolve.ConstNames`), or one
+//!   instance of a generic function, the partial mode inlining's guards
+//!   use (`CheckedNames.partial`). `foldFloat` folds a float constant in its
+//!   type. Integers have one arithmetic, `ctArith`.
+//!
 //! Compile-time functions: `fun cap[n: Int] -> Int`, a `fun` with
 //! compile-time parameters and no run-time list (`rig.isCtFun`). The
 //! checker runs one, never Zig and never the program: a call, `cap[8]`,
@@ -15,7 +25,7 @@
 //!   function to what runs at compile time: integers, `Bool`, plain
 //!   enums, and arrays of them, through a positive list of forms.
 //! - `Eval` runs a checked body over the types the checker recorded,
-//!   with the arithmetic of constant folding (`sema.ctArith`), within
+//!   with the arithmetic of constant folding (`ctArith`), within
 //!   fixed limits, so `rig check` gives the same verdict on every machine.
 
 const std = @import("std");
@@ -532,7 +542,7 @@ const Pure = struct {
                 // `t.len`, of an array the body holds.
                 if (std.mem.eql(u8, name, "len")) if (self.ctx.typeOf(obj)) |ot| if (self.ctx.types.get(ot) == .array) return self.expr(obj);
                 // `U8.max`, `Mode.loose`, `lib.N`: a constant.
-                if (sema.intLimit(self.ctx, e) != null) return true;
+                if (intLimit(self.ctx, e) != null) return true;
                 if (sema.patternConst(self.ctx, e)) |c| {
                     if (sema.constScalar(c) != null) return self.plainValue(e);
                     return self.reject(e, "read `{s}`", .{self.text(e)}, "it reads integer, `Bool`, and enum constants", .{});
@@ -871,10 +881,517 @@ fn report(ctx: *SemContext, call: Sexp, why: Failure) Error!void {
     } else try ctx.noteIn(why.module, why.pos, "in `{s}`", .{why.node});
 }
 
+// ---- constant folding ---------------------------------------------------
+
+/// A constant integer expression's value, or why it has none.
+pub const ConstInt = union(enum) {
+    value: Wide,
+    not_constant,
+    /// Constant, but too large to compute.
+    overflow,
+};
+
+/// A folded integer and its type; `int` is null for arithmetic on
+/// literals alone, which takes the type it is used as.
+pub const TypedInt = struct { v: Wide, int: ?IntInfo = null };
+
+/// A constant integer expression folded with its types, as constant
+/// arithmetic is checked: each operation is in the type of its typed
+/// operands, and its value must fit that type.
+pub const CtFold = union(enum) {
+    value: TypedInt,
+    not_constant,
+    /// `node`'s value does not fit its type `int`, or (untyped) is too
+    /// large to compute.
+    overflow: struct { node: Sexp, int: ?IntInfo },
+    /// `node` combines constants of two integer types.
+    mismatch: struct { node: Sexp, a: IntInfo, b: IntInfo },
+    /// A compile-time call in it failed, and was reported at the call
+    /// (`callAt`).
+    failed,
+};
+
+/// The result of one integer operation on constants (`ctArith`).
+pub const Arith = union(enum) {
+    value: Wide,
+    /// The result does not fit the operation's type.
+    overflow,
+    /// `/` or `%` by zero.
+    div_zero,
+    /// A shift by a negative amount, or by the type's width or more.
+    shift_range,
+};
+
+/// The one arithmetic of integers, for folding (`fold`) and for
+/// compile-time functions (`Eval`): the binary operator `h` on `a` and
+/// `b` in the integer type `int`. Wrapping and saturating operators and
+/// `<<%` need a type; the others compute exactly without one (literals
+/// alone, whose context types them later).
+pub fn ctArith(h: Tag, a: Wide, b: Wide, int: ?IntInfo) Arith {
+    switch (h) {
+        // Wrapping arithmetic keeps the low bits of the result in its
+        // type, which a `Wide` computes exactly (its width is a multiple
+        // of every integer type's).
+        .@"+%", .@"-%", .@"*%" => {
+            const v = switch (h) {
+                .@"+%" => a +% b,
+                .@"-%" => a -% b,
+                else => a *% b,
+            };
+            return .{ .value = wrapTo(int.?, v) };
+        },
+        // Saturating arithmetic stops at the type's limits, which a
+        // `Wide` holds.
+        .@"+|", .@"-|" => {
+            const r = sema.intRange(int.?);
+            const v = if (h == .@"+|") a + b else a - b;
+            return .{ .value = std.math.clamp(v, r.min, r.max) };
+        },
+        // A shift keeps the low bits too, if its amount is below the
+        // width.
+        .@"<<%" => {
+            if (b < 0 or b >= int.?.width()) return .shift_range;
+            return .{ .value = wrapTo(int.?, a << @intCast(b)) };
+        },
+        else => {},
+    }
+    const v: ?Wide = switch (h) {
+        .@"+" => std.math.add(Wide, a, b) catch null,
+        .@"-" => std.math.sub(Wide, a, b) catch null,
+        .@"*" => std.math.mul(Wide, a, b) catch null,
+        .@"/" => if (b == 0) return .div_zero else std.math.divTrunc(Wide, a, b) catch null,
+        .@"%" => if (b == 0) return .div_zero else if (b == -1) 0 else @rem(a, b),
+        // A shift by the width or more is out of range; one that loses
+        // bits overflows.
+        .@"<<" => if (b < 0 or b >= (int orelse IntInfo{}).width()) return .shift_range else blk: {
+            const r = a << @intCast(b);
+            break :blk if (r >> @intCast(b) == a) r else null;
+        },
+        .@">>" => if (b < 0 or b >= (int orelse IntInfo{}).width()) return .shift_range else a >> @intCast(b),
+        .@"&" => a & b,
+        .@"|" => a | b,
+        .@"^" => a ^ b,
+        else => unreachable,
+    };
+    const r = v orelse return .overflow;
+    if (int) |i| if (!sema.intInfoFits(i, r)) return .overflow;
+    return .{ .value = r };
+}
+
+/// `v` wrapped into integer type `info`: its low bits, read as the
+/// type reads them.
+fn wrapTo(info: IntInfo, v: Wide) Wide {
+    const modulus = @as(Wide, 1) << @intCast(info.width());
+    const low = @mod(v, modulus);
+    return if (info.signed and low >= modulus >> 1) low - modulus else low;
+}
+
+/// Comparison `h` of two integers, as the program orders them.
+fn compare(h: Tag, x: Wide, y: Wide) bool {
+    return switch (h) {
+        .@"==" => x == y,
+        .@"!=" => x != y,
+        .@"<" => x < y,
+        .@">" => x > y,
+        .@"<=" => x <= y,
+        else => x >= y,
+    };
+}
+
+/// What a constant expression folds to: an integer and its type, a
+/// `Bool`, or why it has neither (never `CtFold.value`).
+const Const = union(enum) { int: TypedInt, boolean: bool, no: CtFold };
+
+const no_value: Const = .{ .no = .not_constant };
+
+/// The reason operand `c`, not an integer, gives its operation no value.
+fn reasonOf(c: Const) Const {
+    return if (c == .no) c else no_value;
+}
+
+/// The one folder of constant expressions: integers for module and local
+/// constants, array lengths, compile-time arguments, and enum values;
+/// `Bool`s for constant conditions; and the compile-time values of an
+/// instance for inlining's guards. It reads the program only through
+/// `names`, which answers for the context the expression is in:
+///
+/// - `symbol(leaf) ?SymbolId`, the declaration a name is;
+/// - `name(leaf)` and `member(e)`, each a `?TypedInt`, the value of a
+///   constant and of another module's (`lib.N`);
+/// - `literalInt(e) ?IntInfo`, the integer type arithmetic on literals
+///   alone is computed in (for a wrapping operation or a shift);
+/// - optionally `ctCall(e) CtFold`, the value of a compile-time call
+///   (`cap[8]`), and `boolean(leaf) ?bool`, a name's `Bool` value;
+/// - optionally `partial`, true for a fold over values some of which are
+///   not known (`CheckedNames`' partial mode): a side of `and` or `or`
+///   that decides it decides it whatever the other is. Otherwise only
+///   the left side decides alone, as the program reads it.
+fn fold(ctx: *const SemContext, e: Sexp, names: anytype) Const {
+    const N = @TypeOf(names);
+    switch (e) {
+        .src => {
+            const word = identAt(ctx.source, e) orelse "";
+            if (sema.isIntLiteralText(word)) return if (std.fmt.parseInt(Wide, word, 0)) |v| .{ .int = .{ .v = v } } else |_| .{ .no = .{ .overflow = .{ .node = e, .int = null } } };
+            if (std.mem.eql(u8, word, "true")) return .{ .boolean = true };
+            if (std.mem.eql(u8, word, "false")) return .{ .boolean = false };
+            if (comptime @hasDecl(N, "boolean")) if (names.boolean(e)) |b| return .{ .boolean = b };
+            return if (names.name(e)) |t| .{ .int = t } else no_value;
+        },
+        .list => {},
+        else => return no_value,
+    }
+    const h = e.kind() orelse return no_value;
+    switch (h) {
+        .ct_call => {
+            if (comptime !@hasDecl(N, "ctCall")) return no_value;
+            return switch (names.ctCall(e)) {
+                .value => |t| .{ .int = t },
+                else => |r| .{ .no = r },
+            };
+        },
+        // `U8(k)` (or `Byte(k)` of an alias) of a constant integer: a
+        // constant of the target type, which must hold it.
+        .call => {
+            const args = ir.Call.args(e);
+            if (args.len != 1 or args[0].isKind(.kwarg)) return no_value;
+            const info = intTypeBy(ctx, ir.Call.callee(e), names) orelse return no_value;
+            const c = fold(ctx, args[0], names);
+            const a = if (c == .int) c.int else return reasonOf(c);
+            if (!sema.intInfoFits(info, a.v)) return .{ .no = .{ .overflow = .{ .node = args[0], .int = info } } };
+            return .{ .int = .{ .v = a.v, .int = info } };
+        },
+        .member => {
+            if (intLimitBy(ctx, e, names)) |t| return .{ .int = t };
+            return if (names.member(e)) |t| .{ .int = t } else no_value;
+        },
+        .neg => {
+            const c = fold(ctx, ir.Neg.operand(e), names);
+            const a = if (c == .int) c.int else return reasonOf(c);
+            const v = std.math.negate(a.v) catch return .{ .no = .{ .overflow = .{ .node = e, .int = a.int } } };
+            if (a.int) |i| if (!sema.intInfoFits(i, v)) return .{ .no = .{ .overflow = .{ .node = e, .int = i } } };
+            return .{ .int = .{ .v = v, .int = a.int } };
+        },
+        // `a if c else b` with a constant condition: Zig picks the
+        // branch at compile time, so its value is constant.
+        .@"if" => {
+            if (ir.If.@"else"(e) == .nil) return no_value;
+            const c = fold(ctx, ir.If.cond(e), names);
+            if (c != .boolean) return no_value;
+            return fold(ctx, if (c.boolean) ir.If.then(e) else ir.If.@"else"(e), names);
+        },
+        .not => {
+            const c = fold(ctx, ir.Not.operand(e), names);
+            return if (c == .boolean) .{ .boolean = !c.boolean } else no_value;
+        },
+        .@"and", .@"or" => {
+            const decides = h == .@"or";
+            const a = fold(ctx, ir.get(e, .left), names);
+            if (a == .boolean and a.boolean == decides) return a;
+            if (a != .boolean and !(@hasField(N, "partial") and names.partial)) return no_value;
+            const b = fold(ctx, ir.get(e, .right), names);
+            if (b != .boolean or (a != .boolean and b.boolean != decides)) return no_value;
+            return b;
+        },
+        .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
+            const a = fold(ctx, ir.get(e, .left), names);
+            const b = fold(ctx, ir.get(e, .right), names);
+            if (a == .int and b == .int) return .{ .boolean = compare(h, a.int.v, b.int.v) };
+            if (a == .boolean and b == .boolean and (h == .@"==" or h == .@"!=")) return .{ .boolean = (a.boolean == b.boolean) == (h == .@"==") };
+            return no_value;
+        },
+        .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => {},
+        else => return no_value,
+    }
+    const ca = fold(ctx, ir.get(e, .left), names);
+    const a = if (ca == .int) ca.int else return reasonOf(ca);
+    const cb = fold(ctx, ir.get(e, .right), names);
+    const b = if (cb == .int) cb.int else return reasonOf(cb);
+    // A shift is in its left operand's type.
+    const shift = h == .@"<<" or h == .@"<<%" or h == .@">>";
+    if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .no = .{ .mismatch = .{ .node = e, .a = ai, .b = bi } } };
+    var int = if (shift) a.int orelse names.literalInt(e) else a.int orelse b.int;
+    // Literals alone wrap and saturate in the type their context gives
+    // them; without one, the width is not known here, so the program
+    // computes it.
+    switch (h) {
+        .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<%" => int = int orelse names.literalInt(e) orelse return no_value,
+        else => {},
+    }
+    return switch (ctArith(h, a.v, b.v, int)) {
+        .value => |v| .{ .int = .{ .v = v, .int = int } },
+        .overflow => .{ .no = .{ .overflow = .{ .node = e, .int = int } } },
+        // Division by zero and shift amounts out of range are reported
+        // where the operator is checked.
+        .div_zero, .shift_range => no_value,
+    };
+}
+
+/// The value of a constant integer expression, with its type (`fold`).
+pub fn foldInt(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
+    return switch (fold(ctx, e, names)) {
+        .int => |t| .{ .value = t },
+        .boolean => .not_constant,
+        .no => |r| r,
+    };
+}
+
+/// The value of a constant `Bool` expression (`fold`).
+pub fn foldBool(ctx: *const SemContext, e: Sexp, names: anytype) ?bool {
+    const c = fold(ctx, e, names);
+    return if (c == .boolean) c.boolean else null;
+}
+
+/// The value of a constant integer or `Bool` expression (`fold`), as a
+/// compile-time function's value.
+pub fn foldValue(ctx: *const SemContext, e: Sexp, names: anytype) ?CtVal {
+    return switch (fold(ctx, e, names)) {
+        .int => |t| .{ .int = t.v },
+        .boolean => |b| .{ .boolean = b },
+        .no => null,
+    };
+}
+
+/// `foldInt` without its reasons: overflow, or not a constant.
+pub fn constIntBy(ctx: *const SemContext, e: Sexp, names: anytype) ConstInt {
+    return switch (foldInt(ctx, e, names)) {
+        .value => |t| .{ .value = t.v },
+        .not_constant, .mismatch, .failed => .not_constant,
+        .overflow => .overflow,
+    };
+}
+
+/// The value of a constant integer expression in checked code: literals,
+/// constant bindings, and arithmetic on them.
+pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
+    return constIntBy(ctx, e, CheckedNames{ .ctx = ctx });
+}
+
+/// `constInt` as an optional: null when not constant or too large.
+pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?Wide {
+    return switch (constInt(ctx, e)) {
+        .value => |v| v,
+        else => null,
+    };
+}
+
+/// What `fold` knows of checked code, from the facts the checker
+/// recorded: the symbol a name is, a constant binding's value (known once
+/// its declaration is checked) and an imported constant's (`lib.N`), and
+/// the type literal arithmetic was given. The values are untyped here:
+/// the checker gives constant arithmetic its type.
+///
+/// Its partial mode (`partial`) is one instance of a generic function,
+/// for inlining's guards: the values the instance binds its compile-time
+/// parameters to (`tparams`, in order, and `values`) are known too, and
+/// any other value is not.
+pub const CheckedNames = struct {
+    ctx: *const SemContext,
+    partial: bool = false,
+    tparams: []const Sexp = &.{},
+    values: []const CtVal = &.{},
+
+    pub fn symbol(self: CheckedNames, e: Sexp) ?SymbolId {
+        return self.ctx.symbolOf(e) orelse self.ctx.lookupInScopeOnly(sema.module_scope, identAt(self.ctx.source, e) orelse return null);
+    }
+
+    pub fn name(self: CheckedNames, e: Sexp) ?TypedInt {
+        const id = self.ctx.symbolOf(e) orelse return null;
+        if (self.ctx.const_ints.get(id)) |c| return .{ .v = c.value };
+        const v = self.param(id) orelse return null;
+        return if (v == .int) .{ .v = v.int } else null;
+    }
+
+    pub fn boolean(self: CheckedNames, e: Sexp) ?bool {
+        const v = self.param(self.ctx.symbolOf(e) orelse return null) orelse return null;
+        return if (v == .boolean) v.boolean else null;
+    }
+
+    /// `lib.N`: another module's integer constant.
+    pub fn member(self: CheckedNames, e: Sexp) ?TypedInt {
+        const obj = ir.Member.object(e);
+        if (obj != .src) return null;
+        const id = self.symbol(obj) orelse return null;
+        if (self.ctx.symbols.items[id].kind != .module) return null;
+        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
+        const fid = foreign.moduleMember(identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+        const c = foreign.const_ints.get(fid) orelse return null;
+        return .{ .v = c.value };
+    }
+
+    pub fn literalInt(self: CheckedNames, e: Sexp) ?IntInfo {
+        return switch (self.ctx.types.get(self.ctx.typeOf(e) orelse return null)) {
+            .int => |i| i,
+            else => null,
+        };
+    }
+
+    /// A compile-time call's integer value, which the checker computed
+    /// and recorded where it typed the call.
+    pub fn ctCall(self: CheckedNames, e: Sexp) CtFold {
+        return recordedInt(self.ctx, e);
+    }
+
+    /// The value the instance binds the compile-time parameter `id` to.
+    fn param(self: CheckedNames, id: SymbolId) ?CtVal {
+        const pos = self.ctx.symbols.items[id].decl_pos;
+        for (self.tparams, self.values) |p, v| {
+            const leaf = sema.paramNameNode(p) orelse continue;
+            if (leaf == .src and leaf.src.pos == pos) return v;
+        }
+        return null;
+    }
+};
+
+/// `U8.max`, `Int.min`: an integer type's limit, a constant of it, named
+/// through the type or an alias of it, this module's or another's
+/// (`util.Byte.max`). Null for anything else.
+pub fn intLimit(ctx: *const SemContext, e: Sexp) ?TypedInt {
+    return intLimitBy(ctx, e, CheckedNames{ .ctx = ctx });
+}
+
+fn intLimitBy(ctx: *const SemContext, e: Sexp, names: anytype) ?TypedInt {
+    const info = intTypeBy(ctx, ir.Member.object(e), names) orelse return null;
+    const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
+    const r = sema.intRange(info);
+    if (std.mem.eql(u8, field, "min")) return .{ .v = r.min, .int = info };
+    if (std.mem.eql(u8, field, "max")) return .{ .v = r.max, .int = info };
+    return null;
+}
+
+/// The integer type `e` names: a built-in one (`U8`), or an alias of
+/// one, this module's (`Byte`) or an imported one (`lib.Byte`).
+fn intTypeBy(ctx: *const SemContext, e: Sexp, names: anytype) ?IntInfo {
+    switch (e) {
+        .src => return if (names.symbol(e)) |id| sema.aliasIntType(ctx, id) else sema.intTypeNamed(identAt(ctx.source, e) orelse return null),
+        .list => {
+            if (!e.isKind(.member) or ir.Member.object(e) != .src) return null;
+            const module = names.symbol(ir.Member.object(e)) orelse return null;
+            if (ctx.symbols.items[module].kind != .module) return null;
+            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
+            const alias = foreign.moduleMember(identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+            if (!foreign.symbols.items[alias].flags.is_public) return null;
+            return sema.aliasIntType(foreign, alias);
+        },
+        else => return null,
+    }
+}
+
+/// A constant float folded in type `F` (`foldFloat`): its value, a
+/// constant with no finite value (an infinity, a NaN, or an operation
+/// that overflows), or not known.
+pub fn FloatFold(comptime F: type) type {
+    return union(enum) { value: F, not_finite, unknown };
+}
+
+/// The value of a constant float expression computed in float type `F`
+/// as the program computes it, each literal and each operation rounded
+/// to `F`: number literals, a float type's limit (`F32.max`),
+/// `Float.inf()` and `Float.nan()`, and the arithmetic of these; with
+/// `bindings`, also a binding whose value is constant (`const_floats`,
+/// `const_ints`).
+pub fn foldFloat(comptime F: type, ctx: *const SemContext, e: Sexp, bindings: bool) FloatFold(F) {
+    switch (e) {
+        .src => {
+            const t = identAt(ctx.source, e) orelse return .unknown;
+            if (sema.isFloatLiteralText(t)) {
+                const v = floatLiteralAs(F, t);
+                return if (std.math.isFinite(v)) .{ .value = v } else .not_finite;
+            }
+            if (sema.isIntLiteralText(t)) return .{ .value = wideToFloat(F, std.fmt.parseInt(Wide, t, 0) catch return .unknown) };
+            if (!bindings) return .unknown;
+            const id = ctx.symbolOf(e) orelse return .unknown;
+            if (ctx.const_floats.get(id)) |v| return .{ .value = @floatCast(v) };
+            if (ctx.const_ints.get(id)) |c| return .{ .value = wideToFloat(F, c.value) };
+            return .unknown;
+        },
+        .list => {},
+        else => return .unknown,
+    }
+    const h = e.kind() orelse return .unknown;
+    switch (h) {
+        .member => return if (floatLimit(F, ctx.source, e)) |v| .{ .value = v } else .unknown,
+        .call => return if (isNotFinite(ctx.source, e)) .not_finite else .unknown,
+        .neg => return switch (foldFloat(F, ctx, ir.Neg.operand(e), bindings)) {
+            .value => |v| .{ .value = -v },
+            else => |o| o,
+        },
+        .@"+", .@"-", .@"*", .@"/", .@"%" => {},
+        else => return .unknown,
+    }
+    const a = foldFloat(F, ctx, ir.get(e, .left), bindings);
+    const b = foldFloat(F, ctx, ir.get(e, .right), bindings);
+    if (a == .unknown or b == .unknown) return .unknown;
+    if (a == .not_finite or b == .not_finite) return .not_finite;
+    const v = floatOp(F, h, a.value, b.value);
+    return if (std.math.isFinite(v)) .{ .value = v } else .not_finite;
+}
+
+/// Whether the arithmetic node `e`, whose operands are literal constants
+/// in `F` (`foldFloat`), overflows `F`: its result is infinite. Division
+/// by zero gives an infinity or NaN instead.
+pub fn floatOverflows(comptime F: type, ctx: *const SemContext, e: Sexp) bool {
+    const right = ir.get(e, .right);
+    const a = foldFloat(F, ctx, ir.get(e, .left), false);
+    const b = foldFloat(F, ctx, right, false);
+    if (a != .value or b != .value) return false;
+    const h = e.kind().?;
+    if (b.value == 0 and (h == .@"/" or h == .@"%")) return false;
+    return !std.math.isFinite(floatOp(F, h, a.value, b.value));
+}
+
+fn floatOp(comptime F: type, h: Tag, a: F, b: F) F {
+    return switch (h) {
+        .@"+" => a + b,
+        .@"-" => a - b,
+        .@"*" => a * b,
+        .@"/" => a / b,
+        else => if (b == 0) std.math.nan(F) else @rem(a, b),
+    };
+}
+
+/// `F32.max`, `Float.min`: a float type's limit, in `F`; null for any
+/// other member.
+fn floatLimit(comptime F: type, source: []const u8, e: Sexp) ?F {
+    const name = identAt(source, ir.Member.object(e)) orelse return null;
+    const max: f64 = if (std.mem.eql(u8, name, "F32"))
+        std.math.floatMax(f32)
+    else if (std.mem.eql(u8, name, "F64") or std.mem.eql(u8, name, "Float"))
+        std.math.floatMax(f64)
+    else
+        return null;
+    const field = identAt(source, ir.Member.name(e)) orelse return null;
+    const v: F = @floatCast(if (std.mem.eql(u8, field, "max")) max else if (std.mem.eql(u8, field, "min")) -max else return null);
+    return if (std.math.isFinite(v)) v else null;
+}
+
+/// `Float.inf()` or `Float.nan()`, of any float type.
+fn isNotFinite(source: []const u8, e: Sexp) bool {
+    if (ir.Call.args(e).len != 0 or !ir.Call.callee(e).isKind(.member)) return false;
+    const name = identAt(source, ir.Member.name(ir.Call.callee(e))) orelse return false;
+    const owner = identAt(source, ir.Member.object(ir.Call.callee(e))) orelse return false;
+    const float = std.mem.eql(u8, owner, "Float") or std.mem.eql(u8, owner, "F64") or std.mem.eql(u8, owner, "F32");
+    return float and (std.mem.eql(u8, name, "inf") or std.mem.eql(u8, name, "nan"));
+}
+
+/// The value of a float literal in `F` (`inf` when it is out of `F`'s
+/// range).
+pub fn floatLiteralAs(comptime F: type, lit: []const u8) F {
+    return std.fmt.parseFloat(F, lit) catch 0;
+}
+
+/// `v` as a float, rounded. (LLVM has no conversion from an integer as
+/// wide as `Wide`, so it goes through two 128-bit halves.)
+pub fn wideToFloat(comptime F: type, v: Wide) F {
+    if (std.math.cast(i128, v)) |n| return @floatFromInt(n);
+    const lo: u128 = @truncate(@as(u256, @bitCast(v)));
+    const hi: i128 = @truncate(v >> 128);
+    return @floatCast(@as(f64, @floatFromInt(hi)) * 0x1p128 + @as(f64, @floatFromInt(lo)));
+}
+
 /// The value of an argument for a parameter of type `ty` (of `ctx`), as
 /// `names` knows constants: `not_constant` when it is not known at
 /// compile time, `mismatch` when it combines integers of two types.
-const Arg = union(enum) { value: CtVal, not_constant, failed, overflow, mismatch: @FieldType(sema.CtFold, "mismatch") };
+const Arg = union(enum) { value: CtVal, not_constant, failed, overflow, mismatch: @FieldType(CtFold, "mismatch") };
 
 fn argValue(ctx: *SemContext, arg: Sexp, ty: TypeId, names: anytype) Error!Arg {
     if (arg.isKind(.ct_call)) {
@@ -882,7 +1399,7 @@ fn argValue(ctx: *SemContext, arg: Sexp, ty: TypeId, names: anytype) Error!Arg {
         return .{ .value = v };
     }
     switch (ctx.types.get(ty)) {
-        .int => return switch (sema.ctFoldBy(ctx, arg, names)) {
+        .int => return switch (foldInt(ctx, arg, names)) {
             .value => |t| .{ .value = .{ .int = t.v } },
             .failed => .failed,
             .overflow => .overflow,
@@ -890,7 +1407,7 @@ fn argValue(ctx: *SemContext, arg: Sexp, ty: TypeId, names: anytype) Error!Arg {
             .not_constant => .not_constant,
         },
         .bool => {
-            if (sema.constBoolBy(ctx, arg, names)) |b| return .{ .value = .{ .boolean = b } };
+            if (foldBool(ctx, arg, names)) |b| return .{ .value = .{ .boolean = b } };
             if (sema.patternConst(ctx, arg)) |c| if (sema.constScalar(c)) |s| if (s == .boolean) return .{ .value = .{ .boolean = s.boolean } };
             return .not_constant;
         },
@@ -1128,9 +1645,9 @@ fn fits(ctx: *SemContext, arg: Sexp, v: CtVal, ty: TypeId, i: usize, name: []con
     return false;
 }
 
-/// `ctFoldBy`'s answer for a compile-time call where constants are
+/// `foldInt`'s answer for a compile-time call where constants are
 /// resolved (`resolve.ConstNames.ctCall`): its value, when an integer.
-pub fn foldCall(ctx: *SemContext, e: Sexp, names: anytype) Error!sema.CtFold {
+pub fn foldCall(ctx: *SemContext, e: Sexp, names: anytype) Error!CtFold {
     return switch (try valueCall(ctx, e, names)) {
         .not_call => .not_constant,
         .failed => .failed,
@@ -1161,10 +1678,10 @@ pub fn notInt(ctx: *SemContext, node: Sexp, what: []const u8) Error!bool {
     }
 }
 
-/// `ctFoldBy`'s answer for a checked compile-time call
-/// (`sema.CheckedNames.ctCall`): the value the checker recorded, when an
+/// `foldInt`'s answer for a checked compile-time call
+/// (`CheckedNames.ctCall`): the value the checker recorded, when an
 /// integer.
-pub fn recordedInt(ctx: *const SemContext, e: Sexp) sema.CtFold {
+pub fn recordedInt(ctx: *const SemContext, e: Sexp) CtFold {
     const r = recorded(ctx, e) orelse return .not_constant;
     return switch (r.value) {
         .int => |v| .{ .value = .{ .v = v, .int = switch (ctx.types.get(r.ty)) {
@@ -1493,7 +2010,7 @@ pub const Eval = struct {
     }
 
     fn arith(self: *Eval, node: Sexp, op: Tag, x: Wide, y: Wide, info: IntInfo) EvalError!Wide {
-        return switch (sema.ctArith(op, x, y, info)) {
+        return switch (ctArith(op, x, y, info)) {
             .value => |v| v,
             .overflow => {
                 const r = sema.intRange(info);
@@ -1911,7 +2428,7 @@ pub const Eval = struct {
             .enum_lit => return eqlVal(v, .{ .variant = variantIndex(self.ctx, ty, identAt(self.ctx.source, ir.EnumLit.name(p)) orelse "") orelse return false }),
             .member => {
                 if (sema.patternConst(self.ctx, p)) |c| return eqlVal(v, try self.scalar(p, c, ty));
-                if (sema.intLimit(self.ctx, p)) |t| return eqlVal(v, .{ .int = t.v });
+                if (intLimit(self.ctx, p)) |t| return eqlVal(v, .{ .int = t.v });
                 return eqlVal(v, .{ .variant = variantIndex(self.ctx, ty, identAt(self.ctx.source, ir.Member.name(p)) orelse "") orelse return false });
             },
             .neg => return eqlVal(v, try self.value(p)),
@@ -2001,7 +2518,7 @@ pub const Eval = struct {
                 else => self.failAt(e, "has no length", .{}),
             };
         };
-        if (sema.intLimit(self.ctx, e)) |t| return .{ .int = t.v };
+        if (intLimit(self.ctx, e)) |t| return .{ .int = t.v };
         const ty = self.ctx.typeOf(e) orelse self.ctx.types.int_id;
         if (sema.patternConst(self.ctx, e)) |c| return self.scalar(e, c, ty);
         return .{ .variant = variantIndex(self.ctx, ty, name) orelse return self.failAt(e, "reads `{s}`, whose value Rig does not know", .{self.text(e)}) };
@@ -2036,12 +2553,7 @@ pub const Eval = struct {
                 const right = ir.get(e, .right);
                 const x = try self.ordinal(left, try self.value(left), self.ctx.typeOf(left) orelse self.ctx.types.int_id);
                 const y = try self.ordinal(right, try self.value(right), self.ctx.typeOf(right) orelse self.ctx.types.int_id);
-                return .{ .boolean = switch (h) {
-                    .@"<" => x < y,
-                    .@">" => x > y,
-                    .@"<=" => x <= y,
-                    else => x >= y,
-                } };
+                return .{ .boolean = compare(h, x, y) };
             },
             .enum_lit => {
                 const ty = self.ctx.typeOf(e) orelse return self.failAt(e, "has no type", .{});
