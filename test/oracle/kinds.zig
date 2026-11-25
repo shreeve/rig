@@ -145,7 +145,7 @@ pub const Kinds = struct {
         // A type parameter `$plain` has narrowed is plain data where the
         // code runs (SPEC "Generic bodies").
         if (self.generic) switch (ctx.types.get(ty)) {
-            .type_var => |sym| if (std.mem.findScalar(sema.SymbolId, self.narrowed.items, sym) != null) return .{
+            .type_var => |sym| if (std.mem.findScalar(sema.SymbolId, self.narrowed.items, self.ctx.localSym(sym)) != null) return .{
                 .kind = .plain,
                 .holds_views = false,
                 .holds_pointers = false,
@@ -157,12 +157,12 @@ pub const Kinds = struct {
         const narrowed = try self.allNarrowed(ty);
         if (self.generic and !narrowed) switch (ctx.types.get(ty)) {
             .type_var => |sym| {
-                const bounds = sema.implied(ctx.symbols.items[sym].apis);
+                const bounds = sema.implied(ctx.symbols.items[ctx.localSym(sym)].apis);
                 if (bounds.count() > 0) {
                     const copy = bounds.contains(.Copy);
                     // An associated type's value views its base only at
                     // an instance whose associated type may (`item`).
-                    const owned = bounds.contains(.Owned) or ctx.symbols.items[sym].assoc_of != null;
+                    const owned = bounds.contains(.Owned) or ctx.symbols.items[ctx.localSym(sym)].assoc_of != null;
                     return .{
                         .kind = if (!copy) .owning else if (owned) .plain else .read_view,
                         .holds_views = !owned,
@@ -220,7 +220,7 @@ pub const Kinds = struct {
 /// which its bounds classify (SPEC "Generic bodies").
 fn boundedVar(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .type_var => |sym| sema.implied(ctx.symbols.items[sym].apis).count() > 0,
+        .type_var => |sym| sema.implied(ctx.symbols.items[ctx.localSym(sym)].apis).count() > 0,
         .optional => |inner| boundedVar(ctx, inner),
         else => false,
     };
@@ -349,13 +349,12 @@ fn objectBlockerIn(ctx: *const SemContext, ty: TypeId, shares: bool, seen: anyty
             return objectBlockerIn(ctx, inner, true, seen, depth + 1);
         },
         .parameterized_nominal => |pn| {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.tasks_sym_id) return null;
+            if (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal or pn.sym == ctx.builtins.actor or pn.sym == ctx.builtins.chan or pn.sym == ctx.builtins.tasks) return null;
             for (pn.args) |a| if (try objectBlockerIn(ctx, a, shares, seen, depth + 1)) |b| return b;
-            if (sema.isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.task_sym_id) return null;
-            return objectFieldsBlock(ctx, ty, pn.sym, shares, seen, depth);
+            if (sema.isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.builtins.task) return null;
+            return objectFieldsBlock(ctx, ty, ctx.localSym(pn.sym), shares, seen, depth);
         },
-        .nominal => |sym| return objectFieldsBlock(ctx, ty, sym, shares, seen, depth),
-        .imported_nominal => {
+        .nominal => |r| if (ctx.owns(r)) return objectFieldsBlock(ctx, ty, r.sym, shares, seen, depth) else {
             const decl = sema.nominalDecl(ctx, ty) orelse return null;
             return if (try objectFieldsBlock(decl.ctx, ty, decl.sym, shares, seen, depth) != null) ty else null;
         },
@@ -447,10 +446,9 @@ const Scan = struct {
             .results => |parts| for (parts) |part| try self.walk(ctx, part, depth + 1, in_generic),
             .slice => |s| try self.walk(ctx, s.elem, depth + 1, in_generic),
             .array => |arr| try self.walk(ctx, arr.elem, depth + 1, in_generic),
-            .nominal => |sym| try self.fields(ctx, sym, depth, in_generic),
-            .imported_nominal => |in| {
+            .nominal => |in| if (ctx.owns(in)) try self.fields(ctx, in.sym, depth, in_generic) else {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.mark("an unknown module's type");
-                try self.fields(foreign, in.sym_id, depth, in_generic);
+                try self.fields(foreign, in.sym, depth, in_generic);
             },
             .parameterized_nominal => |pn| {
                 // A Cell or Signal changes through any path, and holds
@@ -459,7 +457,7 @@ const Scan = struct {
                 // of a `?T`, `!T`, or slice is the compiler's to reject.
                 // One of a task holds what may carry a loan: the store
                 // that puts the task there is C8.
-                if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
+                if (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal) {
                     for (pn.args) |arg| {
                         const outer = self.reached_task;
                         self.reached_task = false;
@@ -472,13 +470,13 @@ const Scan = struct {
                 }
                 // A task's drop waits for its call, which uses what the
                 // task was given views of (Core s6), as a `drop` body would.
-                if ((pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) and !self.under_weak) {
+                if ((pn.sym == ctx.builtins.task or pn.sym == ctx.builtins.tasks) and !self.under_weak) {
                     self.drop_body = true;
                     self.reached_task = true;
                     if (!self.read_only) self.task = true;
                 }
                 for (pn.args) |arg| try self.walk(ctx, arg, depth + 1, in_generic);
-                if (pn.sym != ctx.list_sym_id and pn.sym != ctx.box_sym_id) try self.fields(ctx, pn.sym, depth, true);
+                if (pn.sym != ctx.builtins.list and pn.sym != ctx.builtins.box) try self.fields(ctx, ctx.localSym(pn.sym), depth, true);
             },
             else => {},
         }
@@ -526,18 +524,17 @@ pub const Reach = struct {
         if (depth > 32) return w.writeAll("...");
         const t = ctx.types.get(ty);
         switch (t) {
-            .nominal => |sym| if (sym == ctx.endian_sym_id) try w.writeAll("Endian") else try w.print("N{d}.{d}", .{ ctx.module_id, sym }),
-            .imported_nominal => |n| try w.print("N{d}.{d}", .{ n.module_id, n.sym_id }),
+            .nominal => |n| if (!ctx.owns(n)) try w.print("N{d}.{d}", .{ n.module_id, n.sym }) else if (n == ctx.builtins.endian) try w.writeAll("Endian") else try w.print("N{d}.{d}", .{ ctx.module_id, n.sym }),
             .parameterized_nominal => |pn| {
-                const sym = ctx.symbols.items[pn.sym];
-                if (sym.decl_pos == sema.builtin_decl_pos) try w.print("{s}[", .{sym.name}) else if (sema.isProxy(sym)) try w.print("G{d}.{d}[", .{ sym.from.module_id, sym.from.sym }) else try w.print("G{d}.{d}[", .{ ctx.module_id, pn.sym });
+                const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
+                if (sym.decl_pos == sema.builtin_decl_pos) try w.print("{s}[", .{sym.name}) else if (sema.isProxy(sym)) try w.print("G{d}.{d}[", .{ sym.from.module_id, sym.from.sym }) else try w.print("G{d}.{d}[", .{ ctx.module_id, pn.sym.sym });
                 for (pn.args) |arg| {
                     try spell(w, ctx, arg, subst, depth + 1);
                     try w.writeAll(",");
                 }
                 try w.writeAll("]");
             },
-            .type_var => |sym| if (subst) |s| if (s.lookup(sym)) |b| return spell(w, b.ctx, b.ty, null, depth + 1),
+            .type_var => |sym| if (subst) |s| if (s.lookup(ctx.localSym(sym))) |b| return spell(w, b.ctx, b.ty, null, depth + 1),
             .read_view, .write_view, .optional, .shared, .weak => |inner| {
                 try w.print("{s}(", .{@tagName(t)});
                 try spell(w, ctx, inner, subst, depth + 1);
@@ -615,14 +612,13 @@ pub const Reach = struct {
             .array => |arr| try out.append(self.a, .{ .ctx = ctx, .ty = arr.elem, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view, .elem = true }),
             // Several results, each held by value as a field is.
             .results => |rs| for (rs) |r| try out.append(self.a, .{ .ctx = ctx, .ty = r, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
-            .type_var => |sym| if (n.subst) |s| if (s.lookup(sym)) |b| try out.append(self.a, .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = n.past_read, .past_view = n.past_view }),
-            .nominal => |sym| try self.fieldsOf(ctx, sym, n, null, out),
-            .imported_nominal => |in| {
+            .type_var => |sym| if (n.subst) |s| if (s.lookup(ctx.localSym(sym))) |b| try out.append(self.a, .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = n.past_read, .past_view = n.past_view }),
+            .nominal => |in| if (ctx.owns(in)) try self.fieldsOf(ctx, in.sym, n, null, out) else {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return;
-                try self.fieldsOf(foreign, in.sym_id, n, null, out);
+                try self.fieldsOf(foreign, in.sym, n, null, out);
             },
             .parameterized_nominal => |pn| {
-                const sym = ctx.symbols.items[pn.sym];
+                const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
                 const s = try self.a.create(Subst);
                 s.* = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .ctx = ctx, .outer = n.subst };
                 // A built-in generic holds its arguments' values (a
@@ -630,7 +626,7 @@ pub const Reach = struct {
                 if (sym.decl_pos == sema.builtin_decl_pos) {
                     for (pn.args) |arg| try out.append(self.a, .{ .ctx = ctx, .ty = arg, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view, .elem = true });
                 }
-                try self.fieldsOf(ctx, pn.sym, n, s, out);
+                try self.fieldsOf(ctx, ctx.localSym(pn.sym), n, s, out);
             },
             else => {},
         }
@@ -652,7 +648,7 @@ pub const Reach = struct {
         while (true) switch (m.ctx.types.get(m.ty)) {
             .type_var => |sym| {
                 const s = m.subst orelse return m;
-                const b = s.lookup(sym) orelse return m;
+                const b = s.lookup(m.ctx.localSym(sym)) orelse return m;
                 m = .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = m.past_read, .past_view = m.past_view, .elem = m.elem, .held = m.held };
             },
             else => return m,
@@ -672,8 +668,8 @@ pub const Reach = struct {
         return switch (n.ctx.types.get(n.ty)) {
             .function => !n.held,
             .callable, .api_object, .invalid, .unknown => true,
-            .parameterized_nominal => |pn| pn.sym == n.ctx.task_sym_id or pn.sym == n.ctx.tasks_sym_id,
-            .type_var => |sym| if (n.subst) |s| s.lookup(sym) == null else true,
+            .parameterized_nominal => |pn| pn.sym == n.ctx.builtins.task or pn.sym == n.ctx.builtins.tasks,
+            .type_var => |sym| if (n.subst) |s| s.lookup(n.ctx.localSym(sym)) == null else true,
             else => false,
         };
     }

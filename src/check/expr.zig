@@ -651,7 +651,7 @@ pub fn orderedBeside(self: *Checker, a: TypeId, b: TypeId) Error!bool {
 pub fn checkOrderedEnum(self: *Checker, at: Sexp, ty: TypeId, op: []const u8) Error!void {
     if (sema.isOrderedEnum(self.ctx, ty)) return;
     const builtin = switch (self.ctx.types.get(ty)) {
-        .nominal => |sym| sema.isBuiltinEnum(self.ctx, sym),
+        .nominal => |r| sema.isBuiltinEnum(self.ctx, r),
         else => false,
     };
     if (builtin) {
@@ -770,7 +770,7 @@ pub fn synthShift(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
         return sema.unwrapViews(self.ctx, ty);
     }
     switch (self.ctx.types.get(ty)) {
-        .type_var => |tv| try require(self, tv, .integer, self.startOf(left), op),
+        .type_var => |tv| try require(self, self.ctx.localSym(tv), .integer, self.startOf(left), op),
         else => if (!sema.isInteger(self.ctx, ty)) {
             try self.errAt(left, "operator `{s}` requires integer operands; got `{s}`", .{ op, try self.tyName(ty) });
             _ = try PatternCheck.synthExpr(self, ir.get(e, .right));
@@ -789,7 +789,7 @@ pub fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []con
     const ty = try ViewCheck.synthOperandValue(self, amount);
     if (self.isPoison(ty)) return false;
     switch (self.ctx.types.get(ty)) {
-        .type_var => |tv| try require(self, tv, .integer, self.startOf(amount), op),
+        .type_var => |tv| try require(self, self.ctx.localSym(tv), .integer, self.startOf(amount), op),
         else => if (!sema.isInteger(self.ctx, ty)) {
             const each = if (sema.simdOf(self.ctx, ty) != null) "; a vector's lanes all shift by one integer" else "";
             try self.errAt(amount, "a shift amount must be an integer; got `{s}`{s}", .{ try self.tyName(ty), each });
@@ -800,7 +800,7 @@ pub fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []con
     const width: ?Wide = switch (self.ctx.types.get(shifted)) {
         .int => |info| CompatCheck.intBounds(info).bits,
         .type_var => |tv| blk: {
-            if (v >= 0) try require(self, tv, .{ .shift = v }, self.startOf(amount), op);
+            if (v >= 0) try require(self, self.ctx.localSym(tv), .{ .shift = v }, self.startOf(amount), op);
             break :blk null;
         },
         else => null,
@@ -839,8 +839,8 @@ pub fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement
             return self.t().invalid_id;
         }
         const param = self.ctx.types.get(tv).type_var;
-        try require(self, param, req, pos, op);
-        try requireHoldsLiteral(self, param, other, if (ta == .type_var) operands[1] else operands[0], pos, op);
+        try require(self, self.ctx.localSym(param), req, pos, op);
+        try requireHoldsLiteral(self, self.ctx.localSym(param), other, if (ta == .type_var) operands[1] else operands[0], pos, op);
         return tv;
     }
 
@@ -920,7 +920,7 @@ pub fn require(self: *Checker, param: SymbolId, req: Requirement, pos: u32, op: 
 pub fn bodyParam(self: *Checker, param: SymbolId) ?u32 {
     if (self.body_pos == sema.no_body) return null;
     switch (self.ctx.types.get(self.nominal.self_type)) {
-        .type_var => |s| return if (s == param) 0 else null,
+        .type_var => |s| return if (s == self.ctx.ref(param)) 0 else null,
         else => {},
     }
     const i = std.mem.findScalar(SymbolId, self.nominal.type_params, param) orelse return null;
@@ -985,7 +985,7 @@ pub fn checkOwnerBounds(self: *Checker, type_sym: SymbolId, node: Sexp, pos: u32
                 try self.err(pos, "`{s}.{s}` bounds `{s}` by `{s}`, which builds on `{s}`, which says how a `{s}` is copied, kept, or sent, the same in every method: bound the type, `{s}`", .{ sym.name, mname, param.name, uname, @tagName(api), param.name, try boundedHeader(self, keyword, sym.name, tparams, b.param, uname) });
                 continue;
             }
-            if (try sema.provides(self.ctx, try self.ctx.intern(.{ .type_var = tparams[b.param] }), u) != null) {
+            if (try sema.provides(self.ctx, try self.ctx.intern(.{ .type_var = self.ctx.ref(tparams[b.param]) }), u) != null) {
                 try self.err(pos, "`{s}.{s}` repeats `{s}: {s}`, which `{s}` already gives: a method's bounds add to its type's", .{ sym.name, mname, param.name, uname, header });
             }
         }
@@ -1044,7 +1044,7 @@ pub fn synthNeg(self: *Checker, e: Sexp) Error!TypeId {
             try BuiltinCheck.checkLiteralFits(self, e, ty);
         },
         .float, .int_literal, .float_literal => {},
-        .type_var => |tv| try require(self, tv, .signed, self.startOf(operand), "-"),
+        .type_var => |tv| try require(self, self.ctx.localSym(tv), .signed, self.startOf(operand), "-"),
         else => {
             try self.errAt(operand, "operator `-` requires a numeric operand; got `{s}`", .{try self.tyName(ty)});
             return self.t().invalid_id;
@@ -1264,8 +1264,8 @@ pub fn finishEquality(self: *Checker, e: Sexp, l: Sexp, r: Sexp, a_ty: TypeId, b
             return self.t().bool_id;
         }
         const tv = self.ctx.types.get(tv_ty).type_var;
-        try require(self, tv, .equatable, self.startOf(l), op);
-        if (ta == .type_var) try requireHoldsLiteral(self, tv, b, r, self.startOf(l), op) else try requireHoldsLiteral(self, tv, a, l, self.startOf(l), op);
+        try require(self, self.ctx.localSym(tv), .equatable, self.startOf(l), op);
+        if (ta == .type_var) try requireHoldsLiteral(self, self.ctx.localSym(tv), b, r, self.startOf(l), op) else try requireHoldsLiteral(self, self.ctx.localSym(tv), a, l, self.startOf(l), op);
         return self.t().bool_id;
     }
     // Any error compares with a member of any error set, and a union
@@ -1388,7 +1388,7 @@ pub fn comparesWithOptional(self: *Checker, opt: TypeId, value: TypeId, value_no
     };
     const literal = value == self.t().int_literal_id or value == self.t().float_literal_id;
     const param: ?SymbolId = switch (self.ctx.types.get(inner)) {
-        .type_var => |tv| tv,
+        .type_var => |tv| self.ctx.localSym(tv),
         else => null,
     };
     // Text beside an optional of text compares by its bytes, whatever
