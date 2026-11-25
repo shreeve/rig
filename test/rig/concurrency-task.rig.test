@@ -1872,6 +1872,22 @@ code "task an instance calling another is no cycle", '''
   t = at[true](1, 2)&
   print(>t, flip[true](3))
 
+code "task an instance a guard's arithmetic rules out is no cycle", '''
+  pub fn walk(comptime k: i64, n: i64) i64 {
+      @setEvalBranchQuota(rig.eval_quota);
+      if ((rig.rt(k) * 2) == 2) {
+'''
+  # A guard is folded as any constant is, arithmetic too: `walk[1]`
+  # calls `walk[2]`, whose own call is in a branch `k * 2 == 2` rules
+  # out, so no cycle runs through `walk` and it does not check.
+  fun walk[k: Int](n: Int) -> Int
+    if k * 2 == 2
+      return walk[2](n) + 1
+    n
+
+  t = walk[1](5)&
+  print(>t)
+
 code "task an instance calling itself checks", '''
   pub fn down(comptime t: bool, n: i64) i64 {
       @setEvalBranchQuota(rig.eval_quota);
