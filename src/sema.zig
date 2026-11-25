@@ -4632,12 +4632,10 @@ pub const SemContext = struct {
     embed_sites: std.ArrayList(EmbedSite) = .empty,
     /// The embedded files calls make records from (`EmbedRecord`).
     embed_records: std.ArrayList(EmbedRecord) = .empty,
-    /// The groups typecheck found (`rig.GroupSite`), each to be made the
-    /// parameters it means, and the uses of each in its function's body,
-    /// by the position of the group's name; the spreads (`rig.SpreadSite`),
-    /// each to be made the keyword arguments it means. A module with any is
-    /// checked again on the rewritten tree, so no pass sees one.
-    groups: std.ArrayList(rig.GroupSite) = .empty,
+    /// Each group made parameters before any body is checked
+    /// (`typecheck.flattenGroups`), by the position of its name: its uses
+    /// in the body are rewritten where typecheck finds them.
+    flat_groups: std.AutoHashMapUnmanaged(u32, rig.Parser.Flattened) = .empty,
     /// The group each parameter that is a group's field belongs to, by
     /// name (`GroupParam`), for the message that the body reads it through
     /// its group.
@@ -4647,8 +4645,6 @@ pub const SemContext = struct {
     /// parameter belongs to none, by where its name is declared: kept
     /// apart, so no other symbol or field carries room for them.
     group_params: std.AutoHashMapUnmanaged(u32, []?GroupParam) = .empty,
-    group_uses: std.ArrayList(rig.GroupUse) = .empty,
-    spreads: std.ArrayList(rig.SpreadSite) = .empty,
     /// Every node that writes a binding, and how (`recordWrite`). Kept
     /// beside the facts table, not in `check --facts=sema`.
     write_sites: FastMap(NodeKey, WriteSite) = .empty,
@@ -4732,11 +4728,9 @@ pub const SemContext = struct {
         self.declared_origins.deinit(self.allocator);
         self.declared_keeps.deinit(self.allocator);
         self.declared_once.deinit(self.allocator);
-        self.groups.deinit(self.allocator);
+        self.flat_groups.deinit(self.allocator);
         self.group_fields.deinit(self.allocator);
         self.group_params.deinit(self.allocator);
-        self.group_uses.deinit(self.allocator);
-        self.spreads.deinit(self.allocator);
         self.embed_sites.deinit(self.allocator);
         self.embed_records.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
@@ -6691,6 +6685,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try resolve.resolveSymbols(&ctx, tree, module_scope);
     try resolve.resolveDeclarations(&ctx, tree, module_scope);
     const order = try computeContents(&ctx);
+    try typecheck.flattenGroups(&ctx, tree);
     try checkInfiniteTypes(&ctx);
     try checkOptionalLoops(&ctx);
     try checkTypeSizes(&ctx, order);

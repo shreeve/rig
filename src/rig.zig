@@ -3272,7 +3272,7 @@ pub const Parser = struct {
     /// parameters (`net.timeout` as `timeout`, and the fields a spread of
     /// the group gives), by position, with the name leaf of the parameter
     /// each names: each is that parameter, whatever the body declares of
-    /// its name (`Parser.desugarOptions`).
+    /// its name (`Parser.elaborateOptions`).
     group_targets: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
     /// The statements of a block, and the declarations of the module,
     /// that hold, outside any block of their own, a string literal, which
@@ -3284,6 +3284,9 @@ pub const Parser = struct {
     /// How many string literals and calls that may be chains the walk has
     /// met (`rewrite`).
     rewritable: u32 = 0,
+    /// How many groups and spreads the walk has met, which flag the
+    /// module's declaration that holds each, inside its blocks too.
+    options: u32 = 0,
     /// The block the last loop a chain's rewrite made runs its body in
     /// (`ChainLowering.loop`).
     chain_body: Sexp = .nil,
@@ -4306,13 +4309,17 @@ pub const Parser = struct {
         if (in_type) self.type_depth += 1;
         const holds_stmts = sexp.kind() == .block or sexp.kind() == .module;
         const rewritable = self.rewritable;
+        const is_module = sexp.kind() == .module;
         for (items, 0..) |child, i| {
             const before = self.rewritable;
+            const options = self.options;
             walked[i] = try self.rewrite(child);
-            if (holds_stmts and self.rewritable > before and walked[i] == .list) try self.rewrite_stmts.put(self.allocator(), walked[i].list.id, {});
+            const flags = self.rewritable > before or (is_module and self.options > options);
+            if (holds_stmts and flags and walked[i] == .list) try self.rewrite_stmts.put(self.allocator(), walked[i].list.id, {});
         }
         if (holds_stmts) self.rewritable = rewritable;
         if (mayBeChain(self.base.source, sexp)) self.rewritable += 1;
+        if (sexp.isKind(.spread) or sexp.isKind(.group_param)) self.options += 1;
         if (in_type) self.type_depth -= 1;
         // A `for` source sigil the self rewrite left in place is the
         // loop's mode; one before a method call went to its self.
@@ -5823,7 +5830,6 @@ pub const Parser = struct {
     // -------------------------------------------------------------------------
 
     const OptionsRewrite = struct {
-        groups: []const GroupSite,
         uses: []const GroupUse,
         spreads: []const SpreadSite,
         /// Each flattened group, by the position of its name.
@@ -5837,12 +5843,6 @@ pub const Parser = struct {
             return null;
         }
 
-        fn group(self: *const OptionsRewrite, node: Sexp) ?GroupSite {
-            if (node != .list or !node.isKind(.group_param)) return null;
-            for (self.groups) |g| if (g.node == node.list.id) return g;
-            return null;
-        }
-
         fn usedWhole(self: *const OptionsRewrite, pos: u32) bool {
             for (self.uses) |u| if (u.group == pos and u.member == 0) return true;
             return false;
@@ -5852,88 +5852,109 @@ pub const Parser = struct {
     /// A group made parameters: its fields, the name leaf of each field's
     /// parameter, in the same order, and its type as written. `bound`
     /// when the body binds it whole and a field moves into the binding:
-    /// its field reads and spreads then read the binding, as an object's.
+    /// a field read then reads the binding.
     const FlatGroup = struct { fields: []const []const u8, params: []const Sexp, ty: Sexp, bound: bool = false };
 
-    /// Each group of `groups` in `tree` as the parameters it means, each
-    /// field read in a body as its parameter, and each spread of `spreads`
-    /// as the keyword arguments it gives (`OptionsRewrite`).
-    pub fn desugarOptions(self: *Parser, tree: Sexp, groups: []const GroupSite, uses: []const GroupUse, spreads: []const SpreadSite) std.mem.Allocator.Error!void {
-        const a = self.allocator();
-        var st: OptionsRewrite = .{ .groups = groups, .uses = uses, .spreads = spreads };
-        for (uses) |u| if (u.member != 0) try st.reads.put(a, u.member, u.group);
-        try self.flattenIn(tree, &st);
-        try self.optionsIn(tree, &st);
-    }
+    /// A group of a function's declaration made parameters
+    /// (`flattenGroups`): the function, the group's site, and the name
+    /// leaf of each field's parameter.
+    pub const Flattened = struct { def: Sexp, site: GroupSite, params: []const Sexp, ty: Sexp, name: Sexp, at: parser.Span };
 
-    /// Every function in `node` with a group of `st`, its groups made
-    /// parameters.
-    fn flattenIn(self: *Parser, node: Sexp, st: *OptionsRewrite) std.mem.Allocator.Error!void {
-        if (node != .list) return;
-        if (node.isKind(.fun) or node.isKind(.sub)) try self.flattenGroups(node, st);
-        for (node.items()) |c| try self.flattenIn(c, st);
-    }
-
-    /// Function `def`'s groups as parameters, one per field in the order
-    /// declared, each typed `(field_of type field group ftype)`, and a
-    /// binding of each group the body uses whole at the body's start.
-    fn flattenGroups(self: *Parser, def: Sexp, st: *OptionsRewrite) std.mem.Allocator.Error!void {
+    /// The groups `sites` of function `def` as the parameters they mean,
+    /// one per field in the order declared, each typed `(field_of type
+    /// field group ftype)`, the parameter list keeping its id; each
+    /// flattened group appended to `out`. The body is rewritten where
+    /// typecheck finds the groups' uses (`elaborateOptions`).
+    pub fn flattenGroups(self: *Parser, def: Sexp, sites: []const GroupSite, gpa: std.mem.Allocator, out: *std.ArrayList(Flattened)) std.mem.Allocator.Error!void {
         const a = self.allocator();
         const items = @constCast(def.items());
-        const is_fun = def.isKind(.fun);
-        const pslot = if (is_fun) ir.slot(.fun, .params) else ir.slot(.sub, .params);
+        const pslot = if (def.isKind(.fun)) ir.slot(.fun, .params) else ir.slot(.sub, .params);
         const params = items[pslot];
-        if (params != .list) return;
-        var any = false;
-        for (params.items()) |p| if (st.group(p) != null) {
-            any = true;
-        };
-        if (!any) return;
-        var out: std.ArrayList(Sexp) = .empty;
-        var binds: std.ArrayList(Sexp) = .empty;
+        var list: std.ArrayList(Sexp) = .empty;
         for (params.items()) |p| {
-            const site = st.group(p) orelse {
-                try out.append(a, p);
+            const site = for (sites) |g| {
+                if (p.isKind(.group_param) and g.node == p.list.id) break g;
+            } else {
+                try list.append(a, p);
                 continue;
             };
             const at = self.span(p);
-            const name = ir.GroupParam.name(p);
-            const gname = leafText(self.base.source, name.src);
+            const gname = leafText(self.base.source, ir.GroupParam.name(p).src);
             const ty = ir.GroupParam.type(p);
             const field_params = try a.alloc(Sexp, site.fields.len);
             for (site.fields, field_params, 0..) |f, *leaf, k| {
                 leaf.* = try self.namedLeaf(at.start, f);
                 const ftype = if (k < site.field_types.len) try self.copyTree(site.field_types[k]) else Sexp.nil;
                 const of = try self.base.newNode(.field_of, &.{ try self.copyTree(ty), try self.namedLeaf(at.start, f), try self.namedLeaf(at.start, gname), ftype }, at);
-                try out.append(a, try self.base.newNode(.@":", &.{ leaf.*, of }, at));
+                try list.append(a, try self.base.newNode(.@":", &.{ leaf.*, of }, at));
             }
-            const whole = st.usedWhole(name.src.pos);
-            const moves = whole and std.mem.indexOfScalar(bool, site.moves, true) != null;
-            try st.flat.put(a, name.src.pos, .{ .fields = site.fields, .params = field_params, .ty = ty, .bound = moves });
-            if (!whole) continue;
-            // `net =! Net(timeout: timeout, name: <name, ...)`, under the
-            // group's own name leaf, which no parameter holds now: each
-            // field that moves moves into it.
-            const args = try a.alloc(Sexp, site.fields.len + 2);
-            args[0] = .nil;
-            args[1] = try self.copyTree(ty);
-            for (site.fields, field_params, args[2..], 0..) |f, leaf, *arg, k| {
-                const param = try self.fieldParam(at.start, f, leaf);
-                const value = if (k < site.moves.len and site.moves[k]) try self.base.newNode(.move, &.{param}, at) else param;
-                arg.* = try self.base.newNode(.kwarg, &.{ try self.namedLeaf(at.start, f), value }, at);
-            }
-            const made = try self.base.newNode(.call, args, at);
-            try binds.append(a, try self.base.newNode(.set, &.{ .{ .tag = .fixed }, name, .nil, made }, at));
+            try out.append(gpa, .{ .def = def, .site = site, .params = field_params, .ty = ty, .name = ir.GroupParam.name(p), .at = at });
         }
-        items[pslot] = .{ .list = parser.List.withId(try out.toOwnedSlice(a), params.list.id) };
-        if (binds.items.len == 0) return;
-        const bslot = if (is_fun) ir.slot(.fun, .body) else ir.slot(.sub, .body);
+        items[pslot] = .{ .list = parser.List.withId(try list.toOwnedSlice(a), params.list.id) };
+    }
+
+    /// In what `slot` holds, each use of a flattened group of `flat` (by
+    /// the position of its name) and each spread of `spreads`, as the
+    /// group's rewrite means: a function whose group `uses` use whole
+    /// binds it first, `net =! Net(timeout: timeout, name: <name, ...)`,
+    /// under the group's own name leaf, each field that moves moving into
+    /// it, and each such binding is appended to `binds`; each field read
+    /// becomes a leaf that names its parameter (`group_targets`), unless
+    /// the binding took a field; each spread becomes, where it stands, the
+    /// keyword arguments of the fields it gives.
+    pub fn elaborateOptions(self: *Parser, slot: *const Sexp, flat: *const std.AutoHashMapUnmanaged(u32, Flattened), uses: []const GroupUse, spreads: []const SpreadSite, gpa: std.mem.Allocator, binds: *std.ArrayList(Flattened)) std.mem.Allocator.Error!void {
+        const a = self.allocator();
+        var st: OptionsRewrite = .{ .uses = uses, .spreads = spreads };
+        for (uses) |u| if (u.member != 0) try st.reads.put(a, u.member, u.group);
+        var groups: std.AutoHashMapUnmanaged(u32, void) = .empty;
+        for (uses) |u| try groups.put(a, u.group, {});
+        for (spreads) |sp| if (sp.group) |g| try groups.put(a, g, {});
+        const first = binds.items.len;
+        var it = groups.keyIterator();
+        while (it.next()) |pos| {
+            const f = flat.get(pos.*) orelse continue;
+            const whole = st.usedWhole(pos.*);
+            const moves = whole and std.mem.indexOfScalar(bool, f.site.moves, true) != null;
+            try st.flat.put(a, pos.*, .{ .fields = f.site.fields, .params = f.params, .ty = f.ty, .bound = moves });
+            if (whole) try binds.append(gpa, f);
+        }
+        // A function's bindings stand in the order of its groups.
+        const bound = binds.items[first..];
+        std.mem.sort(Flattened, bound, {}, struct {
+            fn less(_: void, x: Flattened, y: Flattened) bool {
+                return x.site.name > y.site.name;
+            }
+        }.less);
+        for (bound) |f| try self.bindGroup(f);
+        std.mem.reverse(Flattened, bound);
+        try self.optionsIn(@constCast(slot).*, &st);
+    }
+
+    /// `net =! Net(timeout: timeout, ...)` at the start of the body of
+    /// group `f`'s function, under the group's own name leaf, which no
+    /// parameter holds now: each field that moves moves into it.
+    fn bindGroup(self: *Parser, f: Flattened) std.mem.Allocator.Error!void {
+        const a = self.allocator();
+        const site = f.site;
+        const at = f.at;
+        const args = try a.alloc(Sexp, site.fields.len + 2);
+        args[0] = .nil;
+        args[1] = try self.copyTree(f.ty);
+        for (site.fields, f.params, args[2..], 0..) |field, leaf, *arg, k| {
+            const param = try self.fieldParam(at.start, field, leaf);
+            const value = if (k < site.moves.len and site.moves[k]) try self.base.newNode(.move, &.{param}, at) else param;
+            arg.* = try self.base.newNode(.kwarg, &.{ try self.namedLeaf(at.start, field), value }, at);
+        }
+        const made = try self.base.newNode(.call, args, at);
+        const bind = try self.base.newNode(.set, &.{ .{ .tag = .fixed }, f.name, .nil, made }, at);
+        const items = @constCast(f.def.items());
+        const bslot = if (f.def.isKind(.fun)) ir.slot(.fun, .body) else ir.slot(.sub, .body);
         const body = items[bslot];
         if (!body.isKind(.block)) return;
-        const stmts = try a.alloc(Sexp, body.items().len + binds.items.len);
+        const stmts = try a.alloc(Sexp, body.items().len + 1);
         stmts[0] = body.items()[0];
-        @memcpy(stmts[1 .. 1 + binds.items.len], binds.items);
-        @memcpy(stmts[1 + binds.items.len ..], body.items()[1..]);
+        stmts[1] = bind;
+        @memcpy(stmts[2..], body.items()[1..]);
         items[bslot] = .{ .list = parser.List.withId(stmts, body.list.id) };
     }
 

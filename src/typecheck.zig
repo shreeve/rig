@@ -95,6 +95,57 @@ pub fn checkCtFun(ctx: *SemContext, decl: Sexp) Error!void {
     try c.checkViewBases(decl, decl, false, true);
 }
 
+/// Each group of a function or a method the module declares, `..net:
+/// Net` (docs/design/options.md), checked (`Checker.checkGroups`) and,
+/// when it holds, made the parameters it means, before any body is
+/// checked (`rig.Parser.flattenGroups`): its fields' parameters are
+/// declared, and the function's signature resolved again
+/// (`resolve.resolveFlattened`). Its uses in the body are rewritten
+/// where typecheck finds them (`Checker.checkRewritten`).
+pub fn flattenGroups(ctx: *SemContext, tree: Sexp) Error!void {
+    if (!tree.isKind(.module)) return;
+    const p = ctx.parser orelse return;
+    var c: Checker = .{
+        .ctx = ctx,
+        .scope = sema.module_scope,
+        .module_scope = sema.module_scope,
+        .body = .{ .ret = ctx.types.void_id },
+        .tree = tree,
+    };
+    defer c.deinit();
+    var sites: std.ArrayList(rig.GroupSite) = .empty;
+    defer sites.deinit(ctx.allocator);
+    var flat: std.ArrayList(rig.Parser.Flattened) = .empty;
+    defer flat.deinit(ctx.allocator);
+    for (ir.Module.decls(tree)) |decl| {
+        const d = rig.unpub(decl);
+        switch (d.kind() orelse continue) {
+            .fun, .sub => if (hasGroup(d)) try c.flattenIn(p, d, sema.symbol_invalid, &sites, &flat),
+            .@"struct", .@"enum", .generic_struct, .generic_enum => {
+                const any = for (ir.rest(d, .members)) |m| {
+                    if ((m.isKind(.fun) or m.isKind(.sub)) and hasGroup(m)) break true;
+                } else false;
+                if (!any) continue;
+                const sym = ctx.symbolOf(ir.get(d, .name)) orelse continue;
+                const prev = c.nominal;
+                c.nominal = try sema.makeNominalContext(ctx, sym);
+                defer c.nominal = prev;
+                for (ir.rest(d, .members)) |m| if (m.isKind(.fun) or m.isKind(.sub)) try c.flattenIn(p, m, sym, &sites, &flat);
+            },
+            else => {},
+        }
+    }
+    if (flat.items.len > 0) try resolve.fillGroupDefaults(ctx);
+}
+
+/// Whether function `def` declares a group among its parameters.
+fn hasGroup(def: Sexp) bool {
+    const params = ir.get(def, .params);
+    if (params != .list) return false;
+    for (params.items()) |p| if (p.isKind(.group_param)) return true;
+    return false;
+}
+
 /// Where a binding that cannot be written got its value: a loop element
 /// or `as` binding copied from a place, or a match binding of a field of
 /// the place a bare match copies (`match_copy`) or a `?` match reads
@@ -162,6 +213,14 @@ const Checker = struct {
     bytes: std.ArrayList(rig.ByteLiteral) = .empty,
     /// The chains found so (`chainCall`).
     chains: std.ArrayList(rig.Chain) = .empty,
+    /// The uses of groups made parameters (`noteGroupUse`), and the
+    /// spreads (`recordSpread`), found in the module's declaration being
+    /// checked, which is checked again with them rewritten
+    /// (`checkRewritten`); and the groups whose uses stay as written,
+    /// since the body writes one, which is refused.
+    group_uses: std.ArrayList(rig.GroupUse) = .empty,
+    spreads: std.ArrayList(rig.SpreadSite) = .empty,
+    refused: std.AutoHashMapUnmanaged(u32, void) = .empty,
     rewrites_open: u32 = 0,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
@@ -496,6 +555,9 @@ const Checker = struct {
         const a = self.ctx.allocator;
         self.bytes.deinit(a);
         self.chains.deinit(a);
+        self.group_uses.deinit(a);
+        self.spreads.deinit(a);
+        self.refused.deinit(a);
         self.arg_types.deinit(a);
         self.methods.deinit(a);
         self.expected.deinit(a);
@@ -974,11 +1036,12 @@ const Checker = struct {
             const ty = self.ctx.bindingTypeOf(ir.Default.name(p)) orelse self.t().unknown_id;
             try self.checkDefaultValue(ir.Default.value(p), ty, "parameter", self.text(ir.Default.name(p)));
         };
-        try self.checkGroups(node);
+        // Its groups were checked, and made parameters, before any body
+        // (`flattenGroups`); a field read of one is found here.
         const saved_groups = self.in_group_body;
         defer self.in_group_body = saved_groups;
         self.in_group_body = for (ir.get(node, .params).items()) |p| {
-            if (p.isKind(.group_param)) break true;
+            if (p.isKind(.group_param) or sema.groupFieldOf(p) != null) break true;
         } else false;
         // `main` lowers to a fallible Zig `main`.
         const fallible = is_main or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
@@ -1127,13 +1190,25 @@ const Checker = struct {
         return out;
     }
 
+    /// Function `def`'s groups (`checkGroups`), those that hold made its
+    /// parameters (`flattenGroups`).
+    fn flattenIn(self: *Checker, p: *rig.Parser, def: Sexp, nominal_sym: SymbolId, sites: *std.ArrayList(rig.GroupSite), flat: *std.ArrayList(rig.Parser.Flattened)) Error!void {
+        sites.clearRetainingCapacity();
+        try self.checkGroups(def, sites);
+        if (sites.items.len == 0) return;
+        const first = flat.items.len;
+        try p.flattenGroups(def, sites.items, self.ctx.allocator, flat);
+        for (flat.items[first..]) |f| try self.ctx.flat_groups.put(self.ctx.allocator, f.site.name, f);
+        try resolve.resolveFlattened(self.ctx, def, nominal_sym, flat.items[first..]);
+    }
+
     /// The groups of function `node`, `..net: Net` (docs/design/options.md,
     /// section 2): each an object of plain data, its fields public where the
     /// function is, no name among the function's parameters and its groups'
     /// fields twice, and 64 parameters at most in all. Each such group of
     /// a function whose declaration holds is recorded for the Parser
     /// wrapper to make parameters (`rig.GroupSite`).
-    fn checkGroups(self: *Checker, node: Sexp) Error!void {
+    fn checkGroups(self: *Checker, node: Sexp, out: *std.ArrayList(rig.GroupSite)) Error!void {
         const params = ir.get(node, .params);
         if (params != .list) return;
         var groups: usize = 0;
@@ -1238,14 +1313,14 @@ const Checker = struct {
             const g = types.items[gi].?;
             gi += 1;
             const id = nodeId(p);
-            const known = for (self.ctx.groups.items) |site| {
+            const known = for (out.items) |site| {
                 if (site.node == id) break true;
             } else false;
             if (known) continue;
             const fields = try a.alloc([]const u8, g.fields.len);
             for (g.fields, fields) |f, *o| o.* = f.name;
             const written = if (g.module == null) try self.writtenFieldTypes(self.ctx.symbols.items[g.sym], g.fields) else &.{};
-            try self.ctx.groups.append(self.ctx.allocator, .{ .node = id, .name = ir.GroupParam.name(p).src.pos, .fields = fields, .field_types = written, .moves = try self.fieldMoves(g.tys) });
+            try out.append(self.ctx.allocator, .{ .node = id, .name = ir.GroupParam.name(p).src.pos, .fields = fields, .field_types = written, .moves = try self.fieldMoves(g.tys) });
         }
     }
 
@@ -1254,7 +1329,7 @@ const Checker = struct {
     /// operand being checked (`group_member`), which records its own use.
     fn noteGroupUse(self: *Checker, leaf: Sexp, sym: sema.Symbol) Error!void {
         if (leaf.src.pos == self.group_member) return;
-        try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = sym.decl_pos, .pos = leaf.src.pos });
+        try self.group_uses.append(self.ctx.allocator, .{ .group = sym.decl_pos, .pos = leaf.src.pos });
     }
 
     /// Whether `e` is a spread's operand as one may be written: a name, or
@@ -1327,22 +1402,22 @@ const Checker = struct {
             // A field read in it stays as written, so the message about it
             // reads the same.
             var i: usize = 0;
-            while (i < self.ctx.group_uses.items.len) {
-                const u = self.ctx.group_uses.items[i];
+            while (i < self.group_uses.items.len) {
+                const u = self.group_uses.items[i];
                 if (u.member != 0 and u.member == place.list.id) {
-                    try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = u.group, .pos = u.pos });
-                    _ = self.ctx.group_uses.swapRemove(i);
+                    try self.group_uses.append(self.ctx.allocator, .{ .group = u.group, .pos = u.pos });
+                    _ = self.group_uses.swapRemove(i);
                 } else i += 1;
             }
         }
-        if (self.spreadGroup(spread)) |g| try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = g, .pos = rig.Parser.spreadPlace(ir.Spread.value(spread)).src.pos });
+        if (self.spreadGroup(spread)) |g| try self.group_uses.append(self.ctx.allocator, .{ .group = g, .pos = rig.Parser.spreadPlace(ir.Spread.value(spread)).src.pos });
     }
 
     /// Record spread `spread`, which gives `fields`.
     fn recordSpread(self: *Checker, spread: Sexp, given: Given) Error!void {
         const id = nodeId(spread);
-        for (self.ctx.spreads.items) |sp| if (sp.node == id) return;
-        try self.ctx.spreads.append(self.ctx.allocator, .{ .node = id, .fields = given.fields, .group = self.spreadGroup(spread), .sigil = spreadSigil(spread), .moves = given.moves });
+        for (self.spreads.items) |sp| if (sp.node == id) return;
+        try self.spreads.append(self.ctx.allocator, .{ .node = id, .fields = given.fields, .group = self.spreadGroup(spread), .sigil = spreadSigil(spread), .moves = given.moves });
     }
 
     /// The fields a spread gives, those no keyword of its call names, in
@@ -1773,13 +1848,25 @@ const Checker = struct {
         if (!self.mayRewrite(slot.*)) return @call(.auto, check, .{ self, slot.* } ++ args);
         self.rewrites_open += 1;
         defer self.rewrites_open -= 1;
+        // A group's uses and a spread are rewritten with the module's
+        // declaration that holds them: a group used whole is bound at its
+        // function's start, which changes how each of its field reads is
+        // written, wherever it stands.
+        const decl = comptime isDeclCheck(check);
+        const uses = self.group_uses.items.len;
+        const spreads = self.spreads.items.len;
+        defer if (decl) {
+            self.group_uses.shrinkRetainingCapacity(uses);
+            self.spreads.shrinkRetainingCapacity(spreads);
+        };
         while (true) {
             const m = self.ctx.mark();
             const bytes = self.bytes.items.len;
             const chains = self.chains.items.len;
             const returns = if (self.body.returns) |r| r.items.len else 0;
             const result = try @call(.auto, check, .{ self, slot.* } ++ args);
-            if (self.bytes.items.len == bytes and self.chains.items.len == chains) {
+            const options = decl and (self.spreads.items.len > spreads or self.groupRewrites(uses));
+            if (self.bytes.items.len == bytes and self.chains.items.len == chains and !options) {
                 self.ctx.commit(m);
                 return result;
             }
@@ -1802,11 +1889,42 @@ const Checker = struct {
                 try resolve.resolveChains(self.ctx, found, loops.items, fresh);
                 self.chains.shrinkRetainingCapacity(chains);
             }
+            if (options) {
+                const open = self.ctx.pauseTrail();
+                defer self.ctx.resumeTrail(open);
+                var kept: std.ArrayList(rig.GroupUse) = .empty;
+                defer kept.deinit(self.ctx.allocator);
+                for (self.group_uses.items[uses..]) |u| if (self.rewritesGroup(u.group)) try kept.append(self.ctx.allocator, u);
+                var binds: std.ArrayList(rig.Parser.Flattened) = .empty;
+                defer binds.deinit(self.ctx.allocator);
+                try p.elaborateOptions(slot, &self.ctx.flat_groups, kept.items, self.spreads.items[spreads..], self.ctx.allocator, &binds);
+                for (binds.items) |f| try resolve.bindGroup(self.ctx, f);
+                self.group_uses.shrinkRetainingCapacity(uses);
+                self.spreads.shrinkRetainingCapacity(spreads);
+            }
             // A module constant's value is folded before any body is
             // checked (`resolve.foldModuleConsts`), so one written anew
             // is folded again, with the constants that name it.
             if (rig.isModuleConst(slot.*)) try resolve.refoldModuleConsts(self.ctx);
         }
+    }
+
+    /// Whether `check` checks a module's declaration (`checkDecl`).
+    fn isDeclCheck(comptime check: anytype) bool {
+        if (@TypeOf(check) != @TypeOf(Checker.checkDecl)) return false;
+        return check == Checker.checkDecl;
+    }
+
+    /// Whether a use of the group at `pos` is rewritten: a group made
+    /// parameters (`flattenGroups`) whose body writes it not.
+    fn rewritesGroup(self: *Checker, pos: u32) bool {
+        return self.ctx.flat_groups.contains(pos) and !self.refused.contains(pos);
+    }
+
+    /// Whether a use found since `from` is one to rewrite.
+    fn groupRewrites(self: *Checker, from: usize) bool {
+        for (self.group_uses.items[from..]) |u| if (self.rewritesGroup(u.group)) return true;
+        return false;
     }
 
     /// Whether `s`, a block's statement or a module's declaration, is a
@@ -3291,10 +3409,7 @@ const Checker = struct {
                     // A group as written: it stays so, and this is said
                     // again by every check (`rig.GroupSite`).
                     try self.err(pos, "cannot {s} group `{s}`{s}: parameters are immutable (bind a copy with `new copy = {s}`)", .{ verb.head, name, verb.tail, name });
-                    var i: usize = 0;
-                    while (i < self.ctx.groups.items.len) {
-                        if (self.ctx.groups.items[i].name == sym.decl_pos) _ = self.ctx.groups.swapRemove(i) else i += 1;
-                    }
+                    try self.refused.put(self.ctx.allocator, sym.decl_pos, {});
                 } else if (sym.flags.group_field) {
                     // A group's field, read through its group as written.
                     const group = self.ctx.group_fields.get(id) orelse "";
@@ -9304,7 +9419,7 @@ const Checker = struct {
             const mark = self.ctx.diagnostics.items.len;
             const ty = try self.memberOf(e, obj, try self.synthOperand(obj));
             const read = self.ctx.diagnostics.items.len == mark and e.list.id != 0;
-            try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = self.ctx.symbols.items[id].decl_pos, .pos = obj.src.pos, .member = if (read) e.list.id else 0 });
+            try self.group_uses.append(self.ctx.allocator, .{ .group = self.ctx.symbols.items[id].decl_pos, .pos = obj.src.pos, .member = if (read) e.list.id else 0 });
             return ty;
         };
         return self.memberOf(e, obj, try self.synthOperand(obj));
@@ -22997,7 +23112,7 @@ const Checker = struct {
         };
         const outer_sym = self.ctx.symbols.items[outer_id];
         // A capture of a group as written uses it whole (`rig.GroupUse`).
-        if (outer_sym.flags.group) try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = outer_sym.decl_pos, .pos = pos });
+        if (outer_sym.flags.group) try self.group_uses.append(self.ctx.allocator, .{ .group = outer_sym.decl_pos, .pos = pos });
         const local = switch (outer_sym.kind) {
             .local, .param, .capture => outer_sym.scope != sema.module_scope,
             else => false,

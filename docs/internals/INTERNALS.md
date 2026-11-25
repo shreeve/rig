@@ -914,13 +914,12 @@ files is the unit of mutual recursion, as a Go package or a Rust
 crate is. An unreadable file or directory is reported at the `use`. A
 module whose import has errors is not checked further, since its
 errors would only be consequences; the import's own errors are
-reported. A module with a chain, an option group, or a spread is
-checked twice, the second time on the tree they are rewritten into
-([Groups and spreads](#groups-and-spreads)), and only the second check's
-context is the module's; a `for` over an iterator, and a statement
-holding a string literal where a byte goes, are rewritten where
-typecheck finds them ([Loops over an iterator](#loops-over-an-iterator),
-[Strings as bytes](#strings-as-bytes)).
+reported. Each module is checked once: what only types decide, a `for`
+over an iterator, a string literal where a byte goes, a chain, a group,
+and a spread, is rewritten where typecheck finds it and checked in place
+([Loops over an iterator](#loops-over-an-iterator),
+[Strings as bytes](#strings-as-bytes), [Chains](#chains),
+[Groups and spreads](#groups-and-spreads)).
 The CLI prints at most 100 errors for a program and counts the rest.
 
 **Embedded files.** Typecheck records each `$embed("path")` as an
@@ -4536,50 +4535,79 @@ own. A literal of the wrong size is not kept, and the check again
 reports it again. Each check rewrites what it found, so the checks
 end.
 
+### Chains
+
+A chain, `xs.filter(f).count()` or a `for` over `xs.map(f)`
+(docs/design/iterators.md), is the loop it means, and only typecheck
+knows a call is one: its self's type declares no method of the name
+(`Checker.chainCall`). The statement that holds it is checked under a
+mark, as for [Strings as bytes](#strings-as-bytes): the Parser wrapper
+flags each statement and declaration that holds a call of a method
+named as a stage or a consumer (`Parser.rewrite_stmts`), and
+`Checker.checkRewritten` rolls the statement back when it holds a chain,
+writes each chain where it stands as its loop
+(`Parser.elaborateChains`), an inner chain first, and checks the
+statement again. Every name the loop binds is hidden, and
+`resolve.resolveChains` gives the loop's own nodes their names and
+scopes from the scope the chain stood in (`rig.Chain.scope`); what the
+chain held, its source, its stages' functions, and a `for`'s body,
+keeps the names the module's walk gave it, and each scope of it stands
+in the loop's. A `for` over a chain keeps its loop names' symbols, in
+the `for`'s scope, which stands around its body's block.
+
 ### Groups and spreads
 
 A group, `..net: Net` among a function's parameters, and a spread, `..v`
-among a call's arguments (docs/design/options.md), are rewritten as
-`for` loops over an iterator are, since what they stand for, an object's
-fields, is known only from types. The first check sees a group as one
-parameter `net` of type `Net` (`SymbolFlags.group`): `Checker.checkGroups`
-checks it (an object of plain data, no name twice among the parameters
-and the groups' fields, 64 parameters at most) and records it
-(`SemContext.groups`); every use of `net` in the body is recorded too
-(`SemContext.group_uses`), a field read `net.timeout` by its node, any
-other as a use of the group whole. A call with a spread, or of a function
-whose group is as written, is checked no further than its spreads
-(`optionsCall`): each must be a name or a field path of exactly a group's
-type, one to a group, and a call's spreads are recorded
-(`SemContext.spreads`) together or not at all, with the fields each
-gives, those no keyword of the call names. A constructor's spread is an
-object update (`objectUpdate`), recorded the same way.
+among a call's arguments (docs/design/options.md), are rewritten where
+types tell what they stand for, an object's fields.
 
-`Parser.desugarOptions` then writes each recorded group as one parameter
-per field, `(: timeout (field_of Net timeout net Int))`, whose type
-`resolve` reads from `field_of` (the field's type as its declaration
-writes it, for a type of the same module, else the field's type in its
-module), marks the parameter's symbol `group_field`, and records each
-parameter's `GroupParam` in `SemContext.group_params`, by where the
-function's name is declared, which a call reads from the declaring
-module (`SymbolFlags.has_groups` says there is one); each field read becomes a leaf that names its parameter
-(`Parser.group_targets`, which `useName` reads before any scope, so a
-local of the same name never captures it); a body that uses the group
-whole binds it first, `net =! Net(timeout: timeout, ...)`, under the
-group's own name leaf. Each spread becomes, where it stands, the keyword
-arguments `timeout: v.timeout` of the fields it gives, each node spanning
-the spread. Every name these rewrites write is a named leaf
+A group is rewritten with the declarations, before any body is checked
+(`typecheck.flattenGroups`, run by `sema.check` once types' contents are
+known). `Checker.checkGroups` checks it (an object of plain data, no
+name twice among the parameters and the groups' fields, 64 parameters
+at most), and `Parser.flattenGroups` writes one that holds as one
+parameter per field, `(: timeout (field_of Net timeout net Int))`, whose
+type `resolve` reads from `field_of` (the field's type as its
+declaration writes it, for a type of the same module, else the field's
+type in its module). `resolve.resolveFlattened` declares each field's
+parameter, marks its symbol `group_field`, and resolves the function's
+signature again, which records each parameter's `GroupParam` in
+`SemContext.group_params`, by where the function's name is declared,
+which a call reads from the declaring module (`SymbolFlags.has_groups`
+says there is one). Every call, in any module, is checked against the
+parameters. The group's own symbol, `net` of type `Net`
+(`SymbolFlags.group`), stays for its body, and each flattened group is
+kept in `SemContext.flat_groups`.
+
+A group's uses and a call's spreads are rewritten with the module's
+declaration that holds them (`Checker.checkRewritten`). The check of
+the body finds every use of `net` (`Checker.group_uses`), a field read
+`net.timeout` by its node, any other as a use of the group whole. A call
+with a spread is checked no further than its spreads (`optionsCall`):
+each must be a name or a field path of exactly a group's type, one to a
+group, and a call's spreads are found (`Checker.spreads`) together or
+not at all, with the fields each gives, those no keyword of the call
+names. A constructor's spread is an object update (`objectUpdate`),
+found the same way. The declaration is then rolled back and rewritten
+(`Parser.elaborateOptions`): a body that uses the group whole binds it
+first, `net =! Net(timeout: timeout, ...)`, under the group's own name
+leaf, whose symbol becomes that local (`resolve.bindGroup`); each field
+read becomes a leaf that names its parameter (`Parser.group_targets`,
+which `useName` reads before any scope, so a local of the same name
+never captures it); each spread becomes, where it stands, the keyword
+arguments `timeout: v.timeout` of the fields it gives, each node
+spanning the spread. Every name these rewrites write is a named leaf
 (`Parser.namedLeaf`): an id from a process-wide table of texts, so a
 field declared in any module is written, at a hidden position homed in
 the source, and a name copied from the source is looked up at its home
-(`SemContext.fileModule`, `useName`). The module is checked again, and
-every pass after typecheck sees parameters and keyword arguments: the
-declaration side of ownership, storage, and emit indexes the parameters
-emitted, and a call's argument slots are a keyword call's. A field's
-default is a parameter's (`resolve.fillGroupDefaults`), filled at the
-call from its type's module (`emitDefault`). A group or a spread the
-first check refused is not rewritten, and the second check reports it
-again.
+(`SemContext.fileModule`, `useName`). The declaration is checked again,
+and every pass after typecheck sees parameters and keyword arguments:
+the declaration side of ownership, storage, and emit indexes the
+parameters emitted, and a call's argument slots are a keyword call's. A
+field's default is a parameter's (`resolve.fillGroupDefaults`), filled
+at the call from its type's module (`emitDefault`). A group the checks
+refuse is not rewritten, nor are the uses of one its body writes, and
+the check again reports them again.
 
 ### Assignments
 

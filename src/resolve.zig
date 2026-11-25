@@ -105,6 +105,60 @@ pub fn resolveIterWhile(ctx: *SemContext, loop: Sexp, w: rig.Parser.IterWhile) E
     try ctx.recordWrite(view, h, .write_viewed);
 }
 
+/// Function `def`, a method of `nominal_sym` or a function of the
+/// module, once its groups `flats` are its parameters
+/// (`rig.Parser.flattenGroups`): each field's parameter declared where
+/// the function's parameters are (`bindParams`), and its signature
+/// resolved again, as the walk of the declaration would resolve it.
+pub fn resolveFlattened(ctx: *SemContext, def: Sexp, nominal_sym: SymbolId, flats: []const rig.Parser.Flattened) Error!void {
+    const scope = ctx.scopeOf(def) orelse return;
+    var r: SymbolResolver = .{ .ctx = ctx, .scope = scope, .module_scope = sema.module_scope };
+    defer r.pending_shadows.deinit(ctx.allocator);
+    for (flats) |f| for (f.params) |leaf| {
+        _ = try r.declare(leaf, .param, .{ .group_field = true });
+    };
+    var tr: TypeResolver = .{ .ctx = ctx, .scope = sema.module_scope };
+    if (nominal_sym == sema.symbol_invalid) {
+        _ = try tr.resolveFunction(def, sema.symbol_invalid);
+        return;
+    }
+    tr.nominal = try sema.makeNominalContext(ctx, nominal_sym);
+    const mpos = ir.get(def, .name).src.pos;
+    const owner_bounds = ctx.owner_bounds.get(mpos) orelse &.{};
+    const widened = try sema.widenOwnerBounds(ctx, ctx.symbols.items[nominal_sym].type_params orelse &.{}, owner_bounds);
+    const fn_ty = try tr.resolveFunction(def, nominal_sym);
+    sema.restoreOwnerBounds(ctx, widened);
+    const params = ir.get(def, .params);
+    for (@constCast(ctx.symbols.items[nominal_sym].fields orelse &.{})) |*f| {
+        if (!f.is_method or f.decl_pos != mpos) continue;
+        f.ty = fn_ty;
+        f.param_names = try tr.paramNames(params);
+        f.param_defaults = try tr.paramDefaults(fn_ty, params);
+        f.param_durations = try tr.paramDurations(fn_ty, params);
+        f.has_groups = try tr.paramGroups(fn_ty, params, mpos);
+    }
+}
+
+/// Group `f`, used whole, bound at its function's start
+/// (`rig.Parser.elaborateOptions`): its symbol is the binding's, a
+/// constant local of the body, declared before the body's others, as the
+/// walk of `net =! Net(...)` would declare it.
+pub fn bindGroup(ctx: *SemContext, f: rig.Parser.Flattened) Error!void {
+    const id = ctx.symbolOf(f.name) orelse return;
+    const body = ir.get(f.def, .body);
+    const into = ctx.scopeOf(body) orelse return;
+    const sym = &ctx.symbols.items[id];
+    const from = &ctx.scopes.items[sym.scope];
+    if (std.mem.indexOfScalar(SymbolId, from.symbols.items, id)) |i| _ = from.symbols.orderedRemove(i);
+    if (from.by_name.get(sym.name) == id) {
+        if (sym.prev_in_scope == sema.symbol_invalid) _ = from.by_name.remove(sym.name) else try from.by_name.put(ctx.allocator, sym.name, sym.prev_in_scope);
+    }
+    sym.* = .{ .name = sym.name, .kind = .local, .ty = ctx.types.unknown_id, .decl_pos = sym.decl_pos, .scope = into, .flags = .{ .fixed = true } };
+    const to = &ctx.scopes.items[into];
+    try to.symbols.insert(ctx.allocator, 0, id);
+    if (!to.by_name.contains(sym.name)) try to.by_name.put(ctx.allocator, sym.name, id);
+}
+
 /// The names and scopes of the loops chains were rewritten into
 /// (`rig.Parser.elaborateChains`), each `loops[i]` standing for
 /// `chains[loops[i].chain]`, as the walk of the loop would give them.
@@ -664,8 +718,10 @@ const SymbolResolver = struct {
             };
             if (collides) continue;
             // A group's field is no name of the body, so it shadows
-            // nothing; emit names its parameter apart.
-            if (sema.groupFieldOf(p) != null) {} else if (self.ctx.scopes.items[self.scope].kind == .lambda) {
+            // nothing; emit names its parameter apart. Nor is a group's
+            // name a parameter once the group is its fields'
+            // (`typecheck.flattenGroups`).
+            if (sema.groupFieldOf(p) != null or p.isKind(.group_param)) {} else if (self.ctx.scopes.items[self.scope].kind == .lambda) {
                 try self.checkShadowingThroughLambda(name_node);
             } else {
                 try self.checkShadowsDeclaration(name_node, "parameter");
@@ -1609,7 +1665,7 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
 /// resolved: the field's own, in the source of the module that declares
 /// its type, filled at a call that leaves the field out, as a parameter's
 /// default is. A field without one is a required name-only argument.
-fn fillGroupDefaults(ctx: *SemContext) Error!void {
+pub fn fillGroupDefaults(ctx: *SemContext) Error!void {
     if (ctx.group_params.count() == 0) return;
     for (ctx.symbols.items) |*sym| {
         if (sym.kind == .function and sym.flags.has_groups) try fillGroupFields(ctx, ctx.group_params.get(sym.decl_pos), sym.param_names, &sym.param_defaults);
