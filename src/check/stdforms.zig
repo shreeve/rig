@@ -279,14 +279,7 @@ pub fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
     if (callee == .src) {
         const name = self.text(callee);
         if (CallCheck.lookupQuiet(self, callee) == null) {
-            if (std.mem.eql(u8, name, "print")) {
-                try self.ctx.record(.builtins, node, .print);
-                return checkPrint(self, args);
-            }
-            if (std.mem.eql(u8, name, "warn")) {
-                try self.ctx.record(.builtins, node, .warn);
-                return checkWarn(self, args);
-            }
+            if (std.meta.stringToEnum(Output, name)) |to| return checkPrint(self, node, args, to);
             if (std.mem.eql(u8, name, "String")) return checkStringNew(self, node, args);
             if (std.mem.eql(u8, name, "swap")) return CallCheck.checkSwap(self, node, callee, args);
             if (resolve.isNumericTypeName(name)) {
@@ -522,15 +515,14 @@ pub fn swapPlace(self: *Checker, arg: Sexp, what: []const u8) Error!?TypeId {
     return place;
 }
 
-/// `print(a, b, ...)`: any number of values, printed on one line.
-pub fn checkPrint(self: *Checker, args: []const Sexp) Error!TypeId {
-    try checkFormatArgs(self, args, "`print`", "print");
-    return self.t().void_id;
-}
+/// The built-ins that write values: `print` to stdout, `warn` to stderr.
+const Output = enum { print, warn };
 
-/// `warn(a, b, ...)`: written as `print` writes them, to stderr.
-pub fn checkWarn(self: *Checker, args: []const Sexp) Error!TypeId {
-    try checkFormatArgs(self, args, "`warn`", "warn");
+/// `print(a, b, ...)`: any number of values, printed on one line;
+/// `warn(...)` writes them as `print` does, to stderr.
+pub fn checkPrint(self: *Checker, call: Sexp, args: []const Sexp, to: Output) Error!TypeId {
+    try self.ctx.record(.builtins, call, if (to == .print) .print else .warn);
+    try checkFormatArgs(self, args, if (to == .print) "`print`" else "`warn`", @tagName(to));
     return self.t().void_id;
 }
 
