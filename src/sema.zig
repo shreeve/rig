@@ -15014,24 +15014,13 @@ pub fn importType(
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        // Every module has its own `Endian`, `Arch`, `Os`, `Feature`,
-        // `Order`, `Printer`, and `Hasher`, and each is one type.
-        .nominal => |sym_id| return if (sym_id == foreign_ctx.endian_sym_id)
-            local_ctx.intern(.{ .nominal = local_ctx.endian_sym_id })
-        else if (sym_id == foreign_ctx.arch_sym_id)
-            local_ctx.intern(.{ .nominal = local_ctx.arch_sym_id })
-        else if (sym_id == foreign_ctx.os_sym_id)
-            local_ctx.intern(.{ .nominal = local_ctx.os_sym_id })
-        else if (sym_id == foreign_ctx.feature_sym_id)
-            local_ctx.intern(.{ .nominal = local_ctx.feature_sym_id })
-        else if (sym_id == foreign_ctx.order_sym_id)
-            local_ctx.intern(.{ .nominal = local_ctx.order_sym_id })
-        else if (sym_id == foreign_ctx.printer_sym_id)
-            local_ctx.intern(.{ .nominal = local_ctx.printer_sym_id })
-        else if (sym_id == foreign_ctx.hasher_sym_id)
-            local_ctx.intern(.{ .nominal = local_ctx.hasher_sym_id })
+        // A built-in type (`Endian`, `Arch`, `Os`, `Feature`, `Order`,
+        // `Printer`, `Hasher`) has the same id in every module, which
+        // registers the built-ins first.
+        .nominal => |sym_id| return local_ctx.intern(if (foreign_ctx.symbols.items[sym_id].decl_pos == builtin_decl_pos)
+            .{ .nominal = sym_id }
         else
-            local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
+            .{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
         // A generic type of another module is its proxy's instance.
         .parameterized_nominal => |pn| {
