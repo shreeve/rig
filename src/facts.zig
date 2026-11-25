@@ -1420,7 +1420,7 @@ test "Facts answers as the context it was made from" {
     var nodes: std.ArrayList(Sexp) = .empty;
     defer nodes.deinit(a);
     try collect(a, tree, &nodes);
-    var lowered = try f.lower(a, tree);
+    var lowered = try f.lower(a, tree, false);
     defer lowered.deinit();
     var temps: usize = 0;
     for (nodes.items) |n| {
@@ -1459,7 +1459,7 @@ test "Facts reads the leaf walk the storage plan decided" {
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
     const f = Facts.of(&ctx);
-    var lowered = try f.lower(a, tree);
+    var lowered = try f.lower(a, tree, false);
     defer lowered.deinit();
     var nodes: std.ArrayList(Sexp) = .empty;
     defer nodes.deinit(a);

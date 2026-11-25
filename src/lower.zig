@@ -406,19 +406,24 @@ const Lowerer = struct {
     /// A hidden var for `node` that its region `in` evaluates first, in
     /// its turn: the node's place in the tree reads the var.
     fn hoistVar(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId) Error!void {
-        // An assignment's new value is held as the optional it becomes.
-        return l.hoistLifted(node, kind, by, life, drop, in, kind == .new_value);
+        // An assignment's new value is held as the type it is stored as.
+        return l.hoistHeld(node, kind, by, life, drop, in, if (kind == .new_value) .all else .read);
     }
 
-    /// `hoistVar`, lifting the value into the optional it becomes where
-    /// the var is written, when `lifted`, or else where it is read.
-    fn hoistLifted(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId, lifted: bool) Error!void {
+    /// Which coercions of a value held in a var first are made where the
+    /// var is written: none of those made where it is read
+    /// (`readCoercion`), those and its lift, or all.
+    const Held = enum { read, lifted, all };
+
+    /// `hoistVar`, making the coercions `held` says where the var is
+    /// written, and the rest where it is read.
+    fn hoistHeld(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId, held: Held) Error!void {
         const v = (try l.hiddenVar(node, kind, by, life, drop, in)) orelse return;
         var e = l.exprOf(node) orelse return;
         // The coercions made where the var is read stay there; the rest
         // are made as it is written.
         var kept: usize = 0;
-        while (l.f.exprs.items[e] == .coerce and readCoercion(lifted, l.f.exprs.items[e].coerce.how)) : (kept += 1) e = l.f.exprs.items[e].coerce.value;
+        while (l.f.exprs.items[e] == .coerce and readCoercion(held, l.f.exprs.items[e].coerce.how)) : (kept += 1) e = l.f.exprs.items[e].coerce.value;
         const moved = try l.addExpr(l.f.exprs.items[e]);
         l.f.exprs.items[e] = .{ .@"var" = v };
         try l.step(in, .{ .bind = .{ .v = v, .value = moved } });
@@ -1556,7 +1561,7 @@ const Lowerer = struct {
         const ty = if (ctx.durationOf(v)) |d| d.written(ctx.types.int_id) else storage.typeOf(ctx, v);
         const shown = if (hold == .viewed) param else ty;
         const lifted = shown != ty;
-        try l.hoistLifted(v, .argument, by, life, if (by == .pointer or ctx.viewsTempArray(v)) null else storage.dropOf(ctx, v), r, lifted);
+        try l.hoistHeld(v, .argument, by, life, if (by == .pointer or ctx.viewsTempArray(v)) null else storage.dropOf(ctx, v), r, if (lifted) .lifted else .read);
     }
 
     /// A call through an API object's table: the object, read once
@@ -1654,11 +1659,11 @@ const Lowerer = struct {
 // =============================================================================
 
 /// Whether coercion `c` of a value held in a var first is made where the
-/// var is read, not where it is written: a lift, unless the var holds
-/// the value `lifted`.
-fn readCoercion(lifted: bool, c: lir.Coercion) bool {
+/// var is read, not where it is written.
+fn readCoercion(held: Lowerer.Held, c: lir.Coercion) bool {
+    if (held == .all) return false;
     return switch (c) {
-        .lift => !lifted,
+        .lift => held == .read,
         .splat, .erase, .fail, .widen => true,
         .duration, .view, .deref => false,
     };
