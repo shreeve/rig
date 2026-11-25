@@ -342,7 +342,7 @@ sub main()
   print(skip_space("   x", 0), count("abcdefgh"), first("a", 0))
 EOF2
 out=$("$RIG" emit proven.rig 2>/dev/null) || fail "rig emit proven.rig"
-expect_has "$out" 'rig.atIf(s, i, .upper, .lower, __rig_ok_' "an index whose sign is unknown keeps its sign test, made while the loop's flag is false"
+expect_has "$out" 'rig.atProven(s, i, .{ .upper, .lower, __rig_ok_' "an index whose sign is unknown keeps its sign test, made while the loop's flag is false"
 expect_has "$out" '= rig.okNonneg(i); _ = &__rig_ok_' "the flag before the loop tests the sign once (docs/internals/INTERNALS.md, \"Flags\")"
 expect_has "$out" 'rig.readIntProven(u64, s, i, .little, .both)' "a read with both tests proven"
 expect_has "$out" 'rig.addProven(i, 8) <= rig.lenOf(s)' "a guard's add proven by an earlier guard"
