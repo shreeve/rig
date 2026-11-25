@@ -138,10 +138,17 @@ pub fn DenseMap(comptime V: type) type {
             }
         };
 
+        /// Gives `key` the value `v`. An array grows to the index it
+        /// needs and a sixteenth more, not by half: it is sized from the
+        /// parser's count of nodes and leaves, and grows only by the few
+        /// a rewrite makes after the parse.
         pub fn put(self: *Self, a: std.mem.Allocator, key: u64, v: V) std.mem.Allocator.Error!void {
             std.debug.assert(v != none);
             const list, const i = self.slot(key);
-            if (i >= list.items.len) try list.appendNTimes(a, none, i + 1 - list.items.len);
+            if (i >= list.items.len) {
+                if (i >= list.capacity) try list.ensureTotalCapacityPrecise(a, i + 1 + i / 16);
+                list.appendNTimesAssumeCapacity(none, i + 1 - list.items.len);
+            }
             list.items[i] = v;
         }
 
