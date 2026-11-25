@@ -3217,6 +3217,10 @@ pub fn Cell(comptime T: type) type {
             dropElement(T, &self.value);
         }
 
+        /// It drops what its value drops (`sema.typeHasDropGlue`): a
+        /// Cell of plain data, whose drop does nothing, drops nothing.
+        pub const __rig_repr: Repr = .{ .drops = needsDrop(T) };
+
         // A `Cell(List(E))` answers its List's members. No user code runs
         // while the List is in use: `push`, `pop`, `len`, and the element
         // reads and writes of a plain-data `E` run no destructor, `clear`
