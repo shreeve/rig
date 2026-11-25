@@ -1319,6 +1319,44 @@ fail "foreign array len", "8:11: `lib.zeros[-1]` cannot use `n = -1`: the generi
     pub obj Ring[T: Copy, n: Int]
       items: [n]T
 
+fail "foreign instance checked once", "`lib.zeros[-1]` cannot use `n = -1`", "`lib.helper[5000000000]` cannot use `m = 5000000000`", errors: 2
+  # An instance two modules make is checked once, by the first: `b`
+  # makes the same instances of `lib`'s generics as `a`, and adds no
+  # diagnostic of its own.
+
+  use a
+  use b
+
+  sub main()
+    print(a.mk() + b.mk())
+
+  file "lib.rig"
+    pub fun zeros[n: Int]() -> [n]Int
+      [n of 0]
+
+    fun helper[m: Int]() -> Int
+      a = [m of 0]
+      a.len
+
+    pub sub show[k: Int]()
+      print(helper[k]())
+
+  file "a.rig"
+    use lib
+
+    pub fun mk() -> Int
+      a = lib.zeros[-1]()
+      lib.show[5000000000]()
+      a.len
+
+  file "b.rig"
+    use lib
+
+    pub fun mk() -> Int
+      a = lib.zeros[-1]()
+      lib.show[5000000000]()
+      a.len
+
 test "foreign builtin element", '''
   drop 1
   1 1
