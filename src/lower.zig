@@ -285,7 +285,7 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
     if (opts.checked) {
         const n = owners.items.len;
         for (0..n) |i| if (owners.items[i].ct) try ctClosures(a, &owners, ir.get(owners.items[i].root, .body), @intCast(i));
-        try owners.append(a, .{ .root = tree, .parent = null, .ct = true });
+        if (tree.isKind(.module)) try owners.append(a, .{ .root = tree, .parent = null, .ct = true });
     }
     m.owners = owners.items;
     for (m.owners, 0..) |o, i| try m.roots.put(a, sema.decisionKeyOf(o.root).?, @intCast(i));
