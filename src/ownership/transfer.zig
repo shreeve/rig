@@ -94,9 +94,9 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
             defer self.method_pos = saved;
             const name = ir.get(sexp, .name);
             if (self.fn_depth == 0) self.method_pos = if (generic.genericOwner(self) and name == .src) name.src.pos else null;
-            try walkFun(self, name, sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body));
+            try walkFun(self, sexp, name, sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body));
         },
-        .drop_decl => try walkFun(self, .nil, .nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
+        .drop_decl => try walkFun(self, sexp, .nil, .nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
         .@"struct", .@"enum", .errors, .generic_struct => {
             const saved = self.decl_owner;
             defer self.decl_owner = saved;
@@ -104,7 +104,7 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
             for (ir.rest(sexp, .members)) |c| try walkDecl(self, c);
         },
         .@"pub" => try walkDecl(self, ir.Pub.decl(sexp)),
-        .@"test" => try walkFun(self, .nil, .nil, .nil, .nil, ir.Test.body(sexp)),
+        .@"test" => try walkFun(self, sexp, .nil, .nil, .nil, .nil, ir.Test.body(sexp)),
         .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
         // An API's defaults, and an addition's methods (whose origins
         // its conformance holds, `declOrigins`).
@@ -120,16 +120,17 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
     }
 }
 
-/// Walk a function, method, drop body or test body. `tparams`: its
-/// compile-time parameters, whose values (`n: Int`) are Copy.
-pub fn walkFun(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+/// Walk a function, method, drop body or test body, declared by `root`.
+/// `tparams`: its compile-time parameters, whose values (`n: Int`) are
+/// Copy.
+pub fn walkFun(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
     const top = self.fn_depth == 0 and self.item == null;
     if (top) self.items_seen.clearRetainingCapacity();
-    try walkFunOnce(self, name, tparams, params, returns, body);
-    if (top and self.items_seen.items.len > 0) try generic.walkItemInstances(self, name, tparams, params, returns, body);
+    try walkFunOnce(self, root, name, tparams, params, returns, body);
+    if (top and self.items_seen.items.len > 0) try generic.walkItemInstances(self, root, name, tparams, params, returns, body);
 }
 
-pub fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
     const saved_func = self.func;
     const saved_body = self.fn_body;
     const saved_loop = self.loop;
@@ -152,7 +153,7 @@ pub fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, retu
     const top = self.fn_depth == 0;
     const saved_lir = self.lir_body;
     defer self.lir_body = saved_lir;
-    self.lir_body = try lowered.enter(self, body);
+    self.lir_body = try lowered.enter(self, root, body);
     if (top) {
         self.last_use.clearRetainingCapacity();
         self.defer_used.clearRetainingCapacity();
@@ -3059,7 +3060,7 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
     self.reachable = true;
     const saved_lir = self.lir_body;
     defer self.lir_body = saved_lir;
-    self.lir_body = try lowered.enter(self, body);
+    self.lir_body = try lowered.enter(self, node, body);
     try self.pushScopeFor(.closure, body);
     for (caps, cap_values.items) |cap, cv| {
         const name = sema.captureNameNode(cap).?;

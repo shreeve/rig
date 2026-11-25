@@ -40,19 +40,14 @@ pub const Body = struct {
     temps: sema.FastMap(u64, void) = .empty,
 };
 
-/// The lowered body whose block or expression is `body`, indexed; null
-/// when the checker walks the tree (`Checker.on_lir` unset), or when the
-/// body was not lowered.
-pub fn enter(self: *Checker, body: Sexp) Error!?*Body {
+/// The lowered body `root` declares, whose block or expression is
+/// `body`, indexed; null when the checker walks the tree
+/// (`Checker.on_lir` unset), or when the body was not lowered.
+pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
     if (!self.on_lir) return null;
     const m = &(self.sema.lowered orelse return null);
-    if (self.lir_bodies.count() == 0) for (m.owners) |o| {
-        const f = o.func orelse continue;
-        const b = bodyOf(o.root);
-        if (b == .nil) continue;
-        try self.lir_bodies.put(self.gpa, sema.decisionKeyOf(b) orelse continue, f);
-    };
-    const f = self.lir_bodies.get(sema.decisionKeyOf(body) orelse return null) orelse return null;
+    const i = m.roots.get(sema.decisionKeyOf(root) orelse return null) orelse return null;
+    const f = m.owners[i].func orelse return null;
     const a = self.arena();
     const out = try a.create(Body);
     out.* = .{ .f = f };
@@ -63,18 +58,6 @@ pub fn enter(self: *Checker, body: Sexp) Error!?*Body {
     try out.regions.put(a, sema.decisionKeyOf(body).?, f.body);
     try index(out, a, f.body);
     return out;
-}
-
-/// The body of `root`, a lowered body's root: a function's, a test's, a
-/// `drop` body's, or a closure's.
-fn bodyOf(root: Sexp) Sexp {
-    return switch (root.kind() orelse return .nil) {
-        .fun, .sub => ir.get(root, .body),
-        .@"test" => ir.Test.body(root),
-        .drop_decl => ir.DropDecl.body(root),
-        .lambda => ir.Lambda.body(root),
-        else => .nil,
-    };
 }
 
 /// Index region `r` and everything in it, outermost first.

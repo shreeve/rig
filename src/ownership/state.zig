@@ -24,7 +24,6 @@ const generic = @import("generic.zig");
 const types = @import("types.zig");
 const notes = @import("notes.zig");
 const lowered = @import("lowered.zig");
-const lir = @import("../lir.zig");
 const Place = transfer.Place;
 
 pub const VarId = u32;
@@ -659,8 +658,6 @@ pub const Checker = struct {
     on_lir: bool = false,
     /// The lowered body being walked, when `on_lir`.
     lir_body: ?*lowered.Body = null,
-    /// Each lowered body, by its block's key.
-    lir_bodies: sema.FastMap(u64, *const lir.Func) = .empty,
 
     func: FnCtx = .{},
     /// The body of the function being walked, at whose end its own scope
@@ -801,7 +798,6 @@ pub const Checker = struct {
         self.after_value.deinit(self.gpa);
         self.temps.deinit(self.gpa);
         self.reaches.deinit(self.gpa);
-        self.lir_bodies.deinit(self.gpa);
         self.arm_binds.deinit(self.gpa);
         self.paths.deinit(self.gpa);
         self.gpa.destroy(self.paths);
@@ -958,17 +954,16 @@ pub const Checker = struct {
         self.loan_counts.shrinkRetainingCapacity(start);
     }
 
-    /// The binding name `node` declares: on the walk of LIR, the one its
-    /// var in the body being walked declares, when that body declares it.
+    /// The binding name `node` declares or reads: on the walk of LIR, the
+    /// one its var in the body being walked declares, or the one the var
+    /// read there binds, when the body has one; else as sema resolved it.
     pub fn bindingOf(self: *const Checker, node: Sexp) ?SymbolId {
-        return lowered.bindingAt(self, node) orelse self.sema.symbolOf(node);
+        return lowered.bindingAt(self, node) orelse lowered.symbolOf(self, node) orelse self.sema.symbolOf(node);
     }
 
-    /// The innermost visible var of the binding leaf `node` names, as
-    /// sema resolved it.
+    /// The innermost visible var of the binding leaf `node` names.
     pub fn find(self: *const Checker, node: Sexp) ?VarId {
-        if (self.lir_body != null) if (lowered.symbolOf(self, node)) |sym| return self.varOf(sym);
-        return self.varOf(self.sema.symbolOf(node) orelse return null);
+        return self.varOf(self.bindingOf(node) orelse return null);
     }
 
     /// The innermost visible var of binding `sym`. A local of a
