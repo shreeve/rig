@@ -34,8 +34,12 @@ const Checker = state.Checker;
 pub const Body = struct {
     f: *const lir.Func,
     /// The outermost expression made for each node, by its key: each
-    /// list node's, and in the shadow each leaf's too (`leaves`).
+    /// list node's, and in the shadow each leaf's too (`leaves`). A list
+    /// node's is in `dense`, by its id less `dense_lo`, where the body's
+    /// list nodes' ids lie close enough together; else in `exprs`.
     exprs: sema.FastMap(u64, lir.ExprId) = .empty,
+    dense: []lir.ExprId = &.{},
+    dense_lo: u32 = 0,
     leaves: bool = false,
     /// The region made for each block, by its node's key: the body's
     /// by the key of the function's block.
@@ -51,6 +55,8 @@ pub const Body = struct {
     hoisted: sema.FastMap(lir.VarId, lir.ExprId) = .empty,
 };
 
+const no_expr = std.math.maxInt(lir.ExprId);
+
 /// An expression the walk reaches: its tree node, and, in a lowered
 /// body, the LIR expression made for it (`id`), whose operands the
 /// walk takes as the operands of the node.
@@ -65,6 +71,11 @@ pub fn exprAt(self: *const Checker, node: Sexp) Expr {
     const b = self.lir_body orelse return .{ .node = node };
     // A leaf's expression has no operands: only the shadow, which reads
     // the var a name's use reads, looks one up.
+    if (node == .list and b.dense.len > 0) {
+        const i = node.list.id -% b.dense_lo;
+        if (i >= b.dense.len or b.dense[i] == no_expr) return .{ .node = node };
+        return .{ .node = node, .id = b.dense[i] };
+    }
     if (!b.leaves and node != .list) return .{ .node = node };
     return .{ .node = node, .id = b.exprs.get(sema.decisionKeyOf(node) orelse return .{ .node = node }) };
 }
@@ -136,9 +147,28 @@ pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
     const a = self.fn_arena_state.allocator();
     const out = try a.create(Body);
     out.* = .{ .f = f, .leaves = self.on_lir };
-    var n: u32 = 0;
-    for (f.exprs.items) |e| n += @intFromBool(out.leaves or nodeOfExpr(e) == .list);
-    try out.exprs.ensureTotalCapacity(a, n);
+    // The ids of the body's list nodes, which the parser numbers in
+    // the order it makes them, mostly lie in one stretch: an array over
+    // it finds each without hashing.
+    var lists: u32 = 0;
+    var leaves: u32 = 0;
+    var lo: u32 = std.math.maxInt(u32);
+    var hi: u32 = 0;
+    for (f.exprs.items) |e| {
+        const node = nodeOfExpr(e);
+        if (node == .list and node.list.id != 0) {
+            lists += 1;
+            lo = @min(lo, node.list.id);
+            hi = @max(hi, node.list.id);
+        } else if (node == .src) leaves += 1;
+    }
+    if (lists > 0 and hi - lo < 4 * lists + 256) {
+        out.dense = try a.alloc(lir.ExprId, hi - lo + 1);
+        @memset(out.dense, no_expr);
+        out.dense_lo = lo;
+        lists = 0;
+    }
+    try out.exprs.ensureTotalCapacity(a, lists + if (out.leaves) leaves else 0);
     if (self.on_lir) for (f.vars.items) |v| switch (v.name) {
         .binding => |s| if (sema.decisionKeyOf(v.node)) |key| try out.binds.put(a, key, s),
         .hidden => |k| if (k == .temp) if (sema.decisionKeyOf(v.node)) |key| try out.temps.put(a, key, {}),
@@ -212,7 +242,10 @@ fn nodeOfExpr(e: lir.Expr) Sexp {
 fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
     const e = b.f.exprs.items[id];
     const node = nodeOfExpr(e);
-    if (b.leaves or node == .list) if (sema.decisionKeyOf(node)) |key| {
+    if (node == .list and b.dense.len > 0 and node.list.id != 0) {
+        const slot = &b.dense[node.list.id - b.dense_lo];
+        if (slot.* == no_expr) slot.* = id;
+    } else if (b.leaves or node == .list) if (sema.decisionKeyOf(node)) |key| {
         const gop = b.exprs.getOrPutAssumeCapacity(key);
         if (!gop.found_existing) gop.value_ptr.* = id;
     };
@@ -274,7 +307,7 @@ pub fn bindingAt(self: *const Checker, node: Sexp) ?SymbolId {
 pub fn symbolOf(self: *const Checker, node: Sexp) ?SymbolId {
     if (!self.on_lir) return null;
     const b = self.lir_body orelse return null;
-    var id = b.exprs.get(sema.decisionKeyOf(node) orelse return null) orelse return null;
+    var id = exprAt(self, node).id orelse return null;
     while (true) switch (b.f.exprs.items[id]) {
         .coerce => |c| id = c.value,
         .hold => |h| id = h.value,
