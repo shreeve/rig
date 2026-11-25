@@ -52,6 +52,9 @@ pub const Module = struct {
     /// lowered: the storage emit prints.
     vars: std.AutoHashMapUnmanaged(storage.Vars.Key, *const lir.Var) = .empty,
     bindings: std.AutoHashMapUnmanaged(SymbolId, *const lir.Var) = .empty,
+    /// The calls and array literals that hold their parts (a `call`
+    /// region).
+    holders: std.AutoHashMapUnmanaged(u64, void) = .empty,
 
     pub const Owner = struct {
         root: Sexp,
@@ -72,6 +75,12 @@ pub const Module = struct {
     /// The hidden var of `kind` made for `node`.
     pub fn varOf(m: *const Module, node: Sexp, kind: StorageKind) ?*const lir.Var {
         return m.vars.get(.{ .node = sema.decisionKeyOf(node) orelse return null, .kind = kind });
+    }
+
+    /// Whether call or array literal `node` holds its parts, each
+    /// evaluated first.
+    pub fn holdsParts(m: *const Module, node: Sexp) bool {
+        return m.holders.contains(sema.decisionKeyOf(node) orelse return false);
     }
 
     /// The var of binding `sym`.
@@ -131,6 +140,9 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp) !Module
     for (m.owners) |o| if (o.func) |f| for (f.vars.items) |*v| switch (v.name) {
         .binding => |s| try m.bindings.put(a, s, v),
         .hidden => |k| if (sema.decisionKeyOf(v.node)) |key| try m.vars.put(a, .{ .node = key, .kind = k }, v),
+    };
+    for (m.owners) |o| if (o.func) |f| for (f.regions.items) |r| if (r.kind == .call) {
+        try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
     };
     return m;
 }
@@ -889,8 +901,10 @@ const Lowerer = struct {
                 try l.call(e, id);
                 try l.objectCall(e, id);
             },
-            .array => {
-                if (storage.hoistsArgs(ctx, e)) for (ir.Array.elems(e)) |v| try l.argument(v, null, .call, try l.callBlock(e, id));
+            .array => if (storage.hoistsArgs(ctx, e)) {
+                const r = try l.callBlock(e, id);
+                l.region(r).kind = .call;
+                for (ir.Array.elems(e)) |v| try l.argument(v, null, .call, r);
             },
             // The parts of `return a, b`, made first when a later one can
             // leave, each held as the function's result in its place.
@@ -1382,6 +1396,7 @@ const Lowerer = struct {
         if (callee.isKind(.lambda)) try l.hoistVar(callee, .invoked, .owned, .call, null, try l.callBlock(c, id));
         if (!hoists) return;
         const r = try l.callBlock(c, id);
+        l.region(r).kind = .call;
         // The parts of `task.select` are its arms' (`storage.hoistsArgs`).
         if (ctx.isSelect(c)) {
             for (ir.Call.args(c)) |a| try l.callParts(storage.argValue(a), .select, r);

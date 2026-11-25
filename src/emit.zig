@@ -2913,7 +2913,7 @@ pub const Emitter = struct {
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
         if (self.facts.calleeOf(e).isKind(.lambda)) return true;
-        if (try self.hoistsArgs(e)) return true;
+        if (self.hoistsArgs(e)) return true;
         return !self.yieldsNothing(e);
     }
 
@@ -3388,7 +3388,7 @@ pub const Emitter = struct {
         const first = self.hoisted.items.len;
         const value = ir.Set.value(set);
         var id: u32 = undefined;
-        if (try self.isPureArg(value)) {
+        if (self.varOf(value, .new_value) == null) {
             id = self.nextId();
             try self.w.writeAll("{ ");
         } else {
@@ -3443,7 +3443,7 @@ pub const Emitter = struct {
     }
 
     fn hoistIndex(self: *Emitter, index: Sexp, id: u32) Error!void {
-        if (try self.isPureArg(index)) return;
+        if (self.varOf(index, .index) == null) return;
         const name = try self.hiddenStorage(index, .index, .owned, .{ .pair = .{ id, @intCast(self.hoisted.items.len) } });
         try self.w.print("const {s}", .{name});
         // An index is a number, read through a view of one.
@@ -7324,7 +7324,7 @@ pub const Emitter = struct {
                 try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp));
             },
             .@"while", .@"for", .labeled => if (facts.syntax.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
-            .array => if (try self.hoistsArgs(sexp)) try self.emitHoistedArray(sexp) else try self.emitArray(sexp),
+            .array => if (self.hoistsArgs(sexp)) try self.emitHoistedArray(sexp) else try self.emitArray(sexp),
             .array_fill => try self.emitArrayFill(sexp),
             // A jump as a fallback (`?? return`, `catch break`): a block
             // that leaves, which Zig types as `noreturn`.
@@ -7625,7 +7625,7 @@ pub const Emitter = struct {
         try self.openBrace();
         const first = self.hoisted.items.len;
         for (ir.Array.elems(sexp), 0..) |e, i| {
-            if (try self.isPureArg(e)) continue;
+            if (self.varOf(e, .argument) == null) continue;
             try self.hoist(.{ .node = e, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, i }) }, .{ .pair = .{ id, @intCast(i) } }, &.{}, 0, true);
         }
         try self.writeIndent(self.indent);
@@ -9356,7 +9356,7 @@ pub const Emitter = struct {
             try self.emitBare(ir.Call.args(sexp)[0]);
             return self.w.writeAll("))");
         }
-        if (try self.hoistsArgs(sexp)) return self.emitHoistedCall(sexp);
+        if (self.hoistsArgs(sexp)) return self.emitHoistedCall(sexp);
         try self.emitCallDirect(sexp);
     }
 
@@ -10394,19 +10394,15 @@ pub const Emitter = struct {
     fn isTypeSym(self: *Emitter, id: SymbolId) bool {
         return self.facts.isTypeSym(id);
     }
-    /// `storage.hoistsArgs`.
-    fn hoistsArgs(self: *Emitter, call: Sexp) Error!bool {
-        return self.need(self.facts.hoistsArgs(call), call);
+    /// Whether call or array literal `call` holds its parts, each
+    /// evaluated first (a `call` region of its LIR).
+    fn hoistsArgs(self: *Emitter, call: Sexp) bool {
+        return self.lowered.?.holdsParts(call);
     }
 
     /// `storage.consumedTemporary`.
     fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
         return if (try self.need(self.facts.consumesSelf(call), call)) self.facts.selfOf(call) else null;
-    }
-
-    /// `storage.isPureArg`.
-    fn isPureArg(self: *Emitter, e: Sexp) Error!bool {
-        return self.need(self.facts.isPureArg(e), e);
     }
 
     /// `storage.selfOf`.
@@ -10548,7 +10544,7 @@ pub const Emitter = struct {
         } else try self.hoistSelf(call, id);
         for (args, 0..) |a, ai| {
             const value = argValue(a);
-            if (try self.isPureArg(value)) continue;
+            if (self.varOf(value, .argument) == null) continue;
             const slot: usize = if (slots) |ss| facts.slotOf(ss, ai) orelse ai else ai;
             try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, params, slot, fields);
         }

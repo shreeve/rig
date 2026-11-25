@@ -814,14 +814,6 @@ pub const Facts = struct {
     pub fn viewsOptionalValue(f: Facts, value: Sexp) ?bool {
         return storage.decided(f.c(), value, .views_optional_value);
     }
-    /// The decisions about a call or an array literal the plan made
-    /// (`storage`): whether it evaluates its arguments or elements first,
-    /// how it holds its self and each part, whether it consumes a
-    /// temporary self, and whether a part, an assigned value, or an
-    /// index is pure.
-    pub fn hoistsArgs(f: Facts, call: Sexp) ?bool {
-        return storage.decided(f.c(), call, .hoists_args);
-    }
     /// Whether the fill a box or a binding takes is built where its value
     /// goes (`storage.fillsInPlace`).
     pub fn fillsInPlace(f: Facts, e: Sexp) ?bool {
@@ -841,6 +833,8 @@ pub const Facts = struct {
     pub fn jumpDest(f: Facts, jump: Sexp) ?JumpDest {
         return f.c().jumpDestOf(jump);
     }
+    /// How a call holds its self, whether it consumes a temporary self,
+    /// and how it holds each part it evaluates first (`storage`).
     pub fn selfHold(f: Facts, call: Sexp) ??SelfHold {
         return storage.decided(f.c(), call, .self_hold);
     }
@@ -854,9 +848,6 @@ pub const Facts = struct {
     /// helper (`storage.laneChecked`).
     pub fn laneChecked(f: Facts, e: Sexp) ?bool {
         return storage.decided(f.c(), e, .lane_checked);
-    }
-    pub fn isPureArg(f: Facts, e: Sexp) ?bool {
-        return storage.decided(f.c(), e, .pure_arg);
     }
     /// How a `for` folds integers into a local, or null when it is not a
     /// fold (`storage.fold`).
