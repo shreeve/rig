@@ -4258,7 +4258,8 @@ pub const SemContext = struct {
     symbols: std.ArrayList(Symbol) = .empty,
     /// Scope 1 is the module scope.
     scopes: std.ArrayList(Scope) = .empty,
-    types: TypeStore,
+    /// The store this module's types are interned in, its own.
+    types: *TypeStore,
     /// Facts of each interned type, by TypeId.
     type_info: std.ArrayList(TypeInfo) = .empty,
     /// Where among `diagnostics` a form holding an API object was
@@ -4690,10 +4691,13 @@ pub const SemContext = struct {
             .allocator = allocator,
             .source = source,
             .arena = std.heap.ArenaAllocator.init(allocator),
-            .types = try TypeStore.init(allocator),
+            .types = try allocator.create(TypeStore),
             .decided = try allocator.create(Decided),
             .type_memo = undefined,
         };
+        errdefer allocator.destroy(ctx.types);
+        ctx.types.* = try TypeStore.init(allocator);
+        errdefer ctx.types.deinit(allocator);
         ctx.decided.* = .{};
         errdefer allocator.destroy(ctx.decided);
         ctx.type_memo = try allocator.create(TypeMemo);
@@ -4719,6 +4723,7 @@ pub const SemContext = struct {
         self.scopes.deinit(self.allocator);
         self.symbols.deinit(self.allocator);
         self.types.deinit(self.allocator);
+        self.allocator.destroy(self.types);
         self.type_info.deinit(self.allocator);
         self.deferred_checks.deinit(self.allocator);
         self.conformances.deinit(self.allocator);
@@ -16116,7 +16121,7 @@ pub fn viewAs(ctx: *const SemContext, from: TypeId, kind: ViewKind, view: TypeId
 }
 
 fn viewRows(ctx: *const SemContext, from: TypeId, kind: ViewKind, view: TypeId, made: *View) bool {
-    const types = &ctx.types;
+    const types = ctx.types;
     // Any `T` gives `?T`, and `!T` to write; a write view may be read. A
     // write view of an API object gives its read view, one of another
     // Zig type (`rig.ApiView`).
@@ -18781,7 +18786,7 @@ test "type facts: moves, copies, cloneable" {
     );
     defer r.deinit();
     const ctx = &r.ctx;
-    const ty = &ctx.types;
+    const ty = ctx.types;
     const p = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "P").?) });
     const v = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "V").?) });
     const t = try ctx.intern(.{ .type_var = ctx.ref(r.sym("T", 0).?) });
@@ -18855,7 +18860,7 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
     );
     defer r.deinit();
     const ctx = &r.ctx;
-    const ty = &ctx.types;
+    const ty = ctx.types;
     const p = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "P").?) });
     const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{p} } });
     const opt_p = try ctx.intern(.{ .optional = p });
@@ -18901,7 +18906,7 @@ test "view table: each row makes its view" {
     );
     defer r.deinit();
     const ctx = &r.ctx;
-    const ty = &ctx.types;
+    const ty = ctx.types;
     const p = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "P").?) });
     const read = struct {
         fn f(c: *SemContext, t: TypeId) !TypeId {

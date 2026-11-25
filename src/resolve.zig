@@ -3064,7 +3064,7 @@ pub const TypeResolver = struct {
     /// two or more, each a type one result may have, at most one of them
     /// a write view. Named results are not Rig's.
     fn resolveResults(self: *TypeResolver, node: Sexp) Error!TypeId {
-        const t = &self.ctx.types;
+        const t = self.ctx.types;
         const nodes = ir.ResultsType.types(node);
         var parts: std.ArrayList(TypeId) = .empty;
         defer parts.deinit(self.ctx.allocator);
@@ -3797,7 +3797,7 @@ pub const TypeResolver = struct {
     /// `+` counts; a `*{A + Syncs}` holds a frozen value, so no `Owned`;
     /// and a weak handle, which never crosses, no crossing bound.
     fn resolveApiObject(self: *TypeResolver, node: Sexp) Error!TypeId {
-        const t = &self.ctx.types;
+        const t = self.ctx.types;
         const src = self.ctx.source;
         const start = self.ctx.startOf(node);
         // The holding sigil written before the braces, for the fixes.
@@ -4379,7 +4379,7 @@ pub const TypeResolver = struct {
     /// as a `for` reads them); a bound closure, its result; any other
     /// binding, its own type.
     fn chainItemType(self: *TypeResolver, leaf: Sexp) Error!TypeId {
-        const t = &self.ctx.types;
+        const t = self.ctx.types;
         const name = identAt(self.ctx.source, leaf) orelse return t.invalid_id;
         const id = self.ctx.lookup(self.scope, name) orelse return t.invalid_id;
         try self.ctx.recordName(leaf, id);
@@ -4410,7 +4410,7 @@ pub const TypeResolver = struct {
     }
 
     pub fn resolveType(self: *TypeResolver, sexp: Sexp) Error!TypeId {
-        const t = &self.ctx.types;
+        const t = self.ctx.types;
         switch (sexp) {
             .nil => return t.void_id,
             .src => |s| {
@@ -4626,7 +4626,7 @@ pub const TypeResolver = struct {
     /// it takes is checked (`Requirement.array_len`). Poison after a
     /// diagnostic.
     pub fn resolveCtInt(self: *TypeResolver, node: Sexp, use: CtIntUse) Error!TypeId {
-        const t = &self.ctx.types;
+        const t = self.ctx.types;
         const what: []const u8 = if (use == .array_len) "an array length" else "a compile-time argument";
         try self.recordCtNames(node);
         if (use == .arg and self.namesType(node)) {
@@ -4973,7 +4973,7 @@ pub const TypeResolver = struct {
     }
 
     fn resolveQualified(self: *TypeResolver, module_node: Sexp, name_node: Sexp) Error!TypeId {
-        const t = &self.ctx.types;
+        const t = self.ctx.types;
         const d = (try self.foreignDecl(module_node, name_node)) orelse return t.invalid_id;
         switch (d.sym.kind) {
             .nominal_type, .type_alias => {},
@@ -5021,7 +5021,7 @@ pub const TypeResolver = struct {
     /// when the caller has read it already (a type argument in an
     /// expression). Poison after a diagnostic.
     pub fn taskResult(self: *TypeResolver, a: Sexp, ok: ?TypeId) Error!TypeId {
-        const t = &self.ctx.types;
+        const t = self.ctx.types;
         const inner = ok orelse try self.resolveType(ir.ErrorUnion.type(a));
         const set = try self.resolveFailSet(ir.ErrorUnion.set(a));
         if (set != t.invalid_id and !try sema.setHoldsStop(self.ctx, set, self.ctx.arena.allocator())) {
@@ -5041,7 +5041,7 @@ pub const TypeResolver = struct {
     }
 
     fn resolveGenericInst(self: *TypeResolver, sexp: Sexp) Error!TypeId {
-        const t = &self.ctx.types;
+        const t = self.ctx.types;
         const name_node = ir.GenericInst.name(sexp);
         var sym_id: SymbolId = undefined;
         var pos: u32 = undefined;
@@ -5210,7 +5210,7 @@ pub const TypeResolver = struct {
 /// parameter `n` is checked at each instance (`Requirement.lane_count`).
 /// Poison after a diagnostic.
 pub fn simdInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!TypeId {
-    const t = &ctx.types;
+    const t = ctx.types;
     if (args.len != 2 or sema.containsPoison(ctx, args[0]) or sema.containsPoison(ctx, args[1])) return t.invalid_id;
     const elem = args[0];
     const len = args[1];
@@ -5353,7 +5353,7 @@ pub fn leafBinds(source: []const u8, pattern: Sexp) bool {
 const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Static", "Symbol", "Void" };
 
 fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
-    const t = &ctx.types;
+    const t = ctx.types;
     const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.static_id, t.symbol_id, t.void_id };
     for (primitive_type_names, ids) |n, id| {
         if (std.mem.eql(u8, name, n)) return id;
