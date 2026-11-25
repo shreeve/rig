@@ -713,7 +713,7 @@ pub fn argParams(ctx: *const SemContext, call: Sexp) []const TypeId {
 
 /// The type of the parameter argument `a` of `call` fills; null when
 /// unknown.
-fn argumentParam(ctx: *const SemContext, call: Sexp, ai: usize) ?TypeId {
+pub fn argumentParam(ctx: *const SemContext, call: Sexp, ai: usize) ?TypeId {
     const params = argParams(ctx, call);
     const slot = if (ctx.callSlotsOf(call)) |slots| sema.slotOf(slots, ai) orelse ai else ai;
     return if (slot < params.len) params[slot] else null;
@@ -918,7 +918,7 @@ pub const MatchMode = enum { read, write, consume };
 
 /// The type an arm's member pattern is of: an error member's own set,
 /// which the subject may be one of; else the subject's, `subject`.
-fn armType(ctx: *const SemContext, pattern: Sexp, subject: ?TypeId) ?TypeId {
+pub fn armType(ctx: *const SemContext, pattern: Sexp, subject: ?TypeId) ?TypeId {
     if (pattern.isKind(.variant_pattern) or pattern.isKind(.member)) if (ctx.typeOf(pattern)) |t| if (sema.isErrorSet(ctx, t)) return t;
     return subject;
 }
@@ -1554,7 +1554,7 @@ fn dropsOld(ctx: *const SemContext, set: Sexp) bool {
 /// How the value of `e`, which emit holds in a var or discards, drops
 /// when nothing takes it (`sema.resourceKind` of its type), or null when
 /// it owns nothing (`Var.drop`).
-fn dropOf(ctx: *const SemContext, e: Sexp) ?sema.ResourceKind {
+pub fn dropOf(ctx: *const SemContext, e: Sexp) ?sema.ResourceKind {
     return sema.resourceKind(ctx, typeOf(ctx, e) orelse return null);
 }
 
@@ -1721,7 +1721,7 @@ pub fn viewsInsideOptional(view: sema.View) bool {
 
 /// The value a block yields: its last statement, or a value that is
 /// no block.
-fn lastValue(e: Sexp) Sexp {
+pub fn lastValue(e: Sexp) Sexp {
     if (!e.isKind(.block)) return e;
     const stmts = ir.Block.stmts(e);
     return if (stmts.len > 0) stmts[stmts.len - 1] else .nil;
@@ -1935,7 +1935,7 @@ fn planHeldHeaders(ctx: *SemContext, decl: Sexp, body: Sexp) !void {
 
 /// Whether a parameter of type `ty` may hold its header: a write view of
 /// a `String`, or of a `List[T]` with no inline room, viewed by pointer.
-fn holdsHeaderType(ctx: *const SemContext, ty: TypeId) bool {
+pub fn holdsHeaderType(ctx: *const SemContext, ty: TypeId) bool {
     const inner = switch (ctx.types.get(ty)) {
         .write_view => |inner| inner,
         else => return false,
@@ -1949,7 +1949,7 @@ fn holdsHeaderType(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
-const Within = enum {
+pub const Within = enum {
     /// Inside a `while` or `for`.
     loop,
     /// Inside a task's call, a closure, or a `raw` block.
@@ -1957,7 +1957,7 @@ const Within = enum {
 };
 
 /// Whether `e` names `sym` within a node of the kind `within` asks for.
-fn usedIn(ctx: *const SemContext, e: Sexp, sym: SymbolId, within: Within) bool {
+pub fn usedIn(ctx: *const SemContext, e: Sexp, sym: SymbolId, within: Within) bool {
     if (e == .src) return false;
     if (e != .list) return false;
     const inside = switch (within) {
@@ -1982,7 +1982,7 @@ fn namesSym(ctx: *const SemContext, e: Sexp, sym: SymbolId) bool {
     return false;
 }
 
-fn containsKind(e: Sexp, kind: Tag) bool {
+pub fn containsKind(e: Sexp, kind: Tag) bool {
     if (e != .list) return false;
     if (e.isKind(kind)) return true;
     for (e.items()) |c| if (containsKind(c, kind)) return true;
@@ -2878,7 +2878,7 @@ fn isListTy(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// A Cell holding a List, reached by value, view, or shared handle.
-fn isCellListTy(ctx: *const SemContext, ty: TypeId) bool {
+pub fn isCellListTy(ctx: *const SemContext, ty: TypeId) bool {
     const cell = switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
         .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id and pn.args.len == 1) pn.args[0] else return false,
         else => return false,

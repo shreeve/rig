@@ -35,7 +35,8 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │    typecheck src/typecheck.zig   every expression's type and facts
   │    cteval    src/cteval.zig      compile-time functions, run in the checker
   │  storage     src/storage.zig   the hidden storage emit makes
-  │  ownership   src/ownership.zig moves, loans, drops, aliasing
+  │  lower       src/lower.zig     each body's LIR (src/lir.zig), in shadow
+  │  ownership   src/ownership/    moves, loans, drops, aliasing
   │  proofs      src/proofs.zig    the tests known to pass
   ▼
 decide           src/program.zig   the program table: the program-wide decisions,
@@ -64,8 +65,9 @@ prints the root module's IR as flat facts ([Syntax facts](#syntax-facts)),
 (`sema.Facts`), `check --facts=storage` the hidden storage emit makes
 for them ([Storage facts](#storage-facts)), one per line, keyed by node
 kind and span with no compiler ids, so two compilers' dumps of a program
-diff cleanly, and `check --facts=proofs` the tests known to pass
-([Proven checks](#proven-checks)).
+diff cleanly, `check --facts=proofs` the tests known to pass
+([Proven checks](#proven-checks)), and `check --facts=lir` each body's
+lowered IR ([LIR](#lir)).
 A module whose sema reports an error (other than a local that is never
 read, a lint on well-typed code) is not ownership-checked: ownership
 reads the types sema settled, as Rust's checker waits for its
@@ -227,7 +229,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
 | `src/storage.zig` | the storage facts: the var table of the hidden storage emit makes and how bindings hold their values, decided once for emit and the ownership checker |
-| `src/ownership.zig` | the ownership checker |
+| `src/ownership.zig`, `src/ownership/` | the ownership checker, one file per part of the Core ([Ownership](#ownership)) |
 | `src/program.zig` | the program table: every decision made once for the whole program after every module is checked (inlined functions and calls, entry checks, dense calls, functions that never return, split units, word-held objects, exact enums' tags, text tables), keyed by module and place, which the graph owns (`ModuleGraph.table`), every module's context points at, and `Facts` reads; `ModuleGraph.decide` runs the deciders in order, and the word-held and exact-enum deciders live here |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/returns.zig` | which functions never return, emitted with the Zig result `noreturn`, decided once for the whole program after every module is checked (Emit, "Functions that never return") |
@@ -917,12 +919,12 @@ files is the unit of mutual recursion, as a Go package or a Rust
 crate is. An unreadable file or directory is reported at the `use`. A
 module whose import has errors is not checked further, since its
 errors would only be consequences; the import's own errors are
-reported. A module with a string literal where a byte goes, a chain,
-an option group, or a spread is checked twice, the second time on the
-tree they are rewritten into ([Strings as bytes](#strings-as-bytes),
-[Groups and spreads](#groups-and-spreads)), and only the second check's
-context is the module's; a `for` over an iterator is rewritten where
-typecheck finds it ([Loops over an iterator](#loops-over-an-iterator)).
+reported. Each module is checked once: what only types decide, a `for`
+over an iterator, a string literal where a byte goes, a chain, a group,
+and a spread, is rewritten where typecheck finds it and checked in place
+([Loops over an iterator](#loops-over-an-iterator),
+[Strings as bytes](#strings-as-bytes), [Chains](#chains),
+[Groups and spreads](#groups-and-spreads)).
 The CLI prints at most 100 errors for a program and counts the rest.
 
 **Embedded files.** Typecheck records each `$embed("path")` as an
@@ -1801,9 +1803,10 @@ and to the per-node records `write_sites`, `untakeable`, and `discards`
 every column what it held at the mark, drops the diagnostics reported
 and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and
-a write costs nothing more. Symbols, scopes, and interned types are not
-taken back: each is made once for what it names, and asking again finds
-the same one. A rewrite of the tree, and the names and scopes of the
+a write costs nothing more. A symbol written through
+`SemContext.symbolMut` goes on the trail whole, so a rollback gives back
+its type and flags. Scopes and interned types are not taken back: each
+is made once for what it names, and asking again finds the same one. A rewrite of the tree, and the names and scopes of the
 nodes it makes, are written outside every mark (`pauseTrail`), since
 the tree keeps the rewrite.
 
@@ -2140,6 +2143,41 @@ a read match's
 payload view of a copy lives for its arm (`arm_view`); a `payload` copy only copies
 fields out, and an `error_value` is the failure's own error, which the
 handler's binding takes as it starts: the checker walks the binding.
+
+### LIR
+
+Each body (a function, a `sub`, a test, a `drop` body, a closure) has
+a lowered IR, LIR (`src/lir.zig`), which `src/lower.zig` builds from
+the typed tree and the recorded facts. A body's LIR holds its vars, one
+for each binding and each piece of hidden storage ([Storage
+facts](#storage-facts): a var's kind is the table's kind), and its
+regions and steps in the order they run. Control flow stays
+structured, as Zig needs it. A region declares vars that live until it
+ends. It nests in a step, or in an expression where a value goes: a
+call whose parts are held first, a header that ends its temporaries, a
+value `if` or `match`. `lir.verify` checks that a body is well formed:
+each region and expression is reached once, from the body; each var is
+declared by one region; and each var is used only inside the region
+that declares it. `rig check --facts=lir` prints the root module's LIR,
+and lists each body not lowered with the construct that stopped it.
+
+LIR runs in shadow, and nothing reads it yet. In a self-checking build,
+`sema.check` lowers each module after `storage.plan`, and `lower.shadow`
+asserts, for each body, that:
+
+- its hidden vars are the var table's rows for nodes in that body, in
+  the table's order, each held the same way (`by`, `life`, `drop`,
+  `parts`);
+- each statement's and header's temporaries are `sema.stmtTemps`', in
+  its order;
+- each binding's `drop` and `flag` are its row's.
+
+Lowering asks the questions the plan asks. A node's vars are numbered
+after its operands' (the plan's order), and its steps are placed in the
+order they run. A body that uses a construct lowering does not yet
+cover is not lowered. The back track of docs/internals/architecture.md
+makes emit a printer of LIR, and dissolves the storage plan into
+lowering.
 
 ### Proven checks
 
@@ -3223,8 +3261,24 @@ with its counts always atomic (`Counted(T, true)`), made by
 
 ## Ownership
 
-`ownership.zig` checks one function body at a time as a flow-sensitive
-abstract interpretation of the IR.
+The ownership checker checks one function body at a time as a
+flow-sensitive abstract interpretation of the IR. `src/ownership.zig`
+is its interface (`Checker`) and its tests; the checker itself is laid
+out by docs/CORE.md in `src/ownership/`, so each sentence's rules are
+in one place. Each file's functions take the `*Checker` first, and a
+call names the file it calls into (`rules.checkLive(self, ...)`):
+
+| File | Holds |
+|---|---|
+| `state.zig` | `Var`, `Flow`, `Loan`, `Paths`, points and the trail, join; the `Checker` |
+| `live.zig` | liveness: whether the var holding a loan may be used again (sentence 6) |
+| `transfer.zig` | the walk: what each construct does to the state, grouped by sentences 1 to 10, then return, branches, and loops |
+| `rules.zig` | the checks that reject a program, grouped by the sentence each enforces |
+| `origins.zig` | what a value carries (`carry`), what a call keeps (sentence 7), self's paths, and a body against its signature (`checkOrigins`) |
+| `exits.zig` | the one exit primitive (`exitTo`, CORE §9), defers, and jumps |
+| `generic.zig` | generic bodies: what they require of each instance |
+| `types.zig` | what the checker reads of sema's facts: per type and per expression (CORE §9) |
+| `notes.zig` | messages, and the notes that name both ends of a view |
 
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
 parameter, capture, pattern, loop element) paired with a `Flow`: its
@@ -4514,65 +4568,102 @@ one the program wrote.
 A string literal where a `U8` is expected is its one byte, and where a
 `[N]U8` is, the array of its bytes (SPEC, "Byte literals"). Only
 typecheck knows what a literal's context expects, so the literal is
-rewritten as `for` loops over an iterator are: `Checker.byteString`,
-reached where a literal meets its expected type (`checkContextual`), the
-other side of an operator (`byteBeside`), a conversion `U8('A')`, and a
-string pattern against a `U8` (`checkBytePattern`), checks the count of
-bytes and records the literal (`SemContext.byte_literals`). Then
-`ModuleGraph.check` calls `Parser.byteLiterals`, which writes each as the
-integer leaf of its byte, spanning the string, or as the array literal of
-its bytes, each a leaf inside the string so no two share a position,
-and checks the module again. A byte leaf reads as its decimal value
-(`rig.leafText`), so every pass after typecheck, and the second check,
-sees an integer literal where the program wrote a byte: a pattern's
-coverage, a constant's value, and emit need nothing of their own. A
-literal of the wrong size is not recorded, and the second check reports
-it again. Each round rewrites what it found, so the checks end.
+rewritten where typecheck finds it, with the statement that holds it.
+The Parser wrapper flags each statement of a block, and each declaration
+of the module, that is a string literal or holds one outside its own
+blocks (`Parser.byte_stmts`), and typecheck checks each of those under a
+mark on the trail (`Checker.checkBytes`). `Checker.byteString`, reached
+where a literal meets its expected type (`checkContextual`), the other
+side of an operator (`byteBeside`), a conversion `U8('A')`, and a string
+pattern against a `U8` (`checkBytePattern`), checks the count of bytes
+and keeps the literal (`Checker.bytes`). When the statement holds one,
+what checking it recorded is rolled back, `Parser.byteLiterals` writes
+each literal as the integer leaf of its byte, spanning the string, or as
+the array literal of its bytes, each a leaf inside the string so no two
+share a position, and the statement is checked again in that form. The
+whole statement is checked again, not the literal alone, because the
+checks of a range pattern, a module constant's value, and other forms
+hold the literal they read until they finish. A byte leaf reads as its
+decimal value (`rig.leafText`), so every pass after, and the check
+again, sees an integer literal where the program wrote a byte: a
+pattern's coverage, a constant's value, and emit need nothing of their
+own. A literal of the wrong size is not kept, and the check again
+reports it again. Each check rewrites what it found, so the checks
+end.
+
+### Chains
+
+A chain, `xs.filter(f).count()` or a `for` over `xs.map(f)`
+(docs/design/iterators.md), is the loop it means, and only typecheck
+knows a call is one: its self's type declares no method of the name
+(`Checker.chainCall`). The statement that holds it is checked under a
+mark, as for [Strings as bytes](#strings-as-bytes): the Parser wrapper
+flags each statement and declaration that holds a call of a method
+named as a stage or a consumer (`Parser.rewrite_stmts`), and
+`Checker.checkRewritten` rolls the statement back when it holds a chain,
+writes each chain where it stands as its loop
+(`Parser.elaborateChains`), an inner chain first, and checks the
+statement again. Every name the loop binds is hidden, and
+`resolve.resolveChains` gives the loop's own nodes their names and
+scopes from the scope the chain stood in (`rig.Chain.scope`); what the
+chain held, its source, its stages' functions, and a `for`'s body,
+keeps the names the module's walk gave it, and each scope of it stands
+in the loop's. A `for` over a chain keeps its loop names' symbols, in
+the `for`'s scope, which stands around its body's block.
 
 ### Groups and spreads
 
 A group, `..net: Net` among a function's parameters, and a spread, `..v`
-among a call's arguments (docs/design/options.md), are rewritten as
-`for` loops over an iterator are, since what they stand for, an object's
-fields, is known only from types. The first check sees a group as one
-parameter `net` of type `Net` (`SymbolFlags.group`): `Checker.checkGroups`
-checks it (an object of plain data, no name twice among the parameters
-and the groups' fields, 64 parameters at most) and records it
-(`SemContext.groups`); every use of `net` in the body is recorded too
-(`SemContext.group_uses`), a field read `net.timeout` by its node, any
-other as a use of the group whole. A call with a spread, or of a function
-whose group is as written, is checked no further than its spreads
-(`optionsCall`): each must be a name or a field path of exactly a group's
-type, one to a group, and a call's spreads are recorded
-(`SemContext.spreads`) together or not at all, with the fields each
-gives, those no keyword of the call names. A constructor's spread is an
-object update (`objectUpdate`), recorded the same way.
+among a call's arguments (docs/design/options.md), are rewritten where
+types tell what they stand for, an object's fields.
 
-`Parser.desugarOptions` then writes each recorded group as one parameter
-per field, `(: timeout (field_of Net timeout net Int))`, whose type
-`resolve` reads from `field_of` (the field's type as its declaration
-writes it, for a type of the same module, else the field's type in its
-module), marks the parameter's symbol `group_field`, and records each
-parameter's `GroupParam` in `SemContext.group_params`, by where the
-function's name is declared, which a call reads from the declaring
-module (`SymbolFlags.has_groups` says there is one); each field read becomes a leaf that names its parameter
-(`Parser.group_targets`, which `useName` reads before any scope, so a
-local of the same name never captures it); a body that uses the group
-whole binds it first, `net =! Net(timeout: timeout, ...)`, under the
-group's own name leaf. Each spread becomes, where it stands, the keyword
-arguments `timeout: v.timeout` of the fields it gives, each node spanning
-the spread. Every name these rewrites write is a named leaf
+A group is rewritten with the declarations, before any body is checked
+(`typecheck.flattenGroups`, run by `sema.check` once types' contents are
+known). `Checker.checkGroups` checks it (an object of plain data, no
+name twice among the parameters and the groups' fields, 64 parameters
+at most), and `Parser.flattenGroups` writes one that holds as one
+parameter per field, `(: timeout (field_of Net timeout net Int))`, whose
+type `resolve` reads from `field_of` (the field's type as its
+declaration writes it, for a type of the same module, else the field's
+type in its module). `resolve.resolveFlattened` declares each field's
+parameter, marks its symbol `group_field`, and resolves the function's
+signature again, which records each parameter's `GroupParam` in
+`SemContext.group_params`, by where the function's name is declared,
+which a call reads from the declaring module (`SymbolFlags.has_groups`
+says there is one). Every call, in any module, is checked against the
+parameters. The group's own symbol, `net` of type `Net`
+(`SymbolFlags.group`), stays for its body, and each flattened group is
+kept in `SemContext.flat_groups`.
+
+A group's uses and a call's spreads are rewritten with the module's
+declaration that holds them (`Checker.checkRewritten`). The check of
+the body finds every use of `net` (`Checker.group_uses`), a field read
+`net.timeout` by its node, any other as a use of the group whole. A call
+with a spread is checked no further than its spreads (`optionsCall`):
+each must be a name or a field path of exactly a group's type, one to a
+group, and a call's spreads are found (`Checker.spreads`) together or
+not at all, with the fields each gives, those no keyword of the call
+names. A constructor's spread is an object update (`objectUpdate`),
+found the same way. The declaration is then rolled back and rewritten
+(`Parser.elaborateOptions`): a body that uses the group whole binds it
+first, `net =! Net(timeout: timeout, ...)`, under the group's own name
+leaf, whose symbol becomes that local (`resolve.bindGroup`); each field
+read becomes a leaf that names its parameter (`Parser.group_targets`,
+which `useName` reads before any scope, so a local of the same name
+never captures it); each spread becomes, where it stands, the keyword
+arguments `timeout: v.timeout` of the fields it gives, each node
+spanning the spread. Every name these rewrites write is a named leaf
 (`Parser.namedLeaf`): an id from a process-wide table of texts, so a
 field declared in any module is written, at a hidden position homed in
 the source, and a name copied from the source is looked up at its home
-(`SemContext.fileModule`, `useName`). The module is checked again, and
-every pass after typecheck sees parameters and keyword arguments: the
-declaration side of ownership, storage, and emit indexes the parameters
-emitted, and a call's argument slots are a keyword call's. A field's
-default is a parameter's (`resolve.fillGroupDefaults`), filled at the
-call from its type's module (`emitDefault`). A group or a spread the
-first check refused is not rewritten, and the second check reports it
-again.
+(`SemContext.fileModule`, `useName`). The declaration is checked again,
+and every pass after typecheck sees parameters and keyword arguments:
+the declaration side of ownership, storage, and emit indexes the
+parameters emitted, and a call's argument slots are a keyword call's. A
+field's default is a parameter's (`resolve.fillGroupDefaults`), filled
+at the call from its type's module (`emitDefault`). A group the checks
+refuse is not rewritten, nor are the uses of one its body writes, and
+the check again reports them again.
 
 ### Assignments
 
