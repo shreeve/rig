@@ -1,20 +1,22 @@
 //! Lower: each body of a module to its LIR (`src/lir.zig`), from the
 //! typed tree and the recorded facts.
 //!
-//! A body is a function, a `sub`, a test, a `drop` body, or a closure:
-//! a frame owner (`sema.FrameOwner`). Lowering walks it once, in the
-//! order it runs, and makes a var for each binding and for each piece of
-//! hidden storage, asking the questions the storage plan asks
-//! (`src/storage.zig`). A node's vars are numbered after its operands'
-//! (the plan's order), and its steps are placed in the order they run.
+//! A body is a function, a `sub`, a test, a `drop` body, a closure, or
+//! a compile-time function's: a frame owner (`sema.FrameOwner`), or a
+//! body the ownership checker walks though it never runs. Lowering walks
+//! it once, in the order it runs, and makes a var for each binding and
+//! for each piece of hidden storage, asking the storage deciders
+//! (`src/storage.zig`). A node's vars are numbered after its operands',
+//! and its steps are placed in the order they run.
 //!
-//! In a self-checking build every module is lowered as it is checked,
-//! and `shadow` asserts, per body, that the hidden vars and their order
-//! are the var table's (`storage.Vars`), each held the same way, that
-//! each statement's temporaries are `sema.stmtTemps`', and that each
-//! binding drops as its row says. Emit lowers each module it writes and
-//! reads the storage it writes from the vars, regions, and statement
-//! temporaries indexed in `Module`.
+//! Every module sema accepts is lowered as it is checked, before the
+//! ownership checker runs (`lowerChecked`), and kept in
+//! `SemContext.lowered` until its checks finish: the ownership checker
+//! reads from it the storage a call holds. Emit lowers each module again
+//! as it writes it, reads the storage it writes from the vars, regions,
+//! and statement temporaries indexed in `Module`, and asks its questions
+//! of every node as it starts (`answerAll`). A self-checking build asks
+//! that each statement's temporaries are those `sema.stmtTemps` lists.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -37,33 +39,36 @@ const VarId = lir.VarId;
 const ExprId = lir.ExprId;
 const RegionId = lir.RegionId;
 
-/// Whether every module is lowered and checked against its var table as
-/// it is checked (`-Dself-check`).
+/// Whether each statement's temporaries are checked against
+/// `sema.stmtTemps` (`-Dself-check`).
 pub const enabled = @import("build_options").self_check;
 
 /// A module's bodies, lowered.
 pub const Module = struct {
     arena: std.heap.ArenaAllocator,
     /// Each frame owner of the module (`SemContext.frame_owners`), by its
-    /// index there.
+    /// index there, then each compile-time function.
     owners: []Owner = &.{},
     /// The index of each owner, by its root's key.
-    roots: std.AutoHashMapUnmanaged(u64, u32) = .empty,
+    roots: sema.FastMap(u64, u32) = .empty,
     /// The var of each node and kind, and of each binding, in every body
     /// lowered: the storage emit prints.
-    vars: std.AutoHashMapUnmanaged(storage.Vars.Key, *const lir.Var) = .empty,
-    bindings: std.AutoHashMapUnmanaged(SymbolId, *const lir.Var) = .empty,
+    vars: sema.FastMap(VarKey, *const lir.Var) = .empty,
+    bindings: sema.FastMap(SymbolId, *const lir.Var) = .empty,
     /// The calls and array literals that hold their parts (a `call`
     /// region).
-    holders: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    holders: sema.FastMap(u64, void) = .empty,
     /// The owning temporaries of each statement and header that makes
     /// any, by its key, in the order they are made.
-    temps: std.AutoHashMapUnmanaged(u64, []const Sexp) = .empty,
+    temps: sema.FastMap(u64, []const Sexp) = .empty,
     /// The coercions of each node that has any, by its key.
-    coerced: std.AutoHashMapUnmanaged(u64, Coerced) = .empty,
+    coerced: sema.FastMap(u64, Coerced) = .empty,
     /// The answer to each question emit asks about a node of the module
-    /// (`Ask`), by the node's key and the question, encoded.
-    answers: std.AutoHashMapUnmanaged(AnswerKey, u8) = .empty,
+    /// (`Ask`), by the node's key and the question, encoded: asked as
+    /// emit starts on the module (`answerAll`).
+    answers: sema.FastMap(AnswerKey, u8) = .empty,
+
+    pub const VarKey = struct { node: u64, kind: StorageKind };
 
     /// Where a node's value is made the type its context takes, each
     /// list outermost first. A node held in a var first (a part a call
@@ -80,6 +85,9 @@ pub const Module = struct {
         root: Sexp,
         /// The body around it, for a closure.
         parent: ?u32,
+        /// A compile-time function's, which no program runs: emit
+        /// writes none.
+        ct: bool = false,
         func: ?*lir.Func = null,
         /// Why it was not lowered: the first construct lowering does not
         /// cover, and its family.
@@ -134,24 +142,6 @@ pub const Module = struct {
     }
 };
 
-/// What `shadow` checked of a module.
-pub const Coverage = struct {
-    bodies: u32 = 0,
-    lowered: u32 = 0,
-    vars: u32 = 0,
-    checked: u32 = 0,
-    /// Vars of nodes in no body: a compile-time function's, or a module
-    /// constant's.
-    outside: u32 = 0,
-};
-
-/// A problem `check` found, and the body it is in.
-pub const Problem = struct {
-    node: Sexp,
-    what: []const u8,
-    func: ?*const lir.Func = null,
-};
-
 /// How a module is lowered.
 pub const Options = struct {
     /// Every object's optional is held as a tagged struct, so each lift
@@ -159,20 +149,140 @@ pub const Options = struct {
     strict_optionals: bool = false,
 };
 
-/// Lower every body of module `tree` (a module sema checked without
-/// errors).
+/// Lower module `tree`, which sema checked, into `ctx.lowered`: first
+/// the facts lowering and the ownership checker read that no checker
+/// records (`markUsed`, `markMoved`). A module with an error other than
+/// a lint is not lowered: nothing after sema reads it. The module graph
+/// frees it once the module's checks finish.
+pub fn lowerChecked(ctx: *SemContext, tree: Sexp) !void {
+    try markUsed(ctx);
+    ctx.moved.deinit(ctx.allocator);
+    ctx.moved = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
+    try markMoved(ctx, tree);
+    for (ctx.diagnostics.items) |d| if (d.severity == .@"error" and !d.lint) return;
+    ctx.lowered = try lowerModule(ctx.allocator, ctx, tree, .{});
+}
+
+/// Record the symbols a name reads after its declaration (a later
+/// alternative's binds it again, `rebinds`), or a closure captures
+/// (`SemContext.used`).
+fn markUsed(ctx: *SemContext) !void {
+    ctx.used.deinit(ctx.allocator);
+    ctx.used = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
+    var names = ctx.facts.names.iterator();
+    while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.* and !ctx.facts.rebinds.contains(e.key_ptr.*)) ctx.used.set(e.value_ptr.*);
+    for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < ctx.used.bit_length) ctx.used.set(s.origin);
+}
+
+/// Record the bindings a use may move out (`SemContext.moved`): the
+/// name `<x` takes, as a move or a drop, a `for x in <v` source, a
+/// `|<x|` capture, and a bare name at a tail of a value that leaves its
+/// scope (`sema.eachTailPart`): `return x`, `break x`, a function's or a
+/// closure's last value, and a value `if`, `match`, `??`, `catch`, loop,
+/// or block. With them, the fields `<p.a.b` may move out of a binding
+/// (`fieldMove`). Whether such a use moves is the ownership checker's
+/// decision; it moves no binding this fact leaves out.
+fn markMoved(ctx: *SemContext, e: Sexp) !void {
+    if (e != .list) return;
+    const head = e.kind() orelse {
+        for (e.items()) |c| try markMoved(ctx, c);
+        return;
+    };
+    switch (head) {
+        .move => {
+            moveName(ctx, ir.Move.operand(e));
+            try fieldMove(ctx, ir.Move.operand(e));
+        },
+        .drop => {
+            moveName(ctx, ir.Drop.target(e));
+            try fieldMove(ctx, ir.Drop.target(e));
+        },
+        // `return a, b` takes each part as `return x` takes `x`.
+        .@"return" => if (ir.Return.value(e).isKind(.results)) {
+            for (ir.Results.values(ir.Return.value(e))) |part| try moveTail(ctx, part);
+        } else try moveTail(ctx, ir.Return.value(e)),
+        .@"break" => try moveTail(ctx, ir.Break.value(e)),
+        .@"for" => {
+            if (ir.For.mode(e).tag == .move) {
+                moveName(ctx, ir.For.source(e));
+                try fieldMove(ctx, ir.For.source(e));
+            }
+            try moveTail(ctx, e);
+        },
+        .@"if" => if (ir.If.@"else"(e) != .nil) try moveTail(ctx, e),
+        .@"??", .@"catch", .match, .@"while", .raw_block => try moveTail(ctx, e),
+        .cap_move => if (ctx.symbolOf(ir.get(e, .name))) |cap| ctx.moved.set(ctx.symbols.items[cap].origin),
+        .fun => if (ir.Fun.returns(e) != .nil) try moveTail(ctx, ir.Fun.body(e)),
+        .lambda => if (storage.lambdaYields(ctx, e)) try moveTail(ctx, ir.Lambda.body(e)),
+        else => {},
+    }
+    for (rig.children(e)) |c| try markMoved(ctx, c);
+}
+
+fn moveName(ctx: *SemContext, node: Sexp) void {
+    if (node != .src) return;
+    ctx.moved.set(ctx.symbolOf(node) orelse return);
+}
+
+fn moveTail(ctx: *SemContext, value: Sexp) std.mem.Allocator.Error!void {
+    if (value == .src) return moveName(ctx, value);
+    try sema.eachTailPart(value, ctx, moveTail);
+}
+
+/// Record the field `<p.a.b` may move out of binding `p`
+/// (`SemContext.field_moves`): a path of fields from a binding, which
+/// `<` does not take (`sema.moveSource`: `<p.o` of an optional field a
+/// take can empty leaves `none`).
+fn fieldMove(ctx: *SemContext, node: Sexp) !void {
+    if (!node.isKind(.member)) return;
+    if (sema.moveSource(ctx, node) == .optional_part) return;
+    var fields: std.ArrayList([]const u8) = .empty;
+    defer fields.deinit(ctx.allocator);
+    var e = node;
+    while (e.isKind(.member)) : (e = ir.Member.object(e)) {
+        const name = ir.Member.name(e);
+        if (name != .src) return;
+        try fields.append(ctx.allocator, rig.leafText(ctx.source, name.src));
+    }
+    if (e != .src) return;
+    const sym = ctx.symbolOf(e) orelse return;
+    switch (ctx.symbols.items[sym].kind) {
+        .local, .param, .capture => {},
+        else => return,
+    }
+    if (ctx.symbols.items[sym].scope == sema.module_scope) return;
+    std.mem.reverse([]const u8, fields.items);
+    const path = try std.mem.join(ctx.allocator, ".", fields.items);
+    const gop = try ctx.field_moves.getOrPut(ctx.allocator, sym);
+    if (!gop.found_existing) gop.value_ptr.* = .empty;
+    for (gop.value_ptr.items) |have| if (std.mem.eql(u8, have, path)) {
+        ctx.allocator.free(path);
+        return;
+    };
+    try gop.value_ptr.append(ctx.allocator, path);
+}
+
+/// Lower every body of module `tree`.
 pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: Options) !Module {
     var m: Module = .{ .arena = .init(gpa) };
     errdefer m.deinit();
     const a = m.arena.allocator();
-    m.owners = try a.alloc(Module.Owner, ctx.frame_owners.items.len);
-    for (ctx.frame_owners.items, m.owners, 0..) |fo, *o, i| {
-        o.* = .{ .root = fo.root, .parent = fo.parent };
-        try m.roots.put(a, sema.decisionKeyOf(fo.root).?, @intCast(i));
-    }
-    var l: Lowerer = .{ .a = a, .ctx = ctx, .module = &m, .opts = opts };
-    l.flags = try .initEmpty(a, ctx.symbols.items.len);
-    try answerAll(&m, ctx, tree);
+    // Each frame owner, then each compile-time function, whose body the
+    // ownership checker walks though it never runs.
+    const decls: []const Sexp = if (tree.isKind(.module)) ir.Module.decls(tree) else &.{};
+    var cts: usize = 0;
+    for (decls) |d| cts += @intFromBool(rig.isCtFun(d));
+    m.owners = try a.alloc(Module.Owner, ctx.frame_owners.items.len + cts);
+    for (ctx.frame_owners.items, m.owners[0..ctx.frame_owners.items.len]) |fo, *o| o.* = .{ .root = fo.root, .parent = fo.parent };
+    var next = ctx.frame_owners.items.len;
+    for (decls) |d| if (rig.isCtFun(d)) {
+        m.owners[next] = .{ .root = rig.unpub(d), .parent = null, .ct = true };
+        next += 1;
+    };
+    for (m.owners, 0..) |o, i| try m.roots.put(a, sema.decisionKeyOf(o.root).?, @intCast(i));
+    var l: Lowerer = .{ .a = a, .gpa = gpa, .ctx = ctx, .module = &m, .opts = opts };
+    defer l.deinit();
+    try l.coercibleNodes();
     for (m.owners, 0..) |o, i| {
         if (o.root.isKind(.lambda)) continue;
         l.lowerBody(@intCast(i)) catch |err| switch (err) {
@@ -188,7 +298,7 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
     for (m.owners) |o| if (o.func) |f| {
         for (f.vars.items) |*v| switch (v.name) {
             .binding => |s| {
-                v.flag = l.flags.isSet(s);
+                v.flag = ctx.mayMove(s);
                 try m.bindings.put(a, s, v);
             },
             .hidden => |k| if (sema.decisionKeyOf(v.node)) |key| try m.vars.put(a, .{ .node = key, .kind = k }, v),
@@ -198,137 +308,19 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
     return m;
 }
 
-/// Lower module `tree` and check its LIR against the var table the plan
-/// made (`storage.plan`): an internal error where they differ.
-pub fn shadow(ctx: *SemContext, tree: Sexp) !void {
-    if (ctx.hasErrors()) return;
-    var cov: Coverage = .{};
-    var m = try lowerModule(ctx.allocator, ctx, tree, .{});
-    defer m.deinit();
-    if (try check(ctx, &m, tree, &cov)) |p| {
-        const at = diag.lineCol(ctx.source, ctx.startOf(p.node));
-        // The body the problem is in, as text, before the report.
-        if (p.func) |f| {
-            var buffer: [4096]u8 = undefined;
-            const w = std.debug.lockStderr(&buffer);
-            defer std.debug.unlockStderr();
-            lir.write(f, ctx, &w.file_writer.interface) catch {};
-            w.file_writer.interface.flush() catch {};
-        }
-        std.debug.panic("{s}:{d}:{d}: internal error: lir: {s}", .{ ctx.name, at.line, at.col, p.what });
-    }
-}
-
-/// Write module `tree`'s LIR (`rig check --facts=lir`): each lowered
-/// body, then each body not lowered and the construct that stopped it,
-/// then what the check against the var table covered.
+/// Write module `tree`'s LIR (`rig check --facts=lir`), lowered again:
+/// each lowered body, then each body not lowered and the construct that
+/// stopped it.
 pub fn writeModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, w: *std.Io.Writer) !void {
-    var m = try lowerModule(gpa, ctx, tree, .{});
-    defer m.deinit();
+    var lowered = try lowerModule(gpa, ctx, tree, .{});
+    defer lowered.deinit();
+    const m = &lowered;
     for (m.owners) |o| if (o.func) |f| try lir.write(f, ctx, w);
     for (m.owners) |o| if (o.skip) |s| {
         const at = diag.lineCol(ctx.source, ctx.startOf(o.root));
         const why = diag.lineCol(ctx.source, ctx.startOf(s.node));
         try w.print("not lowered: {s} {d}:{d}: {s} at {d}:{d}\n", .{ @tagName(o.root.kind().?), at.line, at.col, s.family, why.line, why.col });
     };
-    var cov: Coverage = .{};
-    if (try check(ctx, &m, tree, &cov)) |p| {
-        const at = diag.lineCol(ctx.source, ctx.startOf(p.node));
-        if (p.func) |f| try lir.write(f, ctx, w);
-        try w.print("lir: {d}:{d}: {s}\n", .{ at.line, at.col, p.what });
-    }
-    try w.print("lowered {d} of {d} bodies; {d} of {d} vars checked, {d} outside every body\n", .{ cov.lowered, cov.bodies, cov.checked, cov.vars, cov.outside });
-}
-
-// =============================================================================
-// The check against the var table
-// =============================================================================
-
-/// Check each lowered body of `m`: its LIR is well formed (`lir.verify`),
-/// its hidden vars are the var table's rows for nodes in it, in their
-/// order, each held as its row says, and each binding drops as its row
-/// says. Counts what it checked in `cov`; returns the first problem.
-pub fn check(ctx: *const SemContext, m: *Module, root: Sexp, cov: *Coverage) !?Problem {
-    const gpa = ctx.allocator;
-    const a = m.arena.allocator();
-    const rows = ctx.vars.rows.items;
-    // The node and kind of each row, and the body it is in.
-    const row_node = try a.alloc(Sexp, rows.len);
-    const row_kind = try a.alloc(StorageKind, rows.len);
-    const row_owner = try a.alloc(?u32, rows.len);
-    @memset(row_owner, null);
-    var by_key: std.AutoHashMapUnmanaged(u64, std.ArrayList(u32)) = .empty;
-    var it = ctx.vars.index.iterator();
-    while (it.next()) |e| {
-        row_kind[e.value_ptr.*] = e.key_ptr.kind;
-        const gop = try by_key.getOrPut(a, e.key_ptr.node);
-        if (!gop.found_existing) gop.value_ptr.* = .empty;
-        try gop.value_ptr.append(a, e.value_ptr.*);
-    }
-    try ownRows(&by_key, row_node, row_owner, &m.roots, root, null);
-    // Each body's rows, in the table's order.
-    const of_owner = try a.alloc(std.ArrayList(u32), m.owners.len);
-    @memset(of_owner, .empty);
-    for (row_owner, 0..) |o, r| if (o) |oi| try of_owner[oi].append(a, @intCast(r)) else {
-        cov.outside += 1;
-    };
-
-    cov.bodies += @intCast(m.owners.len);
-    cov.vars += @intCast(rows.len);
-    for (m.owners, of_owner) |o, mine| {
-        const f = o.func orelse continue;
-        cov.lowered += 1;
-        if (try lir.verify(gpa, f)) |p| return .{ .node = p.node, .what = p.what, .func = f };
-        if (try checkVars(ctx, a, f, mine.items, row_node, row_kind, cov)) |p| return .{ .node = p.node, .what = p.what, .func = f };
-    }
-    return null;
-}
-
-/// Body `f`'s vars against its rows, `mine`, in the table's order.
-fn checkVars(ctx: *const SemContext, a: std.mem.Allocator, f: *const lir.Func, mine: []const u32, row_node: []const Sexp, row_kind: []const StorageKind, cov: *Coverage) !?lir.Problem {
-    const rows = ctx.vars.rows.items;
-    var next: usize = 0;
-    for (f.vars.items) |v| switch (v.name) {
-        .binding => |s| {
-            const b = ctx.vars.binding(s);
-            if (b.drop != v.drop) return .{ .node = v.node, .what = "a binding drops other than its row says" };
-            if (b.flag != v.flag) return .{ .node = v.node, .what = "a binding's flag differs from its row" };
-        },
-        .hidden => |k| {
-            if (k == .temp or k == .header_copy) continue;
-            if (next == mine.len) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var the plan did not", .{@tagName(k)}) };
-            const row = mine[next];
-            const r = rows[row];
-            const same_node = sema.decisionKeyOf(row_node[row]) == sema.decisionKeyOf(v.node);
-            if (!same_node or row_kind[row] != k) return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "lowering made a `{s}` var where the plan's next is a `{s}` at {d}:{d}", .{ @tagName(k), @tagName(row_kind[row]), diag.lineCol(ctx.source, ctx.startOf(row_node[row])).line, diag.lineCol(ctx.source, ctx.startOf(row_node[row])).col }) };
-            if (r.by != v.by or r.life != v.life or r.drop != v.drop or !std.mem.eql(?sema.ResourceKind, r.parts, v.parts))
-                return .{ .node = v.node, .what = try std.fmt.allocPrint(a, "a `{s}` var held other than its row: {s} {s} {s}, the row {s} {s} {s}", .{ @tagName(k), @tagName(v.by), @tagName(v.life), if (v.drop) |d| @tagName(d) else "none", @tagName(r.by), @tagName(r.life), if (r.drop) |d| @tagName(d) else "none" }) };
-            next += 1;
-            cov.checked += 1;
-        },
-    };
-    if (next < mine.len) return .{ .node = row_node[mine[next]], .what = try std.fmt.allocPrint(a, "the plan made a `{s}` var lowering did not", .{@tagName(row_kind[mine[next]])}) };
-    return null;
-}
-
-/// Record the node of each row keyed in `e`, and the body it is in: a
-/// closure's parameters and body are its own, and its captures the body
-/// around it.
-fn ownRows(by_key: *const std.AutoHashMapUnmanaged(u64, std.ArrayList(u32)), row_node: []Sexp, row_owner: []?u32, roots: *const std.AutoHashMapUnmanaged(u64, u32), e: Sexp, cur: ?u32) !void {
-    if (e != .list and e != .src) return;
-    if (sema.decisionKeyOf(e)) |k| if (by_key.get(k)) |rs| for (rs.items) |r| {
-        row_node[r] = e;
-        row_owner[r] = cur;
-    };
-    if (e != .list) return;
-    // A compile-time function's body is in no frame: it never runs when
-    // the program does (`typecheck.recordFrameOwners`).
-    const inner: ?u32 = if (e.isKind(.fun) or e.isKind(.sub)) (if (rig.isCtFun(e)) null else roots.get(sema.decisionKeyOf(e).?) orelse cur) else roots.get(sema.decisionKeyOf(e) orelse 0) orelse cur;
-    for (e.items(), 0..) |c, i| {
-        // A closure's captures are made by the body around it.
-        const in = if (e.isKind(.lambda) and i == 1) cur else inner;
-        try ownRows(by_key, row_node, row_owner, roots, c, in);
-    }
 }
 
 // =============================================================================
@@ -339,6 +331,11 @@ const Error = error{ OutOfMemory, Uncovered };
 
 const Lowerer = struct {
     a: std.mem.Allocator,
+    /// Holds the lowerer's own maps, and the list each body's
+    /// expressions grow in, which an arena would move each time it
+    /// cannot grow it in place (`scratch`, `seal`).
+    gpa: std.mem.Allocator,
+    scratch: std.ArrayList(lir.Expr) = .empty,
     /// Mutable only for the frame count a task's record asks
     /// (`storage.taskRecordIn`).
     ctx: *SemContext,
@@ -358,23 +355,36 @@ const Lowerer = struct {
     /// The expression each node lowered to, the hidden var of each node
     /// and kind, the var of each binding, and the region holding the
     /// parts each call evaluates first.
-    exprs: std.AutoHashMapUnmanaged(u64, ExprId) = .empty,
-    hidden: std.AutoHashMapUnmanaged(storage.Vars.Key, VarId) = .empty,
-    bindings: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
-    call_blocks: std.AutoHashMapUnmanaged(u64, RegionId) = .empty,
-    arms: std.AutoHashMapUnmanaged(u64, RegionId) = .empty,
+    exprs: sema.FastMap(u64, ExprId) = .empty,
+    hidden: sema.FastMap(Module.VarKey, VarId) = .empty,
+    bindings: sema.FastMap(SymbolId, VarId) = .empty,
+    call_blocks: sema.FastMap(u64, RegionId) = .empty,
+    arms: sema.FastMap(u64, RegionId) = .empty,
     /// The headers that make temporaries, each lowered in a region of its
     /// own that ends them (`sema.firstStmtTemp`), and that region.
-    headers: std.AutoHashMapUnmanaged(u64, ?RegionId) = .empty,
+    headers: sema.FastMap(u64, ?RegionId) = .empty,
     /// The region that declares the bindings an `as` names: the body
     /// its condition guards.
     guarded: RegionId = 0,
     /// The region that declares the bindings of the `match` an `as_match`
     /// condition part is.
     as_match_scope: ?RegionId = null,
-    /// The bindings a use may move out (`storage.Binding.flag`).
-    flags: std.DynamicBitSetUnmanaged = .{},
     skip: ?Module.Skip = null,
+    /// The nodes any coercion fact names (`coercibleNodes`): `coerce`
+    /// asks its eight questions of these alone.
+    coercible: sema.FastMap(u64, void) = .empty,
+
+    fn deinit(l: *Lowerer) void {
+        l.scratch.deinit(l.gpa);
+        l.coercible.deinit(l.gpa);
+        l.temps.deinit(l.gpa);
+        l.exprs.deinit(l.gpa);
+        l.hidden.deinit(l.gpa);
+        l.bindings.deinit(l.gpa);
+        l.call_blocks.deinit(l.gpa);
+        l.arms.deinit(l.gpa);
+        l.headers.deinit(l.gpa);
+    }
 
     fn uncovered(l: *Lowerer, node: Sexp, family: []const u8) Error {
         l.skip = .{ .node = node, .family = family };
@@ -382,7 +392,7 @@ const Lowerer = struct {
     }
 
     fn addExpr(l: *Lowerer, e: lir.Expr) Error!ExprId {
-        return l.f.addExpr(l.a, e);
+        return l.f.addExpr(l.gpa, e);
     }
 
     fn region(l: *Lowerer, r: RegionId) *lir.Region {
@@ -405,7 +415,7 @@ const Lowerer = struct {
     /// null when one is already made: one node has one var of a kind.
     fn hiddenVar(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId) Error!?VarId {
         const key = sema.decisionKeyOf(node) orelse return null;
-        const gop = try l.hidden.getOrPut(l.a, .{ .node = key, .kind = kind });
+        const gop = try l.hidden.getOrPut(l.gpa, .{ .node = key, .kind = kind });
         if (gop.found_existing) return null;
         const v = try l.f.addVar(l.a, .{ .node = node, .name = .{ .hidden = kind }, .by = by, .life = life, .drop = drop });
         gop.value_ptr.* = v;
@@ -416,7 +426,7 @@ const Lowerer = struct {
     /// A hidden var for `node` that holds its value where it stands.
     fn holdVar(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId) Error!void {
         const v = (try l.hiddenVar(node, kind, by, life, drop, in)) orelse return;
-        if (l.exprOf(node)) |e| try l.f.holdIn(l.a, e, v);
+        if (l.exprOf(node)) |e| try l.f.holdIn(l.gpa, e, v);
     }
 
     /// A hidden var for `node` that its region `in` evaluates first, in
@@ -439,7 +449,7 @@ const Lowerer = struct {
         // The coercions made where the var is read stay there; the rest
         // are made as it is written.
         var kept: usize = 0;
-        while (l.f.exprs.items[e] == .coerce and readCoercion(held, l.f.exprs.items[e].coerce.how)) : (kept += 1) e = l.f.exprs.items[e].coerce.value;
+        while (l.f.exprs.items[e] == .coerce and readCoercion(held, l.f.exprs.items[e].coerce.how.*)) : (kept += 1) e = l.f.exprs.items[e].coerce.value;
         const moved = try l.addExpr(l.f.exprs.items[e]);
         l.f.exprs.items[e] = .{ .@"var" = v };
         try l.step(in, .{ .bind = .{ .v = v, .value = moved } });
@@ -458,13 +468,8 @@ const Lowerer = struct {
     /// The var of binding `name`, declared in the current block.
     fn bindingVar(l: *Lowerer, name: Sexp, in: RegionId) Error!?VarId {
         const sym = l.ctx.symbolOf(name) orelse return null;
-        const s = l.ctx.symbols.items[sym];
-        const drop: ?sema.ResourceKind = switch (s.kind) {
-            .param, .local, .capture => if (storage.known(l.ctx, s.ty)) |t| sema.resourceKind(l.ctx, t) else null,
-            else => null,
-        };
-        const v = try l.f.addVar(l.a, .{ .node = name, .name = .{ .binding = sym }, .drop = drop });
-        try l.bindings.put(l.a, sym, v);
+        const v = try l.f.addVar(l.a, .{ .node = name, .name = .{ .binding = sym }, .drop = storage.bindingDrop(l.ctx, sym) });
+        try l.bindings.put(l.gpa, sym, v);
         try l.declare(in, v);
         return v;
     }
@@ -476,8 +481,10 @@ const Lowerer = struct {
     fn lowerBody(l: *Lowerer, oi: u32) Error!void {
         const decl = l.module.owners[oi].root;
         const f = try l.a.create(lir.Func);
-        f.* = .{ .root = decl };
+        f.* = .{ .root = decl, .exprs = l.scratch };
+        l.scratch = .empty;
         l.f = f;
+        errdefer f.exprs.deinit(l.gpa);
         l.exprs.clearRetainingCapacity();
         l.hidden.clearRetainingCapacity();
         l.bindings.clearRetainingCapacity();
@@ -492,11 +499,8 @@ const Lowerer = struct {
         if (decl.isKind(.fun) or decl.isKind(.sub)) {
             if (storage.fnType(l.ctx, storage.typeOf(l.ctx, ir.get(decl, .name)))) |ft| l.results = sema.resultsOf(l.ctx, ft.returns);
         }
-        try l.consumed(decl);
         const params: Sexp = if (decl.isKind(.@"test")) .nil else ir.get(decl, .params);
         if (params == .list) for (params.items()) |par| {
-            // A `<@` or `<x` parameter is a move the plan counts.
-            try l.consumed(par);
             const name = sema.paramNameNode(par) orelse continue;
             _ = try l.bindingVar(name, f.body);
             if (par.isKind(.default)) {
@@ -511,7 +515,26 @@ const Lowerer = struct {
         const value = try l.stmts(body, f.body, decl.isKind(.fun) and ir.Fun.returns(decl) != .nil);
         f.region(f.body).value = value;
         try l.heldHeaders(decl, body);
+        try l.seal(f);
         l.module.owners[oi].func = f;
+    }
+
+    /// Copy body `f`'s expressions to the arena at their final size, and
+    /// keep the larger of their list and `scratch` for the next body.
+    fn seal(l: *Lowerer, f: *lir.Func) Error!void {
+        var list = f.exprs;
+        const n = list.items.len;
+        f.exprs = .empty;
+        if (n > 0) {
+            // Copied over at once, so the arena need not fill it first.
+            const bytes = l.a.rawAlloc(n * @sizeOf(lir.Expr), .of(lir.Expr), @returnAddress()) orelse return error.OutOfMemory;
+            const out = @as([*]lir.Expr, @ptrCast(@alignCast(bytes)))[0..n];
+            @memcpy(out, list.items);
+            f.exprs = .fromOwnedSlice(out);
+        }
+        list.clearRetainingCapacity();
+        if (list.capacity > l.scratch.capacity) std.mem.swap(std.ArrayList(lir.Expr), &list, &l.scratch);
+        list.deinit(l.gpa);
     }
 
     /// The statements of `body` into region `into`; the value of the
@@ -529,7 +552,16 @@ const Lowerer = struct {
     }
 
     /// The parameters whose header the body holds in a local
-    /// (`held_header`, `storage.planHeldHeaders`).
+    /// (`held_header`): a write view of a `String`, or of a `List` with
+    /// no inline room (`storage.holdsHeaderType`), which the body uses in
+    /// a loop. Emit copies the header in at the top of the body, binds
+    /// the parameter's name to the copy, and writes it back by `defer`,
+    /// so the loop keeps the length and capacity in registers. The call's
+    /// write view is the caller's place's only one while the body runs
+    /// (Core §2, sentence 5), so the copy cannot be told apart from the
+    /// place. None is held where the body could hand the copy's address
+    /// beyond the call: a task or closure that names the parameter, a
+    /// `raw` block, or a result that holds a view.
     fn heldHeaders(l: *Lowerer, decl: Sexp, body: Sexp) Error!void {
         const ctx = l.ctx;
         if (!decl.isKind(.fun) and !decl.isKind(.sub)) return;
@@ -537,7 +569,7 @@ const Lowerer = struct {
         if (params != .list) return;
         const f = storage.fnType(ctx, storage.typeOf(ctx, ir.get(decl, .name))) orelse return;
         if (sema.mayHoldMarkedView(ctx, f.returns)) return;
-        if (storage.containsKind(body, .raw_block)) return;
+        var raw: ?bool = null;
         for (params.items()) |par| {
             const name = sema.paramNameNode(par) orelse continue;
             if (std.mem.eql(u8, rig.leafText(ctx.source, name.src), "@")) continue;
@@ -546,6 +578,9 @@ const Lowerer = struct {
             if (!storage.holdsHeaderType(ctx, ty)) continue;
             if (!storage.usedIn(ctx, body, sym, .loop)) continue;
             if (storage.usedIn(ctx, body, sym, .escape)) continue;
+            // None is held in a body with a `raw` block, found once.
+            if (raw == null) raw = storage.containsKind(body, .raw_block);
+            if (raw.?) return;
             _ = try l.hiddenVar(name, .held_header, .copy, .block, null, l.f.body);
         }
     }
@@ -614,7 +649,6 @@ const Lowerer = struct {
     }
 
     fn stmtBody(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
-        try l.consumed(s);
         const head = s.kind() orelse return l.step(r, .{ .eval = try l.expr(s) });
         switch (head) {
             .set => try l.assign(s, r),
@@ -650,7 +684,6 @@ const Lowerer = struct {
             .labeled => {
                 _ = try l.expr(ir.Labeled.label(s));
                 const inner = ir.Labeled.stmt(s);
-                try l.consumed(inner);
                 if (inner.isKind(.@"for")) return l.forLoop(inner, r);
                 // Any other statement a label names is a statement of its
                 // own, in the block the label makes.
@@ -764,7 +797,7 @@ const Lowerer = struct {
         try l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
     }
 
-    /// An assignment to a field or element (`storage.Planner.placeAssign`).
+    /// An assignment to a field or element.
     fn placeAssign(l: *Lowerer, set: Sexp, order: storage.SetOrder, r: RegionId) Error!void {
         const ctx = l.ctx;
         const target = ir.Set.target(set);
@@ -830,7 +863,7 @@ const Lowerer = struct {
 
     /// Record that node `n` lowered to `e`.
     fn note(l: *Lowerer, n: Sexp, e: ExprId) Error!void {
-        if (sema.decisionKeyOf(n)) |k| try l.exprs.put(l.a, k, e);
+        if (sema.decisionKeyOf(n)) |k| try l.exprs.put(l.gpa, k, e);
     }
 
     /// Expression `e`: its operands first, in the tree's order, then the
@@ -854,7 +887,6 @@ const Lowerer = struct {
             .list => {},
             else => return l.addExpr(.{ .leaf = e }),
         }
-        try l.consumed(e);
         const head = e.kind() orelse return l.op(e);
         switch (head) {
             .@"if" => {
@@ -935,7 +967,7 @@ const Lowerer = struct {
     /// ends them and yields its value.
     fn header(l: *Lowerer, e: Sexp, key: u64) Error!ExprId {
         const h = try l.f.addRegion(l.a, e, .header);
-        try l.headers.put(l.a, key, h);
+        try l.headers.put(l.gpa, key, h);
         const o: Open = .{ .region = h, .stmt = l.stmt_region, .temps = l.temps.items.len };
         l.stmt_region = h;
         const value_5 = try l.expr(e);
@@ -948,9 +980,21 @@ const Lowerer = struct {
 
     /// Wrap expression `id`, node `e`'s, in each coercion its context
     /// makes of it, innermost first, and record them.
+    /// Record the key of each node a coercion fact names.
+    fn coercibleNodes(l: *Lowerer) std.mem.Allocator.Error!void {
+        const f = &l.ctx.facts;
+        const n = f.splats.count() + f.durations.count() + f.erasures.count() + f.failing_leaves.count() + f.lifts.count() + f.code_widenings.count() + f.views.count() + f.reads.count();
+        try l.coercible.ensureTotalCapacity(l.gpa, n);
+        inline for (.{ &f.splats, &f.durations, &f.erasures, &f.failing_leaves, &f.lifts, &f.code_widenings, &f.views, &f.reads }) |map| {
+            var it = map.keyIterator();
+            while (it.next()) |k| l.coercible.putAssumeCapacity(k.*, {});
+        }
+    }
+
     fn coerce(l: *Lowerer, e: Sexp, id: ExprId) Error!void {
         const ctx = l.ctx;
         const key = sema.decisionKeyOf(e) orelse return;
+        if (!l.coercible.contains(key)) return;
         var list: [8]lir.Coercion = undefined;
         var n: usize = 0;
         // Outermost first.
@@ -987,13 +1031,14 @@ const Lowerer = struct {
             n += 1;
         }
         if (n == 0) return;
+        const kept = try l.a.dupe(lir.Coercion, list[0..n]);
         var i = n;
         while (i > 0) {
             i -= 1;
             const inner = try l.addExpr(l.f.exprs.items[id]);
-            l.f.exprs.items[id] = .{ .coerce = .{ .node = e, .how = list[i], .value = inner } };
+            l.f.exprs.items[id] = .{ .coerce = .{ .node = e, .how = &kept[i], .value = inner } };
         }
-        try l.module.coerced.put(l.a, key, .{ .use = try l.a.dupe(lir.Coercion, list[0..n]) });
+        try l.module.coerced.put(l.a, key, .{ .use = kept });
     }
 
     /// The operation of `e` over its children, then the vars it makes.
@@ -1015,8 +1060,8 @@ const Lowerer = struct {
         if (!l.ctx.dropsTemp(e)) return;
         const v = try l.f.addVar(l.a, .{ .node = e, .name = .{ .hidden = .temp }, .by = if (e.isKind(.template)) .buffer else .owned, .life = .statement });
         try l.declare(l.stmt_region, v);
-        try l.temps.append(l.a, v);
-        try l.f.holdIn(l.a, l.exprOf(e).?, v);
+        try l.temps.append(l.gpa, v);
+        try l.f.holdIn(l.gpa, l.exprOf(e).?, v);
     }
 
     /// The vars a view makes, for any node sema recorded a view of.
@@ -1127,7 +1172,7 @@ const Lowerer = struct {
                 // A `match`'s headers are its own.
                 if (c.isKind(.as_match)) return;
                 const h = if (c.isKind(.as) or c.isKind(.as_results)) ir.get(c, .value) else c;
-                if (sema.firstStmtTemp(p.l.ctx, h) != null) try p.l.headers.put(p.l.a, sema.decisionKeyOf(h).?, null);
+                if (sema.firstStmtTemp(p.l.ctx, h) != null) try p.l.headers.put(p.l.gpa, sema.decisionKeyOf(h).?, null);
             }
         };
         try rig.eachGuardPart(cond, Parts{ .l = l });
@@ -1152,8 +1197,8 @@ const Lowerer = struct {
         return id;
     }
 
-    /// The vars the guard parts of `if` or `while` node `e` make
-    /// (`storage.Planner.condition`), once its operands are lowered.
+    /// The vars the guard parts of `if` or `while` node `e` make, once
+    /// its operands are lowered.
     fn conditionRules(l: *Lowerer, e: Sexp, body: RegionId) Error!void {
         const Parts = struct {
             l: *Lowerer,
@@ -1195,7 +1240,7 @@ const Lowerer = struct {
         if (points and sema.handsOver(l.ctx, e).kind == .branches and !storage.isPtrViewExpr(l.ctx, e)) try l.leaf(e);
     }
 
-    /// `if … as` or `while … as` (`storage.Planner.optional`).
+    /// `if … as` or `while … as`.
     fn optional(l: *Lowerer, cond: Sexp, body: RegionId) Error!void {
         const ctx = l.ctx;
         const value = ir.As.value(cond);
@@ -1247,7 +1292,7 @@ const Lowerer = struct {
         try l.step(r, .{ .region = scope });
     }
 
-    /// `for x, i in source` and its body (`storage.Planner.forLoop`): the
+    /// `for x, i in source` and its body: the
     /// loop's storage lives in a scope around it, an element's in the
     /// body, made anew each pass.
     fn forLoop(l: *Lowerer, loop: Sexp, r: RegionId) Error!void {
@@ -1259,7 +1304,7 @@ const Lowerer = struct {
         // own: a range's two ends, or the source.
         const range = source.isKind(.@"..");
         for ([_]Sexp{ if (range) ir.@"..".left(source) else source, if (range) ir.@"..".right(source) else .nil }) |h| {
-            if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.a, sema.decisionKeyOf(h).?, null);
+            if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.gpa, sema.decisionKeyOf(h).?, null);
         }
         _ = try l.expr(ir.get(loop, .mode));
         for ([_]Sexp{ ir.For.@"var"(loop), ir.get(loop, .index) }) |n| {
@@ -1320,7 +1365,7 @@ const Lowerer = struct {
         } else if (storage.matchRereads(ctx, m)) reread = true;
         const whole = !selects and !(temp_subject or (reread and mode != .consume));
         for ([_]Sexp{ if (whole) subject else .nil, if (held != null and !whole) held.? else .nil }) |h| {
-            if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.a, sema.decisionKeyOf(h).?, null);
+            if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.gpa, sema.decisionKeyOf(h).?, null);
         }
         const subject_e = try l.expr(raw);
         const arms = ir.Match.arms(m);
@@ -1334,7 +1379,7 @@ const Lowerer = struct {
     /// its body, a statement of its own.
     fn arm(l: *Lowerer, a: Sexp, value: bool) Error!RegionId {
         const r = try l.f.addRegion(l.a, a, .arm);
-        try l.arms.put(l.a, sema.decisionKeyOf(a).?, r);
+        try l.arms.put(l.gpa, sema.decisionKeyOf(a).?, r);
         const saved = l.block;
         defer l.block = saved;
         l.block = r;
@@ -1345,7 +1390,7 @@ const Lowerer = struct {
         defer l.as_match_scope = saved_scope;
         l.as_match_scope = null;
         const cond = ir.Arm.guard(a);
-        if (cond != .nil and sema.firstStmtTemp(l.ctx, cond) != null) try l.headers.put(l.a, sema.decisionKeyOf(cond).?, null);
+        if (cond != .nil and sema.firstStmtTemp(l.ctx, cond) != null) try l.headers.put(l.gpa, sema.decisionKeyOf(cond).?, null);
         const g: ?ExprId = if (cond != .nil) try l.expr(cond) else null;
         const body = ir.Arm.body(a);
         const b = try l.f.addRegion(l.a, body, .block);
@@ -1372,14 +1417,13 @@ const Lowerer = struct {
                 _ = try l.bindingVar(p, r);
             },
             .list => {
-                try l.consumed(p);
                 for (p.items()) |c| try l.pattern(c, r);
             },
             else => {},
         }
     }
 
-    /// The vars match `m` makes (`storage.Planner.match`), declared in
+    /// The vars match `m` makes, declared in
     /// `scope`, or for an arm's, in the arm's region.
     fn matchRules(l: *Lowerer, m: Sexp, scope: RegionId) Error!void {
         const ctx = l.ctx;
@@ -1456,7 +1500,6 @@ const Lowerer = struct {
         const cap_nodes: []const Sexp = if (caps == .list) rig.children(caps) else &.{};
         const values = try l.a.alloc(ExprId, cap_nodes.len);
         for (cap_nodes, values) |cap, *x| {
-            try l.consumed(cap);
             const name = ir.get(cap, .name);
             const value = ir.get(cap, .value);
             if (value != .nil) {
@@ -1470,13 +1513,28 @@ const Lowerer = struct {
                 try l.viewRules(name);
             }
         }
-        // The body, with the lowerer's state its own. A body not lowered
-        // stops its whole module's walk of the body around it, so the
-        // state need not come back on an error.
+        try l.closureBody(e, oi, cap_nodes);
+        const id = try l.addExpr(.{ .closure = .{ .node = e, .owner = oi, .captures = values } });
+        try l.note(e, id);
+        try l.temp(e);
+        try l.viewRules(e);
+        return id;
+    }
+
+    /// The body of closure `e`, the module's owner `oi`, lowered with the
+    /// lowerer's state its own.
+    fn closureBody(l: *Lowerer, e: Sexp, oi: u32, cap_nodes: []const Sexp) Error!void {
+        const ctx = l.ctx;
         const saved = .{ l.f, l.stmt_region, l.block, l.results, l.guarded, l.as_match_scope, l.bindings };
         l.bindings = .empty;
+        defer {
+            l.bindings.deinit(l.gpa);
+            l.f, l.stmt_region, l.block, l.results, l.guarded, l.as_match_scope, l.bindings = saved;
+        }
         const f = try l.a.create(lir.Func);
-        f.* = .{ .root = e };
+        f.* = .{ .root = e, .exprs = l.scratch };
+        l.scratch = .empty;
+        errdefer f.exprs.deinit(l.gpa);
         l.f = f;
         f.body = try f.addRegion(l.a, e, .body);
         l.block = f.body;
@@ -1489,19 +1547,13 @@ const Lowerer = struct {
         }
         const params = ir.get(e, .params);
         if (params == .list) for (params.items()) |par| {
-            try l.consumed(par);
             const name = sema.paramNameNode(par) orelse continue;
             _ = try l.bindingVar(name, f.body);
         };
         const value = try l.stmts(ir.Lambda.body(e), f.body, storage.lambdaYields(ctx, e));
         f.region(f.body).value = value;
+        try l.seal(f);
         l.module.owners[oi].func = f;
-        l.f, l.stmt_region, l.block, l.results, l.guarded, l.as_match_scope, l.bindings = saved;
-        const id = try l.addExpr(.{ .closure = .{ .node = e, .owner = oi, .captures = values } });
-        try l.note(e, id);
-        try l.temp(e);
-        try l.viewRules(e);
-        return id;
     }
 
     // -------------------------------------------------------------------------
@@ -1517,11 +1569,11 @@ const Lowerer = struct {
         const moved = try l.addExpr(l.f.exprs.items[id]);
         l.f.exprs.items[id] = .{ .block = r };
         l.region(r).value = moved;
-        try l.call_blocks.put(l.a, key, r);
+        try l.call_blocks.put(l.gpa, key, r);
         return r;
     }
 
-    /// How call `c` holds what it is passed (`storage.Planner.call`).
+    /// How call `c` holds what it is passed.
     fn call(l: *Lowerer, c: Sexp, id: ExprId) Error!void {
         const ctx = l.ctx;
         const callee = ctx.calleeOf(c);
@@ -1558,7 +1610,7 @@ const Lowerer = struct {
     }
 
     /// `v`, a part of a call or an array literal evaluated first, held in
-    /// region `r` (`storage.Planner.argument`).
+    /// region `r`.
     fn argument(l: *Lowerer, v: Sexp, param: ?TypeId, life: StorageLife, r: RegionId) Error!void {
         const ctx = l.ctx;
         if (storage.isPureArg(ctx, v)) return;
@@ -1582,7 +1634,7 @@ const Lowerer = struct {
 
     /// A call through an API object's table: the object, read once
     /// unless a name holds it, and the place a large result is written
-    /// to (`storage.Planner.objectCall`).
+    /// to.
     fn objectCall(l: *Lowerer, c: Sexp, id: ExprId) Error!void {
         const ctx = l.ctx;
         const d = switch (ctx.dispatchOf(c) orelse return) {
@@ -1631,44 +1683,6 @@ const Lowerer = struct {
                 try l.leaf(if (e.isKind(.propagate)) ir.Propagate.value(e) else ir.PropagateNone.value(e));
             },
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // Bindings a use may move out
-    // -------------------------------------------------------------------------
-
-    /// The bindings node `e` may move out (`storage.planConsumed`).
-    fn consumed(l: *Lowerer, e: Sexp) Error!void {
-        const ctx = l.ctx;
-        switch (e.kind() orelse return) {
-            .move => l.consumeName(ir.Move.operand(e)),
-            .drop => l.consumeName(ir.Drop.target(e)),
-            .@"return" => if (ir.Return.value(e).isKind(.results)) {
-                for (ir.Results.values(ir.Return.value(e))) |part| try l.consumeTail(part);
-            } else try l.consumeTail(ir.Return.value(e)),
-            .@"break" => try l.consumeTail(ir.Break.value(e)),
-            .@"for" => {
-                if (ir.For.mode(e).tag == .move) l.consumeName(ir.For.source(e));
-                try l.consumeTail(e);
-            },
-            .@"if" => if (ir.If.@"else"(e) != .nil) try l.consumeTail(e),
-            .@"??", .@"catch", .match, .@"while", .raw_block => try l.consumeTail(e),
-            .cap_move => if (ctx.symbolOf(ir.get(e, .name))) |cap| l.flags.set(ctx.symbols.items[cap].origin),
-            .fun => if (ir.Fun.returns(e) != .nil) try l.consumeTail(ir.Fun.body(e)),
-            .lambda => if (storage.lambdaYields(ctx, e)) try l.consumeTail(ir.Lambda.body(e)),
-            else => {},
-        }
-    }
-
-    fn consumeName(l: *Lowerer, node: Sexp) void {
-        if (node != .src) return;
-        const sym = l.ctx.symbolOf(node) orelse return;
-        l.flags.set(sym);
-    }
-
-    fn consumeTail(l: *Lowerer, value: Sexp) Error!void {
-        if (value == .src) return l.consumeName(value);
-        try sema.eachTailPart(value, l, consumeTail);
     }
 };
 
@@ -1805,7 +1819,7 @@ fn encode(comptime ask: Ask, a: Answer(ask)) u8 {
 }
 
 /// Answer each question of `Ask` about every node of `e` it is asked of.
-fn answerAll(m: *Module, ctx: *const SemContext, e: Sexp) !void {
+pub fn answerAll(m: *Module, ctx: *const SemContext, e: Sexp) !void {
     switch (e) {
         .list => for (if (e.kind() == null) e.items() else rig.children(e)) |c| try answerAll(m, ctx, c),
         .src => {},

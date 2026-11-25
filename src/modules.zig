@@ -969,6 +969,12 @@ pub const ModuleGraph = struct {
         const t1 = timing.start(self.timing);
         if (m.state == .checked) try proofs.check(m.sema, m.ir);
         timing.stop(self.timing, .proofs, t1);
+        // The module's LIR served its checks; emit lowers it again as it
+        // writes it, so no more than one module's is held at once.
+        if (m.sema.lowered) |*l| {
+            l.deinit();
+            m.sema.lowered = null;
+        }
     }
 
     /// Find the file each `$embed` of module `id` names
