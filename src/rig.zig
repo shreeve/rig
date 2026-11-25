@@ -3152,10 +3152,6 @@ pub const IterSource = enum {
     moved,
 };
 
-/// A `for` node to rewrite (`Parser.desugarIterLoops`), with how it
-/// walks its source.
-pub const IterLoop = struct { node: parser.NodeId, source: IterSource };
-
 /// What a chain walks (`Chain`): an iterator, which the loop advances in
 /// place; a List, array, or slice, read by element; or a range.
 pub const ChainSource = enum { iterator, elements, range };
@@ -5728,8 +5724,9 @@ pub const Parser = struct {
     // Loops over an iterator
     //
     // Typecheck finds the `for` loops whose source is an iterator, since
-    // the type of a source is known only there, and the module is checked
-    // again on this rewrite (docs/internals/INTERNALS.md, "Loops over an iterator").
+    // the type of a source is known only there, and rewrites each where
+    // it finds it (`elaborateIterLoop`; docs/internals/INTERNALS.md,
+    // "Loops over an iterator").
     // The nodes it builds are IR nodes like the parser's: each spans the
     // loop's source, and a name no source text holds (a method's `next`,
     // the hidden binding) is a leaf at a position inside the loop's `for`
@@ -5737,16 +5734,6 @@ pub const Parser = struct {
     // `leafText`. So every position the checkers order by lies in the loop,
     // as in the loop written by hand.
     // -------------------------------------------------------------------------
-
-    const IterRewrite = struct {
-        loops: []const IterLoop,
-
-        fn find(self: IterRewrite, node: Sexp) ?usize {
-            if (node != .list or !node.isKind(.@"for")) return null;
-            for (self.loops, 0..) |l, i| if (l.node == node.list.id) return i;
-            return null;
-        }
-    };
 
     /// Each string literal of `lits` in `tree` as the literal it is
     /// where it stands: where a `U8` goes, the integer leaf of its byte,
@@ -6722,51 +6709,55 @@ pub const Parser = struct {
         return self.onceValue(l, pre.items);
     }
 
-    pub fn desugarIterLoops(self: *Parser, tree: Sexp, loops: []const IterLoop) std.mem.Allocator.Error!void {
-        try self.desugarIn(tree, .{ .loops = loops });
-    }
-
-    fn desugarIn(self: *Parser, node: Sexp, state: IterRewrite) std.mem.Allocator.Error!void {
-        if (node != .list) return;
-        const items = @constCast(node.items());
-        for (items) |*slot| slot.* = try self.desugarChild(slot.*, state);
-    }
-
-    /// `child` with the loops inside it rewritten, or what replaces it
-    /// when it is one: a loop that holds its source is a block of the
-    /// binding and the `while`, around the label when it has one.
-    fn desugarChild(self: *Parser, child: Sexp, state: IterRewrite) std.mem.Allocator.Error!Sexp {
-        const labeled = child.isKind(.labeled);
-        const loop = if (labeled) ir.Labeled.stmt(child) else child;
-        const at = state.find(loop) orelse {
-            try self.desugarIn(child, state);
-            return child;
-        };
-        try self.desugarIn(loop, state);
-        const built = try self.iterWhile(loop, state.loops[at]);
-        if (labeled) {
-            const copy = try self.allocator().dupe(Sexp, child.items());
-            copy[ir.slot(.labeled, .stmt)] = built.loop;
-            const out: Sexp = .{ .list = parser.List.withId(copy, child.list.id) };
-            return if (built.hold) |h| self.base.newNode(.block, &.{ h, out }, self.span(child)) else out;
+    /// The `for` over an iterator `loop`, which walks its source as `how`
+    /// says, rewritten where it stands inside `root` into the `while` it
+    /// means (`iterWhile`): a loop that holds its source is a block of
+    /// the binding and the `while`, around the label when it has one.
+    /// Null when `root` holds no such `for` below it.
+    pub fn elaborateIterLoop(self: *Parser, root: Sexp, loop: Sexp, how: IterSource) std.mem.Allocator.Error!?IterWhile {
+        if (root != .list) return null;
+        for (@constCast(root.items())) |*slot| {
+            const child = slot.*;
+            if (child != .list) continue;
+            const labeled = child.isKind(.labeled);
+            const stmt_in = if (labeled) ir.Labeled.stmt(child) else child;
+            if (!stmt_in.isKind(.@"for") or stmt_in.list.id != loop.list.id) {
+                if (try self.elaborateIterLoop(child, loop, how)) |w| return w;
+                continue;
+            }
+            var built = try self.iterWhile(stmt_in, how);
+            var stmt = built.loop;
+            if (labeled) {
+                const copy = try self.allocator().dupe(Sexp, child.items());
+                copy[ir.slot(.labeled, .stmt)] = built.loop;
+                stmt = .{ .list = parser.List.withId(copy, child.list.id) };
+            }
+            if (built.hold) |h| stmt = try self.base.newNode(.block, &.{ h, stmt }, self.span(child));
+            built.stmt = stmt;
+            slot.* = stmt;
+            return built;
         }
-        return if (built.hold) |h| self.base.newNode(.block, &.{ h, built.loop }, self.span(child)) else built.loop;
+        return null;
     }
 
-    const IterWhile = struct { loop: Sexp, hold: ?Sexp };
+    /// What a `for` over an iterator is rewritten into: the `while`, the
+    /// binding of the source it holds, if any, and the statement that
+    /// stands where the `for` stood (the `while`, its label, or the block
+    /// of both).
+    pub const IterWhile = struct { loop: Sexp, hold: ?Sexp, stmt: Sexp = .nil };
 
     /// `for x in it` as `while (!it).next() as x`; a held source `e` is
     /// bound first, `h = e` (`h = <e` for a place the loop takes), and
     /// walked as `(!h)`.
-    fn iterWhile(self: *Parser, loop: Sexp, l: IterLoop) std.mem.Allocator.Error!IterWhile {
+    fn iterWhile(self: *Parser, loop: Sexp, how: IterSource) std.mem.Allocator.Error!IterWhile {
         const source = ir.For.source(loop);
         const binding = ir.For.@"var"(loop);
         const at = self.span(source);
         const key = self.span(loop).start;
         var hold: ?Sexp = null;
         var iter = source;
-        if (l.source != .place) {
-            const value = if (l.source == .moved) try self.base.newNode(.move, &.{source}, at) else source;
+        if (how != .place) {
+            const value = if (how == .moved) try self.base.newNode(.move, &.{source}, at) else source;
             // `h` is declared before the loop, at the position before
             // its `for`, so the loop does not enclose its declaration:
             // what it holds stays in force through every iteration

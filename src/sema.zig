@@ -2146,6 +2146,95 @@ pub const Facts = struct {
     }
 };
 
+/// The per-node records of `SemContext` outside `Facts` that a check
+/// writes, which the trail covers with every column of `Facts`.
+pub const CtxColumn = enum { write_sites, untakeable, discards };
+
+/// A map the trail covers: a column of `Facts`, or a record of
+/// `SemContext` (`CtxColumn`).
+pub const Column = union(enum) {
+    facts: std.meta.FieldEnum(Facts),
+    ctx: CtxColumn,
+
+    const n_facts = @typeInfo(Facts).@"struct".field_names.len;
+    const count = n_facts + @typeInfo(CtxColumn).@"enum".field_names.len;
+
+    fn index(comptime c: Column) u16 {
+        return switch (c) {
+            .facts => |f| @intFromEnum(f),
+            .ctx => |f| n_facts + @as(u16, @intFromEnum(f)),
+        };
+    }
+
+    fn of(comptime i: u16) Column {
+        return if (i < n_facts) .{ .facts = @enumFromInt(i) } else .{ .ctx = @enumFromInt(i - n_facts) };
+    }
+
+    fn Map(comptime c: Column) type {
+        return switch (c) {
+            .facts => |f| @FieldType(Facts, @tagName(f)),
+            .ctx => |f| @FieldType(SemContext, @tagName(f)),
+        };
+    }
+};
+
+/// The trail: each fact a column took while a mark was open
+/// (`SemContext.mark`), with the value it replaced, so a rollback gives
+/// every column back what it held at the mark. Empty when no mark is
+/// open, so a check outside one pays nothing for it.
+pub const FactTrail = struct {
+    entries: std.ArrayList(Entry) = .empty,
+    /// The bytes of the values the entries replaced.
+    olds: std.ArrayList(u8) = .empty,
+    /// How many marks are open.
+    open: u32 = 0,
+
+    const Entry = struct { column: u16, key: [16]u8, old: u32 };
+    /// The `old` of an entry whose key had no value.
+    const absent = std.math.maxInt(u32);
+
+    fn deinit(self: *FactTrail, a: std.mem.Allocator) void {
+        self.entries.deinit(a);
+        self.olds.deinit(a);
+    }
+
+    fn log(self: *FactTrail, a: std.mem.Allocator, column: u16, key: anytype, old: anytype) std.mem.Allocator.Error!void {
+        comptime std.debug.assert(@sizeOf(@TypeOf(key)) <= 16);
+        var e: Entry = .{ .column = column, .key = @splat(0), .old = absent };
+        @memcpy(e.key[0..@sizeOf(@TypeOf(key))], std.mem.asBytes(&key));
+        if (old) |v| {
+            e.old = @intCast(self.olds.items.len);
+            try self.olds.appendSlice(a, std.mem.asBytes(&v));
+        }
+        try self.entries.append(a, e);
+    }
+
+    fn keyOf(comptime K: type, bytes: [16]u8) K {
+        return std.mem.bytesToValue(K, bytes[0..@sizeOf(K)]);
+    }
+};
+
+/// A point the trail can be rolled back to (`SemContext.rollback`).
+pub const Mark = struct { entries: u32, olds: u32, diagnostics: u32, decided: u32 };
+
+fn MapKey(comptime M: type) type {
+    return @FieldType(M.KV, "key");
+}
+
+fn MapValue(comptime M: type) type {
+    return @FieldType(M.KV, "value");
+}
+
+/// Remove `key` from `map`, a `FastMap` or a `fastmap.DenseMap`.
+fn mapRemove(map: anytype, key: anytype) void {
+    const M = @TypeOf(map.*);
+    if (@hasField(M, "dense")) {
+        if (key >> 32 == 1 and @as(u32, @truncate(key)) < map.dense.items.len) {
+            map.dense.items[@as(u32, @truncate(key))] = std.math.maxInt(MapValue(M));
+        } else _ = map.sparse.remove(key);
+    } else _ = map.remove(key);
+}
+
 /// The optional an expression's value becomes where it goes: `into`,
 /// an optional type, holding the value `from` gives, a type with fewer
 /// levels of optional (`none`'s, for `none`), lifted into it level by
@@ -2526,6 +2615,23 @@ pub const Decided = struct {
 
     /// Record `d` about the node of `key`, in place of any decision of
     /// its question there.
+    /// Forget the decisions after the first `n`, newest first: each
+    /// key's chain starts again at the decision before.
+    fn truncate(self: *Decided, n: u32) void {
+        var i = self.entries.items.len;
+        while (i > n) {
+            i -= 1;
+            const d = self.entries.items[i];
+            const key = decisionKey(d.node).?;
+            if (listId(key)) |id| {
+                self.by_list.items[id] = d.next;
+            } else if (d.next == 0) {
+                _ = self.by_key.remove(key);
+            } else self.by_key.putAssumeCapacity(key, d.next);
+        }
+        self.entries.shrinkRetainingCapacity(n);
+    }
+
     fn put(self: *Decided, a: std.mem.Allocator, key: u64, d: Decision) std.mem.Allocator.Error!void {
         if (self.get(key, d.q)) |old| {
             const next = old.next;
@@ -4097,9 +4203,10 @@ const ImportedEntry = struct { module_id: u32, list: GenericList, index: u32 };
 pub const SemContext = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
-    /// The parser that built the module's tree, for node spans; null for
-    /// a tree checked without one (spans then come from the leaves).
-    parser: ?*const parser.Parser = null,
+    /// The parser that built the module's tree, for node spans and the
+    /// rewrites typecheck makes in the tree; null for a tree checked
+    /// without one (spans then come from the leaves).
+    parser: ?*parser.Parser = null,
     /// Owns symbol names, messages, and every slice inside a Type.
     arena: std.heap.ArenaAllocator,
 
@@ -4129,6 +4236,9 @@ pub const SemContext = struct {
     /// diagnostic's hint reads it, so it is no fact.
     untakeable: FastMap(NodeKey, void) = .empty,
     facts: Facts = .{},
+    /// The facts recorded since the oldest open mark, so a check can be
+    /// taken back (`mark`, `rollback`).
+    trail: FactTrail = .{},
 
     cell_sym_id: SymbolId = symbol_invalid,
     list_sym_id: SymbolId = symbol_invalid,
@@ -4515,14 +4625,10 @@ pub const SemContext = struct {
     /// The parameters each function and method calls at most once, those
     /// written `f: once ?fun() -> T`, by where its name is declared.
     declared_once: FastMap(u32, ParamMask) = .empty,
-    /// The `for` loops over an iterator that typecheck found, each to be
-    /// rewritten into the `while` it means (`rig.IterLoop`). A module with
-    /// any is checked again on the rewritten tree, so no pass sees one.
-    iter_loops: std.ArrayList(rig.IterLoop) = .empty,
     /// The string literals typecheck found where a `U8` or a `[N]U8` goes,
     /// each to be written as the byte or the array of bytes it is there
     /// (`rig.ByteLiteral`); a module with any is checked again on the
-    /// rewritten tree, as for `iter_loops`.
+    /// rewritten tree, so no pass sees one.
     byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
     /// Every `$embed` of the module (`EmbedSite`), recorded once each.
     embed_sites: std.ArrayList(EmbedSite) = .empty,
@@ -4530,13 +4636,13 @@ pub const SemContext = struct {
     embed_records: std.ArrayList(EmbedRecord) = .empty,
     /// The iterator chains typecheck found (`rig.Chain`), each to be
     /// rewritten into the loop it means; checked again, as for
-    /// `iter_loops`.
+    /// `byte_literals`.
     chains: std.ArrayList(rig.Chain) = .empty,
     /// The groups typecheck found (`rig.GroupSite`), each to be made the
     /// parameters it means, and the uses of each in its function's body,
     /// by the position of the group's name; the spreads (`rig.SpreadSite`),
     /// each to be made the keyword arguments it means. Checked again, as
-    /// for `iter_loops`.
+    /// for `byte_literals`.
     groups: std.ArrayList(rig.GroupSite) = .empty,
     /// The group each parameter that is a group's field belongs to, by
     /// name (`GroupParam`), for the message that the body reads it through
@@ -4628,10 +4734,10 @@ pub const SemContext = struct {
         self.reported.deinit(self.allocator);
         self.untakeable.deinit(self.allocator);
         self.facts.deinit(self.allocator);
+        self.trail.deinit(self.allocator);
         self.declared_origins.deinit(self.allocator);
         self.declared_keeps.deinit(self.allocator);
         self.declared_once.deinit(self.allocator);
-        self.iter_loops.deinit(self.allocator);
         self.chains.deinit(self.allocator);
         self.groups.deinit(self.allocator);
         self.group_fields.deinit(self.allocator);
@@ -5100,11 +5206,98 @@ pub const SemContext = struct {
         return if (inst == .function) bracketArgs(callee) else &.{};
     }
 
+    // ---- facts: the trail ----------------------------------------------
+
+    /// A point to take the facts back to (`rollback`): every fact a
+    /// column of the trail holds, the diagnostics, and the decisions
+    /// asked since. Marks nest; each is rolled back or kept (`commit`).
+    pub fn mark(self: *SemContext) Mark {
+        self.trail.open += 1;
+        return .{ .entries = @intCast(self.trail.entries.items.len), .olds = @intCast(self.trail.olds.items.len), .diagnostics = @intCast(self.diagnostics.items.len), .decided = @intCast(self.decided.entries.items.len) };
+    }
+
+    /// Record outside every open mark until `resumeTrail`: what is
+    /// recorded then is kept, whatever is rolled back.
+    pub fn pauseTrail(self: *SemContext) u32 {
+        defer self.trail.open = 0;
+        return self.trail.open;
+    }
+
+    pub fn resumeTrail(self: *SemContext, open: u32) void {
+        self.trail.open = open;
+    }
+
+    /// Close `m` and keep what was recorded since.
+    pub fn commit(self: *SemContext, m: Mark) void {
+        std.debug.assert(self.trail.open > 0 and m.entries <= self.trail.entries.items.len);
+        self.trail.open -= 1;
+        if (self.trail.open > 0) return;
+        self.trail.entries.clearRetainingCapacity();
+        self.trail.olds.clearRetainingCapacity();
+    }
+
+    /// Close `m` and take back what was recorded since: each fact gets
+    /// the value it had at the mark, or none, and the diagnostics and
+    /// decisions made since are dropped.
+    pub fn rollback(self: *SemContext, m: Mark) std.mem.Allocator.Error!void {
+        const entries = self.trail.entries.items;
+        var i = entries.len;
+        while (i > m.entries) {
+            i -= 1;
+            try self.undo(entries[i]);
+        }
+        self.trail.entries.shrinkRetainingCapacity(m.entries);
+        self.trail.olds.shrinkRetainingCapacity(m.olds);
+        self.diagnostics.shrinkRetainingCapacity(m.diagnostics);
+        self.decided.truncate(m.decided);
+        self.commit(m);
+    }
+
+    /// The map column `c` of the trail names.
+    fn columnMap(self: *SemContext, comptime c: Column) *c.Map() {
+        return switch (c) {
+            .facts => |f| &@field(self.facts, @tagName(f)),
+            .ctx => |f| &@field(self, @tagName(f)),
+        };
+    }
+
+    /// Record `value` for `key` in column `c`, on the trail while a mark
+    /// is open.
+    pub fn putIn(self: *SemContext, comptime c: Column, key: MapKey(c.Map()), value: MapValue(c.Map())) std.mem.Allocator.Error!void {
+        const map = self.columnMap(c);
+        if (self.trail.open > 0) try self.trail.log(self.allocator, comptime c.index(), key, map.get(key));
+        try map.put(self.allocator, key, value);
+    }
+
+    /// Remove `key` from column `c`, on the trail while a mark is open.
+    pub fn removeIn(self: *SemContext, comptime c: Column, key: MapKey(c.Map())) std.mem.Allocator.Error!void {
+        const map = self.columnMap(c);
+        if (self.trail.open > 0) {
+            const old = map.get(key) orelse return;
+            try self.trail.log(self.allocator, comptime c.index(), key, @as(?@TypeOf(old), old));
+        }
+        mapRemove(map, key);
+    }
+
+    fn undo(self: *SemContext, e: FactTrail.Entry) std.mem.Allocator.Error!void {
+        switch (e.column) {
+            inline 0...Column.count - 1 => |i| {
+                const map = self.columnMap(comptime Column.of(i));
+                const M = @TypeOf(map.*);
+                const key = FactTrail.keyOf(MapKey(M), e.key);
+                if (e.old == FactTrail.absent) return mapRemove(map, key);
+                const V = MapValue(M);
+                try map.put(self.allocator, key, std.mem.bytesToValue(V, self.trail.olds.items[e.old..][0..@sizeOf(V)]));
+            },
+            else => unreachable,
+        }
+    }
+
     // ---- facts: recording (sema passes only) ----------------------------
 
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
         if (node != .src or sym == symbol_invalid) return;
-        try self.facts.names.put(self.allocator, node.src.pos, sym);
+        try self.putIn(.{ .facts = .names }, node.src.pos, sym);
     }
 
     /// A string literal at `pos` that holds `bytes` where a `U8` goes, or
@@ -5135,7 +5328,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
-        try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
+        try self.putIn(.{ .facts = .types }, recordExprKey(node) orelse return, ty);
         // A Cell of an API object is Stage 5's: a program that makes one
         // without declaring its type is rejected here, once.
         if (self.typeInfo(ty).object) if (objectCell(self, ty)) |cell| if (!objectRejected(self)) try objectUnbuiltError(self, self.startOf(node), object_cell, .{try formatType(self, cell)});
@@ -5143,8 +5336,8 @@ pub const SemContext = struct {
         // as its type says (`copiesElem`), decided with the type.
         if (node.isKind(.index)) {
             if (copies(self, ty) == .yes) {
-                try self.facts.elem_copies.put(self.allocator, recordKey(node), {});
-            } else _ = self.facts.elem_copies.remove(recordKey(node));
+                try self.putIn(.{ .facts = .elem_copies }, recordKey(node), {});
+            } else try self.removeIn(.{ .facts = .elem_copies }, recordKey(node));
         }
     }
 
@@ -5162,7 +5355,7 @@ pub const SemContext = struct {
     /// view of the element where it is, never of a copy, which a result
     /// that keeps self would outlive.
     pub fn recordElemViewed(self: *SemContext, node: Sexp) !void {
-        try self.facts.elem_viewed.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .elem_viewed }, recordKey(node), {});
     }
 
     /// `node` yields a view where its context reads the value it
@@ -5170,7 +5363,7 @@ pub const SemContext = struct {
     /// optional of `??`, `?`, or `as`, a `?String` or slice indexed, or a
     /// clone.
     pub fn recordRead(self: *SemContext, node: Sexp) !void {
-        try self.facts.reads.put(self.allocator, recordExprKey(node) orelse return, {});
+        try self.putIn(.{ .facts = .reads }, recordExprKey(node) orelse return, {});
     }
 
     /// `node`, an `a ?? b` or `a catch b` whose payload is a view `?T` or
@@ -5183,8 +5376,8 @@ pub const SemContext = struct {
     pub fn recordLift(self: *SemContext, node: Sexp, lift: ?Lift) !void {
         const key = recordExprKey(node) orelse return;
         if (lift) |l| {
-            try self.facts.lifts.put(self.allocator, key, l);
-        } else _ = self.facts.lifts.remove(key);
+            try self.putIn(.{ .facts = .lifts }, key, l);
+        } else try self.removeIn(.{ .facts = .lifts }, key);
     }
 
     /// The optional `node`'s value becomes where it goes (`recordLift`).
@@ -5194,8 +5387,8 @@ pub const SemContext = struct {
 
     pub fn recordPayloadCopy(self: *SemContext, node: Sexp, copied: bool) !void {
         if (copied) {
-            try self.facts.payload_copies.put(self.allocator, recordKey(node), {});
-        } else _ = self.facts.payload_copies.remove(nodeKey(node) orelse return);
+            try self.putIn(.{ .facts = .payload_copies }, recordKey(node), {});
+        } else try self.removeIn(.{ .facts = .payload_copies }, nodeKey(node) orelse return);
     }
 
     /// Whether `node`, an `a ?? b` or `a catch b`, copies the value its
@@ -5207,7 +5400,7 @@ pub const SemContext = struct {
     /// `node`, a temporary array (a literal, a fill, a call's result),
     /// is passed as a `[]T` argument to a call that keeps no view of it.
     pub fn recordTempArray(self: *SemContext, node: Sexp) !void {
-        try self.facts.temp_arrays.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .temp_arrays }, recordKey(node), {});
     }
 
     /// Whether `node` is a temporary array viewed as a `[]T` argument for
@@ -5220,14 +5413,14 @@ pub const SemContext = struct {
     /// rows of the view table `view` names (`viewOf`).
     pub fn recordView(self: *SemContext, node: Sexp, view: View) !void {
         std.debug.assert(view.len > 0 or view.implicit);
-        try self.facts.views.put(self.allocator, recordExprKey(node) orelse return, view);
+        try self.putIn(.{ .facts = .views }, recordExprKey(node) orelse return, view);
     }
 
     /// How `node` is viewed where a view of another type is expected: the
     /// rows of the view table that make the view (`recordView`); null
     /// where its value is the view itself.
     pub fn recordSliceView(self: *SemContext, slice: Sexp, view: View) !void {
-        try self.facts.slice_views.put(self.allocator, recordKey(slice), view);
+        try self.putIn(.{ .facts = .slice_views }, recordKey(slice), view);
     }
 
     /// What slice `slice` views of the value it slices (`sliceView`);
@@ -5253,11 +5446,11 @@ pub const SemContext = struct {
     /// `node`, a `member`, names a member of an error set, not a
     /// module's constant or a value's field.
     pub fn recordErrorMember(self: *SemContext, node: Sexp) !void {
-        try self.facts.error_members.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .error_members }, recordKey(node), {});
     }
 
     pub fn recordSetPatternMembers(self: *SemContext, node: Sexp, members: []const SetMember) !void {
-        try self.facts.set_pattern_members.put(self.allocator, recordKey(node), members);
+        try self.putIn(.{ .facts = .set_pattern_members }, recordKey(node), members);
     }
 
     pub fn setPatternMembers(self: *const SemContext, node: Sexp) ?[]const SetMember {
@@ -5265,7 +5458,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordMemberCompares(self: *SemContext, member: Field, compares: MemberCompares) !void {
-        try self.facts.member_compares.put(self.allocator, member.decl_pos, compares);
+        try self.putIn(.{ .facts = .member_compares }, member.decl_pos, compares);
     }
 
     pub fn memberCompares(self: *const SemContext, member: Field) MemberCompares {
@@ -5273,7 +5466,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordCodeWidening(self: *SemContext, node: Sexp) !void {
-        try self.facts.code_widenings.put(self.allocator, exprKey(node) orelse return, {});
+        try self.putIn(.{ .facts = .code_widenings }, exprKey(node) orelse return, {});
     }
 
     pub fn isCodeWidening(self: *const SemContext, node: Sexp) bool {
@@ -5281,7 +5474,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordTypedLiteral(self: *SemContext, node: Sexp) !void {
-        try self.facts.typed_literals.put(self.allocator, exprKey(node) orelse return, {});
+        try self.putIn(.{ .facts = .typed_literals }, exprKey(node) orelse return, {});
     }
 
     pub fn isTypedLiteral(self: *const SemContext, node: Sexp) bool {
@@ -5289,7 +5482,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordFailingLeaf(self: *SemContext, node: Sexp) !void {
-        try self.facts.failing_leaves.put(self.allocator, exprKey(node) orelse return, {});
+        try self.putIn(.{ .facts = .failing_leaves }, exprKey(node) orelse return, {});
     }
 
     pub fn isFailingLeaf(self: *const SemContext, node: Sexp) bool {
@@ -5297,7 +5490,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordMemberTest(self: *SemContext, node: Sexp) !void {
-        try self.facts.member_tests.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .member_tests }, recordKey(node), {});
     }
 
     pub fn isMemberTest(self: *const SemContext, node: Sexp) bool {
@@ -5311,7 +5504,7 @@ pub const SemContext = struct {
     /// `node`, a `member` `e.text`, is the name of plain enum value
     /// `e`'s variant, not a field.
     pub fn recordEnumText(self: *SemContext, node: Sexp) !void {
-        try self.facts.enum_texts.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .enum_texts }, recordKey(node), {});
     }
 
     pub fn isEnumText(self: *const SemContext, node: Sexp) bool {
@@ -5319,7 +5512,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordTableWrite(self: *SemContext, node: Sexp) !void {
-        try self.facts.table_writes.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .table_writes }, recordKey(node), {});
     }
 
     /// Whether `t[s]`, a table's slot, is written (`table_writes`).
@@ -5345,7 +5538,7 @@ pub const SemContext = struct {
     /// `node`, an optional field or element, could not be taken with
     /// `<node`: the type checker's check of the take rejects it.
     pub fn recordUntakeable(self: *SemContext, node: Sexp) !void {
-        try self.untakeable.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .ctx = .untakeable }, recordKey(node), {});
     }
 
     /// Whether `<node` would be rejected (`recordUntakeable`).
@@ -5354,7 +5547,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordTake(self: *SemContext, node: Sexp) !void {
-        try self.facts.takes.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .takes }, recordKey(node), {});
     }
 
     /// `node` writes binding `sym` (`WriteKind`). The binding's flags
@@ -5364,7 +5557,7 @@ pub const SemContext = struct {
     /// it written, which does too. A move of the whole binding leaves its
     /// flags alone.
     pub fn recordWrite(self: *SemContext, node: Sexp, sym: SymbolId, kind: WriteKind) !void {
-        try self.write_sites.put(self.allocator, recordKey(node), .{ .sym = sym, .kind = kind });
+        try self.putIn(.{ .ctx = .write_sites }, recordKey(node), .{ .sym = sym, .kind = kind });
         const flags = &self.symbols.items[sym].flags;
         switch (kind) {
             .assign, .compound => flags.reassigned = true,
@@ -5439,7 +5632,7 @@ pub const SemContext = struct {
     /// holds `none` (`Facts.old_nones`). Only the module check calls
     /// this, after the checker accepts the module.
     pub fn recordOldNone(self: *SemContext, set: Sexp) !void {
-        try self.facts.old_nones.put(self.allocator, recordKey(set), {});
+        try self.putIn(.{ .facts = .old_nones }, recordKey(set), {});
     }
 
     /// Whether assignment `set`'s old value is `none` (`recordOldNone`).
@@ -5452,7 +5645,7 @@ pub const SemContext = struct {
     /// while the value lives and `none` after. The type checker decides
     /// it once, by the operand's type.
     pub fn recordUpgrade(self: *SemContext, node: Sexp, how: Upgrade) !void {
-        try self.facts.upgrades.put(self.allocator, recordKey(node), how);
+        try self.putIn(.{ .facts = .upgrades }, recordKey(node), how);
     }
 
     /// How `*w` upgrades a weak handle (`recordUpgrade`); null where `*`
@@ -5467,7 +5660,7 @@ pub const SemContext = struct {
     /// (`storage.headerPoints`), so what it binds views a copy of that
     /// value, not the subject itself.
     pub fn recordHeaderCopy(self: *SemContext, node: Sexp) !void {
-        try self.facts.header_copies.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .header_copies }, recordKey(node), {});
     }
 
     /// The field paths a use may move out of binding `sym`
@@ -5485,7 +5678,7 @@ pub const SemContext = struct {
     /// (`w = !n`, `w = <w2`): the local points at another place, rather
     /// than writing the value it views.
     pub fn recordRepoint(self: *SemContext, node: Sexp) !void {
-        try self.facts.repoints.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .repoints }, recordKey(node), {});
     }
 
     pub fn repoints(self: *const SemContext, node: Sexp) bool {
@@ -5495,7 +5688,7 @@ pub const SemContext = struct {
     /// `node`, an assignment of a `!T` binding (`w = v`, `w += 1`), writes
     /// the value it views; the binding keeps pointing where it did.
     pub fn recordWriteThrough(self: *SemContext, node: Sexp) !void {
-        try self.facts.write_throughs.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .write_throughs }, recordKey(node), {});
     }
 
     pub fn writesThrough(self: *const SemContext, node: Sexp) bool {
@@ -5506,7 +5699,7 @@ pub const SemContext = struct {
     /// type `ty`: the declared field's type at the matched instance
     /// (`Opt[?T]`'s `v: T` is a `?T`), in this module's types.
     pub fn recordPayloadField(self: *SemContext, node: Sexp, ty: TypeId) !void {
-        try self.facts.payload_fields.put(self.allocator, recordExprKey(node) orelse return, ty);
+        try self.putIn(.{ .facts = .payload_fields }, recordExprKey(node) orelse return, ty);
     }
 
     /// The type of the field payload binding `node` binds
@@ -5516,33 +5709,33 @@ pub const SemContext = struct {
     }
 
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
-        try self.facts.scopes.put(self.allocator, recordKey(node), scope);
+        try self.putIn(.{ .facts = .scopes }, recordKey(node), scope);
     }
 
     pub fn recordExhaustive(self: *SemContext, match: Sexp) !void {
-        try self.facts.exhaustive.put(self.allocator, recordKey(match), {});
+        try self.putIn(.{ .facts = .exhaustive }, recordKey(match), {});
     }
 
     pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
-        try self.facts.call_slots.put(self.allocator, recordKey(call), slots);
+        try self.putIn(.{ .facts = .call_slots }, recordKey(call), slots);
     }
 
     pub fn recordCallParams(self: *SemContext, call: Sexp, params: CallParams) !void {
-        try self.facts.call_params.put(self.allocator, recordKey(call), params);
+        try self.putIn(.{ .facts = .call_params }, recordKey(call), params);
     }
 
     /// `node`, a scalar operand of a lane-wise operator or of `select`,
     /// stands for every lane of a vector of type `ty`: emit writes it
     /// splatted, `@as(V, @splat(x))`.
     pub fn recordSplat(self: *SemContext, node: Sexp, ty: TypeId) !void {
-        try self.facts.splats.put(self.allocator, recordExprKey(node) orelse return, ty);
+        try self.putIn(.{ .facts = .splats }, recordExprKey(node) orelse return, ty);
     }
 
     /// `node`, an argument filling a duration parameter, counts `d`'s
     /// unit: emit writes the nanoseconds it is (`rig.durationInt`,
     /// `rig.durationFloat`).
     pub fn recordDuration(self: *SemContext, node: Sexp, d: Duration) !void {
-        try self.facts.durations.put(self.allocator, recordExprKey(node) orelse return, d);
+        try self.putIn(.{ .facts = .durations }, recordExprKey(node) orelse return, d);
     }
 
     /// The unit a duration argument counts (`recordDuration`).
@@ -5556,7 +5749,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordElemCall(self: *SemContext, callee: Sexp, call: ElemCall) !void {
-        try self.facts.elem_calls.put(self.allocator, recordKey(callee), call);
+        try self.putIn(.{ .facts = .elem_calls }, recordKey(callee), call);
     }
 
     /// The built-in element method a call's callee (`member`) names.
@@ -5565,7 +5758,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordBuiltinCall(self: *SemContext, callee: Sexp, call: BuiltinCall) !void {
-        try self.facts.builtin_calls.put(self.allocator, recordKey(callee), call);
+        try self.putIn(.{ .facts = .builtin_calls }, recordKey(callee), call);
     }
 
     /// The built-in type's method a call's callee (`member`) names.
@@ -5576,7 +5769,7 @@ pub const SemContext = struct {
     /// `call`, of a std maker, was checked as Rig compiles and gives its
     /// plain type (`ConstMaker`).
     pub fn recordConstMaker(self: *SemContext, call: Sexp) !void {
-        try self.facts.const_makers.put(self.allocator, recordKey(call), {});
+        try self.putIn(.{ .facts = .const_makers }, recordKey(call), {});
     }
 
     /// Whether `call` is a std maker's checked as Rig compiles
@@ -5586,7 +5779,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordSwapCall(self: *SemContext, call: Sexp, swap: SwapCall) !void {
-        try self.facts.swap_calls.put(self.allocator, recordKey(call), swap);
+        try self.putIn(.{ .facts = .swap_calls }, recordKey(call), swap);
     }
 
     /// What `call` of the built-in `swap` exchanges (`recordSwapCall`);
@@ -5646,7 +5839,7 @@ pub const SemContext = struct {
     pub fn recordDiscard(self: *SemContext, stmt: Sexp) !void {
         var e = stmt;
         while (true) {
-            try self.discards.put(self.allocator, recordExprKey(e) orelse return, {});
+            try self.putIn(.{ .ctx = .discards }, recordExprKey(e) orelse return, {});
             e = switch (e.kind() orelse return) {
                 .propagate => ir.Propagate.value(e),
                 .propagate_none => ir.PropagateNone.value(e),
@@ -5664,11 +5857,11 @@ pub const SemContext = struct {
     }
 
     pub fn recordTempDrop(self: *SemContext, node: Sexp) !void {
-        try self.facts.temp_drops.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .temp_drops }, recordKey(node), {});
     }
 
     pub fn recordWrittenTemp(self: *SemContext, node: Sexp) !void {
-        try self.facts.written_temps.put(self.allocator, recordKey(node), {});
+        try self.putIn(.{ .facts = .written_temps }, recordKey(node), {});
     }
 
     /// Whether `node` is a temporary given a write view, or the value a part
@@ -5687,7 +5880,7 @@ pub const SemContext = struct {
     /// `call` is a `task.all`; `values`, whether it gives its tasks'
     /// values or nothing.
     pub fn recordTaskJoin(self: *SemContext, call: Sexp, values: bool) !void {
-        try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, values);
+        try self.putIn(.{ .facts = .task_joins }, recordExprKey(call) orelse return, values);
     }
 
     /// Of a `task.all`, whether it gives its tasks' values; null for any
@@ -5697,7 +5890,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordActorMake(self: *SemContext, call: Sexp) !void {
-        try self.facts.actor_makes.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .actor_makes }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is `Actor(x)` (`recordActorMake`).
@@ -5708,7 +5901,7 @@ pub const SemContext = struct {
     /// `call` is `Frozen(x)`, under `*`: the runtime makes the frozen value
     /// behind its first handle.
     pub fn recordFrozenMake(self: *SemContext, call: Sexp) !void {
-        try self.facts.frozen_makes.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .frozen_makes }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is `Frozen(x)` (`recordFrozenMake`).
@@ -5717,7 +5910,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordActorSupervised(self: *SemContext, call: Sexp) !void {
-        try self.facts.actor_supervised.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .actor_supervised }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is `Actor.supervised(f)` (`recordActorSupervised`).
@@ -5726,7 +5919,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordChanMake(self: *SemContext, call: Sexp) !void {
-        try self.facts.chan_makes.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .chan_makes }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is `Chan[T](n)` (`recordChanMake`).
@@ -5735,7 +5928,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordSelect(self: *SemContext, call: Sexp) !void {
-        try self.facts.select_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .select_calls }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is `task.select` (`recordSelect`).
@@ -5744,7 +5937,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordSelectArm(self: *SemContext, call: Sexp, arm: SelectArm) !void {
-        try self.facts.select_arms.put(self.allocator, recordExprKey(call) orelse return, arm);
+        try self.putIn(.{ .facts = .select_arms }, recordExprKey(call) orelse return, arm);
     }
 
     /// The arm `call` is of a `task.select`, if it is one.
@@ -5753,7 +5946,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordActorCall(self: *SemContext, call: Sexp) !void {
-        try self.facts.actor_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .actor_calls }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` calls a method through an actor's handle
@@ -5763,7 +5956,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordLoan(self: *SemContext, view: Sexp, kind: ViewKind) !void {
-        try self.facts.loans.put(self.allocator, recordExprKey(view) orelse return, kind);
+        try self.putIn(.{ .facts = .loans }, recordExprKey(view) orelse return, kind);
     }
 
     /// What `!x` puts on `x` (Core §4): a read loan where it makes a
@@ -5774,7 +5967,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordTypeParamCall(self: *SemContext, call: Sexp) !void {
-        try self.facts.type_param_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .type_param_calls }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` calls a method on a value of a type parameter
@@ -5784,7 +5977,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordSuperviseCall(self: *SemContext, call: Sexp) !void {
-        try self.facts.supervise_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .supervise_calls }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is `task.supervise` (`recordSuperviseCall`).
@@ -5793,7 +5986,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordHttpServe(self: *SemContext, call: Sexp) !void {
-        try self.facts.http_serves.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .http_serves }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is `http.serve` (`recordHttpServe`).
@@ -5802,7 +5995,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordReduceCall(self: *SemContext, call: Sexp) !void {
-        try self.facts.reduce_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .reduce_calls }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is `xs.reduce(start, f)` (`recordReduceCall`).
@@ -5811,7 +6004,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordIoCopy(self: *SemContext, call: Sexp) !void {
-        try self.facts.io_copies.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .io_copies }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is `io.copy` (`recordIoCopy`).
@@ -5822,7 +6015,7 @@ pub const SemContext = struct {
     /// the call it is passed to, whose parameter is written `once`: what
     /// it owns of its captures, its one call takes (`once_captures`).
     pub fn recordOnceClosure(self: *SemContext, lambda: Sexp) !void {
-        try self.facts.once_closures.put(self.allocator, recordExprKey(lambda) orelse return, {});
+        try self.putIn(.{ .facts = .once_closures }, recordExprKey(lambda) orelse return, {});
         for (captureList(ir.Lambda.captures(lambda))) |cap| switch (captureModeOf(cap) orelse continue) {
             .cap_move, .cap_clone, .cap_weak => {
                 const sym = self.symbolOf(captureNameNode(cap) orelse continue) orelse continue;
@@ -5847,8 +6040,8 @@ pub const SemContext = struct {
     /// Records that the task `call` makes is local, pinned by `local`;
     /// the first part found to pin it is the one kept.
     pub fn recordLocalTask(self: *SemContext, call: Sexp, local: LocalTask) !void {
-        const entry = try self.facts.local_tasks.getOrPut(self.allocator, recordExprKey(call) orelse return);
-        if (!entry.found_existing) entry.value_ptr.* = local;
+        const key = recordExprKey(call) orelse return;
+        if (!self.facts.local_tasks.contains(key)) try self.putIn(.{ .facts = .local_tasks }, key, local);
     }
 
     /// Whether the task `call` makes is local (`recordLocalTask`).
@@ -5857,7 +6050,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordIsolateCall(self: *SemContext, call: Sexp) !void {
-        try self.facts.isolate_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+        try self.putIn(.{ .facts = .isolate_calls }, recordExprKey(call) orelse return, {});
     }
 
     /// Whether `call` is a `task.isolate` (`recordIsolateCall`).
@@ -5866,7 +6059,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordParCall(self: *SemContext, call: Sexp, kind: ParCall) !void {
-        try self.facts.par_calls.put(self.allocator, recordExprKey(call) orelse return, kind);
+        try self.putIn(.{ .facts = .par_calls }, recordExprKey(call) orelse return, kind);
     }
 
     /// Which of `par.map`, `par.each`, `par.workers`, and `par.push`
@@ -5876,7 +6069,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordTestCheck(self: *SemContext, node: Sexp, shown: []const u8) !void {
-        try self.facts.test_checks.put(self.allocator, recordExprKey(node) orelse return, shown);
+        try self.putIn(.{ .facts = .test_checks }, recordExprKey(node) orelse return, shown);
     }
 
     /// When `node`, a test's last line or a `return` in a test, gives the
@@ -5887,7 +6080,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordReadInPlace(self: *SemContext, node: Sexp) !void {
-        try self.facts.in_place_reads.put(self.allocator, exprKey(node) orelse return, {});
+        try self.putIn(.{ .facts = .in_place_reads }, exprKey(node) orelse return, {});
     }
 
     /// Whether `node`, a branch of a read branching value, is read where
@@ -5903,16 +6096,17 @@ pub const SemContext = struct {
     /// take before the view, and keeps the view.
     pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
         const key = recordExprKey(node) orelse return;
-        const gop = try self.facts.uses.getOrPut(self.allocator, key);
-        if (gop.found_existing and gop.value_ptr.* == .view and use == .take) return;
-        if (gop.found_existing) std.debug.assert(gop.value_ptr.* == use);
-        gop.value_ptr.* = use;
+        if (self.facts.uses.get(key)) |old| {
+            if (old == .view and use == .take) return;
+            std.debug.assert(old == use);
+        }
+        try self.putIn(.{ .facts = .uses }, key, use);
     }
 
     /// The member access `node` reaches a field read-only here
     /// (`Facts.read_only_fields`).
     pub fn recordReadOnlyField(self: *SemContext, node: Sexp, field: ReadOnlyField) !void {
-        try self.facts.read_only_fields.put(self.allocator, recordKey(node), field);
+        try self.putIn(.{ .facts = .read_only_fields }, recordKey(node), field);
     }
 
     pub fn readOnlyFieldOf(self: *const SemContext, node: Sexp) ?ReadOnlyField {
@@ -5923,7 +6117,7 @@ pub const SemContext = struct {
     /// taken: a bare value viewed to read where a view is expected.
     pub fn recordImplicitView(self: *SemContext, node: Sexp) !void {
         const key = recordExprKey(node) orelse return;
-        try self.facts.uses.put(self.allocator, key, .view);
+        try self.putIn(.{ .facts = .uses }, key, .view);
     }
 
     /// What the context of `node` does with it, where one was recorded.
@@ -5935,7 +6129,7 @@ pub const SemContext = struct {
     /// value made there that it holds.
     pub fn recordHeader(self: *SemContext, header: Sexp, how: Header, base: Sexp) !void {
         std.debug.assert((how == .held) == (base != .nil));
-        try self.facts.headers.put(self.allocator, recordKey(header), .{ .how = how, .base = base });
+        try self.putIn(.{ .facts = .headers }, recordKey(header), .{ .how = how, .base = base });
     }
 
     /// How the header `node` (a `for`, a `match`, or an `as`) has a bare
@@ -5948,7 +6142,7 @@ pub const SemContext = struct {
 
     /// The `break` or `continue` `jump` goes to `dest` (`JumpDest`).
     pub fn recordJumpDest(self: *SemContext, jump: Sexp, dest: JumpDest) !void {
-        try self.facts.jump_dests.put(self.allocator, recordKey(jump), dest);
+        try self.putIn(.{ .facts = .jump_dests }, recordKey(jump), dest);
     }
 
     /// Where the `break` or `continue` `jump` goes; null for a jump the
@@ -5961,7 +6155,7 @@ pub const SemContext = struct {
     /// variant in field order, `binds[i]`: a name leaf, `_`, or `.nil` for
     /// a field a pattern that binds by name leaves out.
     pub fn recordPayloadBindings(self: *SemContext, pattern: Sexp, binds: []const Sexp) !void {
-        try self.facts.payload_binds.put(self.allocator, recordKey(pattern), binds);
+        try self.putIn(.{ .facts = .payload_binds }, recordKey(pattern), binds);
     }
 
     /// The payload bindings of an arm's pattern, in field order: a
@@ -5988,7 +6182,7 @@ pub const SemContext = struct {
     /// order, where it tests one: `r?` that the optional holds a value
     /// (and binds it), `none` that it holds none.
     pub fn recordPayloadTests(self: *SemContext, pattern: Sexp, tests: []const PayloadTest) !void {
-        try self.facts.payload_tests.put(self.allocator, recordKey(pattern), tests);
+        try self.putIn(.{ .facts = .payload_tests }, recordKey(pattern), tests);
     }
 
     /// The test of each payload field of the variant `pattern`
@@ -6017,8 +6211,8 @@ pub const SemContext = struct {
     /// Forget the use recorded for `node`: typecheck records a held base
     /// as taken while it checks the header, and gives it back to an
     /// ordinary read when the header holds nothing after all.
-    pub fn forgetUse(self: *SemContext, node: Sexp) void {
-        _ = self.facts.uses.remove(exprKey(node) orelse return);
+    pub fn forgetUse(self: *SemContext, node: Sexp) std.mem.Allocator.Error!void {
+        try self.removeIn(.{ .facts = .uses }, exprKey(node) orelse return);
     }
 
     /// Whether `match` takes its subject, a value made there, as
@@ -6028,7 +6222,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordStringCall(self: *SemContext, call: Sexp, op: StringCall) !void {
-        try self.facts.string_calls.put(self.allocator, recordKey(call), op);
+        try self.putIn(.{ .facts = .string_calls }, recordKey(call), op);
     }
 
     /// The built-in String operation a `String(...)` call or a method's
@@ -6038,7 +6232,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordStringNum(self: *SemContext, callee: Sexp, num: TypeId) !void {
-        try self.facts.string_nums.put(self.allocator, recordKey(callee), num);
+        try self.putIn(.{ .facts = .string_nums }, recordKey(callee), num);
     }
 
     /// The integer type `T` of a `t.push[T, e](v)` callee.
@@ -6047,11 +6241,11 @@ pub const SemContext = struct {
     }
 
     pub fn recordInstance(self: *SemContext, node: Sexp, inst: Instance) !void {
-        try self.facts.instances.put(self.allocator, recordKey(node), inst);
+        try self.putIn(.{ .facts = .instances }, recordKey(node), inst);
     }
 
     pub fn recordCtCall(self: *SemContext, node: Sexp, call: CtCall) !void {
-        try self.facts.ct_calls.put(self.allocator, recordKey(node), call);
+        try self.putIn(.{ .facts = .ct_calls }, recordKey(node), call);
     }
 
     pub fn ctCallOf(self: *const SemContext, node: Sexp) ?CtCall {
@@ -6059,13 +6253,13 @@ pub const SemContext = struct {
     }
 
     pub fn recordGenericCall(self: *SemContext, node: Sexp, call: GenericCall) !void {
-        try self.facts.generic_calls.put(self.allocator, recordKey(node), call);
+        try self.putIn(.{ .facts = .generic_calls }, recordKey(node), call);
     }
 
     /// How method call `call` reaches its method (`Dispatch`): `direct`
     /// unless a call through a bound or an API recorded `static`.
     pub fn recordDispatch(self: *SemContext, call: Sexp, d: Dispatch) !void {
-        try self.facts.dispatch.put(self.allocator, recordKey(call), d);
+        try self.putIn(.{ .facts = .dispatch }, recordKey(call), d);
     }
 
     pub fn dispatchOf(self: *const SemContext, call: Sexp) ?Dispatch {
@@ -6074,7 +6268,7 @@ pub const SemContext = struct {
 
     /// `node`, erased to an API object (`Erasure`).
     pub fn recordErasure(self: *SemContext, node: Sexp, e: Erasure) !void {
-        try self.facts.erasures.put(self.allocator, recordExprKey(node) orelse return, e);
+        try self.putIn(.{ .facts = .erasures }, recordExprKey(node) orelse return, e);
     }
 
     pub fn erasureOf(self: *const SemContext, node: Sexp) ?Erasure {
@@ -6082,7 +6276,7 @@ pub const SemContext = struct {
     }
 
     pub fn recordOwnerWitnesses(self: *SemContext, call: Sexp, w: OwnerWitnesses) !void {
-        try self.facts.owner_witnesses.put(self.allocator, recordKey(call), w);
+        try self.putIn(.{ .facts = .owner_witnesses }, recordKey(call), w);
     }
 
     pub fn ownerWitnessesOf(self: *const SemContext, call: Sexp) ?OwnerWitnesses {
@@ -6362,7 +6556,7 @@ pub const SemContext = struct {
 
 pub const CheckOptions = struct {
     /// The parser that built the tree, for node spans in diagnostics.
-    parser: ?*const parser.Parser = null,
+    parser: ?*parser.Parser = null,
     /// What the module's `use` declarations resolve to.
     imports: []const ImportEntry = &.{},
     /// Every module loaded so far, by id; the imports and the modules
@@ -17880,6 +18074,51 @@ fn findNodes(node: Sexp, tag: Tag, out: *std.ArrayList(Sexp)) !void {
     if (node.kind() == tag) try out.append(std.testing.allocator, node);
     if (node != .list) return;
     for (node.items()) |c| try findNodes(c, tag, out);
+}
+
+test "trail: a rollback gives each fact the value it had at the mark" {
+    var r = try factsRun(
+        \\fun f(a: Int) -> Int
+        \\  b = a + 1
+        \\  b
+        \\
+    );
+    defer r.deinit();
+    const ctx = &r.ctx;
+    const a = r.at("a", 1);
+    const b = r.at("b", 0);
+    const plus = findNode(r.tree, .@"+").?;
+    const a_ty = r.leafType("a", 1).?;
+    const plus_ty = ctx.typeOf(plus).?;
+    const names = ctx.facts.names.count();
+    const plus_use = ctx.useOf(plus);
+    const diagnostics = ctx.diagnostics.items.len;
+
+    const m = ctx.mark();
+    // Changed, added, and removed facts, of a leaf and of a list node.
+    try ctx.recordType(.{ .src = .{ .pos = a, .len = 1, .id = 0 } }, ctx.types.bool_id);
+    try ctx.recordType(plus, ctx.types.bool_id);
+    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, 1);
+    try ctx.removeIn(.{ .facts = .names }, b);
+    try ctx.err(0, "a diagnostic the rollback drops", .{});
+    // A nested mark kept is taken back with the one around it.
+    const inner = ctx.mark();
+    try ctx.recordImplicitView(plus);
+    ctx.commit(inner);
+    try std.testing.expectEqual(ctx.types.bool_id, ctx.typeOf(plus).?);
+    try ctx.rollback(m);
+
+    try std.testing.expectEqual(a_ty, r.leafType("a", 1).?);
+    try std.testing.expectEqual(plus_ty, ctx.typeOf(plus).?);
+    try std.testing.expectEqual(names, ctx.facts.names.count());
+    try std.testing.expect(ctx.symbolAt(b) != null);
+    try std.testing.expect(ctx.symbolAt(b + 1000) == null);
+    try std.testing.expectEqual(plus_use, ctx.useOf(plus));
+    try std.testing.expectEqual(diagnostics, ctx.diagnostics.items.len);
+    // With no mark open, nothing is on the trail.
+    try std.testing.expectEqual(@as(usize, 0), ctx.trail.entries.items.len);
+    try ctx.recordType(plus, ctx.types.bool_id);
+    try std.testing.expectEqual(@as(usize, 0), ctx.trail.entries.items.len);
 }
 
 test "storage: a header points at a place its temporaries reach, never into one" {

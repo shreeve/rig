@@ -72,8 +72,10 @@ full checks today. The pilot measures that first.
 - **One recorder.** Every fact lives in one record keyed by node id,
   in declared columns. Each column has one writer pass, enforced at
   compile time, and it is sealed at the end of that pass. The recorder
-  carries a trail (mark and roll back) over facts, symbols, scopes, and
-  type interning, which elaboration's rewrites need. Nodes made by
+  carries a trail (mark and roll back) over fact writes, which
+  elaboration's rewrites need. Symbols, scopes, and type interning join
+  it only when a step needs them: each is made once for what it names,
+  and F3 keeps emit identical without rolling them back. Nodes made by
   rewrites get ids, so no fact is keyed by an address.
 - **Then fewer facts.** Storage decisions become LIR variables. Proofs
   become bits on LIR check operations. The 36 lazy questions,
@@ -201,7 +203,7 @@ Each tests one half of the central bet, and the split comes right after.
 
 | Pilot | Steps | Tests | Measures |
 |---|---|---|---|
-| **Front: sema once, for iterator loops** (A) | F1 the recorder's trail (mark and roll back over facts, symbols, scopes, interning), unused yet; F2 byte literals elaborated at the site; F3 iterator loops elaborated at the `for` | that a type-directed rewrite at its site keeps emit identical; the known unknown is whether type-id order reaches emitted text | sema rounds per module, counted before the change; `rig check --time` on Trig |
+| **Front: sema once, for iterator loops** (A) | F1 the recorder's trail (mark and roll back over fact writes; symbols, scopes, and interning only when a step needs them), unused yet; F2 byte literals elaborated at the site; F3 iterator loops elaborated at the `for` | that a type-directed rewrite at its site keeps emit identical; the known unknown is whether type-id order reaches emitted text | sema rounds per module, counted before the change; `rig check --time` on Trig |
 | **Back: the var table** (C) | storage's plan produces, per frame owner, an ordered table of hidden variables; emit's temporaries and guards and ownership's call holds read it; emit keeps its own name counter | that a decision can become data that emit only prints, byte-identical | net lines (budget: −500 across storage, facts, and emit) |
 
 If either pilot cannot hold identity at a reasonable pace, the rebuild
@@ -307,9 +309,10 @@ follows only if it passes.
   renaming-only B step, every hunk classified neutral, then resumes. If
   the shadow lowering cannot reproduce storage's decisions, the
   premise is false and the back track stops.
-- **Type-id order** may reach emitted text, which would break the
-  front pilot's identity. It is unknown, and the front pilot checks it
-  first.
+- **Type-id order** does not reach emitted text: F3 elaborates
+  iterator loops in place, with symbols, scopes, and interned types not
+  rolled back and so numbered differently from a second check, and the
+  emitted Zig of every program, Trig's included, is identical.
 - **Ownership's swap** must keep every verdict and message. The shadow
   run over the suite, the doc examples, and the corpus is the proof, and
   the oracle stays independent.

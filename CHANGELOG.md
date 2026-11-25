@@ -664,6 +664,20 @@ serve no HTTP.
 
 ### Compiler
 
+- **A `for` over an iterator is checked once, as the `while` it means,
+  where it stands:** typecheck rewrites it where it learns the source's
+  type, rolling back what checking the source recorded (the trail), and a
+  module whose only such rewrites are these loops is no longer checked a
+  second time. `rig check` of Trig takes 32% less time (2,038 ms to
+  1,379 ms on the Mac, best of 9) and 31% fewer instructions, with the
+  same peak memory; the emitted Zig is the same
+  (docs/internals/INTERNALS.md, "Loops over an iterator").
+- **A check can be taken back:** every fact sema records goes through
+  one write path (`SemContext.putIn`), and while a mark is open each
+  write goes on a trail with the value it replaced, so a rollback gives
+  the facts table, the diagnostics, and the decisions what they held at
+  the mark (docs/internals/INTERNALS.md, "The trail"). Nothing uses it
+  yet but its test; the emitted Zig is the same.
 - **The storage plan keeps one var table** (docs/internals/INTERNALS.md,
   "Storage facts"): each hidden var emit makes, in the order the plan
   makes it, with how it holds its value, how long, and how it drops it,
