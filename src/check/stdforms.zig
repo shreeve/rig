@@ -107,7 +107,7 @@ pub fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as
 /// with the fix. Null for any other type, and for a write view passed
 /// to be read by several, which no bound allows.
 pub fn objectLack(self: *Checker, ty: TypeId, how_in: sema.Crossing) Error!?[]const u8 {
-    const types = &self.ctx.types;
+    const types = self.ctx.types;
     var held_ty = ty;
     var how = how_in;
     if (types.get(held_ty) == .optional) held_ty = types.get(held_ty).optional;

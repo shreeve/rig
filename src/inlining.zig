@@ -377,8 +377,7 @@ const Pass = struct {
     /// The parameters every instance module `c` makes binds (`bound`):
     /// a generic type's, and a generic function's, its type's included.
     fn bind(self: *Pass, c: *const SemContext) !void {
-        var it = c.instantiation_sites.keyIterator();
-        while (it.next()) |ty| switch (c.types.get(ty.*)) {
+        for (c.instantiation_sites.keys()) |ty| switch (c.types.get(ty)) {
             .parameterized_nominal => |pn| for (c.symbols.items[c.localSym(pn.sym)].type_params orelse &.{}) |p| try self.bound.put(self.a, originOf(c, p), {}),
             else => {},
         };

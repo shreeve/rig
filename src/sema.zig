@@ -3660,8 +3660,8 @@ fn recordPlainFacts(ctx: *SemContext) std.mem.Allocator.Error!void {
     for (ctx.plain_tests.items) |ty| try ctx.plain_test_bits.put(ctx.allocator, ty, try plainBitOf(ctx, ty));
     if (!ctx.uses_plain_bits) return;
     var i: usize = 0;
-    while (i < ctx.types.items.items.len) : (i += 1) {
-        const ty: TypeId = @intCast(i);
+    while (i < ctx.interned.items.len) : (i += 1) {
+        const ty = ctx.interned.items[i];
         const pn = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| pn,
             else => continue,
@@ -3681,9 +3681,8 @@ fn recordPlainFacts(ctx: *SemContext) std.mem.Allocator.Error!void {
 fn recordInstancePlain(ctx: *SemContext) std.mem.Allocator.Error!void {
     if (ctx.plain_regions.items.len == 0) return;
     for (ctx.fn_instances.items) |f| try recordArgsPlain(ctx, f.inst.params, f.inst.args);
-    var it = ctx.instantiation_sites.keyIterator();
-    while (it.next()) |ty| {
-        const pn = switch (ctx.types.get(ty.*)) {
+    for (ctx.instantiation_sites.keys()) |ty| {
+        const pn = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
@@ -3859,8 +3858,9 @@ fn computePlainBits(ctx: *SemContext) std.mem.Allocator.Error!void {
     ctx.uses_plain_bits = true;
     while (true) {
         changed = false;
-        var t: TypeId = 0;
-        while (t < ctx.types.items.items.len) : (t += 1) {
+        var i: usize = 0;
+        while (i < ctx.interned.items.len) : (i += 1) {
+            const t = ctx.interned.items[i];
             const pn = switch (ctx.types.get(t)) {
                 .parameterized_nominal => |pn| pn,
                 else => continue,
@@ -4096,9 +4096,22 @@ pub const SemContext = struct {
     symbols: std.ArrayList(Symbol) = .empty,
     /// Scope 1 is the module scope.
     scopes: std.ArrayList(Scope) = .empty,
-    types: TypeStore,
-    /// Facts of each interned type, by TypeId.
-    type_info: std.ArrayList(TypeInfo) = .empty,
+    /// The program's type store (`program.Types`), which every module
+    /// interns in.
+    types: *TypeStore,
+    /// The store with the facts of each type in it (`program.Types`).
+    program_types: *program.Types,
+    /// The context made `program_types` itself, outside a graph, and
+    /// frees it.
+    owns_types: bool = false,
+    /// The first type this module may have interned: the facts of every
+    /// type before it are an earlier module's, and final.
+    types_start: TypeId = 0,
+    /// The types this module has interned, in the order it first did,
+    /// and which they are (`interned_set`): what a walk over "the
+    /// module's types" walks, whatever other modules interned.
+    interned: std.ArrayList(TypeId) = .empty,
+    interned_set: std.DynamicBitSetUnmanaged = .{},
     /// Where among `diagnostics` a form holding an API object was
     /// reported as not built yet (`objectUnbuiltError`); a report a quiet
     /// check took back no longer counts (`objectRejected`).
@@ -4242,8 +4255,9 @@ pub const SemContext = struct {
     alias_in_progress: FastMap(SymbolId, void) = .empty,
     /// Operations generic bodies apply to their type parameters.
     generic_requirements: std.ArrayList(GenericRequirement) = .empty,
-    /// Instantiated generic type -> position of its first spelling.
-    instantiation_sites: FastMap(TypeId, u32) = .empty,
+    /// Instantiated generic type -> position of its first spelling, in
+    /// the order the check finds them, which no TypeId decides.
+    instantiation_sites: fastmap.OrderedMap(TypeId, u32) = .empty,
     /// Instances of user generics spelled with type parameters, inside
     /// generic declarations (`Opt[T]` in `Wrap[T]`'s methods). See
     /// `expandInstantiations`.
@@ -4525,13 +4539,34 @@ pub const SemContext = struct {
     ct: cteval.State = .{},
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
+        return initIn(allocator, source, null);
+    }
+
+    /// A context that interns in `shared`, the program's types, or in a
+    /// store of its own when null.
+    pub fn initIn(allocator: std.mem.Allocator, source: []const u8, shared: ?*program.Types) !SemContext {
+        const types = shared orelse made: {
+            const t = try allocator.create(program.Types);
+            errdefer allocator.destroy(t);
+            t.* = try program.Types.init(allocator);
+            break :made t;
+        };
+        errdefer if (shared == null) {
+            types.deinit(allocator);
+            allocator.destroy(types);
+        };
         var ctx: SemContext = .{
             .allocator = allocator,
             .source = source,
             .arena = std.heap.ArenaAllocator.init(allocator),
-            .types = try TypeStore.init(allocator),
+            .types = &types.store,
+            .program_types = types,
+            .owns_types = shared == null,
+            .types_start = if (types.ready) @intCast(types.store.items.items.len) else 0,
             .type_memo = undefined,
         };
+        // The types every store starts with are every module's.
+        for (0..types.primitives) |i| try ctx.noteInterned(@intCast(i));
         ctx.type_memo = try allocator.create(TypeMemo);
         ctx.type_memo.* = .{};
         errdefer allocator.destroy(ctx.type_memo);
@@ -4554,8 +4589,12 @@ pub const SemContext = struct {
         }
         self.scopes.deinit(self.allocator);
         self.symbols.deinit(self.allocator);
-        self.types.deinit(self.allocator);
-        self.type_info.deinit(self.allocator);
+        if (self.owns_types) {
+            self.program_types.deinit(self.allocator);
+            self.allocator.destroy(self.program_types);
+        }
+        self.interned.deinit(self.allocator);
+        self.interned_set.deinit(self.allocator);
         self.deferred_checks.deinit(self.allocator);
         self.conformances.deinit(self.allocator);
         self.type_witnesses.deinit(self.allocator);
@@ -6062,20 +6101,29 @@ pub const SemContext = struct {
             else => {},
         }
         const id = try self.types.intern(self.allocator, ty);
+        try self.noteInterned(id);
         try self.syncTypeInfo();
         return id;
     }
 
+    /// Record that this module interned `id` (`interned`).
+    fn noteInterned(self: *SemContext, id: TypeId) std.mem.Allocator.Error!void {
+        if (id >= self.interned_set.bit_length) try self.interned_set.resize(self.allocator, @max(id + 1, self.interned_set.bit_length * 2), false);
+        if (self.interned_set.isSet(id)) return;
+        self.interned_set.set(id);
+        try self.interned.append(self.allocator, id);
+    }
+
     /// Record the facts of every type interned since the last call.
     fn syncTypeInfo(self: *SemContext) std.mem.Allocator.Error!void {
-        while (self.type_info.items.len < self.types.items.items.len) {
-            const info = try computeTypeInfo(self, @intCast(self.type_info.items.len));
-            try self.type_info.append(self.allocator, info);
+        while (self.program_types.info.items.len < self.types.items.items.len) {
+            const info = try computeTypeInfo(self, @intCast(self.program_types.info.items.len));
+            try self.program_types.info.append(self.allocator, info);
         }
     }
 
     pub fn typeInfo(self: *const SemContext, ty: TypeId) TypeInfo {
-        return if (ty < self.type_info.items.len) self.type_info.items[ty] else .{};
+        return if (ty < self.program_types.info.items.len) self.program_types.info.items[ty] else .{};
     }
 
     /// `typeInfo` for the ownership facts, known once declarations are
@@ -6089,7 +6137,10 @@ pub const SemContext = struct {
     /// arguments) may be temporary: they are copied into the arena only
     /// when the type is new.
     pub fn internCopy(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
-        if (self.types.find(ty)) |id| return id;
+        if (self.types.find(ty)) |id| {
+            try self.noteInterned(id);
+            return id;
+        }
         var owned = ty;
         switch (owned) {
             .function => |*f| {
@@ -6114,6 +6165,9 @@ pub const SemContext = struct {
 // =============================================================================
 
 pub const CheckOptions = struct {
+    /// The program's type store, which the module interns in; null for a
+    /// module checked alone, which gets its own.
+    types: ?*program.Types = null,
     /// The parser that built the tree, for node spans in diagnostics.
     parser: ?*parser.Parser = null,
     /// What the module's `use` declarations resolve to.
@@ -6219,7 +6273,7 @@ pub fn notPublic(ctx: *SemContext, pos: u32, module: []const u8, name: []const u
 /// Check one module.
 pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts: CheckOptions) !SemContext {
     var t0 = timing.start(opts.timing);
-    var ctx = try SemContext.init(allocator, source);
+    var ctx = try SemContext.initIn(allocator, source, opts.types);
     errdefer ctx.deinit();
 
     ctx.parser = opts.parser;
@@ -7173,8 +7227,9 @@ fn computeContents(ctx: *SemContext) std.mem.Allocator.Error![]const SymbolId {
     for (c.order.items) |id| try symbolContents(ctx, id);
     try computeReach(ctx);
     ctx.contents_ready = true;
-    ctx.type_info.clearRetainingCapacity();
+    ctx.program_types.info.shrinkRetainingCapacity(ctx.types_start);
     try ctx.syncTypeInfo();
+    ctx.program_types.ready = true;
     return ctx.arena.allocator().dupe(SymbolId, c.order.items);
 }
 
@@ -7198,7 +7253,7 @@ pub fn beginEarlyContents(ctx: *SemContext) std.mem.Allocator.Error!bool {
     }
     ctx.contents_ready = true;
     ctx.ct.window_open = true;
-    ctx.type_info.clearRetainingCapacity();
+    ctx.program_types.info.shrinkRetainingCapacity(ctx.types_start);
     try ctx.syncTypeInfo();
     return true;
 }
@@ -7208,7 +7263,7 @@ pub fn endEarlyContents(ctx: *SemContext) std.mem.Allocator.Error!void {
     ctx.ct.window.clearRetainingCapacity();
     ctx.contents_ready = false;
     ctx.ct.window_open = false;
-    ctx.type_info.clearRetainingCapacity();
+    ctx.program_types.info.shrinkRetainingCapacity(ctx.types_start);
     try ctx.syncTypeInfo();
 }
 
@@ -7263,8 +7318,8 @@ const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool =
 /// whose parameters are `params` (empty elsewhere): each parameter it
 /// holds by value is marked in `held` and counts as plain.
 fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool) std.mem.Allocator.Error!Holds {
-    if (params.len == 0 and ctx.contents_ready and ty < ctx.type_info.items.len) {
-        const info = ctx.type_info.items[ty];
+    if (params.len == 0 and ctx.contents_ready and ty < ctx.program_types.info.items.len) {
+        const info = ctx.program_types.info.items[ty];
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var, .vector = info.vector, .any_error = info.any_error };
     }
     return switch (ctx.types.get(ty)) {
@@ -7505,7 +7560,7 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     var highest: ?u8 = null;
     var it: TypeChildren = .{ .ty = ty };
     while (it.next()) |c| {
-        const ci = ctx.type_info.items[c];
+        const ci = ctx.program_types.info.items[c];
         info.has_type_var = info.has_type_var or ci.has_type_var;
         info.object = info.object or ci.object;
         info.poison = info.poison or ci.poison;
@@ -9811,8 +9866,8 @@ pub fn typeWitnesses(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?[]co
 /// them after the arguments they follow.
 pub fn recordTypeWitnesses(ctx: *SemContext) std.mem.Allocator.Error!void {
     var i: usize = 0;
-    while (i < ctx.types.items.items.len) : (i += 1) {
-        const ty: TypeId = @intCast(i);
+    while (i < ctx.interned.items.len) : (i += 1) {
+        const ty = ctx.interned.items[i];
         const pn = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| pn,
             else => continue,
@@ -15666,7 +15721,7 @@ pub fn viewAs(ctx: *const SemContext, from: TypeId, kind: ViewKind, view: TypeId
 }
 
 fn viewRows(ctx: *const SemContext, from: TypeId, kind: ViewKind, view: TypeId, made: *View) bool {
-    const types = &ctx.types;
+    const types = ctx.types;
     // Any `T` gives `?T`, and `!T` to write; a write view may be read. A
     // write view of an API object gives its read view, one of another
     // Zig type (`rig.ApiView`).
@@ -18334,7 +18389,7 @@ test "type facts: moves, copies, cloneable" {
     );
     defer r.deinit();
     const ctx = &r.ctx;
-    const ty = &ctx.types;
+    const ty = ctx.types;
     const p = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "P").?) });
     const v = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "V").?) });
     const t = try ctx.intern(.{ .type_var = ctx.ref(r.sym("T", 0).?) });
@@ -18408,7 +18463,7 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
     );
     defer r.deinit();
     const ctx = &r.ctx;
-    const ty = &ctx.types;
+    const ty = ctx.types;
     const p = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "P").?) });
     const box_p = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.builtins.box, .args = &.{p} } });
     const opt_p = try ctx.intern(.{ .optional = p });
@@ -18454,7 +18509,7 @@ test "view table: each row makes its view" {
     );
     defer r.deinit();
     const ctx = &r.ctx;
-    const ty = &ctx.types;
+    const ty = ctx.types;
     const p = try ctx.intern(.{ .nominal = ctx.ref(ctx.lookup(module_scope, "P").?) });
     const read = struct {
         fn f(c: *SemContext, t: TypeId) !TypeId {
