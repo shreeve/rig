@@ -6411,7 +6411,6 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
     defer read.deinit(ctx.allocator);
     var names = ctx.facts.names.iterator();
     while (names.next()) |e| {
-        const sym = ctx.symbols.items[e.value_ptr.*];
         const leaf: u32 = @intCast(e.key_ptr.*);
         if (!ctx.facts.declares.contains(leaf) and !ctx.facts.writes.contains(leaf) and !ctx.facts.rebinds.contains(leaf)) read.set(e.value_ptr.*);
     }
