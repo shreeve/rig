@@ -4338,9 +4338,9 @@ pub const SemContext = struct {
     /// The types reported as too large, each once; a type holding one is
     /// not reported again.
     oversized: FastMap(TypeId, void) = .empty,
-    /// Nonzero while an expression is checked with its diagnostics
-    /// dropped (`typecheck.synthQuiet`): an array too large is left to
-    /// the check that keeps them.
+    /// Nonzero during a quiet check, whose diagnostics and facts are
+    /// taken back (`check/flow.zig`, `beginQuiet`): an array too large
+    /// is left to the check that keeps them.
     quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
     byte_sizes: FastMap(TypeId, ?u128) = .empty,
@@ -6322,8 +6322,8 @@ fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// A module typecheck accepted types no expression `invalid`, nor with
 /// `invalid` in it (`List[invalid]`): a check
 /// that rejects reports why, so an `invalid` with no error is a verdict
-/// whose diagnostic was dropped (a quiet check's, kept and reused), and
-/// emit would write what nothing checked. Reported at the first such
+/// whose diagnostic was dropped, and emit would write what nothing
+/// checked. Reported at the first such
 /// expression. Debug and test builds only.
 fn checkTypedClean(ctx: *SemContext, tree: Sexp) std.mem.Allocator.Error!void {
     if (ctx.hasErrors()) return;

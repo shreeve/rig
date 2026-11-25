@@ -3035,19 +3035,15 @@ pub fn viewedLambdaType(self: *Checker, inf: *Checker.Inference, pattern: TypeId
         const ty = try sema.substituteType(self.ctx, p, .{ .params = params.items, .args = types.items });
         g.* = if (sema.usesParams(self.ctx, ty, inf.own)) sema.type_invalid else ty;
     }
-    const mark = self.ctx.diagnostics.items.len;
-    self.ctx.quiet += 1;
-    self.tentative += 1;
-    defer {
-        self.ctx.quiet -= 1;
-        self.tentative -= 1;
-        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-    }
     // A closure where a result that can fail goes may propagate
     // with `!`: `?fun() -> R!` makes the body's `!` send its failure
     // to the caller, and `R` the type of the body's value.
     const fails = self.ctx.types.get(f.returns) == .fallible;
+    const m = FlowCheck.beginQuiet(self);
+    self.tentative += 1;
     const ty = try ClosureCheck.checkLambdaGiven(self, lambda, null, given, fails);
+    self.tentative -= 1;
+    const errors = try FlowCheck.endQuiet(self, m);
     const got = self.ctx.types.get(ty).function;
     // A parameter whose written type is in error never gets one: the
     // diagnostic about it explains what it leaves unbound.
@@ -3057,7 +3053,7 @@ pub fn viewedLambdaType(self: *Checker, inf: *Checker.Inference, pattern: TypeId
     }
     for (got.params) |p| if (self.isPoison(p)) return null;
     if (got.params.len != f.params.len) return null;
-    if (self.ctx.diagnostics.items.len != mark) try inf.failed.append(a, .{ .lambda = lambda, .given = given, .fails = fails, .pattern = pattern });
+    if (errors != 0) try inf.failed.append(a, .{ .lambda = lambda, .given = given, .fails = fails, .pattern = pattern });
     return ty;
 }
 

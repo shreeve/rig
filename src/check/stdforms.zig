@@ -3547,16 +3547,11 @@ pub fn chainArity(self: *Checker, f: Sexp, name: []const u8, what: []const u8, n
 pub fn chainFnResult(self: *Checker, f: Sexp, params: []const TypeId) Error!?TypeId {
     var ty: TypeId = undefined;
     if (f.isKind(.lambda)) {
-        const mark = self.ctx.diagnostics.items.len;
-        self.ctx.quiet += 1;
+        const m = FlowCheck.beginQuiet(self);
         self.tentative += 1;
-        defer {
-            self.ctx.quiet -= 1;
-            self.tentative -= 1;
-            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-        }
         const fn_ty = try ClosureCheck.checkLambdaGiven(self, f, null, params, false);
-        if (self.ctx.diagnostics.items.len != mark or self.isPoison(fn_ty) or self.ctx.types.get(fn_ty) != .function) return null;
+        self.tentative -= 1;
+        if (try FlowCheck.endQuiet(self, m) != 0 or self.isPoison(fn_ty) or self.ctx.types.get(fn_ty) != .function) return null;
         ty = self.ctx.types.get(fn_ty).function.returns;
     } else {
         const fty = try FlowCheck.synthQuiet(self, f);
@@ -3595,16 +3590,11 @@ pub fn noOrder(self: *Checker, ty: TypeId) Error!?sema.Lack {
 /// How many errors closure literal `f` has against function type
 /// `want`, checked quietly.
 pub fn lambdaErrorsQuietly(self: *Checker, f: Sexp, want: TypeId) Error!usize {
-    const mark = self.ctx.diagnostics.items.len;
-    self.ctx.quiet += 1;
+    const m = FlowCheck.beginQuiet(self);
     self.tentative += 1;
-    defer {
-        self.ctx.quiet -= 1;
-        self.tentative -= 1;
-        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-    }
     _ = try ClosureCheck.checkLambda(self, f, want);
-    return self.ctx.diagnostics.items.len - mark;
+    self.tentative -= 1;
+    return FlowCheck.endQuiet(self, m);
 }
 
 /// `xs.sum()` and `xs.sum(start: n)`: the elements of a slice, an
@@ -4704,16 +4694,11 @@ pub fn closureErrors(self: *Checker, f: Sexp, params: []const TypeId, sub: bool)
 /// Closure literal `f` checked quietly as `closureType` checks it, as
 /// one that can fail when `fails`: its type, and how many errors it has.
 pub fn closureQuietly(self: *Checker, f: Sexp, params: []const TypeId, sub: bool, fails: bool) Error!struct { TypeId, usize } {
-    const mark = self.ctx.diagnostics.items.len;
-    self.ctx.quiet += 1;
+    const m = FlowCheck.beginQuiet(self);
     self.tentative += 1;
-    defer {
-        self.ctx.quiet -= 1;
-        self.tentative -= 1;
-        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-    }
     const ty = try closureAs(self, f, params, sub, fails);
-    return .{ ty, self.ctx.diagnostics.items.len - mark };
+    self.tentative -= 1;
+    return .{ ty, try FlowCheck.endQuiet(self, m) };
 }
 
 /// Closure literal `f` checked as `closureType` checks it, as one that
