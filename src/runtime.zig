@@ -4776,7 +4776,8 @@ inline fn floatNs(x: f64, comptime unit: i64) ?i128 {
 /// from its exact value to the nearest integer, a half away from zero,
 /// and held within ±2^100; null when `x` is not finite. A double is an
 /// integer times a power of two, so the product is exact before the one
-/// rounding (the compiler's `sema.floatToNs` is the same).
+/// rounding. The compiler converts a constant with this one, as the
+/// program would (`sema.floatToNs`).
 pub fn floatToNs(x: f64, unit: i64) ?i128 {
     if (!std.math.isFinite(x)) return null;
     const cap: i128 = 1 << 100;

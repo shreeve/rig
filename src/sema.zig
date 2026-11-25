@@ -12904,39 +12904,9 @@ pub const Duration = struct {
     }
 };
 
-/// `x * unit`, `x` a finite double and `unit` a positive integer, rounded
-/// from its exact value to the nearest integer, a half away from zero,
-/// and held within ±2^100; null when `x` is not finite. A double is an
-/// integer times a power of two, so the product is exact before the one
-/// rounding (the runtime's `rig.floatToNs` is the same, as a constant must
-/// convert as the program would).
-pub fn floatToNs(x: f64, unit: i64) ?i128 {
-    if (!std.math.isFinite(x)) return null;
-    const cap: i128 = 1 << 100;
-    const bits: u64 = @bitCast(x);
-    const exp_bits: i32 = @intCast((bits >> 52) & 0x7ff);
-    const frac: u64 = bits & ((@as(u64, 1) << 52) - 1);
-    const m: u64 = if (exp_bits == 0) frac else frac | (@as(u64, 1) << 52);
-    const e: i32 = (if (exp_bits == 0) @as(i32, 1) else exp_bits) - 1075;
-    const neg = bits >> 63 == 1;
-    // |x * unit| = m * unit * 2^e, m below 2^53 and unit below 2^42.
-    const num: u128 = @as(u128, m) * @as(u128, @intCast(unit));
-    var q: u128 = 0;
-    if (e >= 0) {
-        if (num != 0 and (e >= 100 or (@as(u128, cap) >> @intCast(e)) < num)) {
-            q = cap;
-        } else q = num << @intCast(e);
-    } else {
-        const shift: u32 = @intCast(-e);
-        if (shift < 128) {
-            q = num >> @intCast(shift);
-            const rest = num - (q << @intCast(shift));
-            if (rest >= (@as(u128, 1) << @intCast(shift - 1))) q += 1;
-        }
-    }
-    const n: i128 = @intCast(@min(q, cap));
-    return if (neg) -n else n;
-}
+/// `x * unit` rounded once from its exact value, as the program converts
+/// it: a constant converts by the runtime's own `rig.floatToNs`.
+pub const floatToNs = @import("runtime.zig").floatToNs;
 
 /// How a duration form becomes its value (docs/design/datetime.md
 /// §5.2), decided once by the checker on a positive list: `total`, a form
