@@ -896,7 +896,7 @@ pub fn holdsInline(self: *const Checker, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .array, .nominal => true,
         .parameterized_nominal => |pn| blk: {
-            const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
+            const sym = sema.symbolAt(ctx, pn.sym).*;
             break :blk sym.kind == .generic_type and sym.decl_pos < sema.imported_decl_pos;
         },
         else => false,

@@ -85,7 +85,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
+        const params = sema.symbolAt(ctx, pn.sym).type_params orelse continue;
         const k = try key.ofType(ctx, entry.key_ptr.*);
         if (try checkedBefore(ctx, k) != null) continue;
         const mark = ctx.diagnostics.items.len;
@@ -1298,7 +1298,7 @@ pub fn checkStatedForwards(ctx: *SemContext) Error!void {
                 .parameterized_nominal => |pn| pn,
                 else => continue,
             };
-            const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
+            const params = sema.symbolAt(ctx, pn.sym).type_params orelse continue;
             for (params, pn.args) |p, arg| if (p == g.param) try printedNeeds(Gone, ctx, a, &gone, arg, at, &printed);
         };
     }

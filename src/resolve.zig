@@ -1643,7 +1643,7 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const tparams = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
+        const tparams = sema.symbolAt(ctx, pn.sym).type_params orelse continue;
         for (pn.args, 0..) |arg, i| switch (ctx.types.get(arg)) {
             .ct_param => |p| if (i < tparams.len) {
                 ctx.symbols.items[ctx.localSym(p)].ty = ctx.symbols.items[tparams[i]].ty;
@@ -2256,7 +2256,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             const pn = ctx.types.get(c.ty).parameterized_nominal;
             const widened = try sema.rewiden(ctx, c.widened);
             defer sema.restoreOwnerBounds(ctx, widened);
-            if (ctx.symbols.items[ctx.localSym(pn.sym)].type_params) |tps| _ = try sema.checkBounds(ctx, tps, pn.args, c.pos, .{ .type = c.ty });
+            if (sema.symbolAt(ctx, pn.sym).type_params) |tps| _ = try sema.checkBounds(ctx, tps, pn.args, c.pos, .{ .type = c.ty });
         },
         .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
             const shown = try sema.formatType(ctx, c.ty);
@@ -4654,11 +4654,11 @@ pub const TypeResolver = struct {
                 },
             },
             .ct_param => |sym| {
-                const ty = self.ctx.symbols.items[self.ctx.localSym(sym)].ty;
+                const ty = sema.symbolAt(self.ctx, sym).ty;
                 if (use == .arg and !self.isPoison(param_ty) and !self.isPoison(ty) and ty != param_ty) {
                     const got = try sema.formatType(self.ctx, ty);
                     const want = try sema.formatType(self.ctx, param_ty);
-                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, self.ctx.symbols.items[self.ctx.localSym(sym)].name, an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
+                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, sema.symbolAt(self.ctx, sym).name, an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
                     return t.invalid_id;
                 }
                 if (use == .array_len) try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = self.ctx.localSym(sym), .req = .array_len, .pos = self.ctx.startOf(node), .op = "an array length" });

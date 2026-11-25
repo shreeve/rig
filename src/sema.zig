@@ -1592,7 +1592,7 @@ pub fn reportStated(ctx: *SemContext, at: u32, param: SymbolId, api: Api, op: []
 pub fn reportStatedLack(ctx: *SemContext, at: u32, api: Api, lack: Lack, does: ?[]const u8) std.mem.Allocator.Error!bool {
     if (!lack.bound) return false;
     return switch (ctx.types.get(lack.ty)) {
-        .type_var => |p| reportStatedBound(ctx, at, ctx.localSym(p), .{ .api = api }, does orelse try boundUse(ctx.arena.allocator(), api, ctx.symbols.items[ctx.localSym(p)].name, "")),
+        .type_var => |p| reportStatedBound(ctx, at, ctx.localSym(p), .{ .api = api }, does orelse try boundUse(ctx.arena.allocator(), api, symbolAt(ctx, p).name, "")),
         else => false,
     };
 }
@@ -3666,7 +3666,7 @@ fn recordPlainFacts(ctx: *SemContext) std.mem.Allocator.Error!void {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
+        const params = symbolAt(ctx, pn.sym).type_params orelse continue;
         const bits = try plainArgs(ctx, params, pn.args);
         if (bits.len > 0) try ctx.type_plain_bits.put(ctx.allocator, ty, bits);
     }
@@ -3686,7 +3686,7 @@ fn recordInstancePlain(ctx: *SemContext) std.mem.Allocator.Error!void {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        try recordArgsPlain(ctx, ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue, pn.args);
+        try recordArgsPlain(ctx, symbolAt(ctx, pn.sym).type_params orelse continue, pn.args);
     }
     for (ctx.body_reaches.items) |r| try recordArgsPlain(ctx, r.params, r.args);
 }
@@ -3866,7 +3866,7 @@ fn computePlainBits(ctx: *SemContext) std.mem.Allocator.Error!void {
                 else => continue,
             };
             if (!ctx.typeInfo(t).has_type_var) continue;
-            const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
+            const params = symbolAt(ctx, pn.sym).type_params orelse continue;
             changed = (try passPlainBits(ctx, params, pn.args, &leaves)) or changed;
         }
         for (ctx.generic_fn_uses.items) |use| {
@@ -6718,9 +6718,9 @@ fn expandUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandIt
         };
         if (reached == null and ctx.uses_plain_bits) {
             const generic = ctx.types.get(use).parameterized_nominal;
-            if (!try plainBitsAgree(ctx, ctx.symbols.items[ctx.localSym(inst.sym)].type_params orelse &.{}, generic.args, inst.args, item.subst, item.site, try formatType(ctx, concrete))) return true;
+            if (!try plainBitsAgree(ctx, symbolAt(ctx, inst.sym).type_params orelse &.{}, generic.args, inst.args, item.subst, item.site, try formatType(ctx, concrete))) return true;
         }
-        const builtin = ctx.symbols.items[ctx.localSym(inst.sym)].decl_pos == builtin_decl_pos;
+        const builtin = symbolAt(ctx, inst.sym).decl_pos == builtin_decl_pos;
         if (reached) |r| {
             if (builtin or (try r.types.getOrPut(ctx.allocator, concrete)).found_existing) continue;
         } else {
@@ -7036,7 +7036,7 @@ fn typeItem(ctx: *const SemContext, ty: TypeId) ?TypeSubst {
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    return .{ .params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse return null, .args = pn.args };
+    return .{ .params = symbolAt(ctx, pn.sym).type_params orelse return null, .args = pn.args };
 }
 
 /// Whether `args` are distinct type or integer parameters: an instance at
@@ -7352,7 +7352,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         },
         // A set parameter's value is an error, whatever set binds it.
         .type_var => |sym| blk: {
-            if (ctx.symbols.items[ctx.localSym(sym)].flags.set_param) break :blk .{ .glue = true, .any_error = true };
+            if (symbolAt(ctx, sym).flags.set_param) break :blk .{ .glue = true, .any_error = true };
             const i = std.mem.findScalar(SymbolId, params, ctx.localSym(sym)) orelse break :blk .{ .type_var = true };
             held[i] = true;
             break :blk .{ .plain = true, .type_var = true };
@@ -7534,7 +7534,7 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             var r: Reach = .{};
             if (into) |e| {
                 try e.edges.append(ctx.allocator, .{ .from = ctx.localSym(pn.sym), .to = e.owner, .mask = m });
-            } else r = Reach.of(ctx.symbols.items[ctx.localSym(pn.sym)].contents);
+            } else r = Reach.of(symbolAt(ctx, pn.sym).contents);
             // A Cell an argument holds is inline only where the generic
             // holds that parameter by value (`Contents.held`, the rule
             // `holdsIn` follows), not behind a handle, a view, or a
@@ -7700,7 +7700,7 @@ const OptionalWalk = struct {
     /// for any other: a type parameter is no object or enum, so the walk
     /// from either meets the same objects' and enums' optionals.
     fn ownInstance(w: *OptionalWalk, ctx: *SemContext, pn: ParamNominal) std.mem.Allocator.Error!?TypeId {
-        const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse return null;
+        const params = symbolAt(ctx, pn.sym).type_params orelse return null;
         if (params.len != pn.args.len) return null;
         for (pn.args) |arg| if (ctx.types.get(arg) != .type_var) return null;
         w.own.clearRetainingCapacity();
@@ -7727,7 +7727,7 @@ const OptionalWalk = struct {
         var met = false;
         while (w.stack.pop()) |step| {
             const t = switch (ctx.types.get(step.ty)) {
-                .parameterized_nominal => |pn| if (genericDecl(ctx.symbols.items[ctx.localSym(pn.sym)])) (try w.ownInstance(ctx, pn)) orelse step.ty else step.ty,
+                .parameterized_nominal => |pn| if (genericDecl(symbolAt(ctx, pn.sym).*)) (try w.ownInstance(ctx, pn)) orelse step.ty else step.ty,
                 else => step.ty,
             };
             const k = step.key();
@@ -7745,7 +7745,7 @@ const OptionalWalk = struct {
             w.parts.clearRetainingCapacity();
             switch (here) {
                 .parameterized_nominal => |pn| {
-                    const decl = ctx.symbols.items[ctx.localSym(pn.sym)];
+                    const decl = symbolAt(ctx, pn.sym).*;
                     if (genericDecl(decl) and instanceNests(ctx, pn)) {
                         const subst: TypeSubst = .{ .params = decl.type_params.?, .args = pn.args };
                         for (decl.fields orelse &.{}) |*f| for (dataFields(f)) |*d| try w.parts.append(a, .{ .ty = try substituteType(ctx, d.ty, subst), .inl = step.inl, .late = !step.inl });
@@ -8132,7 +8132,7 @@ pub fn holdsUnownedParam(ctx: *const SemContext, ty: TypeId) bool {
     switch (t) {
         // A set parameter's value is an error, whatever set binds it.
         .type_var => |id| {
-            const sym = ctx.symbols.items[ctx.localSym(id)];
+            const sym = symbolAt(ctx, id).*;
             return !sym.flags.set_param and !boundOwned(ctx, sym);
         },
         .function, .ct_param => return false,
@@ -8352,7 +8352,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         else if (pn.sym == ctx.builtins.signal) blk: {
             const v = (try minBytesOf(ctx, pn.args[0], false)) orelse break :blk null;
             break :blk 2 *| v +| 2 +| 24;
-        } else try fieldBytes(ctx, ctx.localSym(pn.sym), .{ .params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse &.{}, .args = pn.args }),
+        } else try fieldBytes(ctx, ctx.localSym(pn.sym), .{ .params = symbolAt(ctx, pn.sym).type_params orelse &.{}, .args = pn.args }),
         // Several results are held together, as an object's fields are.
         .results => |parts| blk: {
             var total: u128 = 0;
@@ -8711,7 +8711,7 @@ pub fn instanceHeapStacked(ctx: *SemContext, inst: TypeId) std.mem.Allocator.Err
         .parameterized_nominal => |pn| pn,
         else => return null,
     };
-    const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
+    const sym = symbolAt(ctx, pn.sym).*;
     if (sym.decl_pos == builtin_decl_pos) return null;
     const subst: TypeSubst = .{ .params = sym.type_params orelse return null, .args = pn.args };
     for (sym.fields orelse &.{}) |f| {
@@ -8746,7 +8746,7 @@ pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {
 /// hold.
 pub fn isSetParam(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .type_var => |sym| ctx.symbols.items[ctx.localSym(sym)].flags.set_param,
+        .type_var => |sym| symbolAt(ctx, sym).flags.set_param,
         else => false,
     };
 }
@@ -9730,7 +9730,7 @@ pub fn unprovidedFix(ctx: *SemContext, arg: TypeId, api: ApiRef) std.mem.Allocat
     const fix: []const u8 = fix: {
         switch (ctx.types.get(arg)) {
             .type_var => |p| {
-                const sym = ctx.symbols.items[ctx.localSym(p)];
+                const sym = symbolAt(ctx, p).*;
                 if (!hasBounds(sym)) break :fix try a.print("; give it the bound: `[{s}: {s}]`", .{ sym.name, iname });
                 break :fix try a.print("; add `{s}` to its bounds: `[{s}: {s} + {s}]`", .{ iname, sym.name, try formatBounds(ctx, a, sym, null), iname });
             },
@@ -9835,7 +9835,7 @@ fn providesAt(ctx: *SemContext, ty: TypeId, api: ApiRef, depth: u32) std.mem.All
     const a = scratch.allocator();
     if (ctx.types.get(ty) == .type_var) {
         const p = ctx.types.get(ty).type_var;
-        for (ctx.symbols.items[ctx.localSym(p)].user_apis) |b| {
+        for (symbolAt(ctx, p).user_apis) |b| {
             for (try apiClosure(ctx, a, b)) |c| if (c.eql(api)) return .{ .bound = ctx.localSym(p) };
         }
         return null;
@@ -9885,7 +9885,7 @@ fn conditionsMet(ctx: *SemContext, ty: TypeId, home: *const SemContext, conf: Co
             .type_var => |p| p,
             else => continue,
         };
-        const bound = home.symbols.items[home.localSym(p)];
+        const bound = symbolAt(home, p).*;
         for (bound.user_apis) |u| if (try providesAt(ctx, args[i], u, depth + 1) == null) return false;
         var it = implied(bound.apis).iterator();
         while (it.next()) |b| if (try lacks(ctx, args[i], b) != null) return false;
@@ -10003,7 +10003,7 @@ pub fn typeWitnesses(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?[]co
         .parameterized_nominal => |pn| pn,
         else => return &.{},
     };
-    const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse return &.{};
+    const params = symbolAt(ctx, pn.sym).type_params orelse return &.{};
     return argWitnesses(ctx, ctx, params, pn.args);
 }
 
@@ -10019,7 +10019,7 @@ pub fn recordTypeWitnesses(ctx: *SemContext) std.mem.Allocator.Error!void {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
-        const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
+        const params = symbolAt(ctx, pn.sym).type_params orelse continue;
         const bounded = for (params) |p| {
             if (p != symbol_invalid and ctx.symbols.items[p].user_apis.len > 0) break true;
         } else false;
@@ -10056,7 +10056,7 @@ pub fn iterItem(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!IterShape 
         .nominal => {},
         .parameterized_nominal => if (listElem(ctx, peeled) != null or tableElem(ctx, peeled) != null) return .not_iterator,
         .type_var => |p| {
-            if (!boundApis(ctx, ctx.symbols.items[ctx.localSym(p)]).contains(.Iter)) return .not_iterator;
+            if (!boundApis(ctx, symbolAt(ctx, p).*).contains(.Iter)) return .not_iterator;
             return .{ .item = try ctx.intern(.{ .type_var = ctx.ref(try assocParam(ctx, ctx.localSym(p), .iter, "Item")) }) };
         },
         else => return .not_iterator,
@@ -10463,7 +10463,7 @@ pub fn reportLack(ctx: *SemContext, at: u32, inst: []const u8, pname: []const u8
 pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, lack: Lack) std.mem.Allocator.Error![]const u8 {
     if (lack.bound) {
         const sym = ctx.types.get(lack.ty).type_var;
-        return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), ctx.symbols.items[ctx.localSym(sym)].name, try formatBounds(ctx, a, ctx.symbols.items[ctx.localSym(sym)], api) });
+        return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), symbolAt(ctx, sym).name, try formatBounds(ctx, a, symbolAt(ctx, sym).*, api) });
     }
     if (lack.own_eq) return "";
     if (api == .Iter) return a.print(": {s}", .{(try iterLack(ctx, ty)) orelse "it declares no `fun next(!@) -> T?`"});
@@ -10568,7 +10568,7 @@ fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?La
         // A generic type that names `Ord` orders by its fields at its
         // instance's types.
         .parameterized_nominal => |pn| {
-            const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
+            const sym = symbolAt(ctx, pn.sym).*;
             if (!sym.apis.contains(.Ord)) return .{ .ty = ty };
             const subst: TypeSubst = .{ .params = sym.type_params orelse &.{}, .args = pn.args };
             for (sym.fields orelse &.{}) |f| {
@@ -10632,7 +10632,7 @@ const EquatableWalk = struct {
             .api_object => return .object,
             // A parameter of another module's generic type is always
             // bound by the instance that reaches it.
-            .type_var => |sym| if (self.params) |out| if (!isProxy(ctx.symbols.items[ctx.localSym(sym)]) and std.mem.findScalar(SymbolId, out.items, ctx.localSym(sym)) == null) try out.append(ctx.allocator, ctx.localSym(sym)),
+            .type_var => |sym| if (self.params) |out| if (!isProxy(symbolAt(ctx, sym).*) and std.mem.findScalar(SymbolId, out.items, ctx.localSym(sym)) == null) try out.append(ctx.allocator, ctx.localSym(sym)),
             .nominal, .parameterized_nominal => return self.stepDecl(i),
             .void, .fallible, .range => return .no_eq,
             else => {},
@@ -13182,7 +13182,7 @@ fn instanceBlock(ctx: *const SemContext, ty: TypeId, pn: ParamNominal, how: Cros
     const decl = declaredAt(ctx, ctx.localSym(pn.sym)) orelse return .{ .ctx = ctx, .ty = ty };
     if (fieldsBlock(decl.ctx, decl.sym, how, local, walk)) |found| {
         var b = found;
-        if (b.module == null and decl.ctx != ctx) b.module = ctx.symbols.items[ctx.localSym(pn.sym)].from.module_id;
+        if (b.module == null and decl.ctx != ctx) b.module = symbolAt(ctx, pn.sym).from.module_id;
         return b;
     }
     const params = decl.ctx.symbols.items[decl.sym].type_params orelse &.{};
@@ -14459,7 +14459,7 @@ pub fn copies(ctx: *const SemContext, ty: TypeId) Answer {
     // A type parameter whose bounds name `Copy` copies in every instance,
     // and so does an optional of one.
     switch (ctx.types.get(ty)) {
-        .type_var => |param| if (boundApis(ctx, ctx.symbols.items[ctx.localSym(param)]).contains(.Copy)) return .yes,
+        .type_var => |param| if (boundApis(ctx, symbolAt(ctx, param).*).contains(.Copy)) return .yes,
         .optional => |inner| if (copies(ctx, inner) == .yes) return .yes,
         else => {},
     }
@@ -14579,7 +14579,7 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
     switch (ctx.types.get(ty)) {
         .type_var => |sym| {
             // A set parameter's value is an error, which clones.
-            if (ctx.symbols.items[ctx.localSym(sym)].flags.set_param) return true;
+            if (symbolAt(ctx, sym).flags.set_param) return true;
             const f = frame orelse return false;
             const i = std.mem.findScalar(SymbolId, f.params, ctx.localSym(sym)) orelse return false;
             return deepCloneable(f.args_ctx, f.args[i], f.parent, seen);
@@ -14674,7 +14674,7 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symb
         .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
         .results => |parts| for (parts) |part| try heldTypeVars(ctx, part, out, a),
         .parameterized_nominal => |pn| {
-            const held = ctx.symbols.items[ctx.localSym(pn.sym)].contents.held;
+            const held = symbolAt(ctx, pn.sym).contents.held;
             for (pn.args, 0..) |arg, i| {
                 if (i < held.len and held[i]) try heldTypeVars(ctx, arg, out, a);
             }
@@ -14725,7 +14725,7 @@ pub fn reachesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId) bool {
 pub fn setParamAsValue(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     if (!ctx.typeInfo(ty).has_type_var) return null;
     switch (ctx.types.get(ty)) {
-        .type_var => |sym| return if (ctx.symbols.items[ctx.localSym(sym)].flags.set_param) ctx.localSym(sym) else null,
+        .type_var => |sym| return if (symbolAt(ctx, sym).flags.set_param) ctx.localSym(sym) else null,
         .callable, .range, .slot => |inner| return setParamAsValue(ctx, inner),
         .simd => |v| return setParamAsValue(ctx, v.elem),
         .results => |parts| for (parts) |part| {
@@ -15374,9 +15374,9 @@ pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: Typ
 pub fn formatInlineListMarked(ctx: *const SemContext, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
     const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
     const list = ctx.builtins.list;
-    const elem = try p.param(ctx.symbols.items[ctx.localSym(list)].type_params.?[0]);
+    const elem = try p.param(symbolAt(ctx, list).type_params.?[0]);
     const len = try a.print("{c}n{c}", .{ type_param_mark, type_param_mark });
-    return p.instance(ctx.symbols.items[ctx.localSym(list)].name, try p.withInline(elem, len));
+    return p.instance(symbolAt(ctx, list).name, try p.withInline(elem, len));
 }
 
 pub fn formatGenericSelfMarked(ctx: *const SemContext, a: std.mem.Allocator, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
@@ -15452,9 +15452,9 @@ const TypePrinter = struct {
             .parameterized_nominal => |pn| if (pn.sym == ctx.builtins.box and pn.args.len == 1)
                 try p.handle(pn.args[0], '^')
             else if (pn.inline_len > 0)
-                try p.instance(ctx.symbols.items[ctx.localSym(pn.sym)].name, try p.withInline(try p.list(pn.args), try a.print("{d}", .{pn.inline_len})))
+                try p.instance(symbolAt(ctx, pn.sym).name, try p.withInline(try p.list(pn.args), try a.print("{d}", .{pn.inline_len})))
             else
-                try p.instance(ctx.symbols.items[ctx.localSym(pn.sym)].name, try p.list(pn.args)),
+                try p.instance(symbolAt(ctx, pn.sym).name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(ctx.localSym(sym)),
             .ct_value => |v| try a.print("{d}", .{v.int}),
             .results => |parts| try a.print("({s})", .{try p.list(parts)}),

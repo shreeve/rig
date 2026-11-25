@@ -1096,7 +1096,7 @@ pub fn orderCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u
     if (value == self.t().float_literal_id) value = self.t().float_id;
     switch (self.ctx.types.get(value)) {
         .type_var => |tv| {
-            const sym = self.ctx.symbols.items[self.ctx.localSym(tv)];
+            const sym = sema.symbolAt(self.ctx, tv).*;
             if (sema.hasBounds(sym) and !sema.boundApis(self.ctx, sym).contains(.Ord)) {
                 if (!try sema.reportStated(self.ctx, self.startOf(obj), self.ctx.localSym(tv), .Ord, "order")) return null;
             }
@@ -1133,7 +1133,7 @@ pub fn hasherAdd(self: *Checker, callee: Sexp, obj: Sexp, pos: u32, args: []cons
     if (!self.isPoison(ty)) {
         const value = sema.unwrapViews(self.ctx, if (ty == self.t().int_literal_id) self.t().int_id else ty);
         switch (self.ctx.types.get(value)) {
-            .type_var => |tv| if (!sema.hasBounds(self.ctx.symbols.items[self.ctx.localSym(tv)])) try ExprCheck.require(self, self.ctx.localSym(tv), .hashable, self.startOf(arg), "!h.add(x)"),
+            .type_var => |tv| if (!sema.hasBounds(sema.symbolAt(self.ctx, tv).*)) try ExprCheck.require(self, self.ctx.localSym(tv), .hashable, self.startOf(arg), "!h.add(x)"),
             else => {},
         }
         if (try sema.lacks(self.ctx, value, .Hash)) |lack| {

@@ -961,7 +961,7 @@ pub fn hashFix(self: *Checker, e: Sexp, obj_ty: TypeId, idx_ty: TypeId) Error!bo
         .parameterized_nominal => |pn| pn,
         else => return false,
     };
-    const sym = self.ctx.symbols.items[self.ctx.localSym(pn.sym)];
+    const sym = sema.symbolAt(self.ctx, pn.sym).*;
     const is_map = std.mem.eql(u8, sym.name, "Map") or std.mem.eql(u8, sym.name, "HashMap");
     const is_set = std.mem.eql(u8, sym.name, "Set") or std.mem.eql(u8, sym.name, "HashSet");
     if (!is_map and !is_set) return false;
@@ -2713,7 +2713,7 @@ pub fn selfArgs(self: *Checker, recv_ty: TypeId) TypeSubst {
         .parameterized_nominal => |pn| pn,
         else => return .empty,
     };
-    return .{ .params = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].type_params orelse &.{}, .args = pn.args };
+    return .{ .params = sema.symbolAt(self.ctx, pn.sym).type_params orelse &.{}, .args = pn.args };
 }
 
 /// The signature a call of `f` uses: `f` itself, or for a generic
@@ -3330,9 +3330,9 @@ pub fn valueBindingFits(self: *Checker, param: SymbolId, b: Checker.Bound, calle
             return false;
         },
         .ct_param => |sym| {
-            const ty = self.ctx.symbols.items[self.ctx.localSym(sym)].ty;
+            const ty = sema.symbolAt(self.ctx, sym).ty;
             if (!self.isPoison(ty) and ty != p.ty) {
-                try self.err(pos, "{s} gives `{s}` of `{s}` the compile-time `{s}` `{s}`; `{s}` is a `{s}`", .{ from, p.name, callee, try self.tyName(ty), self.ctx.symbols.items[self.ctx.localSym(sym)].name, p.name, try self.tyName(p.ty) });
+                try self.err(pos, "{s} gives `{s}` of `{s}` the compile-time `{s}` `{s}`; `{s}` is a `{s}`", .{ from, p.name, callee, try self.tyName(ty), sema.symbolAt(self.ctx, sym).name, p.name, try self.tyName(p.ty) });
                 return false;
             }
         },
@@ -3386,7 +3386,7 @@ pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own
     if (path == .propagate_none) return;
     if (b.wanted == sema.type_invalid) return;
     const a = self.ctx.arena.allocator();
-    const took = try a.print("`{s}` takes `{s} = {s}` from argument {d}", .{ callee, self.ctx.symbols.items[self.ctx.localSym(tv)].name, try self.tyName(b.ty), b.arg });
+    const took = try a.print("`{s}` takes `{s} = {s}` from argument {d}", .{ callee, sema.symbolAt(self.ctx, tv).name, try self.tyName(b.ty), b.arg });
     if (sema.isNumeric(self.ctx, b.ty) and sema.isNumeric(self.ctx, b.wanted)) {
         try self.result_hints.put(self.ctx.allocator, id, try a.print("{s}; convert its result with `{s}(...)`", .{ took, try self.tyName(b.wanted) }));
         return;
@@ -3610,7 +3610,7 @@ pub fn bindArg(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
 pub fn reachedForView(self: *Checker, pattern: TypeId, actual: TypeId) Error!TypeId {
     switch (self.ctx.types.get(pattern)) {
         .type_var => |tv| {
-            const apis = self.ctx.symbols.items[self.ctx.localSym(tv)].user_apis;
+            const apis = sema.symbolAt(self.ctx, tv).user_apis;
             if (apis.len == 0) return actual;
             const reached = GenericCheck.reachedValue(self.ctx, actual);
             if (reached == actual) return actual;
