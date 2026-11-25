@@ -1918,20 +1918,21 @@ pub fn decisionKeyOf(node: Sexp) ?u64 {
 }
 
 /// The key of a fact about an expression, leaf or list node: a leaf's
-/// source position, or a list node's id with bit 32 set. Null for any
-/// other node.
+/// leaf id, or a list node's id with bit 32 set. Null for any other
+/// node, and for a leaf neither the parser nor its wrapper numbered.
 fn exprKey(node: Sexp) ?u64 {
     return switch (node) {
-        .src => |s| s.pos,
+        .src => |s| if (s.leaf == 0) null else s.leaf,
         .list => @as(u64, nodeKey(node) orelse return null) | 1 << 32,
         else => null,
     };
 }
 
 /// `exprKey` of an expression a fact is recorded for: a list node the
-/// parser built (`recordKey`).
+/// parser built (`recordKey`), or a leaf with a leaf id.
 fn recordExprKey(node: Sexp) ?u64 {
     if (node == .list) _ = recordKey(node);
+    if (node == .src and node.src.leaf == 0) std.debug.panic("sema recorded a fact for a leaf without a leaf id at {d}", .{node.src.pos});
     return exprKey(node);
 }
 
@@ -2319,12 +2320,7 @@ fn MapValue(comptime M: type) type {
 
 /// Remove `key` from `map`, a `FastMap` or a `fastmap.DenseMap`.
 fn mapRemove(map: anytype, key: anytype) void {
-    const M = @TypeOf(map.*);
-    if (@hasField(M, "dense")) {
-        if (key >> 32 == 1 and @as(u32, @truncate(key)) < map.dense.items.len) {
-            map.dense.items[@as(u32, @truncate(key))] = std.math.maxInt(MapValue(M));
-        } else _ = map.sparse.remove(key);
-    } else _ = map.remove(key);
+    _ = map.remove(key);
 }
 
 /// The optional an expression's value becomes where it goes: `into`,
@@ -3046,6 +3042,7 @@ pub const CallParams = struct {
 pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *std.Io.Writer) !void {
     var nodes: FastMap(NodeKey, Sexp) = .empty;
     var leaves: FastMap(u32, Sexp) = .empty;
+    var at_pos: FastMap(u32, Sexp) = .empty;
     var stack: std.ArrayList(Sexp) = .empty;
     try stack.append(a, root);
     while (stack.pop()) |s| switch (s) {
@@ -3053,7 +3050,10 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
             if (l.id != 0) try nodes.put(a, l.id, s);
             try stack.appendSlice(a, l.items());
         },
-        .src => |x| try leaves.put(a, x.pos, s),
+        .src => |x| {
+            try leaves.put(a, x.leaf, s);
+            try at_pos.put(a, x.pos, s);
+        },
         else => {},
     };
 
@@ -3080,7 +3080,7 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
             // `names` and `writes` are keyed by a leaf's position, the
             // expression facts by `exprKey`, the rest by node id.
             const node: ?Sexp, const id: u64 = if (comptime std.mem.eql(u8, name, "names") or std.mem.eql(u8, name, "writes"))
-                .{ leaves.get(key), key }
+                .{ at_pos.get(key), key }
             else if (Key == u64)
                 .{ if (key >> 32 != 0) nodes.get(@truncate(key)) else leaves.get(@truncate(key)), key & 0xffff_ffff }
             else
@@ -6242,10 +6242,10 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     errdefer ctx.deinit();
 
     ctx.parser = opts.parser;
-    // The facts kept by node id take an entry for each node.
+    // The facts kept by node and leaf id take an entry for each.
     if (opts.parser) |p| {
-        const ids = p.base.nodeCount() + 1;
-        try ctx.facts.types.dense.ensureTotalCapacityPrecise(allocator, ids);
+        try ctx.facts.types.nodes.ensureTotalCapacityPrecise(allocator, p.base.nodeCount() + 1);
+        try ctx.facts.types.leaves.ensureTotalCapacityPrecise(allocator, p.base.leafCount() + 1);
     }
     ctx.module_id = opts.module_id;
     ctx.is_root = opts.is_root;
@@ -17373,7 +17373,7 @@ const FactsRun = struct {
     }
 
     fn leafType(self: *const FactsRun, needle: []const u8, nth: usize) ?TypeId {
-        return self.ctx.facts.types.get(self.at(needle, nth));
+        return self.ctx.typeOf(leafAt(self.tree, self.at(needle, nth)).?);
     }
 };
 
@@ -17433,13 +17433,13 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark,
 
     const m = ctx.mark();
     // Changed, added, and removed facts, of a leaf and of a list node.
-    try ctx.recordType(.{ .src = .{ .pos = a, .len = 1, .id = 0 } }, ctx.types.bool_id);
+    try ctx.recordType(leafAt(r.tree, a).?, ctx.types.bool_id);
     try ctx.recordType(plus, ctx.types.bool_id);
-    try ctx.recordType(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, ctx.types.bool_id);
-    try ctx.removeIn(.check, .types, exprKey(.{ .src = .{ .pos = b, .len = 1, .id = 0 } }).?);
+    try ctx.recordType(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0, .leaf = 1000 } }, ctx.types.bool_id);
+    try ctx.removeIn(.check, .types, exprKey(leafAt(r.tree, b).?).?);
     try ctx.err(0, "a diagnostic the rollback drops", .{});
     // A name, and a symbol made since the mark, which stay.
-    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, 1);
+    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0, .leaf = 1000 } }, 1);
     const made = try ctx.addSymbol(b_was);
     (try ctx.symbolMut(made)).ty = ctx.types.bool_id;
     // A symbol written through `symbolMut`.
@@ -17456,7 +17456,7 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark,
     try std.testing.expectEqual(a_ty, r.leafType("a", 1).?);
     try std.testing.expectEqual(plus_ty, ctx.typeOf(plus).?);
     try std.testing.expectEqual(b_ty, r.leafType("b", 0).?);
-    try std.testing.expectEqual(null, ctx.typeOf(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }));
+    try std.testing.expectEqual(null, ctx.typeOf(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0, .leaf = 1000 } }));
     try std.testing.expectEqual(1, ctx.symbolAt(b + 1000).?);
     try std.testing.expectEqual(ctx.types.bool_id, ctx.symbols.items[made].ty);
     try std.testing.expectEqual(plus_use, ctx.useOf(plus));
