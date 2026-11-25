@@ -81,16 +81,16 @@ pub fn resolveSymbols(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error
 /// now, after the whole module, a name declared later would be seen.
 pub fn resolveIterWhile(ctx: *SemContext, loop: Sexp, w: rig.Parser.IterWhile) Error!void {
     const scope = ctx.scopeOf(loop).?;
-    try ctx.removeIn(.{ .facts = .scopes }, loop.list.id);
+    try ctx.removeIn(.check, .scopes, loop.list.id);
     const as = ir.While.cond(w.loop);
-    try ctx.recordScope(as, scope);
+    try ctx.record(.scopes, as, scope);
     if (ctx.symbolOf(ir.As.name(as))) |x| ctx.symbols.items[x].flags.as_bound = true;
     const view = ir.Member.object(ir.Call.callee(ir.As.value(as)));
     const hold = w.hold orelse {
         // `!it` was marked written by the `for`; it is by the view.
         if (ctx.writeSiteOf(loop)) |site| {
-            try ctx.removeIn(.{ .ctx = .write_sites }, loop.list.id);
-            try ctx.putIn(.{ .ctx = .write_sites }, view.list.id, site);
+            try ctx.removeIn(.check, .write_sites, loop.list.id);
+            try ctx.putIn(.check, .write_sites, view.list.id, site);
         }
         return;
     };
@@ -299,7 +299,7 @@ const SymbolResolver = struct {
                     const names = self.ctx.scopeOf(loop).?;
                     const body = self.ctx.scopeOf(ir.For.body(loop)).?;
                     self.ctx.scopes.items[names].parent = self.scope;
-                    try self.ctx.recordScope(sexp, body);
+                    try self.ctx.record(.scopes, sexp, body);
                     const saved_scope = self.scope;
                     const saved_outer = self.outer;
                     defer {
@@ -395,7 +395,7 @@ const SymbolResolver = struct {
     /// Open a scope for `node` and make it current; returns the previous scope.
     fn enter(self: *SymbolResolver, node: Sexp, kind: sema.ScopeKind) Error!ScopeId {
         const s = try self.ctx.pushScopeKind(self.scope, kind);
-        try self.ctx.recordScope(node, s);
+        try self.ctx.record(.scopes, node, s);
         const prev = self.scope;
         self.scope = s;
         return prev;
@@ -1451,7 +1451,7 @@ const SymbolResolver = struct {
                         if (got.found_existing) {
                             if (got.value_ptr.*) |id| {
                                 try self.ctx.recordName(b, id);
-                                try self.ctx.putIn(.{ .facts = .rebinds }, b.src.pos, {});
+                                try self.ctx.putIn(.check, .rebinds, b.src.pos, {});
                             }
                             continue;
                         }
@@ -2191,7 +2191,7 @@ fn foldModuleConst(ctx: *SemContext, set: Sexp) Error!void {
     const int = declared orelse t.int orelse sema.IntInfo{};
     if (t.int) |i| if (!std.meta.eql(i, int)) return;
     if (!sema.intInfoFits(int, t.v)) return;
-    try ctx.const_ints.put(ctx.allocator, id, .{ .value = t.v, .int = int });
+    try ctx.putIn(.check, .const_ints, id, .{ .value = t.v, .int = int });
 }
 
 /// Fold again each module constant not folded yet, once typecheck has

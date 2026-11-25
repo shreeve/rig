@@ -171,7 +171,7 @@ pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expe
     };
     if (result) |r| for (arm_values.items) |av| try FlowCheck.adaptLiteral(self, av.node, av.ty, r);
     const exhaustive = coversAll(self, &cov, scrutinee);
-    if (exhaustive) try self.ctx.recordExhaustive(node);
+    if (exhaustive) try self.ctx.record(.exhaustive, node, {});
     if (matchable and !cov.has_default and !cov.rejected and !exhaustive and !self.isPoison(scrutinee)) try notExhaustive(self, &cov, scrutinee, scrut_pos);
     if (position == .statement) return self.t().void_id;
     return result orelse self.t().invalid_id;
@@ -522,7 +522,7 @@ pub fn makesTemps(self: *Checker, node: Sexp, base: Sexp) bool {
 pub fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, bound: TypeId) Error!void {
     const temp = sema.firstStmtTemp(self.ctx, subject) orelse return;
     if (storage.headerPoints(self.ctx, storage.headerSubject(node))) return;
-    try self.ctx.recordHeaderCopy(node);
+    try self.ctx.record(.header_copies, node, {});
     if (self.isPoison(bound)) return;
     if (ViewCheck.hands(self, subject).kind == .made and sema.holdsNoLoanButText(self.ctx, sema.unwrapViews(self.ctx, bound))) return;
     if (CompatCheck.inIndex(subject, temp)) {
@@ -1044,7 +1044,7 @@ pub fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov
     // none: each is recorded as its test, and the binding as the
     // name it binds, or `.nil`.
     const binds = try payloadTestsOf(self, pattern, written, resolved.payload);
-    try self.ctx.recordPayloadBindings(pattern, binds);
+    try self.ctx.record(.payload_binds, pattern, binds);
     const tests = self.ctx.payloadTests(pattern);
     // An error's member carries its fields in the error's bytes, read
     // whole: a pattern binds an optional field and does not test it.
@@ -1073,7 +1073,7 @@ pub fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov
         const view = !sema.isReadOrWriteView(self.ctx, field_ty) and self.ctx.types.get(field_ty) != .slice and !self.isPoison(field_ty);
         const ty = try bindMatchView(self, b, mode, field_ty);
         try self.ctx.recordType(b, ty);
-        if (!self.isPoison(field_ty)) try self.ctx.recordPayloadField(b, field_ty);
+        if (!self.isPoison(field_ty)) try self.ctx.record(.payload_fields, b, field_ty);
         if (self.ctx.symbolOf(b)) |sym| {
             // A binding that is no plain data of a copy of the
             // subject is usable in its arm only.
@@ -1110,7 +1110,7 @@ pub fn payloadTestsOf(self: *Checker, pattern: Sexp, written: []const Sexp, fiel
         test_of.* = if (some) .some else .none;
         b.* = name;
     }
-    try self.ctx.recordPayloadTests(pattern, tests);
+    try self.ctx.record(.payload_tests, pattern, tests);
     return binds;
 }
 

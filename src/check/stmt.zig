@@ -215,7 +215,7 @@ pub fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
     if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
     if (try StdFormCheck.discardedSwap(self, stmt)) return;
     // A test's last line is its value: a `Bool` decides the test.
-    if (self.body.in_test and CompatCheck.sameSite(stmt, self.expect.test_tail) and ExprCheck.canonical(self, ty) == self.t().bool_id) return self.ctx.recordTestCheck(stmt, try testReport(self, stmt));
+    if (self.body.in_test and CompatCheck.sameSite(stmt, self.expect.test_tail) and ExprCheck.canonical(self, ty) == self.t().bool_id) return self.ctx.record(.test_checks, stmt, try testReport(self, stmt));
     if (!hasEffect(stmt)) {
         // A statement `<e` is a drop everywhere but on a line whose
         // value is used, which a closure's last line is, though this
@@ -292,7 +292,7 @@ pub fn checkReturn(self: *Checker, node: Sexp) Error!void {
         const ty = try PatternCheck.synthExpr(self, value);
         if (self.isPoison(ty)) return;
         if (ExprCheck.canonical(self, ty) != self.t().bool_id) return self.errAt(value, "a test returns a `Bool`, and `false` fails it; this `return` gives `{s}`", .{try self.tyName(ty)});
-        return self.ctx.recordTestCheck(node, try testReport(self, node));
+        return self.ctx.record(.test_checks, node, try testReport(self, node));
     }
     if (self.body.returns) |sites| {
         const ty: ?TypeId = if (value == .nil) null else try PatternCheck.synthExpr(self, value);
@@ -696,15 +696,15 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
         return;
     }
     if (repoints) {
-        try self.ctx.recordRepoint(node);
+        try self.ctx.record(.repoints, node, {});
         (try self.ctx.symbolMut(sym_id)).flags.repointed = true;
     }
     if (writes_through) {
-        try self.ctx.recordWriteThrough(node);
+        try self.ctx.record(.write_throughs, node, {});
     } else if (!is_decl) (try self.ctx.symbolMut(sym_id)).flags.rebound = true;
     // Assigning a binding writes it without reading it; writing
     // through a `!T` binding reaches the viewed value.
-    if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.putIn(.{ .facts = .writes }, target.src.pos, {});
+    if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.putIn(.check, .writes, target.src.pos, {});
     // The binding must be one that may change.
     if (!is_decl and !try requireAccess(self, placeOf(self, target), .assign, target)) {
         if (kind.operator() == null) try ViewCheck.checkExpr(self, rhs, if (writes_through) sema.unwrapViews(self.ctx, sym.ty) else sym.ty) else _ = try PatternCheck.synthExpr(self, rhs);
@@ -800,12 +800,12 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
     if (s.flags.comptime_known and s.scope != self.module_scope and sema.perTargetLeaf(self.ctx, rhs) != null) s.flags.per_target = true;
     // `k =! n` stands for the compile-time parameter `n` where an
     // array length or a compile-time argument names it.
-    if (kind == .fixed and is_decl and s.kind == .local) if (try StdFormCheck.ctParamOf(self, rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
+    if (kind == .fixed and is_decl and s.kind == .local) if (try StdFormCheck.ctParamOf(self, rhs)) |ct| try self.ctx.putIn(.check, .ct_locals, sym_id, ct);
     try self.ctx.recordType(target, s.ty);
     // A binding that never changes keeps a constant value.
     // (A module constant's was folded before any type was resolved.)
     if (is_decl and s.kind == .local and s.scope != self.module_scope and !s.flags.reassigned and !s.flags.written and sema.isInteger(self.ctx, s.ty)) {
-        if (ExprCheck.constInt(self, rhs)) |v| try self.ctx.const_ints.put(self.ctx.allocator, sym_id, .{ .value = v, .int = switch (self.ctx.types.get(s.ty)) {
+        if (ExprCheck.constInt(self, rhs)) |v| try self.ctx.putIn(.check, .const_ints, sym_id, .{ .value = v, .int = switch (self.ctx.types.get(s.ty)) {
             .int => |i| i,
             else => .{},
         } });
@@ -814,7 +814,7 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
     }
     // So does one of a `Float`, here and at module level (`floatConst`).
     if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and ExprCheck.canonical(self, s.ty) == self.t().float_id) switch (StdFormCheck.floatConst(self, rhs)) {
-        .value => |v| try self.ctx.const_floats.put(self.ctx.allocator, sym_id, v),
+        .value => |v| try self.ctx.putIn(.check, .const_floats, sym_id, v),
         else => {},
     };
 }
@@ -1050,7 +1050,7 @@ pub fn placeOf(self: *Checker, e: Sexp) Checker.Place {
         } else if (if (sema.namedNoneOf(self.ctx, inner)) |n| std.mem.eql(u8, n.field, self.text(ir.Member.name(step))) else false) {
             place.block(.none_field, self.startOf(ir.Member.name(step)));
             if (!crossed) place.leaf_blocked = true;
-        } else if (self.ctx.readOnlyFieldOf(step)) |field| {
+        } else if (self.ctx.get(.read_only_fields, step)) |field| {
             place.block(.read_only, self.startOf(ir.Member.name(step)));
             if (place.blocked.?.why == .read_only) place.read_only = field;
             if (!crossed) place.leaf_blocked = true;
@@ -1268,14 +1268,14 @@ pub fn requireAccess(self: *Checker, place_in: Checker.Place, access: Checker.Ac
 }
 
 /// Every slot of a table on the path of place `e`, which a write
-/// reaches: reached to write (`SemContext.recordTableWrite`), where any
+/// reaches: reached to write (`Facts.table_writes`), where any
 /// other slot is reached read-only.
 pub fn recordTableWrites(self: *Checker, e: Sexp) Error!void {
     var p = CompatCheck.stripSigil(e);
     while (p.isKind(.member) or p.isKind(.index)) : (p = ir.get(p, .object)) {
         if (!p.isKind(.index)) continue;
         const ty = self.ctx.typeOf(ir.get(p, .object)) orelse continue;
-        if (sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, ty)) != null) try self.ctx.recordTableWrite(p);
+        if (sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, ty)) != null) try self.ctx.record(.table_writes, p, {});
     }
 }
 

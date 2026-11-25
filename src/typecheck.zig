@@ -17,7 +17,7 @@
 //! `T` where `T?` or `T!` is expected (the value is lifted), and an
 //! error value where `T!` is expected (the function fails); `!T` where
 //! `?T` is expected; a view of a Copy value where the value is
-//! expected (`readValue`), which reads through it (`recordRead`); and
+//! expected (`readValue`), which reads through it (`Facts.reads`); and
 //! anything where poison (`unknown` / `invalid`) is involved, so one
 //! error does not cascade.
 //!
@@ -238,27 +238,9 @@ pub const Checker = struct {
     /// A binding that never changes whose value is a plain enum's
     /// variant the checker knows, by name (`constVariant`).
     fixed_variants: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
-    /// The calls whose lasting views were reported (`keptViews`), so that
-    /// one reached from two kept values is reported once.
-    kept_reported: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// The closure literals whose errors were reported by a check aloud
-    /// given the parameter types their call gives them (`closureErrors`,
-    /// `lambdaLeftUnbound`), where the call then stops: `synthArgs`
-    /// leaves them out, since its check, with no parameter types and as
-    /// one that cannot fail, would report errors the closure has not.
-    closures_reported: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
-    /// The closure literals a std form calls that check clean neither as
-    /// one that cannot fail nor as one that can (`closureType`,
-    /// `reduceFunction`): the call reports their errors and gives poison,
-    /// so whether it fails, which the closure's errors leave open, adds
-    /// no error of its own (`closureResult`).
-    closures_in_error: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// The chains whose result holds views of the items of their source,
     /// each a consumer's call to the source it walks (`chainTypes`).
     chain_views: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
-    /// The closures and outer locals whose missing capture was reported
-    /// (`useName`), each a closure's scope above a local's symbol.
-    uncaptured_reported: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The binding conditions whose `else` is being checked, innermost
     /// last: a name one binds is unbound there (`unboundHint`).
     else_conds: std.ArrayList(Sexp) = .empty,
@@ -597,9 +579,6 @@ pub const Checker = struct {
         self.methods.deinit(a);
         self.expected.deinit(a);
         self.value_tails.deinit(a);
-        self.kept_reported.deinit(a);
-        self.closures_reported.deinit(a);
-        self.closures_in_error.deinit(a);
         self.chain_views.deinit(a);
         self.view_of.deinit(a);
         self.branch_views.deinit(a);
@@ -3435,9 +3414,9 @@ const ownership_src = @embedFile("ownership.zig") ++ @embedFile("ownership/state
 test "check: every read of a view as a value is decided by writeViewRead" {
     // `readOf` is the one place type checking records that a view is read
     // as the value it reaches, and it asks `writeViewRead` first. Another
-    // call of `recordRead` would read a written `!x` as a value with its
+    // record of `reads` would read a written `!x` as a value with its
     // `!` ignored, past the decider.
-    const needle = "ctx." ++ "recordRead(";
+    const needle = "ctx." ++ "record(.reads,";
     const src = typecheck_source;
     try std.testing.expectEqual(1, std.mem.count(u8, src, needle));
     const at = std.mem.find(u8, src, needle).?;
