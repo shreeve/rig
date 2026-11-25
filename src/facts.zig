@@ -729,9 +729,6 @@ pub const Facts = struct {
     pub fn matchBlock(f: Facts, match: Sexp) ?bool {
         return storage.decided(f.c(), match, .match_block);
     }
-    pub fn holdsView(f: Facts, match: Sexp) ?bool {
-        return storage.decided(f.c(), match, .holds_view);
-    }
     /// Whether the pattern of `match` arm `arm` takes every value
     /// (`storage.catchesAll`).
     pub fn catchesAll(f: Facts, arm: Sexp) ?bool {
@@ -1523,7 +1520,6 @@ test "Facts reads every match decision the plan made" {
         // A name's value is matched where it is.
         try std.testing.expect(f.matchesInPlace(n).?);
         try std.testing.expect(f.matchBlock(n).?);
-        try std.testing.expect(!f.holdsView(n).?);
         try std.testing.expect(f.matchRereads(n) != null);
         for (ir.Match.arms(n)) |arm| {
             const pattern = ir.Arm.pattern(arm);
