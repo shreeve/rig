@@ -24,7 +24,7 @@ const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
-const storage = @import("storage.zig");
+const program = @import("program.zig");
 const proofs = @import("proofs.zig");
 const lsp = @import("lsp.zig");
 const frames = @import("frames.zig");
@@ -960,9 +960,9 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
                 c.* = m.sema;
                 t.* = m.ir;
             }
-            try storage.decideWords(ctxs, trees);
+            try program.decideWords(ctxs, trees);
             // The tag type of each enum an `exact` object holds.
-            try storage.decideExactEnums(ctxs);
+            try program.decideExactEnums(ctxs);
         }
         try inlining.decide(allocator, &graph, inlining.max_size);
         try returns.decide(allocator, &graph);
