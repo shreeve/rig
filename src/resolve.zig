@@ -2194,7 +2194,7 @@ fn foldModuleConst(ctx: *SemContext, set: Sexp) Error!void {
     const int = declared orelse t.int orelse sema.IntInfo{};
     if (t.int) |i| if (!std.meta.eql(i, int)) return;
     if (!sema.intInfoFits(int, t.v)) return;
-    try ctx.const_ints.put(ctx.allocator, id, .{ .value = t.v, .int = int });
+    try ctx.putIn(.check, .const_ints, id, .{ .value = t.v, .int = int });
 }
 
 /// Fold again each module constant not folded yet, once typecheck has
