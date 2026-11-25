@@ -55,6 +55,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const modules = @import("modules.zig");
+const program = @import("program.zig");
 const rig = @import("rig.zig");
 
 const Sexp = parser.Sexp;
@@ -261,7 +262,7 @@ const Instances = struct { own: FrameCount, total: FrameCount, params: u128 = 0 
 
 const Pass = struct {
     a: std.mem.Allocator,
-    mods: []const *modules.Module,
+    mods: []const modules.Module,
     fns: std.ArrayList(Fn) = .empty,
     owners: std.ArrayList(Owner) = .empty,
     /// Per module: the index in `owners` of its first owner.
@@ -271,8 +272,8 @@ const Pass = struct {
     sites: std.ArrayList(Site) = .empty,
     /// A name -> its group.
     by_name: std.StringHashMapUnmanaged(u32) = .empty,
-    /// Per module: the function declared at a position.
-    by_pos: []std.AutoHashMapUnmanaged(u32, u32),
+    /// The function declared at a position of a module.
+    by_pos: program.Of(u32) = .empty,
     /// Each generic owner's frame at its instances (`Instances`).
     instances: std.AutoHashMapUnmanaged(OwnerKey, Instances) = .empty,
     /// The compile-time parameters some instance the program makes binds,
@@ -413,7 +414,7 @@ const Pass = struct {
             .size = if (body != .nil) size(body) else 0,
             .group = gop.value_ptr.*,
         });
-        try self.by_pos[module].put(self.a, o.pos, idx);
+        try self.by_pos.put(self.a, .{ .module = self.mods[module].id, .at = o.pos }, idx);
         return idx;
     }
 
@@ -465,7 +466,7 @@ const Pass = struct {
         const id = c.symbolOf(e) orelse return;
         const s = c.symbols.items[id];
         if (s.kind != .function) return;
-        if (self.by_pos[module].get(s.decl_pos)) |f| self.fns.items[f].used_as_value = true;
+        if (self.by_pos.get(.{ .module = self.mods[module].id, .at = s.decl_pos })) |f| self.fns.items[f].used_as_value = true;
     }
 
     /// `object.name` that is not a callee: a field, or a function or
@@ -490,11 +491,7 @@ const Pass = struct {
         const c = self.ctx(module);
         if (c.callTargetOf(call)) |t| switch (t) {
             .none => return null,
-            .function => |ref| {
-                if (ref.module >= 1 and ref.module <= self.mods.len) {
-                    if (self.by_pos[ref.module - 1].get(ref.pos)) |f| return f;
-                }
-            },
+            .function => |ref| if (self.by_pos.get(.{ .module = ref.module, .at = ref.pos })) |f| return f,
         };
         const callee = c.calleeOf(call);
         if (callee.isKind(.member)) return self.named(textOf(c, ir.Member.name(callee)));
@@ -502,7 +499,7 @@ const Pass = struct {
         const id = c.symbolOf(callee) orelse return self.named(textOf(c, callee));
         const s = c.symbols.items[id];
         if (s.kind != .function) return null;
-        return self.by_pos[module].get(s.decl_pos) orelse self.named(textOf(c, callee));
+        return self.by_pos.get(.{ .module = self.mods[module].id, .at = s.decl_pos }) orelse self.named(textOf(c, callee));
     }
 
     /// Whether `call`, which reaches no function known here, goes through
@@ -1468,17 +1465,14 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const mods = try a.alloc(*modules.Module, graph.modules.items.len);
-    for (graph.modules.items, mods) |*m, *out| out.* = m;
+    const mods = graph.modules.items;
     var pass: Pass = .{
         .a = a,
         .mods = mods,
-        .by_pos = try a.alloc(std.AutoHashMapUnmanaged(u32, u32), mods.len),
         .owner_base = try a.alloc(u32, mods.len),
         .max = max,
         .with_tests = graph.with_tests,
     };
-    for (pass.by_pos) |*m| m.* = .empty;
     // Each generic owner's frame at its instances, wherever they are made:
     // the largest, and the parameters some instance binds.
     for (mods) |m| {

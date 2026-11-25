@@ -21,6 +21,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
+const modules = @import("modules.zig");
 const storage = @import("storage.zig");
 const fastmap = @import("fastmap.zig");
 
@@ -90,36 +91,36 @@ pub const none: Table = .{ .allocator = std.mem.Allocator.failing };
 /// inside it stays plain. Its read views copy it whole, so a read takes
 /// no address.
 /// Recorded in the program table (`Table.word_held`).
-pub fn decideWords(mods: []const *SemContext, trees: []const Sexp, t: *Table) !void {
+pub fn decideWords(mods: []const modules.Module, t: *Table) !void {
     var gpa = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer gpa.deinit();
     const a = gpa.allocator();
     // Declared sym -> plain, per declaring context.
     var plain: std.AutoHashMapUnmanaged(struct { *const SemContext, SymbolId }, void) = .empty;
-    for (mods, trees) |ctx, tree| try viewsInto(a, ctx, tree, &plain);
+    for (mods) |m| try viewsInto(a, m.sema, m.ir, &plain);
     // A word holds the words inside it as bits of its own, so it is held
     // as one only when each of them is.
     var changed = true;
     while (changed) {
         changed = false;
-        for (mods) |ctx| for (ctx.symbols.items, 0..) |sym, i| {
+        for (mods) |m| for (m.sema.symbols.items, 0..) |sym, i| {
             const id: SymbolId = @intCast(i);
-            if (sema.wordBitsOfSym(ctx, id) == null or plain.contains(.{ ctx, id })) continue;
+            if (sema.wordBitsOfSym(m.sema, id) == null or plain.contains(.{ m.sema, id })) continue;
             for (sym.fields orelse &.{}) |f| {
                 if (f.is_method or f.is_variant) continue;
-                const d = sema.nominalDecl(ctx, f.ty) orelse continue;
+                const d = sema.nominalDecl(m.sema, f.ty) orelse continue;
                 if (!plain.contains(.{ d.ctx, d.sym })) continue;
-                try plain.put(a, .{ ctx, id }, {});
+                try plain.put(a, .{ m.sema, id }, {});
                 changed = true;
                 break;
             }
         };
     }
-    for (mods) |ctx| for (ctx.symbols.items, 0..) |_, i| {
+    for (mods) |m| for (m.sema.symbols.items, 0..) |_, i| {
         const sym: SymbolId = @intCast(i);
-        if (sema.wordBitsOfSym(ctx, sym) == null) continue;
-        if (plain.contains(.{ ctx, sym })) continue;
-        try t.put(.word_held, ctx.module_id, sym, {});
+        if (sema.wordBitsOfSym(m.sema, sym) == null) continue;
+        if (plain.contains(.{ m.sema, sym })) continue;
+        try t.put(.word_held, m.sema.module_id, sym, {});
     };
 }
 
@@ -128,12 +129,12 @@ pub fn decideWords(mods: []const *SemContext, trees: []const Sexp, t: *Table) !v
 /// `extern struct` holds no enum of an inferred tag, and the tag's bytes
 /// are the enum's in the object's layout (`sema.enumBytes`). For the
 /// whole program at once, since the enum may be another module's.
-pub fn decideExactEnums(mods: []const *SemContext, t: *Table) !void {
-    for (mods) |ctx| for (ctx.symbols.items) |sym| {
+pub fn decideExactEnums(mods: []const modules.Module, t: *Table) !void {
+    for (mods) |m| for (m.sema.symbols.items) |sym| {
         if (sema.isProxy(sym) or sym.kind != .nominal_type or !sym.flags.exact) continue;
         for (sym.fields orelse &.{}) |f| {
             if (f.is_method or f.is_variant or f.is_drop_method) continue;
-            try exactEnum(ctx, f.ty, t);
+            try exactEnum(m.sema, f.ty, t);
         }
     };
 }

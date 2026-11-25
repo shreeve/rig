@@ -5483,14 +5483,10 @@ pub const SemContext = struct {
     }
 
     /// The program calls `E.from_text` on plain enum `decl`, so its
-    /// module emits `E`'s table of names (`hasTextTable`), marked once
-    /// every module is checked (`modules.ModuleGraph.markTextTables`).
+    /// module emits `E`'s table of names, marked once every module is
+    /// checked (`modules.ModuleGraph.markTextTables`).
     pub fn recordTextTable(self: *SemContext, decl: NominalDecl) !void {
         try self.text_tables.append(self.allocator, .{ .module_id = decl.module_id orelse self.module_id, .sym = decl.sym });
-    }
-
-    pub fn hasTextTable(self: *const SemContext, sym: SymbolId) bool {
-        return self.decides(.text_tables, sym);
     }
 
     /// Whether the program table records decision `d` at `at`, a name's

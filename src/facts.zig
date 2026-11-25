@@ -673,7 +673,7 @@ pub const Facts = struct {
     /// Whether the program calls `from_text` on plain enum `sym` of this
     /// module, which then emits its table of names.
     pub fn hasTextTable(f: Facts, sym: SymbolId) bool {
-        return f.c().hasTextTable(sym);
+        return f.c().decides(.text_tables, sym);
     }
     pub fn headerOf(f: Facts, node: Sexp) ?Header {
         return f.c().headerOf(node);
@@ -1175,7 +1175,7 @@ pub const Facts = struct {
         return sema.wordBitsOfSym(f.c(), sym);
     }
     /// The bits of the object `sym` declares here when it is held as one
-    /// word, a Zig `packed struct` (`storage.decideWords`).
+    /// word, a Zig `packed struct` (`program.decideWords`).
     pub fn wordHeldBitsOfSym(f: Facts, sym: SymbolId) ?u8 {
         if (!f.c().decides(.word_held, sym)) return null;
         return sema.wordBitsOfSym(f.c(), sym);
@@ -1192,7 +1192,7 @@ pub const Facts = struct {
         return f.c().symbols.items[sym].flags.exact;
     }
     /// The bytes of the tag type of the plain enum `sym` declares here,
-    /// when an `exact` object holds it (`storage.decideExactEnums`).
+    /// when an `exact` object holds it (`program.decideExactEnums`).
     pub fn exactEnumBytes(f: Facts, sym: SymbolId) ?u8 {
         return f.c().decisionOf(.exact_enums, sym);
     }

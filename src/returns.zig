@@ -38,6 +38,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const modules = @import("modules.zig");
+const program = @import("program.zig");
 const rig = @import("rig.zig");
 
 const Sexp = parser.Sexp;
@@ -56,10 +57,10 @@ const Fn = struct {
 };
 
 const Pass = struct {
-    mods: []const *modules.Module,
+    mods: []const modules.Module,
     fns: std.ArrayList(Fn) = .empty,
-    /// Per module: the candidate declared at a position.
-    by_pos: []std.AutoHashMapUnmanaged(u32, u32),
+    /// The candidate declared at a position of a module.
+    by_pos: program.Of(u32) = .empty,
 
     fn ctx(self: *const Pass, module: usize) *const SemContext {
         return self.mods[module].sema;
@@ -75,8 +76,7 @@ const Pass = struct {
             .function => |r| r,
             .none => return false,
         };
-        if (ref.module < 1 or ref.module > self.mods.len) return false;
-        const f = self.by_pos[ref.module - 1].get(ref.pos) orelse return false;
+        const f = self.by_pos.get(.{ .module = ref.module, .at = ref.pos }) orelse return false;
         return self.fns.items[f].never;
     }
 
@@ -105,10 +105,8 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const mods = try a.alloc(*modules.Module, graph.modules.items.len);
-    for (graph.modules.items, mods) |*m, *out| out.* = m;
-    var pass: Pass = .{ .mods = mods, .by_pos = try a.alloc(std.AutoHashMapUnmanaged(u32, u32), mods.len) };
-    for (pass.by_pos) |*m| m.* = .empty;
+    const mods = graph.modules.items;
+    var pass: Pass = .{ .mods = mods };
     for (mods, 0..) |m, i| {
         const c = m.sema;
         for (c.frame_owners.items) |o| {
@@ -124,7 +122,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph) !void {
                 else => continue,
             };
             if (f.returns != c.types.void_id) continue;
-            try pass.by_pos[i].put(a, o.pos, @intCast(pass.fns.items.len));
+            try pass.by_pos.put(a, .{ .module = m.id, .at = o.pos }, @intCast(pass.fns.items.len));
             try pass.fns.append(a, .{ .module = i, .body = body, .pos = o.pos });
         }
     }

@@ -216,17 +216,8 @@ pub const ModuleGraph = struct {
     pub fn decide(self: *ModuleGraph) Error!void {
         const t1 = timing.start(self.timing);
         const t = try self.table();
-        const n = self.modules.items.len;
-        const ctxs = try self.allocator.alloc(*sema.SemContext, n);
-        defer self.allocator.free(ctxs);
-        const trees = try self.allocator.alloc(parser.Sexp, n);
-        defer self.allocator.free(trees);
-        for (self.modules.items, ctxs, trees) |*m, *c, *tree| {
-            c.* = m.sema;
-            tree.* = m.ir;
-        }
-        try program.decideWords(ctxs, trees, t);
-        try program.decideExactEnums(ctxs, t);
+        try program.decideWords(self.modules.items, t);
+        try program.decideExactEnums(self.modules.items, t);
         try inlining.decide(self.allocator, self, inlining.max_size);
         try returns.decide(self.allocator, self);
         timing.stop(self.timing, .inlining, t1);
