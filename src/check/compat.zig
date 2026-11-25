@@ -595,14 +595,6 @@ pub fn isSecondsName(name: []const u8) bool {
     return false;
 }
 
-/// An `Int` literal as written, possibly negated, if `e` is one.
-pub fn constIntText(source: []const u8, e: Sexp) ?i64 {
-    if (e.isKind(.neg)) return -(constIntText(source, ir.Neg.operand(e)) orelse return null);
-    const t = identAt(source, e) orelse return null;
-    if (t.len == 0 or !std.ascii.isDigit(t[0])) return null;
-    return std.fmt.parseInt(i64, t, 0) catch null;
-}
-
 /// The value of a float literal, possibly negated: `2.5`, `-1e3`.
 pub fn constFloatOf(source: []const u8, e: Sexp) ?f64 {
     if (e.isKind(.neg)) return -(constFloatOf(source, ir.Neg.operand(e)) orelse return null);

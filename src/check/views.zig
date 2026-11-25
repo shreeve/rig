@@ -3533,8 +3533,9 @@ pub fn checkWholeDivision(self: *Checker, e: Sexp) Error!void {
     // float's: only its type differs.
     if (div.isKind(.@"%")) return self.errAt(div, "`{s}` is a whole-number remainder; write `{s}` for a Float", .{ CallCheck.sourceText(self, div), fix });
     const whole: []const u8 = if (ExprCheck.constInt(self, div)) |v| try a.print(" ({d})", .{v}) else "";
-    if (sema.cteval.foldFloat(f64, self.ctx, div, false) == .value) {
-        const f = sema.cteval.foldFloat(f64, self.ctx, div, false).value;
+    const folded = sema.cteval.foldFloat(f64, self.ctx, div, false);
+    if (folded == .value) {
+        const f = folded.value;
         const shown = if (f == @trunc(f) and @abs(f) < 1e15) try a.print("{d}.0", .{f}) else try a.print("{d}", .{f});
         return self.errAt(div, "`{s}` divides whole numbers{s}; for {s} write `{s}`", .{ CallCheck.sourceText(self, div), whole, shown, fix });
     }

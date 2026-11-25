@@ -3685,7 +3685,7 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(field_node, "an object names its none by a field that is an integer or a plain enum; `{s}` is a `{s}`", .{ fname, try sema.formatType(self.ctx, f.ty) });
             return;
         }
-        if (f.default) |d| if (sema.cteval.constIntBy(self.ctx, d, self.constNames()) == .value and sema.cteval.constIntBy(self.ctx, d, self.constNames()).value == none.value) {
+        if (f.default) |d| if (std.meta.eql(sema.cteval.constIntBy(self.ctx, d, self.constNames()), .{ .value = none.value })) {
             try self.ctx.errAt(d, "`{s}`'s default is its none, which no `{s}` holds", .{ fname, name });
             return;
         };
