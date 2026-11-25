@@ -11395,7 +11395,7 @@ fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
 /// copies it, as one of a number does (`copiedByReadView`), and emit
 /// marks it (`__rig_word_sized`) so the runtime's `ReadView` agrees. Emit
 /// holds it as one word, a Zig `packed struct`, unless the program views
-/// one of its fields by address (`storage.decideWords`).
+/// one of its fields by address (`program.decideWords`).
 pub fn wordBits(ctx: *const SemContext, ty: TypeId) ?u8 {
     const decl = switch (ctx.types.get(ty)) {
         .nominal, .imported_nominal => nominalDecl(ctx, ty) orelse return null,

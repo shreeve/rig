@@ -1009,7 +1009,7 @@ pub fn WritePtr(comptime T: type) type {
 /// struct) with no niche: the word at four-byte alignment beside a flag,
 /// twelve bytes, as the optional of the two 32-bit halves it holds would
 /// be. No write view reaches the word inside one
-/// (`storage.decideWords`), so no pointer to it is taken at that
+/// (`program.decideWords`), so no pointer to it is taken at that
 /// alignment where a `*T` goes.
 fn WordOpt(comptime T: type) type {
     return struct {
