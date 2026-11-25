@@ -1,0 +1,5 @@
+# Darwin arm64 pop commit 645996606 zig 0.17.0 load: 3.51 5.60 7.21
+build 1 rc=0 wall_s=86.3 warnings=0 bin_rig_bytes=11601472
+  bin/rig sha256 f4495803d93539e1 parser.zig sha256 732d20a80855e518 nexus nexus 2.3.1
+build 2 rc=0 wall_s=85.9 warnings=0 bin_rig_bytes=11601472
+  bin/rig sha256 1806f2fafd04bc34 parser.zig sha256 732d20a80855e518 nexus nexus 2.3.1
