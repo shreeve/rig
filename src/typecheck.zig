@@ -3403,6 +3403,23 @@ test "check: each distinct instance of a generic function is recorded once" {
     try std.testing.expectEqual(2, r.ctx.fn_instances.items.len);
 }
 
+test "check: a quiet check takes back the facts it recorded" {
+    const source =
+        \\sub main()
+        \\  i = 1
+        \\  print(nosuch[i])
+        \\
+    ;
+    var r = try checkSource(std.testing.allocator, source);
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectDiagnostic(&r.ctx, "nosuch");
+    // The index of a value in error is checked quietly, only to
+    // learn its type (`synthQuiet`): it leaves no type behind.
+    const at: u32 = @intCast(std.mem.find(u8, source, "[i]").? + 1);
+    try std.testing.expectEqual(null, r.ctx.typeOf(.{ .src = .{ .pos = at, .len = 1, .id = 0 } }));
+}
+
 
 /// Every file of the ownership checker, for the tests that read its
 /// source.
