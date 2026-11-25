@@ -112,6 +112,20 @@ pub const Coercion = union(enum) {
     deref,
 };
 
+/// How many levels of optional lift `lift` adds to its value: one for
+/// `none`.
+pub fn liftLevels(types: *const sema.TypeStore, lift: sema.Lift) u32 {
+    if (lift.from == types.none_id) return 1;
+    return optionalDepth(types, lift.into) -| optionalDepth(types, lift.from);
+}
+
+fn optionalDepth(types: *const sema.TypeStore, ty: sema.TypeId) u32 {
+    var n: u32 = 0;
+    var t = ty;
+    while (types.get(t) == .optional) : (n += 1) t = types.get(t).optional;
+    return n;
+}
+
 /// A step of a region, run in order.
 pub const Step = union(enum) {
     /// Evaluate `value` into `v`.

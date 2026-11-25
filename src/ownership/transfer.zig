@@ -3947,7 +3947,7 @@ pub fn walkFor(self: *Checker, node: Sexp) Error!Value {
         // place where the recorded fact says its loans name only places
         // (`storage.livesIn`, CORE §9); the loans walked here agree, or
         // the fact is wrong.
-        if (self_check) if (storage.decided(self.sema, source, .lives_in)) |roots| if (roots.onlyPlaces()) if (headerTempLoan(self, drops, value) != null) {
+        if (self_check) if (storage.livesIn(self.sema, source).onlyPlaces()) if (headerTempLoan(self, drops, value) != null) {
             const lc = diag.lineCol(self.source, notes.startOf(self, source));
             std.debug.panic("{d}:{d}: internal error: the loop's source was decided to live only in places (`lives_in`), but its loans name a value made in its header", .{ lc.line, lc.col });
         };
