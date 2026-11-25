@@ -59,6 +59,19 @@ pub const Module = struct {
     /// The owning temporaries of each statement and header that makes
     /// any, by its key, in the order they are made.
     temps: std.AutoHashMapUnmanaged(u64, []const Sexp) = .empty,
+    /// The coercions of each node that has any, by its key.
+    coerced: std.AutoHashMapUnmanaged(u64, Coerced) = .empty,
+
+    /// Where a node's value is made the type its context takes, each
+    /// list outermost first. A node held in a var first (a part a call
+    /// holds, an assignment's new value) is coerced in part where the var
+    /// is written, `held`, and in part where it is read, `use`.
+    pub const Coerced = struct {
+        use: []const lir.Coercion = &.{},
+        held: []const lir.Coercion = &.{},
+        /// The node is held in a var first.
+        hoisted: bool = false,
+    };
 
     pub const Owner = struct {
         root: Sexp,
@@ -94,6 +107,11 @@ pub const Module = struct {
         return m.temps.get(sema.decisionKeyOf(node) orelse return &.{}) orelse &.{};
     }
 
+    /// The coercions of `node`.
+    pub fn coercedOf(m: *const Module, node: Sexp) Coerced {
+        return m.coerced.get(sema.decisionKeyOf(node) orelse return .{}) orelse .{};
+    }
+
     /// The var of binding `sym`.
     pub fn bindingOf(m: *const Module, sym: SymbolId) ?*const lir.Var {
         return m.bindings.get(sym);
@@ -118,9 +136,16 @@ pub const Problem = struct {
     func: ?*const lir.Func = null,
 };
 
+/// How a module is lowered.
+pub const Options = struct {
+    /// Every object's optional is held as a tagged struct, so each lift
+    /// into one is made (`RIG_STRICT_OPTIONALS`, `sema.optionalRouted`).
+    strict_optionals: bool = false,
+};
+
 /// Lower every body of module `tree` (a module sema checked without
 /// errors).
-pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp) !Module {
+pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: Options) !Module {
     var m: Module = .{ .arena = .init(gpa) };
     errdefer m.deinit();
     const a = m.arena.allocator();
@@ -130,7 +155,7 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp) !Module
         o.* = .{ .root = fo.root, .parent = fo.parent };
         try m.roots.put(a, sema.decisionKeyOf(fo.root).?, @intCast(i));
     }
-    var l: Lowerer = .{ .a = a, .ctx = ctx, .module = &m };
+    var l: Lowerer = .{ .a = a, .ctx = ctx, .module = &m, .opts = opts };
     l.flags = try .initEmpty(a, ctx.symbols.items.len);
     for (m.owners, 0..) |o, i| {
         if (o.root.isKind(.lambda)) continue;
@@ -162,7 +187,7 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp) !Module
 pub fn shadow(ctx: *SemContext, tree: Sexp) !void {
     if (ctx.hasErrors()) return;
     var cov: Coverage = .{};
-    var m = try lowerModule(ctx.allocator, ctx, tree);
+    var m = try lowerModule(ctx.allocator, ctx, tree, .{});
     defer m.deinit();
     if (try check(ctx, &m, tree, &cov)) |p| {
         const at = diag.lineCol(ctx.source, ctx.startOf(p.node));
@@ -182,7 +207,7 @@ pub fn shadow(ctx: *SemContext, tree: Sexp) !void {
 /// body, then each body not lowered and the construct that stopped it,
 /// then what the check against the var table covered.
 pub fn writeModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, w: *std.Io.Writer) !void {
-    var m = try lowerModule(gpa, ctx, tree);
+    var m = try lowerModule(gpa, ctx, tree, .{});
     defer m.deinit();
     for (m.owners) |o| if (o.func) |f| try lir.write(f, ctx, w);
     for (m.owners) |o| if (o.skip) |s| {
@@ -302,6 +327,7 @@ const Lowerer = struct {
     /// (`storage.taskRecordIn`).
     ctx: *SemContext,
     module: *Module,
+    opts: Options,
     f: *lir.Func = undefined,
     /// The region that declares the current statement's temporaries and
     /// the vars that live for an expression.
@@ -380,11 +406,28 @@ const Lowerer = struct {
     /// A hidden var for `node` that its region `in` evaluates first, in
     /// its turn: the node's place in the tree reads the var.
     fn hoistVar(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId) Error!void {
+        // An assignment's new value is held as the optional it becomes.
+        return l.hoistLifted(node, kind, by, life, drop, in, kind == .new_value);
+    }
+
+    /// `hoistVar`, lifting the value into the optional it becomes where
+    /// the var is written, when `lifted`, or else where it is read.
+    fn hoistLifted(l: *Lowerer, node: Sexp, kind: StorageKind, by: StorageBy, life: StorageLife, drop: ?sema.ResourceKind, in: RegionId, lifted: bool) Error!void {
         const v = (try l.hiddenVar(node, kind, by, life, drop, in)) orelse return;
-        const e = l.exprOf(node) orelse return;
+        var e = l.exprOf(node) orelse return;
+        // The coercions made where the var is read stay there; the rest
+        // are made as it is written.
+        var kept: usize = 0;
+        while (l.f.exprs.items[e] == .coerce and readCoercion(lifted, l.f.exprs.items[e].coerce.how)) : (kept += 1) e = l.f.exprs.items[e].coerce.value;
         const moved = try l.addExpr(l.f.exprs.items[e]);
         l.f.exprs.items[e] = .{ .@"var" = v };
         try l.step(in, .{ .bind = .{ .v = v, .value = moved } });
+        const gop = try l.module.coerced.getOrPut(l.a, sema.decisionKeyOf(node).?);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+        const c = gop.value_ptr;
+        c.held = c.use[kept..];
+        c.use = c.use[0..kept];
+        c.hoisted = true;
     }
 
     fn exprOf(l: *Lowerer, node: Sexp) ?ExprId {
@@ -770,8 +813,16 @@ const Lowerer = struct {
     }
 
     /// Expression `e`: its operands first, in the tree's order, then the
-    /// vars it makes.
+    /// vars it makes, then the coercions that make its value the type its
+    /// context takes.
     fn expr(l: *Lowerer, e: Sexp) Error!ExprId {
+        if (e == .list) if (l.headers.get(sema.decisionKeyOf(e).?)) |h| if (h == null) return l.header(e, sema.decisionKeyOf(e).?);
+        const id = try l.made(e);
+        try l.coerce(e, id);
+        return id;
+    }
+
+    fn made(l: *Lowerer, e: Sexp) Error!ExprId {
         switch (e) {
             .src => {
                 const id = if (l.ctx.symbolOf(e)) |sym| (if (l.bindings.get(sym)) |v| try l.addExpr(.{ .@"var" = v }) else try l.addExpr(.{ .leaf = e })) else try l.addExpr(.{ .leaf = e });
@@ -782,7 +833,6 @@ const Lowerer = struct {
             .list => {},
             else => return l.addExpr(.{ .leaf = e }),
         }
-        if (l.headers.get(sema.decisionKeyOf(e).?)) |h| if (h == null) return l.header(e, sema.decisionKeyOf(e).?);
         try l.consumed(e);
         const head = e.kind() orelse return l.op(e);
         switch (head) {
@@ -873,6 +923,56 @@ const Lowerer = struct {
         l.stmt_region = o.stmt;
         l.temps.shrinkRetainingCapacity(o.temps);
         return l.addExpr(.{ .block = h });
+    }
+
+    /// Wrap expression `id`, node `e`'s, in each coercion its context
+    /// makes of it, innermost first, and record them.
+    fn coerce(l: *Lowerer, e: Sexp, id: ExprId) Error!void {
+        const ctx = l.ctx;
+        const key = sema.decisionKeyOf(e) orelse return;
+        var list: [8]lir.Coercion = undefined;
+        var n: usize = 0;
+        // Outermost first.
+        if (ctx.splatOf(e)) |vt| {
+            list[n] = .{ .splat = vt };
+            n += 1;
+        }
+        if (ctx.durationOf(e)) |d| {
+            list[n] = .{ .duration = d };
+            n += 1;
+        }
+        if (ctx.erasureOf(e)) |er| if (er.form == .box or er.form == .shared) {
+            list[n] = .{ .erase = er };
+            n += 1;
+        };
+        if (ctx.isFailingLeaf(e) and !namesErrorMember(ctx, e) and holdsErrorValue(ctx, e)) {
+            list[n] = .fail;
+            n += 1;
+        }
+        if (ctx.liftOf(e)) |lift| if (liftRouted(ctx, lift, l.opts.strict_optionals)) {
+            list[n] = .{ .lift = lift };
+            n += 1;
+        };
+        if (ctx.isCodeWidening(e)) {
+            list[n] = .widen;
+            n += 1;
+        }
+        if (ctx.viewOf(e)) |view| if (viewMade(ctx, view)) {
+            list[n] = .{ .view = view };
+            n += 1;
+        };
+        if (readsThrough(ctx, e)) {
+            list[n] = .deref;
+            n += 1;
+        }
+        if (n == 0) return;
+        var i = n;
+        while (i > 0) {
+            i -= 1;
+            const inner = try l.addExpr(l.f.exprs.items[id]);
+            l.f.exprs.items[id] = .{ .coerce = .{ .node = e, .how = list[i], .value = inner } };
+        }
+        try l.module.coerced.put(l.a, key, .{ .use = try l.a.dupe(lir.Coercion, list[0..n]) });
     }
 
     /// The operation of `e` over its children, then the vars it makes.
@@ -1441,7 +1541,8 @@ const Lowerer = struct {
     fn argument(l: *Lowerer, v: Sexp, param: ?TypeId, life: StorageLife, r: RegionId) Error!void {
         const ctx = l.ctx;
         if (storage.isPureArg(ctx, v)) return;
-        const by: StorageBy = switch (storage.argumentHold(ctx, v)) {
+        const hold = storage.argumentHold(ctx, v);
+        const by: StorageBy = switch (hold) {
             .closure => by: {
                 _ = try l.hiddenVar(v, .environment, .owned, life, null, r);
                 break :by .owned;
@@ -1450,7 +1551,12 @@ const Lowerer = struct {
             .viewed => .pointer,
             .value => if (param) |t| (if (storage.isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
         };
-        try l.hoistVar(v, .argument, by, life, if (by == .pointer or ctx.viewsTempArray(v)) null else storage.dropOf(ctx, v), r);
+        // A value held as the view its parameter takes, or as what a
+        // duration form becomes, is held as the optional it becomes.
+        const ty = if (ctx.durationOf(v)) |d| d.written(ctx.types.int_id) else storage.typeOf(ctx, v);
+        const shown = if (hold == .viewed) param else ty;
+        const lifted = shown != ty;
+        try l.hoistLifted(v, .argument, by, life, if (by == .pointer or ctx.viewsTempArray(v)) null else storage.dropOf(ctx, v), r, lifted);
     }
 
     /// A call through an API object's table: the object, read once
@@ -1542,3 +1648,73 @@ const Lowerer = struct {
         try sema.eachTailPart(value, l, consumeTail);
     }
 };
+
+// =============================================================================
+// Coercions
+// =============================================================================
+
+/// Whether coercion `c` of a value held in a var first is made where the
+/// var is read, not where it is written: a lift, unless the var holds
+/// the value `lifted`.
+fn readCoercion(lifted: bool, c: lir.Coercion) bool {
+    return switch (c) {
+        .lift => !lifted,
+        .splat, .erase, .fail, .widen => true,
+        .duration, .view, .deref => false,
+    };
+}
+
+/// Whether `e` names an error member, `E.name` or `E.name(fields)`, which
+/// is what the function fails with itself.
+fn namesErrorMember(ctx: *const SemContext, e: Sexp) bool {
+    if (e.isKind(.enum_lit) or ctx.isErrorMember(e)) return true;
+    if (!e.isKind(.call)) return false;
+    const callee = ir.Call.callee(e);
+    return callee.isKind(.member) and ctx.typeOf(callee) == null;
+}
+
+/// Whether `e` is an error that may carry fields, a `rig.ErrorValue`.
+fn holdsErrorValue(ctx: *const SemContext, e: Sexp) bool {
+    const ty = storage.typeOf(ctx, e) orelse return false;
+    return sema.isErrorValueForm(ctx, sema.unwrapViews(ctx, ty));
+}
+
+/// Whether some level of the optional `lift` makes goes through the
+/// optional helpers.
+fn liftRouted(ctx: *const SemContext, lift: sema.Lift, strict: bool) bool {
+    var o = lift.into;
+    var levels: u32 = if (lift.from == ctx.types.none_id) 1 else optionalDepth(ctx, lift.into) -| optionalDepth(ctx, lift.from);
+    while (levels > 0) : (levels -= 1) {
+        const inner = ctx.types.get(o).optional;
+        if (sema.optionalRouted(ctx, inner, strict)) return true;
+        o = inner;
+    }
+    return false;
+}
+
+fn optionalDepth(ctx: *const SemContext, ty: TypeId) u32 {
+    var n: u32 = 0;
+    var t = ty;
+    while (ctx.types.get(t) == .optional) : (n += 1) t = ctx.types.get(t).optional;
+    return n;
+}
+
+/// Whether view `view` makes anything of its value: any view but one
+/// that reads plain data as it is, and a read view of an API object,
+/// read through its `read()`.
+fn viewMade(ctx: *const SemContext, view: sema.View) bool {
+    if (view.implicit or !view.has(.read_only)) return true;
+    var t = view.ty;
+    for (view.steps()) |row| if (row == .lift) {
+        t = ctx.types.get(t).optional;
+    };
+    return sema.objectView(ctx, t) != null;
+}
+
+/// Whether `e` yields a pointer view where its context reads the value
+/// behind it: `!x`, or a call returning `!Int`. A name, field, or element
+/// holding a view reads through it already.
+fn readsThrough(ctx: *const SemContext, e: Sexp) bool {
+    if (e == .src or e.isKind(.member) or e.isKind(.index)) return false;
+    return ctx.readsThrough(e) and storage.isPtrViewExpr(ctx, e);
+}

@@ -87,6 +87,7 @@ pub const Header = sema.Header;
 /// A module's bodies lowered (`src/lower.zig`), whose vars are the
 /// storage emit prints.
 pub const Lowered = lowering.Module;
+pub const Coercion = @import("lir.zig").Coercion;
 pub const StorageKind = storage.StorageKind;
 pub const StorageBy = storage.StorageBy;
 pub const Clone = sema.Clone;
@@ -701,8 +702,8 @@ pub const Facts = struct {
         return f.c().fieldMoves(sym);
     }
     /// The module's bodies, lowered: tree `module` is the module's.
-    pub fn lower(f: Facts, gpa: std.mem.Allocator, module: Sexp) !Lowered {
-        return lowering.lowerModule(gpa, @constCast(f.c()), module);
+    pub fn lower(f: Facts, gpa: std.mem.Allocator, module: Sexp, strict_optionals: bool) !Lowered {
+        return lowering.lowerModule(gpa, @constCast(f.c()), module, .{ .strict_optionals = strict_optionals });
     }
     /// How the walk that reaches a value by address reaches `e`
     /// (`storage.leafStep`, a recorded decision); null when no checker
