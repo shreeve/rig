@@ -514,7 +514,7 @@ const Lowerer = struct {
                 l.block = b;
                 if (body.isKind(.block)) {
                     _ = try l.stmts(body, b, false);
-                } else try l.stmt(body, b);
+                } else try l.stmtBody(body, b);
                 try l.step(r, .{ .region = b });
             },
             .@"if" => {
@@ -688,6 +688,7 @@ const Lowerer = struct {
         l.f.vars.items[v].parts = kinds;
         try l.step(r, .{ .bind = .{ .v = v, .value = value_e } });
         for (l.region(targets).steps.items) |st| try l.step(r, st);
+        for (l.region(targets).decls.items) |x| try l.declare(r, x);
     }
 
     // -------------------------------------------------------------------------
@@ -896,6 +897,14 @@ const Lowerer = struct {
         const saved = l.block;
         defer l.block = saved;
         l.block = r;
+        // A branch that is no block, `a if c else b`, makes its
+        // temporaries for the statement around it.
+        if (!body.isKind(.block)) {
+            if (!value) return l.stmtBody(body, r);
+            const v = try l.expr(body);
+            l.region(r).value = v;
+            return;
+        }
         try l.blockTasks(body);
         const value_6 = try l.stmts(body, r, value);
         l.region(r).value = value_6;
