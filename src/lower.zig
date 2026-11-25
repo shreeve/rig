@@ -1131,7 +1131,23 @@ const Lowerer = struct {
         const scope = try l.f.addRegion(l.a, m, .guard);
         const raw = ir.Match.subject(m);
         const subject = storage.viewedPlace(raw);
-        for ([_]Sexp{ subject, if (subject.isKind(.move)) ir.Move.operand(subject) else .nil }) |h| {
+        // The header that ends the subject's temporaries is the one
+        // `matchRules` makes a var for; of two, the outer.
+        const mode = storage.matchMode(ctx, m);
+        var held: ?Sexp = null;
+        var reread = false;
+        var temp_subject = false;
+        var selects = false;
+        if (storage.matchBlock(ctx, m)) {
+            if (storage.subjectHold(ctx, m)) |by| {
+                held = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
+                temp_subject = mode == .consume and by == .owned;
+            }
+            reread = true;
+            selects = storage.matchSelects(ctx, m);
+        } else if (storage.matchRereads(ctx, m)) reread = true;
+        const whole = !selects and !(temp_subject or (reread and mode != .consume));
+        for ([_]Sexp{ if (whole) subject else .nil, if (held != null and !whole) held.? else .nil }) |h| {
             if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.a, sema.decisionKeyOf(h).?, null);
         }
         const subject_e = try l.expr(raw);
