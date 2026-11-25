@@ -1260,12 +1260,7 @@ const SymbolResolver = struct {
     /// `x` is: it cannot be a constant. `node` is the site that writes it
     /// (`SemContext.recordWrite`).
     fn markWritten(self: *SymbolResolver, node: Sexp, place: Sexp, kind: sema.WriteKind) Error!void {
-        var p = place;
-        while (p.kind()) |h| {
-            if (h != .member and h != .index) return;
-            p = ir.get(p, .object);
-        }
-        const name = identAt(self.ctx.source, p) orelse return;
+        const name = identAt(self.ctx.source, sema.pathRoot(place)) orelse return;
         const id = self.ctx.lookup(self.scope, name) orelse return;
         try self.ctx.recordWrite(node, id, kind);
     }

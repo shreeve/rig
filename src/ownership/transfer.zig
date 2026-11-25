@@ -2372,7 +2372,7 @@ pub fn walkCallBody(self: *Checker, node: Sexp) Error!Value {
     // arguments, and hold none of them past the call: a String keeps
     // their text, not them.
     const text_op = self.sema.stringCallOf(node) orelse self.sema.stringCallOf(callee);
-    if (storage.isPrintCall(self.sema, node) or text_op != null) {
+    if (self.sema.isPrintCall(node) or text_op != null) {
         try walkReadArgs(self, args);
         if (recv_root) |id| if (recv_loan == .write) {
             const reserved = self.temps.orderedRemove(reservation);
@@ -3469,8 +3469,7 @@ pub fn holdBase(self: *Checker, node: Sexp) Error!void {
 /// Whether place `e` is a path from the value a header holds.
 pub fn heldPath(self: *const Checker, e: Sexp) bool {
     const h = self.held orelse return false;
-    var base = e;
-    while (base.isKind(.member) or base.isKind(.index)) base = ir.get(base, .object);
+    const base = sema.pathRoot(e);
     return base == .list and base.list.ptr == h.base.list.ptr;
 }
 

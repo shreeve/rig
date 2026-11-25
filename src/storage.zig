@@ -312,32 +312,6 @@ pub fn isLiteralText(t: []const u8) bool {
     return std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false");
 }
 
-pub fn isNoneLeaf(ctx: *const SemContext, e: Sexp) bool {
-    return e == .src and ctx.symbolOf(e) == null and std.mem.eql(u8, srcText(ctx, e), "none");
-}
-
-/// Which of the built-ins that write their values as `print` does a
-/// call is.
-pub const PrintCall = enum {
-    /// `print(...)`, to stdout.
-    print,
-    /// `warn(...)`, to stderr.
-    warn,
-};
-
-/// The built-in `call` is, `print(...)` or `warn(...)`, unless a
-/// declaration hides it.
-pub fn printCall(ctx: *const SemContext, call: Sexp) ?PrintCall {
-    const callee = ctx.calleeOf(call);
-    if (callee != .src or ctx.symbolOf(callee) != null) return null;
-    return std.meta.stringToEnum(PrintCall, srcText(ctx, callee));
-}
-
-/// `print(...)` or `warn(...)` (`printCall`).
-pub fn isPrintCall(ctx: *const SemContext, call: Sexp) bool {
-    return printCall(ctx, call) != null;
-}
-
 /// The built-in String operation `call` is: `String(...)`, `!t.add(...)`,
 /// or `!t.clear()`.
 pub fn stringCall(ctx: *const SemContext, call: Sexp) ?sema.StringCall {
@@ -417,7 +391,7 @@ pub fn laneChecked(ctx: *const SemContext, e: Sexp) bool {
 pub fn isPureArg(ctx: *const SemContext, e: Sexp) bool {
     switch (e) {
         .src => {
-            if (isLiteralText(srcText(ctx, e)) or isNoneLeaf(ctx, e)) return true;
+            if (isLiteralText(srcText(ctx, e)) or sema.isNoneLeaf(ctx, e)) return true;
             const sym = ctx.symbolOf(e) orelse return false;
             const s = ctx.symbols.items[sym];
             return switch (s.kind) {
@@ -557,7 +531,7 @@ pub fn hoistsArgs(ctx: *const SemContext, call: Sexp) bool {
 }
 
 fn callHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
-    if (isPrintCall(ctx, call) or stringCall(ctx, call) != null) return false;
+    if (ctx.isPrintCall(call) or stringCall(ctx, call) != null) return false;
     const args = ir.Call.args(call);
     // A closure literal passed to the call gets an environment first.
     for (args) |a| if (viewedLiteral(ctx, argValue(a))) return true;
@@ -2304,7 +2278,7 @@ const Planner = struct {
             // A value made here that no slot keeps, or a literal, is
             // reached where Zig holds it.
             .made => if (!p.ctx.dropsTemp(e)) try p.record(e, .zig_temp, .owned, .statement),
-            .literal => if (!isNoneLeaf(p.ctx, e)) try p.record(e, .zig_temp, .owned, .statement),
+            .literal => if (!sema.isNoneLeaf(p.ctx, e)) try p.record(e, .zig_temp, .owned, .statement),
             .@"if" => {
                 try p.leaf(lastValue(ir.If.then(e)));
                 try p.leaf(lastValue(ir.If.@"else"(e)));

@@ -660,7 +660,6 @@ pub fn checkSet(self: *Checker, node: Sexp) Error!void {
         _ = try PatternCheck.synthExpr(self, rhs);
         return;
     };
-    try self.ctx.recordName(target, sym_id);
     // A copy: resolving the annotation may add symbols (`sema.proxyOf`).
     const sym = self.ctx.symbols.items[sym_id];
     const is_decl = sym.decl_pos == target.src.pos;
