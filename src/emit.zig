@@ -618,6 +618,10 @@ pub const Emitter = struct {
     /// The value being written inside the `rig.pack` of the optional it
     /// becomes (`emitLift`), or written where it is held as itself.
     lifting: Sexp = .nil,
+    /// A value whose lift no body's LIR records (`checkCoerced`): an
+    /// argument whose temporary holds it as itself, lifted where the call
+    /// reads it (`hoist`), or a default's (`emitDefault`).
+    lift_outside: Sexp = .nil,
     /// Where each line of `source` starts, for the place of a failure's
     /// site (`markSite`), made at the first.
     line_starts: std.ArrayList(u32) = .empty,
@@ -658,7 +662,7 @@ pub const Emitter = struct {
         try self.w.writeAll("const std = @import(\"std\");\n");
         try self.w.print("const rig = @import(\"{s}\");\n", .{self.runtime_import});
         if (!sexp.isKind(.module)) return;
-        self.lowered = try self.facts.lower(self.allocator, sexp);
+        self.lowered = try self.facts.lower(self.allocator, sexp, self.strict_optionals);
         for (self.lowered.?.owners) |o| if (o.skip) |why| return self.unsupported(why.node, "a body lowering does not cover");
         const decls = ir.Module.decls(sexp);
         try self.collectModule(decls);
@@ -6198,6 +6202,7 @@ pub const Emitter = struct {
         }
         // A temporary holds the value its context reads (`hoist`).
         if (self.hoistedOf(sexp)) |h| {
+            self.checkCoerced(sexp, true, want_ptr, false);
             if (h.flag.len > 0) return self.w.print(rt(.take) ++ "(&{s}, {s})", .{ h.flag, h.name });
             return self.w.print("{s}{s}", .{ h.name, if (h.ptr) ".*" else "" });
         }
@@ -6218,6 +6223,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(").read()");
             }
         };
+        self.checkCoerced(sexp, false, want_ptr, !want_ptr and self.readsThrough(sexp));
         if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
@@ -6231,6 +6237,45 @@ pub const Emitter = struct {
             .list => try self.emitList(sexp, tail, bare, literal_ty),
             else => return self.unsupported(sexp, "this expression"),
         }
+    }
+
+    /// In a self-checking build, that the coercions emit made of `sexp`
+    /// on its way to its value are those its LIR records there: where a
+    /// var holding it is read (`hoisted`), where that var is written, or
+    /// where it stands. A context that takes the pointer (`want_ptr`) makes
+    /// no lift and reads through no view.
+    fn checkCoerced(self: *Emitter, sexp: Sexp, hoisted: bool, want_ptr: bool, deref: bool) void {
+        if (!facts.self_check) return;
+        const c = self.lowered.?.coercedOf(sexp);
+        const want = if (hoisted) c.use else if (c.hoisted) c.held else c.use;
+        const Kind = std.meta.Tag(facts.Coercion);
+        var have = std.EnumSet(Kind).empty;
+        if (sameNode(sexp, self.splatting)) have.insert(.splat);
+        if (sameNode(sexp, self.durationing)) have.insert(.duration);
+        if (sameNode(sexp, self.erasing_box)) have.insert(.erase);
+        if (sameNode(sexp, self.failing)) have.insert(.fail);
+        if (sameNode(sexp, self.lifting) and !sameNode(sexp, self.lift_outside)) have.insert(.lift);
+        if (sameNode(sexp, self.widening)) have.insert(.widen);
+        if (sameNode(sexp, self.viewing)) have.insert(.view);
+        if (deref) have.insert(.deref);
+        var lir_has = std.EnumSet(Kind).empty;
+        for (want) |k| lir_has.insert(k);
+        if (want_ptr) {
+            lir_has.remove(.lift);
+            lir_has.remove(.deref);
+        }
+        if (have.eql(lir_has)) return;
+        var buf: [256]u8 = undefined;
+        var w: std.Io.Writer = .fixed(&buf);
+        w.writeAll("emit made") catch {};
+        var it = have.iterator();
+        while (it.next()) |k| w.print(" {s}", .{@tagName(k)}) catch {};
+        w.writeAll("; the LIR has") catch {};
+        it = lir_has.iterator();
+        while (it.next()) |k| w.print(" {s}", .{@tagName(k)}) catch {};
+        w.print(" ({s})", .{if (hoisted) "read from its var" else if (c.hoisted) "written to its var" else "in place"}) catch {};
+        const at = diag.lineCol(self.source, self.facts.startOf(sexp));
+        std.debug.panic("{s}:{d}:{d}: internal error: coercions of a `{s}`: {s}", .{ self.file.path, at.line, at.col, @tagName(sexp.kind() orelse .module), w.buffered() });
     }
 
     /// `sexp`, viewed where a view of another type is expected, as the rows
@@ -10228,9 +10273,10 @@ pub const Emitter = struct {
         // its own module's types) is packed into each level of `target`
         // that goes through the helpers.
         if (!sameNode(e, self.lifting)) if (decl.liftOf(e)) |lift| {
-            const saved = self.lifting;
-            defer self.lifting = saved;
+            const saved = .{ self.lifting, self.lift_outside };
+            defer self.lifting, self.lift_outside = saved;
             self.lifting = e;
+            self.lift_outside = e;
             const levels = if (lift.from == decl.types.none_id) 1 else optionalDepth(decl.types, lift.into) -| optionalDepth(decl.types, lift.from);
             var into = target;
             while (self.facts.types.get(into) == .fallible) into = self.facts.types.get(into).fallible.ok;
@@ -10610,9 +10656,10 @@ pub const Emitter = struct {
         {
             // The temporary holds the value as itself; where the call reads
             // it, it becomes the optional it goes into (`emitLift`).
-            const saved = self.lifting;
-            defer self.lifting = saved;
+            const saved = .{ self.lifting, self.lift_outside };
+            defer self.lifting, self.lift_outside = saved;
             if (shown == ty) self.lifting = h.node;
+            if (shown == ty) self.lift_outside = h.node;
             if (fields) try self.emitStored(h.node) else if (self.facts.viewsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         }
         try self.w.writeAll(";\n");
