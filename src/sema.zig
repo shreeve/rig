@@ -1173,7 +1173,7 @@ pub const GroupParam = struct {
     ty: TypeId,
     /// The type's declaration, by module and symbol, which a spread's
     /// value must have (`nominalRef`), and its name.
-    ref: ?ForeignRef = null,
+    ref: ?SymbolRef = null,
     type_name: []const u8 = "",
     /// The parameter is the group as written, not one of its fields.
     whole: bool = false,
@@ -1333,7 +1333,7 @@ pub const Symbol = struct {
     /// A proxy (`proxyOf`): the other module's generic type or
     /// compile-time parameter it stands for. `.{}` for a symbol declared
     /// here.
-    from: ForeignRef = .{},
+    from: SymbolRef = .{},
     /// A type parameter: its bounds (`[T: Ord]`), with what they imply
     /// (`implied`). A nominal or generic type: the APIs its header names
     /// (`obj Name: Eq + Hash`), which it gives a meaning of its own. An
@@ -1757,8 +1757,14 @@ pub fn strongest(apis: Apis) Apis {
     return out;
 }
 
-/// A symbol of another module: the module's id and the symbol's id there.
-pub const ForeignRef = struct { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
+/// A symbol of the program: its module's id and its id there.
+pub const SymbolRef = struct { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
+
+/// The symbol `ref` names, in this module or another.
+pub fn symbolAt(ctx: *const SemContext, ref: SymbolRef) *const Symbol {
+    const home = if (ref.module_id == ctx.module_id) ctx else ctx.foreign_semas.get(ref.module_id).?;
+    return &home.symbols.items[ref.sym];
+}
 
 /// Whether `sym` stands for another module's declaration (`proxyOf`).
 pub fn isProxy(sym: Symbol) bool {
@@ -4484,7 +4490,7 @@ pub const SemContext = struct {
     cell_objects: FastMap(SymbolId, CellVerdict) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
-    imported: FastMap(ForeignRef, SymbolId) = .empty,
+    imported: FastMap(SymbolRef, SymbolId) = .empty,
     /// How many imports `importSymbol` is nested in, and the proxies made
     /// past its limit, which the outermost fills in.
     import_depth: u32 = 0,
@@ -4585,7 +4591,7 @@ pub const SemContext = struct {
     large_foreign_frames: std.ArrayList(ForeignFrame) = .empty,
     /// The plain enums, of any module, that this module calls
     /// `from_text` on (`recordTextTable`).
-    text_tables: std.ArrayList(ForeignRef) = .empty,
+    text_tables: std.ArrayList(SymbolRef) = .empty,
     /// The node `Question`s decided so far, each once.
     decided: *Decided,
     /// Facts of types worked out on their first ask (`TypeMemo`).
@@ -15050,7 +15056,7 @@ pub fn importType(
 /// (`importSymbol`), or the symbol itself for a built-in generic's,
 /// which has the same id in every module. A proxy of a proxy is one of
 /// the declaration itself, so every path to it gives one symbol here.
-pub fn proxyOf(ctx: *SemContext, ref: ForeignRef) std.mem.Allocator.Error!SymbolId {
+pub fn proxyOf(ctx: *SemContext, ref: SymbolRef) std.mem.Allocator.Error!SymbolId {
     const foreign = ctx.foreign_semas.get(ref.module_id) orelse return symbol_invalid;
     if (ref.sym >= foreign.symbols.items.len) return symbol_invalid;
     const fsym = foreign.symbols.items[ref.sym];
@@ -15067,7 +15073,7 @@ pub fn proxyOf(ctx: *SemContext, ref: ForeignRef) std.mem.Allocator.Error!Symbol
 /// declaration's contents, its parameters' proxies, and its members with
 /// their types imported; a parameter's proxy has the requirements the
 /// bodies that use it record (`importParam`).
-fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!SymbolId {
+fn importSymbol(ctx: *SemContext, origin: SymbolRef) std.mem.Allocator.Error!SymbolId {
     const foreign = ctx.foreign_semas.get(origin.module_id).?;
     const fsym = foreign.symbols.items[origin.sym];
     const a = ctx.arena.allocator();
@@ -15119,14 +15125,14 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
 const max_import_depth = 64;
 
 /// A proxy `importSymbol` made and has yet to fill in.
-pub const PendingProxy = struct { id: SymbolId, origin: ForeignRef };
+pub const PendingProxy = struct { id: SymbolId, origin: SymbolRef };
 
 /// Fill in the proxy `id` of `origin`: a parameter's type and what its
 /// declaring module's bodies record of it, or a generic type's parameters
 /// and members. Only the outermost import reads a proxy, once every one
 /// it made is filled in; the facts of a type that names one, as it is
 /// made, read only its contents, copied when the proxy is made.
-fn fillProxy(ctx: *SemContext, id: SymbolId, origin: ForeignRef) std.mem.Allocator.Error!void {
+fn fillProxy(ctx: *SemContext, id: SymbolId, origin: SymbolRef) std.mem.Allocator.Error!void {
     const foreign = ctx.foreign_semas.get(origin.module_id).?;
     const fsym = foreign.symbols.items[origin.sym];
     const a = ctx.arena.allocator();
@@ -15160,7 +15166,7 @@ fn fillProxy(ctx: *SemContext, id: SymbolId, origin: ForeignRef) std.mem.Allocat
 /// with their positions there, and the generic instances, arrays, and
 /// stack frames that mention it, which each instance made here makes
 /// concrete (`expandInstantiations`) and checks.
-fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Allocator.Error!void {
+fn importParam(ctx: *SemContext, proxy: SymbolId, origin: SymbolRef) std.mem.Allocator.Error!void {
     const foreign = ctx.foreign_semas.get(origin.module_id).?;
     const m = origin.module_id;
     const a = ctx.arena.allocator();
@@ -17680,7 +17686,7 @@ pub fn paramNameNode(param: Sexp) ?Sexp {
 
 /// The declaration of a nominal type `ty` names, by module and symbol, the
 /// same from every module, and its name; null for another type.
-pub fn nominalRef(ctx: *const SemContext, ty: TypeId) ?struct { ref: ForeignRef, name: []const u8 } {
+pub fn nominalRef(ctx: *const SemContext, ty: TypeId) ?struct { ref: SymbolRef, name: []const u8 } {
     return switch (ctx.types.get(ty)) {
         .nominal => |id| .{ .ref = .{ .module_id = ctx.module_id, .sym = id }, .name = ctx.symbols.items[id].name },
         .imported_nominal => |n| blk: {

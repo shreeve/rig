@@ -278,7 +278,7 @@ const Pass = struct {
     instances: std.AutoHashMapUnmanaged(OwnerKey, Instances) = .empty,
     /// The compile-time parameters some instance the program makes binds,
     /// each by its declaration (`instanceMade`).
-    bound: std.AutoHashMapUnmanaged(sema.ForeignRef, void) = .empty,
+    bound: std.AutoHashMapUnmanaged(sema.SymbolRef, void) = .empty,
     max: u32,
     /// Whether this build compiles the root module's tests.
     with_tests: bool,
@@ -1422,7 +1422,7 @@ const Pass = struct {
 
 /// The declaration parameter `sym` of `c` stands for: its proxy's
 /// origin, or itself.
-fn originOf(c: *const SemContext, sym: sema.SymbolId) sema.ForeignRef {
+fn originOf(c: *const SemContext, sym: sema.SymbolId) sema.SymbolRef {
     const s = c.symbols.items[sym];
     return if (sema.isProxy(s)) s.from else .{ .module_id = c.module_id, .sym = sym };
 }
