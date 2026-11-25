@@ -304,7 +304,7 @@ pub const noinline_reach: u64 = 1 << 20;
 
 /// How far apart a task's dense stacks lie on target `os`, guard included
 /// (`sched.takeDense`): the one place the choice is made. `bin/rig` writes
-/// it into the root for the runtime (`__rig_dense_stride`).
+/// it into the root for the runtime (`Config.dense_stride`).
 pub fn denseStride(os: std.Target.Os.Tag) u64 {
     return if (os == .macos) 1 << 20 else 256 << 10;
 }
@@ -4165,26 +4165,26 @@ pub const SemContext = struct {
     /// registers first, at the same ids (`ref`); every symbol is, while
     /// they are registered.
     builtin_end: SymbolId = std.math.maxInt(SymbolId),
-    /// The module makes a task (`f(x)&`): the program's root declares
-    /// `__rig_tasks`, which runs it on the scheduler.
+    /// The module makes a task (`f(x)&`): the program's root sets
+    /// `Config.tasks`, which runs it on the scheduler.
     makes_tasks: bool = false,
     /// The types of the values `task.select(name: arm, ...)` gives, each
     /// once (`selectType`), in the arena.
     select_types: std.ArrayList(SymbolId) = .empty,
     /// The module makes an actor (`*Actor(x)`): the program's root
-    /// declares `__rig_actors`, so its waits are watched for deadlocks.
+    /// sets `Config.actors`, so its waits are watched for deadlocks.
     makes_actors: bool = false,
-    /// The module names `time.since_start`: the program's root declares
-    /// `__rig_since_start`, so the runtime reads the clock as it starts
+    /// The module names `time.since_start`: the program's root sets
+    /// `Config.since_start`, so the runtime reads the clock as it starts
     /// (`noteRuntimeRead`).
     reads_since_start: bool = false,
-    /// The module names `os.memory`: the program's root declares
-    /// `__rig_memory`, so its allocator counts what it hands out.
+    /// The module names `os.memory`: the program's root sets
+    /// `Config.memory`, so its allocator counts what it hands out.
     reads_memory: bool = false,
     /// The module names `task.workers`: the program may set how many
     /// workers run, and start none, so they start at its first task, not
-    /// as `main` starts (the program's root then declares no
-    /// `__rig_start_early`).
+    /// as `main` starts (the program's root then sets no
+    /// `Config.start_early`).
     sets_workers: bool = false,
 
     /// Assigned by the module graph.

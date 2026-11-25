@@ -145,7 +145,7 @@ pub const GlueModule = struct { facts: Facts, path: []const u8 };
 /// error with fields is read through (`rig.error_glue`): the size and
 /// alignment of the largest member's fields, and drop, clone, `==`, and
 /// print of member `code`'s fields, each a switch on the code. The root
-/// module re-exports it as `__rig_error_glue`.
+/// module names it in its `Config` (`error_glue`).
 pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule, runtime_path: []const u8) !void {
     try w.print("const std = @import(\"std\");\nconst rig = @import(\"{s}\");\n", .{runtime_path});
     const Member = struct { module: usize, set: []const u8, name: []const u8, facts: Facts, compares: facts.MemberCompares };
@@ -546,6 +546,8 @@ pub const Emitter = struct {
     uses_symbols: bool = false,
     /// The module declares an `extern "c"`, so the program links libc.
     links_libc: bool = false,
+    /// Its `main` can fail, so an interrupt cancels it (`Config.interrupt`).
+    interrupt: bool = false,
     /// Fill each hidden storage location with `0xAA` when its scope ends
     /// (`rig.poison`), so a view that outlives it reads garbage: set for
     /// the sanitizer (`RIG_SANITIZE`).
@@ -1961,8 +1963,9 @@ pub const Emitter = struct {
         // stack to it (`rig.AltStack`).
         if (is_main) try self.w.writeAll("pub const panic = " ++ rt(.panic) ++ ";\npub const std_options = " ++ rt(.std_options) ++ ";\n\n");
         // A `main` that can fail is canceled by an interrupt or SIGTERM
-        // (`rig.cancelOnInterrupt`); one that cannot keeps their default.
-        if (main_fails) try self.w.writeAll("pub const __rig_interrupt = true;\n\n");
+        // (`rig.cancelOnInterrupt`, `Config.interrupt`); one that cannot
+        // keeps their default.
+        if (main_fails) self.interrupt = true;
         // `main` is the body of a Zig `main` that runs it on the stack the
         // runtime maps (`rig.onOwnStack`), then reports a failure as Rig
         // shows errors (`rig.failMain`) or sets the exit status
