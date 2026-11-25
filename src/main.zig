@@ -951,18 +951,19 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
         // Which word-sized objects are held as one word: the whole
         // program's views decide it, before emit reads it.
         {
+            const t = try graph.table();
             const n = graph.modules.items.len;
             const ctxs = try allocator.alloc(*sema.SemContext, n);
             defer allocator.free(ctxs);
             const trees = try allocator.alloc(parser.Sexp, n);
             defer allocator.free(trees);
-            for (graph.modules.items, ctxs, trees) |*m, *c, *t| {
+            for (graph.modules.items, ctxs, trees) |*m, *c, *tree| {
                 c.* = m.sema;
-                t.* = m.ir;
+                tree.* = m.ir;
             }
-            try program.decideWords(ctxs, trees);
+            try program.decideWords(ctxs, trees, t);
             // The tag type of each enum an `exact` object holds.
-            try program.decideExactEnums(ctxs);
+            try program.decideExactEnums(ctxs, t);
         }
         try inlining.decide(allocator, &graph, inlining.max_size);
         try returns.decide(allocator, &graph);

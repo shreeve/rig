@@ -142,5 +142,6 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph) !void {
             changed = true;
         }
     }
-    for (pass.fns.items) |f| if (f.never) try mods[f.module].sema.never_returns.put(allocator, f.pos, {});
+    const t = try graph.table();
+    for (pass.fns.items) |f| if (f.never) try t.put(.never_returns, mods[f.module].id, f.pos, {});
 }

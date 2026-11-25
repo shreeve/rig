@@ -46,6 +46,7 @@ const proofs = @import("proofs.zig");
 const ownership = @import("ownership.zig");
 const diag = @import("diag.zig");
 const timing = @import("timing.zig");
+const program = @import("program.zig");
 const ir = parser.ir;
 const std_lib = @import("rig_std");
 
@@ -154,6 +155,8 @@ pub const ModuleGraph = struct {
     /// a file of a directory module. The caller keeps it alive as long as
     /// the graph.
     held: ?Held = null,
+    /// The decisions made once for the whole program (`table`).
+    program: ?*program.Table = null,
 
     pub const Held = struct { path: []const u8, text: []const u8 };
 
@@ -176,6 +179,7 @@ pub const ModuleGraph = struct {
         self.by_path.deinit(self.allocator);
         self.by_name.deinit(self.allocator);
         if (self.semas) |s| s.deinit(self.allocator);
+        if (self.program) |t| t.deinit();
         self.errors.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -188,15 +192,25 @@ pub const ModuleGraph = struct {
         return &self.modules.items[id - 1];
     }
 
-    /// Marks each plain enum some module calls `from_text` on in the
-    /// module that declares it, which emits its table of names
-    /// (`sema.SemContext.recordTextTable`). Run once every module is
-    /// checked.
-    pub fn markTextTables(self: *ModuleGraph) Error!void {
-        for (self.modules.items) |m| for (m.sema.foreign_text_tables.items) |ref| {
-            const owner = self.get(ref.module_id).sema;
-            try owner.text_tables.put(owner.allocator, ref.sym, {});
+    /// The program table, made on its first ask once every module is
+    /// checked, which every module's context points at.
+    pub fn table(self: *ModuleGraph) Error!*program.Table {
+        const t = self.program orelse made: {
+            const made = try self.arena.allocator().create(program.Table);
+            made.* = .{ .allocator = self.allocator };
+            self.program = made;
+            break :made made;
         };
+        for (self.modules.items) |m| m.sema.program = t;
+        return t;
+    }
+
+    /// Marks each plain enum some module calls `from_text` on, which its
+    /// module emits a table of names for (`sema.SemContext.recordTextTable`).
+    /// Run once every module is checked.
+    pub fn markTextTables(self: *ModuleGraph) Error!void {
+        const t = try self.table();
+        for (self.modules.items) |m| for (m.sema.text_tables.items) |ref| try t.put(.text_tables, ref.module_id, ref.sym, {});
     }
 
     pub fn hasErrors(self: *const ModuleGraph) bool {

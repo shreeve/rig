@@ -1523,9 +1523,10 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         f.inlined = true;
     }
     try pass.fit();
+    const t = try graph.table();
     for (pass.fns.items, 0..) |f, v| {
-        if (f.inlined) try mods[f.module].sema.inlined.put(allocator, f.pos, {});
-        if (pass.checked[v]) try mods[f.module].sema.entry_checks.put(allocator, f.pos, {});
+        if (f.inlined) try t.put(.inlined, mods[f.module].id, f.pos, {});
+        if (pass.checked[v]) try t.put(.entry_checks, mods[f.module].id, f.pos, {});
     }
     // Every owner's account. An owner large with the calls inlined into it
     // is never inlined by Zig either: a function, a closure's body, or a
@@ -1548,17 +1549,17 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     for (pass.sites.items) |site| {
         const one = [1]u32{site.callee};
         const reached: []const u32 = if (site.callee & group_bit != 0) pass.groups.items[site.callee & ~group_bit].members.items else &one;
-        for (reached) |t| if (pass.fns.items[t].inlined) {
-            try mods[site.module].sema.inlined_calls.put(allocator, site.id, {});
+        for (reached) |r| if (pass.fns.items[r].inlined) {
+            try t.put(.inlined_calls, mods[site.module].id, site.id, {});
             break;
         };
         var most: u64 = 0;
-        const fits = reached.len > 0 and for (reached) |t| {
-            const d = depth[t] orelse break false;
+        const fits = reached.len > 0 and for (reached) |r| {
+            const d = depth[r] orelse break false;
             if (d >= sema.dense_depth_limit) break false;
             most = @max(most, d);
         } else true;
-        if (fits) try mods[site.module].sema.dense_calls.put(allocator, site.id, most);
+        if (fits) try t.put(.dense_calls, mods[site.module].id, site.id, most);
     }
 }
 

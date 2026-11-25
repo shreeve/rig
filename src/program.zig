@@ -1,10 +1,28 @@
-//! The program-wide decisions, made once every module is checked, which
-//! emit reads.
+//! The program table: the decisions made once for the whole program,
+//! after every module is checked, which emit reads. Each is keyed by a
+//! module's id and a place in it: where a function's or method's name is
+//! declared, a call's node, or a declared symbol.
+//!
+//! | Decision | Keyed by | Decider |
+//! |---|---|---|
+//! | `inlined`: Zig inlines it at every call | name | `inlining.decide` |
+//! | `entry_checks`: its entry checks for work left waiting | name | `inlining.decide` |
+//! | `inlined_calls`: the call may reach an inlined function | call | `inlining.decide` |
+//! | `dense_calls`: a task the call starts may take a dense stack, and the most stack it may take | call | `inlining.decide` |
+//! | `never_returns`: Zig's result for it is `noreturn` | name | `returns.decide` |
+//! | `split_units`: the unit that owns it in a split build | name | `units.decide` |
+//! | `word_held`: the object is held as one word, a `packed struct` | symbol | `decideWords` |
+//! | `exact_enums`: the plain enum's tag bytes, where an `exact` object holds it | symbol | `decideExactEnums` |
+//! | `text_tables`: the plain enum emits its table of names for `from_text` | symbol | `ModuleGraph.markTextTables` |
+//!
+//! The graph owns the table (`ModuleGraph.table`); every module's
+//! context points at it (`SemContext.program`), which `Facts` reads.
 
 const std = @import("std");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const storage = @import("storage.zig");
+const fastmap = @import("fastmap.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -12,6 +30,54 @@ const SemContext = sema.SemContext;
 const TypeId = sema.TypeId;
 const SymbolId = sema.SymbolId;
 const typeOf = storage.typeOf;
+
+/// A place in module `module`: a name's position, a node, or a symbol.
+pub const Key = struct { module: u32, at: u32 };
+
+pub fn Of(comptime V: type) type {
+    return fastmap.Map(Key, V);
+}
+
+pub const Table = struct {
+    allocator: std.mem.Allocator,
+    inlined: Of(void) = .empty,
+    entry_checks: Of(void) = .empty,
+    inlined_calls: Of(void) = .empty,
+    dense_calls: Of(u64) = .empty,
+    never_returns: Of(void) = .empty,
+    split_units: Of(u16) = .empty,
+    word_held: Of(void) = .empty,
+    exact_enums: Of(u8) = .empty,
+    text_tables: Of(void) = .empty,
+
+    pub const Decision = std.meta.FieldEnum(Table);
+
+    /// What decision `d` carries for each place it records.
+    pub fn Value(comptime d: Decision) type {
+        return @FieldType(@FieldType(Table, @tagName(d)).KV, "value");
+    }
+
+    pub fn deinit(t: *Table) void {
+        inline for (@typeInfo(Table).@"struct".field_names[1..]) |name| @field(t, name).deinit(t.allocator);
+    }
+
+    /// Records decision `d` for place `at` of module `module`, with
+    /// `value` for a decision that carries one.
+    pub fn put(t: *Table, comptime d: Decision, module: u32, at: u32, value: Value(d)) !void {
+        try @field(t, @tagName(d)).put(t.allocator, .{ .module = module, .at = at }, value);
+    }
+
+    pub fn has(t: *const Table, comptime d: Decision, module: u32, at: u32) bool {
+        return @field(t, @tagName(d)).contains(.{ .module = module, .at = at });
+    }
+
+    pub fn get(t: *const Table, comptime d: Decision, module: u32, at: u32) ?Value(d) {
+        return @field(t, @tagName(d)).get(.{ .module = module, .at = at });
+    }
+};
+
+/// The table of a program not yet decided, which decides nothing.
+pub const none: Table = .{ .allocator = std.mem.Allocator.failing };
 
 /// Decide which word-sized objects (`sema.wordBits`) emit holds as one
 /// word, a Zig `packed struct`, for the whole program at once: every
@@ -23,8 +89,8 @@ const typeOf = storage.typeOf;
 /// its own, as it is inside an optional (`rig.Opt`); and where a word
 /// inside it stays plain. Its read views copy it whole, so a read takes
 /// no address.
-/// Recorded on the declaring module's context (`SemContext.word_held`).
-pub fn decideWords(mods: []const *SemContext, trees: []const Sexp) !void {
+/// Recorded in the program table (`Table.word_held`).
+pub fn decideWords(mods: []const *SemContext, trees: []const Sexp, t: *Table) !void {
     var gpa = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer gpa.deinit();
     const a = gpa.allocator();
@@ -49,36 +115,32 @@ pub fn decideWords(mods: []const *SemContext, trees: []const Sexp) !void {
             }
         };
     }
-    for (mods) |ctx| {
-        ctx.word_held.clearRetainingCapacity();
-        for (ctx.symbols.items, 0..) |_, i| {
-            const sym: SymbolId = @intCast(i);
-            if (sema.wordBitsOfSym(ctx, sym) == null) continue;
-            if (plain.contains(.{ ctx, sym })) continue;
-            try ctx.word_held.put(ctx.allocator, sym, {});
-        }
-    }
+    for (mods) |ctx| for (ctx.symbols.items, 0..) |_, i| {
+        const sym: SymbolId = @intCast(i);
+        if (sema.wordBitsOfSym(ctx, sym) == null) continue;
+        if (plain.contains(.{ ctx, sym })) continue;
+        try t.put(.word_held, ctx.module_id, sym, {});
+    };
 }
 
 /// Give each plain enum an `exact` object holds, in a field or a fixed
-/// array, in any module, its tag type (`SemContext.exact_enums`): a Zig
+/// array, in any module, its tag type (`Table.exact_enums`): a Zig
 /// `extern struct` holds no enum of an inferred tag, and the tag's bytes
 /// are the enum's in the object's layout (`sema.enumBytes`). For the
 /// whole program at once, since the enum may be another module's.
-pub fn decideExactEnums(mods: []const *SemContext) !void {
-    for (mods) |ctx| ctx.exact_enums.clearRetainingCapacity();
+pub fn decideExactEnums(mods: []const *SemContext, t: *Table) !void {
     for (mods) |ctx| for (ctx.symbols.items) |sym| {
         if (sema.isProxy(sym) or sym.kind != .nominal_type or !sym.flags.exact) continue;
         for (sym.fields orelse &.{}) |f| {
             if (f.is_method or f.is_variant or f.is_drop_method) continue;
-            try exactEnum(ctx, f.ty);
+            try exactEnum(ctx, f.ty, t);
         }
     };
 }
 
-fn exactEnum(ctx: *SemContext, ty: TypeId) !void {
+fn exactEnum(ctx: *SemContext, ty: TypeId, t: *Table) !void {
     switch (ctx.types.get(ty)) {
-        .array => |arr| return exactEnum(ctx, arr.elem),
+        .array => |arr| return exactEnum(ctx, arr.elem, t),
         .nominal, .imported_nominal => {},
         else => return,
     }
@@ -87,9 +149,8 @@ fn exactEnum(ctx: *SemContext, ty: TypeId) !void {
     if (d.symbol().flags.enum_valued or d.symbol().flags.error_set) return;
     const bytes = sema.enumBytes(d.ctx, d.sym) orelse return;
     if (bytes == 0) return;
-    // The declaring module's context, which emit reads for the enum.
-    const home: *SemContext = @constCast(d.ctx);
-    try home.exact_enums.put(home.allocator, d.sym, @intCast(bytes));
+    // Keyed by the declaring module, which emit reads for the enum.
+    try t.put(.exact_enums, d.ctx.module_id, d.sym, @intCast(bytes));
 }
 
 fn optionalWord(a: std.mem.Allocator, ctx: *const SemContext, t: TypeId, plain: anytype) !void {
