@@ -664,6 +664,11 @@ serve no HTTP.
 
 ### Compiler
 
+- **A `for` over a chain may not bind a name that hides a local,** as any
+  `for` may not: `x = 1` then `for x in xs.filter(f)` is rejected with
+  "`for` binding `x` shadows the local `x`; use a different name". A
+  program 0.3.0 accepted with such a loop is rejected; rename the loop's
+  binding.
 - **A `for` over an iterator is checked once, as the `while` it means,
   where it stands:** typecheck rewrites it where it learns the source's
   type, rolling back what checking the source recorded (the trail), and a
