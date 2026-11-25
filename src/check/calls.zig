@@ -1,4 +1,5 @@
-//! Typecheck: calls.
+//! Typecheck's calls: callees, arguments, compile-time arguments,
+//! inference, instantiation, and method lookup.
 
 const std = @import("std");
 const parser = @import("../parser.zig");

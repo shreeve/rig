@@ -1,4 +1,5 @@
-//! Typecheck: expr.
+//! Typecheck's expressions: names, literals, operators, equality,
+//! numbers, and blocks.
 
 const std = @import("std");
 const parser = @import("../parser.zig");

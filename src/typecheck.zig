@@ -1978,37 +1978,9 @@ pub const Checker = struct {
         if (e == .list) try self.value_tails.put(self.ctx.allocator, nodeId(e), {});
     }
 
-
-
-
-
-
-
-
-
-
-
     // ---- bindings and assignment --------------------------------------------
 
     // ---- several results ------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     // ---- places -------------------------------------------------------------
 
@@ -2160,16 +2132,6 @@ pub const Checker = struct {
         }
     };
 
-
-
-
-
-
-
-
-
-
-
     // ---- conditionals and loops ---------------------------------------------
 
     pub const Position = enum { statement, value };
@@ -2178,38 +2140,11 @@ pub const Checker = struct {
     /// operands, where it ends, and the code it guards.
     pub const PlainCond = struct { operands: []const Sexp, end: u32, guarded: []const diag.Span };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     /// Whether a `for` source of type `ty` is an iterator, as the one
     /// classifier, `sema.iterItem`, decides for the loop and the `Iter`
     /// bound alike. A type with a `next` of another shape is `.malformed`,
     /// so the mistake is reported where the loop is.
     pub const IterShape = union(enum) { not_iterator, malformed: []const u8, iterator };
-
-
-
 
     /// What a `for` over `source` is, as `iterLoop` finds it.
     pub const IterFor = union(enum) {
@@ -2222,23 +2157,7 @@ pub const Checker = struct {
         rewrite: rig.IterSource,
     };
 
-
     pub const LoopPair = struct { elem: SymbolId, index: SymbolId, source: Sexp };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     // ---- match ----------------------------------------------------------------
 
@@ -2251,25 +2170,11 @@ pub const Checker = struct {
         matchable: bool,
     };
 
-
-
-
-
-
-
-
-
     /// The values of a variant a pattern matches: what it tests of each
     /// payload field (`sema.PayloadTest`), so a cube of the variant's
     /// values, in which each optional field holds a value or none. A
     /// pattern that tests no field matches the whole variant.
     pub const Cube = []const sema.PayloadTest;
-
-
-
-
-
-
 
     /// One alternative of the arm being checked: its variant (or error)
     /// key, and the values it matches (null: every value of it).
@@ -2354,162 +2259,24 @@ pub const Checker = struct {
         }
     };
 
-
-
-
-
     /// A header's subject without its sigil, and the sigil (`?S`, `!S`):
     /// the same for `match`, `if … as`, `while … as`, and `for` (whose `?`
     /// and `!` are its mode).
     pub const HeaderSubject = struct { node: Sexp, sigil: ?ViewKind };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     // =========================================================================
     // Expressions: synthesis
     // =========================================================================
 
-
-
-
-
-
-
-
     pub const entry_point_use = "`main` is the program's entry point; it cannot be called or used as a value";
-
-
-
-
-
 
     pub const MemberKind = enum { field, method, associated };
 
-
-
-
-
     // ---- operators ------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     // ---- ownership sigils -----------------------------------------------------
 
     pub const ViewKind = enum { read, write };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     /// What a function value is where a call runs it: the one classifier
     /// for every call that runs a function on another task or on several
@@ -2533,65 +2300,7 @@ pub const Checker = struct {
         other,
     };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     // ---- member access and indexing -------------------------------------------
-
-
-
-
-
-
-
-
-
 
     /// A method of a self's nominal type, local or imported, with
     /// its signature in this module's types.
@@ -2610,8 +2319,6 @@ pub const Checker = struct {
         args: []const TypeId = &.{},
     };
 
-
-
     /// A nominal type named where a value could be (`Type`, or
     /// `module.Type` for an imported one), whose members `Type.name`
     /// and `Type.name(...)` reach.
@@ -2623,13 +2330,6 @@ pub const Checker = struct {
         /// A generic type's arguments, when given (`Pair[Int, ?String]`).
         args: ?[]const TypeId = null,
     };
-
-
-
-
-
-
-
 
     // ---- compile-time arguments ---------------------------------------------
     //
@@ -2656,25 +2356,8 @@ pub const Checker = struct {
         reported,
     };
 
-
-
     /// Whether a function has compile-time and run-time parameters.
     pub const FnTarget = struct { ct_params: bool, takes_args: bool };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     pub const Foreign = struct {
         ctx: *SemContext,
@@ -2683,72 +2366,19 @@ pub const Checker = struct {
         sym: sema.Symbol,
     };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     // ---- array literals ------------------------------------------------------
-
-
-
-
 
     // =========================================================================
     // Calls
     // =========================================================================
 
-
-
-
     /// A part that goes to a task (`crossCheck`): the type it goes as,
     /// how, where, and how it is passed, for `requireTask`.
     pub const Gone = struct { ty: TypeId, how: sema.Crossing, pos: u32, passed: []const u8 };
 
-
-
-
     /// How a value is hidden from the rules that wait for a task
     /// (`hidesNoTask`).
     pub const Hidden = enum { erased, isolated, captured };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     /// Where a `panic` stands (`placePanics`).
     pub const PanicPlace = enum {
@@ -2760,38 +2390,7 @@ pub const Checker = struct {
         deferred,
     };
 
-
-
-
     // ---- templates -------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     // ---- vectors --------------------------------------------------------------
 
@@ -2808,26 +2407,6 @@ pub const Checker = struct {
 
     /// What is done to a lane where a place would be.
     pub const LaneUse = enum { assign, read_viewed, write_viewed, take };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     /// What a call needs to know about a callee's parameters beyond its
     /// type: names for keyword arguments and default values.
@@ -2881,10 +2460,7 @@ pub const Checker = struct {
             if (@popCount(self.durations) != 1) return null;
             return @ctz(self.durations);
         }
-
     };
-
-
 
     /// What fills a call's parameters besides its arguments, and which
     /// of them it passes loans on from (`sema.CallParams`).
@@ -2921,57 +2497,6 @@ pub const Checker = struct {
         views: []const Sexp = &.{},
     };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     /// Compile-time argument `i` of `callee`, a value of type `ty`.
     pub fn checkCtValue(self: *Checker, a: Sexp, ty: TypeId, i: usize, callee: []const u8) Error!void {
         if (StdFormCheck.isTypeName(self, a)) return self.errAt(a, "compile-time argument {d} of `{s}` is a value of type `{s}`, not a type", .{ i + 1, callee, try self.tyName(ty) });
@@ -2985,13 +2510,6 @@ pub const Checker = struct {
             try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `=!` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
         } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `=!` binding of one, or arithmetic on them", .{ i + 1, callee });
     }
-
-
-
-
-
-
-
 
     /// Where inside an argument's type `bindArg` found a type
     /// parameter: the steps down from the argument's whole type, each a
@@ -3097,54 +2615,12 @@ pub const Checker = struct {
     /// one that can fail when `fails`, where function type `pattern` goes.
     pub const FailedLambda = struct { lambda: Sexp, given: []const TypeId, fails: bool, pattern: TypeId };
 
-
     /// A closure literal argument of a generic call, and the function
     /// type its parameter gives it.
     pub const LambdaArg = struct { pattern: TypeId, lambda: Sexp, arg: u32 };
 
-
-
-
     /// A generic call's declared result, and the type expected of it.
     pub const ResultType = struct { pattern: TypeId, expected: TypeId };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     pub const ForeignFields = struct { ctx: *SemContext, module_id: u32 };
 
@@ -3164,22 +2640,7 @@ pub const Checker = struct {
         instance: TypeId = sema.type_invalid,
     };
 
-
-
-
-
-
-
     // ---- method calls -----------------------------------------------------------
-
-
-
-
-
-
-
-
-
 
     /// How a call through an API reaches its method: through a witness,
     /// or an API object's table, the object's API's, at an entry
@@ -3190,85 +2651,6 @@ pub const Checker = struct {
     /// `instantiateCall` binds them.
     pub const OwnArgs = struct { args: []const TypeId, slots: []const u32 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     /// Where an inferred generic's arguments are matched: the fields a
     /// constructor or a variant's payload fills, or an associated
     /// function's parameters (with their names, for keyword arguments).
@@ -3278,47 +2660,15 @@ pub const Checker = struct {
         params: struct { params: []const TypeId, names: ?[]const []const u8, defaults: ?[]const ?Sexp = null },
     };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     // =========================================================================
     // Expressions: checking against an expected type
     // =========================================================================
-
-
-
-
-
-
-
-
-
-
-
 
     /// Where a box or a counted handle (`form`), or an optional one,
     /// moves into one of an API object (`eraseBox`, `eraseShared`):
     /// the object type it becomes (`want`), the object, whether both are
     /// optional, and the box or handle itself. Null for any other pair.
     pub const HeldInto = struct { want: TypeId, object: sema.ApiObject, optional: bool, value: TypeId };
-
-
-
-
-
-
-
 
     // ---- lasting views --------------------------------------------------------
 
@@ -3330,42 +2680,6 @@ pub const Checker = struct {
         /// Stored by the call to this callee.
         stored: []const u8,
     };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     /// The source of a statement with every view written as a path's
     /// base (`viewBase`) taken off it, the whole path given the sigil its
@@ -3766,7 +3080,6 @@ pub const Checker = struct {
         }
     };
 
-
     /// How a view is read as the value it reaches (`readOf`).
     pub const ViewRead = union(enum) {
         /// Copied out into a slot that stores or takes this plain type
@@ -3792,19 +3105,6 @@ pub const Checker = struct {
         reach,
     };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
     pub const SpanOrder = struct {
         ctx: *SemContext,
         parts: []const Sexp,
@@ -3813,32 +3113,10 @@ pub const Checker = struct {
         }
     };
 
-
-
-
-
-
-
-
     /// Error set `set` as this module writes it: `E`, or `m.E` for one
     /// of a module it imports as `m`, or of a module it only reaches,
     /// which it names by that module's name, and `import` is then set.
     pub const SetSpelling = struct { text: []const u8, import: ?[]const u8 = null };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     // =========================================================================
     // Builtins
@@ -3888,30 +3166,9 @@ pub const Checker = struct {
         }
     };
 
-
-
-
-
-
-
-
-
-
-
     // =========================================================================
     // Closures
     // =========================================================================
-
-
-
-
-
-
-
-
-
-
-
 
 };
 
@@ -6869,7 +6126,6 @@ pub fn expectClean(ctx: *const SemContext) !void {
     try std.testing.expect(!ctx.hasErrors());
 }
 
-
 /// Typecheck's source, its files joined, which the tests read.
 const typecheck_source = @embedFile("typecheck.zig") ++ @embedFile("check/builtins.zig") ++ @embedFile("check/calls.zig") ++ @embedFile("check/closures.zig") ++ @embedFile("check/expr.zig") ++ @embedFile("check/flow.zig") ++ @embedFile("check/patterns.zig") ++ @embedFile("check/stdforms.zig") ++ @embedFile("check/stmt.zig") ++ @embedFile("check/views.zig");
 
@@ -7190,7 +6446,7 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     const read_fact = "ctx." ++ "bindingAccess(";
     try std.testing.expectEqual(1, std.mem.count(u8, own, read_fact));
     const target_at = std.mem.find(u8, own, "    fn " ++ "viewTarget(").?;
-    const body = own[target_at .. std.mem.findPos(u8, own, target_at, "\n    }\n").?];
+    const body = own[target_at..std.mem.findPos(u8, own, target_at, "\n    }\n").?];
     try std.testing.expect(std.mem.find(u8, body, read_fact) != null);
     for ([_][]const u8{ ".ref", "payload_view", "matchMode", "types.get" }) |other| {
         try std.testing.expect(std.mem.find(u8, body, other) == null);
@@ -7202,7 +6458,7 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     // match's mode.
     const st = @embedFile("storage.zig");
     const by_addr = std.mem.find(u8, st, "fn " ++ "payloadByAddress(").?;
-    const by_body = st[by_addr .. std.mem.findPos(u8, st, by_addr, "\n}\n").?];
+    const by_body = st[by_addr..std.mem.findPos(u8, st, by_addr, "\n}\n").?];
     try std.testing.expect(std.mem.find(u8, by_body, "bindingAccess(") != null);
     try std.testing.expect(std.mem.find(u8, by_body, "matchMode") == null);
 }

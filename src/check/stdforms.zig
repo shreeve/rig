@@ -1,4 +1,7 @@
-//! Typecheck: stdforms.
+//! Typecheck's standard-library forms, typed by hand where the compiler
+//! knows std by name: tasks, `par`, `select`, actors, chains, durations,
+//! `String`, bit and SIMD calls. Moving one into std's own declarations
+//! empties this file.
 
 const std = @import("std");
 const parser = @import("../parser.zig");

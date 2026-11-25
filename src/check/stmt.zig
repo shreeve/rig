@@ -1,4 +1,6 @@
-//! Typecheck: stmt.
+//! Typecheck's statements: bindings, assignments, returns, discards, and
+//! the check of a statement again in the form typecheck rewrites it into
+//! (`checkRewritten`).
 
 const std = @import("std");
 const parser = @import("../parser.zig");

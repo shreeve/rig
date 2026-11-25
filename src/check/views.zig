@@ -1,4 +1,6 @@
-//! Typecheck: views.
+//! Typecheck's views: read and write views and the loans they make,
+//! temporaries, erasure, kept views, view bases, and checking a value
+//! against an expected type.
 
 const std = @import("std");
 const parser = @import("../parser.zig");

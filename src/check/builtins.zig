@@ -1,4 +1,4 @@
-//! Typecheck: builtins.
+//! Typecheck's built-ins: `$`-calls and constant patterns.
 
 const std = @import("std");
 const parser = @import("../parser.zig");

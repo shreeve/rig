@@ -1,4 +1,6 @@
-//! Typecheck: flow.
+//! Typecheck's control flow: conditions and their bindings, `if`,
+//! `while`, `for` (a `for` over an iterator checked as the `while` it
+//! means), loops as values, and jumps.
 
 const std = @import("std");
 const parser = @import("../parser.zig");

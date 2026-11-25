@@ -1,4 +1,5 @@
-//! Typecheck: patterns.
+//! Typecheck's `match`: subjects, arms, patterns and what they bind, and
+//! coverage.
 
 const std = @import("std");
 const parser = @import("../parser.zig");
@@ -1292,7 +1293,7 @@ pub fn patternHead(self: *Checker, pattern: Sexp) []const u8 {
     const named = ir.VariantPattern.name(pattern);
     if (named.isKind(.member)) return CallCheck.sourceText(self, named);
     const start = self.startOf(pattern);
-    return self.ctx.source[start .. self.ctx.span(named).end];
+    return self.ctx.source[start..self.ctx.span(named).end];
 }
 
 /// Variant pattern `pattern` written by name over `fields`: the

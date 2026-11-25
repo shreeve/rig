@@ -1,4 +1,4 @@
-//! Typecheck: closures.
+//! Typecheck's closures: their types, captures, and returns.
 
 const std = @import("std");
 const parser = @import("../parser.zig");
