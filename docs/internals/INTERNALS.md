@@ -1798,9 +1798,12 @@ check, which a second replaces, give their memory back: from one arena,
 
 **The trail.** A check can be taken back. `SemContext.mark` opens a
 mark, and while one is open every write to a column of the facts table,
-and to the per-node records `write_sites`, `untakeable`, and `discards`
-(`sema.Column`), goes on the trail with the value it replaced
-(`putIn`, `removeIn`, the one way each is written). `rollback` gives
+to the per-node records `write_sites`, `untakeable`, and `discards`,
+and to the type checker's records of what it reported once and does not
+report again, `kept_reported`, `closures_reported`, `closures_in_error`,
+and `uncaptured_reported` (`sema.Column`), goes on the trail with the
+value it replaced (`putIn`, `removeIn`, the one way each is written): a
+check taken back reports its errors again. `rollback` gives
 every column what it held at the mark, drops the diagnostics reported
 and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and
