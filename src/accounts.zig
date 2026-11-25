@@ -448,7 +448,9 @@ const Walker = struct {
             for (o.args) |a| try w.expr(a, false, false, slots);
             return;
         };
-        w.ops += 1;
+        // A keyword argument counts as its value: its name emits nothing,
+        // so naming an option never changes a decision.
+        if (kind != .kwarg) w.ops += 1;
         if (kind == .box) {
             // A fill built in the box's allocation is no temporary.
             const in_place = storage.fillsInPlace(ctx, node);

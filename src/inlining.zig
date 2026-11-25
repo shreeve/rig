@@ -16,7 +16,8 @@
 //! small hot helper as a call when its body grows. A `fun` or `sub` with
 //! no marker is emitted as an `inline fn` when
 //!
-//!   - its body has at most `max_size` nodes (`size`),
+//!   - its body runs at most `max_size` operations, counted on its LIR
+//!     (`sema.FrameOwner.ops`),
 //!   - it is not on a cycle of calls, directly or through others,
 //!   - no mention of it is anything but the callee of a call: it is
 //!     never passed, stored, returned, or made into a closure,
@@ -65,8 +66,8 @@ const SemContext = sema.SemContext;
 const FrameCount = sema.FrameCount;
 const Error = std.mem.Allocator.Error;
 
-/// The most nodes (each form of the tree: a call, an operator, a
-/// statement) a body may have and be inlined.
+/// The most operations (each step and each operation of its LIR: a call,
+/// an operator, a store, a coercion) a body may run and be inlined.
 pub const max_size = 60;
 
 /// The most reach (`accounts.count`) the functions the rule
@@ -79,14 +80,15 @@ pub const max_size = 60;
 /// reach within `sema.max_frame_reach`: inlining stops short of either.
 pub const max_inlined_frame_bytes: u128 = 64 << 10;
 
-/// The most nodes an inlined function may expand to at a call, counting
+/// The most operations an inlined function may expand to at a call, counting
 /// the inlined calls in it (each of them as often as it is called):
 /// otherwise a chain of functions that each call the next twice would make
 /// Zig analyze a body 2^n times. A function with one call, in a function
 /// with compile-time values, is exempt: its expansion is counted in each
-/// instance of the caller. std.json, the program that set
-/// `max_size`, has a hot helper (`key`) that expands to 287.
-pub const max_expanded = 320;
+/// instance of the caller. Set with `max_size` so the functions inlined
+/// over Trig and std.json are those the tree's node counts chose, as near
+/// as operations allow.
+pub const max_expanded = 300;
 
 /// A function or method, the one frame owner the rule may inline.
 const Fn = struct {
@@ -412,7 +414,7 @@ const Pass = struct {
             .pos = o.pos,
             .eligible = eligible,
             .marker = marker,
-            .size = if (body != .nil) size(body) else 0,
+            .size = if (body != .nil) o.ops else 0,
             .group = gop.value_ptr.*,
         });
         try self.by_pos.put(self.a, .{ .module = self.mods[module].id, .at = o.pos }, idx);
@@ -1366,17 +1368,6 @@ const Pass = struct {
     }
 };
 
-/// The forms in `e`, each node of the tree once. A keyword argument
-/// counts as its value: its name emits nothing, so `f(1, by: 2)` is as
-/// large as `f(1, 2)`, and naming an option never changes a decision.
-pub fn size(e: Sexp) u32 {
-    if (e != .list) return 0;
-    if (e.isKind(.kwarg)) return size(ir.Kwarg.value(e));
-    var n: u32 = if (e.kind() != null) 1 else 0;
-    for (e.items()) |c| n += size(c);
-    return n;
-}
-
 /// Whether every compile-time parameter of `node` is a value (`n: Int`,
 /// `dense: Bool`), none a type (`T`): each instance is then a function of
 /// its own to `cutCycles`, told apart by its values.
@@ -1494,19 +1485,4 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         } else true;
         if (fits) try t.put(.dense_calls, mods[site.module].id, site.id, most);
     }
-}
-
-test "size: a keyword argument counts as its value" {
-    const sources = [_][]const u8{
-        "fun f(a: Int, by: Int = 1) -> Int\n  a * by\n\nsub main()\n  print(f(1, 2 + 3))\n",
-        "fun f(a: Int, by: Int = 1) -> Int\n  a * by\n\nsub main()\n  print(f(1, by: 2 + 3))\n",
-    };
-    var sizes: [2]u32 = undefined;
-    for (sources, &sizes) |src, *n| {
-        var p = parser.Parser.init(std.testing.allocator, src);
-        defer p.deinit();
-        const tree = try p.parseProgram();
-        n.* = size(tree);
-    }
-    try std.testing.expectEqual(sizes[0], sizes[1]);
 }

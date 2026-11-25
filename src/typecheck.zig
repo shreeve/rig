@@ -3722,3 +3722,20 @@ test "check: a frame an inline call cannot count is an error at the call, never 
     try @import("accounts.zig").count(&r.ctx);
     try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (its module is not loaded)");
 }
+
+test "check: a keyword argument counts as its value in a body's operations" {
+    const sources = [_][]const u8{
+        "fun f(a: Int, by: Int = 1) -> Int\n  a * by\n\nsub main()\n  print(f(1, 2 + 3))\n",
+        "fun f(a: Int, by: Int = 1) -> Int\n  a * by\n\nsub main()\n  print(f(1, by: 2 + 3))\n",
+    };
+    var ops: [2]u32 = undefined;
+    for (sources, &ops) |src, *n| {
+        var r = try checkSource(std.testing.allocator, src);
+        defer r.p.deinit();
+        defer r.ctx.deinit();
+        try expectClean(&r.ctx);
+        n.* = r.ctx.frame_owners.items[1].ops;
+    }
+    try std.testing.expect(ops[0] > 0);
+    try std.testing.expectEqual(ops[0], ops[1]);
+}
