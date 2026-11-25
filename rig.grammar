@@ -536,7 +536,6 @@ tokens
     "&", "|", "^", "<<", "<<%", ">>"   left right
     "??", and, or               left right
     ".."                        left? right? inclusive:tag(inclusive)?
-    "..="                       left right       # `a..=b`: rewritten by the Parser wrapper to `(.. a b inclusive)`; no pass sees it
     neg, not                    operand
 
     # Ownership sigils (`~T`, `?T`, `!T`, `*T`, `^T` in type position are
@@ -1171,8 +1170,14 @@ cmp      = left:fall "==" right:fall                → (==)
 # `catch |e| e.code()`); one that compares, joins with `and` or `or`, or
 # chooses with `if` is parenthesized. The Parser wrapper nests a chain of
 # `??` to the right, `a ?? (b ?? c)`, which gives the same value.
-fall     = left:fall "??" right:@infix              → (??)
-         | value:fall CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:@infix → (catch)
+fall     = left:fall "??" right:range               → (??)
+         | value:fall CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:range → (catch)
+         | range
+
+# Ranges, which do not chain, over the operators: `a..b` excludes its
+# end, `a..=b` includes it.
+range    = left:@infix ".." right:@infix            → (..)
+         | left:@infix "..=" right:@infix           → (.. inclusive:inclusive)
          | @infix
 
 # A pattern after `as` starts with a dot: a variant, alone or with the
@@ -1457,7 +1462,6 @@ tslot    = expr
 # ==============================================================================
 
 @infix unary
-    ".." none, "..=" none
     "|"  left
     "^"  left
     "&"  left

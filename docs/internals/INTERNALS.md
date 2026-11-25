@@ -597,7 +597,7 @@ wrapper also makes the only rewrites that need to inspect the tree:
   the last two are told by the tree: the chain stops at a `paren`, where
   a `?` or `<` keeps its sigil outside and a `!` takes the parenthesized
   part as the head of its place. The wrapper records the new
-  node's id (`Parser.isSelfSigil`), since the checker rejects some
+  node with a mark (`Parser.Mark.self_sigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!@` (the habit of `!` as negation),
   a `<` before one that does not take `<@`, a `?` before one that
@@ -788,7 +788,7 @@ A few kinds serve more than one surface form:
   handles move outside the whole chain. A handle to an optional,
   `*(T?)` or `~(T?)`, has no expression spelling; before it drops the
   parentheses, the parser wrapper records each `share` or `weak` whose
-  chain reaches a suffix inside a `paren` (`hasParenSuffix`), and
+  chain reaches a suffix inside a `paren` (`Parser.Mark.paren_suffix`), and
   `typeArg` rejects it with a hint.
 - `array_type`'s `size`, and a `generic_inst`'s arguments, may be an
   integer, a name, a `member` (`lib.N`), a `neg` integer (arguments
@@ -1164,9 +1164,17 @@ positions there and that module's id, and the uses, arrays, and frames
 that mention it, each list entry once (`imported_entries`). From there
 the per-instance machinery runs unchanged, on the importer's own
 tables: an instance made here, and every instance its bodies reach,
-even in a module this one does not import, is expanded, checked against
-the requirements, sized, and ownership-checked here, and a note about
-the body points into the declaring module's file. Import cycles are
+even in a module this one does not import, is expanded here, and
+checked against the requirements, sized, and ownership-checked here
+unless an earlier module made it, and a note about the body points
+into the declaring module's file. An instance is checked once for the
+program (`sema.checkedBefore`): `program.Types.checked` keeps each
+instance a module has checked, by a key that names each symbol by its
+declaration (`sema.InstanceKey`, so a proxy is the declaration it stands
+for), with whether its check reported an error: a later module then
+leaves unchecked the instances it makes, and its expressions typed
+`invalid` for it have their error in the first module
+(`SemContext.failed_elsewhere`). Import cycles are
 rejected, so a chain of proxies always ends. A proxy is recorded before
 its members and parameters are imported, which may make more; past 64
 nested imports a proxy is filled in later, by the outermost import
@@ -4630,7 +4638,7 @@ knows a call is one: its self's type declares no method of the name
 (`Checker.chainCall`). The statement that holds it is checked under a
 mark, as for [Strings as bytes](#strings-as-bytes): the Parser wrapper
 flags each statement and declaration that holds a call of a method
-named as a stage or a consumer (`Parser.rewrite_stmts`), and
+named as a stage or a consumer (`Parser.Mark.rewrite`), and
 `Checker.checkRewritten` rolls the statement back when it holds a chain,
 writes each chain where it stands as its loop
 (`Parser.elaborateChains`), an inner chain first, and checks the

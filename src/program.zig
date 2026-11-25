@@ -93,15 +93,22 @@ pub const Types = struct {
     /// resolved its declarations, and each module after it starts with
     /// the store as it is (`SemContext.types_start`).
     ready: bool = false,
+    /// The generic instances checked so far, each by its key
+    /// (`sema.InstanceKey`), with what the module that checked it found:
+    /// the first module to make an instance checks it, and every later one
+    /// leaves it (`sema.checkedBefore`). Kept in `keys`.
+    checked: std.StringHashMapUnmanaged(sema.Checked) = .empty,
+    keys: std.heap.ArenaAllocator,
 
     pub fn init(a: std.mem.Allocator) !Types {
         const store = try sema.TypeStore.init(a);
-        return .{ .store = store, .primitives = @intCast(store.items.items.len) };
+        return .{ .store = store, .primitives = @intCast(store.items.items.len), .keys = .init(a) };
     }
 
     pub fn deinit(t: *Types, a: std.mem.Allocator) void {
         t.store.deinit(a);
         t.info.deinit(a);
+        t.keys.deinit();
     }
 };
 
