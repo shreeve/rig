@@ -5860,8 +5860,10 @@ pub const Parser = struct {
     const OptionsRewrite = struct {
         uses: []const GroupUse,
         spreads: []const SpreadSite,
-        /// Each flattened group, by the position of its name.
-        flat: std.AutoHashMapUnmanaged(u32, FlatGroup) = .empty,
+        /// Each flattened group, by the position of its name, and whether
+        /// the body binds it whole with a field moving in (`bound`): a
+        /// field read then reads the binding.
+        flat: std.AutoHashMapUnmanaged(u32, struct { group: Flattened, bound: bool }) = .empty,
         /// The group and field each field read reads, by its node id.
         reads: std.AutoHashMapUnmanaged(parser.NodeId, u32) = .empty,
 
@@ -5876,12 +5878,6 @@ pub const Parser = struct {
             return false;
         }
     };
-
-    /// A group made parameters: its fields, the name leaf of each field's
-    /// parameter, in the same order, and its type as written. `bound`
-    /// when the body binds it whole and a field moves into the binding:
-    /// a field read then reads the binding.
-    const FlatGroup = struct { fields: []const []const u8, params: []const Sexp, ty: Sexp, bound: bool = false };
 
     /// A group of a function's declaration made parameters
     /// (`flattenGroups`): the function, the group's site, and the name
@@ -5943,7 +5939,7 @@ pub const Parser = struct {
             const f = flat.get(pos.*) orelse continue;
             const whole = st.usedWhole(pos.*);
             const moves = whole and std.mem.indexOfScalar(bool, f.site.moves, true) != null;
-            try st.flat.put(a, pos.*, .{ .fields = f.site.fields, .params = f.params, .ty = f.ty, .bound = moves });
+            try st.flat.put(a, pos.*, .{ .group = f, .bound = moves });
             if (whole) try binds.append(gpa, f);
         }
         // A function's bindings stand in the order of its groups.
@@ -5999,7 +5995,7 @@ pub const Parser = struct {
     fn readParam(self: *Parser, st: *const OptionsRewrite, group: u32, field: []const u8, home: u32) std.mem.Allocator.Error!?Sexp {
         const flat = st.flat.get(group) orelse return null;
         if (flat.bound) return null;
-        for (flat.fields, flat.params) |f, param| if (std.mem.eql(u8, f, field)) return try self.fieldParam(home, field, param);
+        for (flat.group.site.fields, flat.group.params) |f, param| if (std.mem.eql(u8, f, field)) return try self.fieldParam(home, field, param);
         return null;
     }
 
