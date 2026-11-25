@@ -14,6 +14,7 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const TypeId = sema.TypeId;
 const Type = sema.Type;
 const Field = sema.Field;
@@ -2734,8 +2735,7 @@ pub fn contextualCall(self: *Checker, e: Sexp, expected: TypeId, target: TypeId)
     } else if (self.ctx.ref(id) == self.ctx.builtins.table) {
         try StdFormCheck.checkTableConstruction(self, e);
     } else {
-        const sym = self.ctx.symbols.items[id];
-        _ = try CallCheck.construct(self, id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
+        _ = try CallCheck.construct(self, id, ir.Call.args(e), callee.src.pos, .{ .params = sema.paramRefs(self.ctx, self.ctx.ref(id)), .args = tt.parameterized_nominal.args }, null);
     }
     return target;
 }

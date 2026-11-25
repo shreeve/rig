@@ -10,6 +10,7 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const TypeId = sema.TypeId;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
 const transfer = @import("transfer.zig");
@@ -71,7 +72,8 @@ pub fn checkInstantiations(self: *Checker) Error!void {
     for (ctx.fn_instances.items) |f| {
         if (try sema.checkedBefore(ctx, try key.ofFn(ctx, f.inst)) != null) continue;
         const shown = try sema.formatFnInstanceIn(ctx, self.arena(), f.inst);
-        for (f.inst.ownParams(), f.inst.ownArgs()) |param, arg| {
+        for (f.inst.ownParams(), f.inst.ownArgs()) |param_ref, arg| {
+            const param = ctx.localSym(param_ref);
             if (types.carriesWriteView(self, arg)) {
                 // The call's instance of the API's method reports it.
                 if (f.through_api) continue;
@@ -112,7 +114,7 @@ pub fn checkInstantiations(self: *Checker) Error!void {
                 try notes.err(self, site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value", .{ shown, pname, aname });
                 continue;
             }
-            const subst: sema.TypeSubst = .{ .params = params, .args = pn.args };
+            const subst: sema.TypeSubst = .{ .params = sema.paramRefs(ctx, pn.sym), .args = pn.args };
             try checkCopies(self, site, shown, param, arg, subst);
             try checkViews(self, site, shown, param, arg, subst);
             try checkCallables(self, site, shown, param, arg, subst, true);
@@ -289,7 +291,7 @@ pub fn checkMethodCalls(self: *Checker) Error!void {
                 const callable = r.callable orelse continue;
                 const module = if (r.module_id == 0) ctx.module_id else r.module_id;
                 if (m != mc.target.pos or module != mc.target.module) continue;
-                const arg = subst.lookup(r.param) orelse continue;
+                const arg = subst.lookup(ctx.ref(r.param)) orelse continue;
                 if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
                 const interner = self.interner;
                 const inst = try sema.substituteType(interner, callable, subst);
@@ -532,7 +534,8 @@ pub fn noteMethodCall(self: *Checker, node: Sexp, callee: Sexp) Error!void {
         .parameterized_nominal => |pn| pn,
         else => return,
     };
-    const params = sema.symbolAt(ctx, pn.sym).type_params orelse return;
+    if (sema.symbolAt(ctx, pn.sym).type_params == null) return;
+    const params = sema.paramRefs(ctx, pn.sym);
     try self.method_calls.append(self.gpa, .{ .pos = notes.startOf(self, node), .target = target, .recv = recv, .params = params, .args = pn.args, .scope = self.method_pos });
 }
 
@@ -605,7 +608,7 @@ pub fn calledValueType(self: *Checker, node: Sexp, callee: Sexp, field_call: boo
         // A named function: generic, at the body's own parameters.
         const gc = ctx.genericCallOf(node) orelse return null;
         const interner = self.interner;
-        const ty = try sema.substituteType(interner, ctx.symbols.items[id].ty, .{ .params = gc.params, .args = gc.type_args });
+        const ty = try sema.substituteType(interner, ctx.symbols.items[id].ty, .{ .params = try sema.refsIn(ctx, self.arena(), gc.params), .args = gc.type_args });
         if (!ctx.typeInfo(ty).has_type_var or sema.calledFn(ctx, ty) == null) return null;
         return ty;
     };

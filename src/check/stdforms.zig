@@ -15,6 +15,7 @@ const ir = parser.ir;
 const Tag = rig.Tag;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const TypeId = sema.TypeId;
 const Type = sema.Type;
 const Field = sema.Field;
@@ -355,7 +356,7 @@ pub fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty:
             return ty;
         }
         if (self.ctx.ref(nt.id) == self.ctx.builtins.signal and !CompatCheck.sameNode(call, self.expect.shared_operand)) return CallCheck.badCall(self, args, callee, Checker.stack_signal, .{});
-        return CallCheck.construct(self, nt.id, args, pos, .{ .params = nt.sym.type_params orelse &.{}, .args = targs }, null);
+        return CallCheck.construct(self, nt.id, args, pos, .{ .params = CallCheck.namedParams(self, nt), .args = targs }, null);
     }
     if (callee == .src) try self.ctx.recordName(callee, nt.id);
     return CallCheck.construct(self, nt.id, args, pos, TypeSubst.empty, null);
@@ -2173,8 +2174,8 @@ pub fn ctParamOf(self: *Checker, e: Sexp) Error!?TypeId {
 /// Compile-time argument `i` of `callee` for integer value parameter
 /// `param`: its value folded to a `ct_value`, or the `ct_param` of a
 /// compile-time parameter passed on. Null after a diagnostic.
-pub fn ctIntArg(self: *Checker, a: Sexp, param: SymbolId, i: usize, callee: []const u8) Error!?TypeId {
-    const ty = self.ctx.symbols.items[param].ty;
+pub fn ctIntArg(self: *Checker, a: Sexp, param: SymbolRef, i: usize, callee: []const u8) Error!?TypeId {
+    const ty = sema.symbolAt(self.ctx, param).*.ty;
     const mark = self.ctx.diagnostics.items.len;
     try self.checkCtValue(a, ty, i, callee);
     if (self.ctx.diagnostics.items.len != mark) return null;
@@ -2184,7 +2185,7 @@ pub fn ctIntArg(self: *Checker, a: Sexp, param: SymbolId, i: usize, callee: []co
         .value => |v| {
             if (!sema.intFits(self.ctx, ty, v)) {
                 const name = try self.tyName(ty);
-                try self.errAt(a, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, {s} `{s}`, cannot hold", .{ i + 1, callee, v, self.ctx.symbols.items[param].name, resolve.an(name), name });
+                try self.errAt(a, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, {s} `{s}`, cannot hold", .{ i + 1, callee, v, sema.symbolAt(self.ctx, param).*.name, resolve.an(name), name });
                 return null;
             }
             return try sema.ctInt(self.ctx, v);
@@ -2253,7 +2254,7 @@ pub fn apiMethodAt(self: *Checker, m: ApiCheck.ApiMethod, self_ty: TypeId) Error
     const api_sym = sema.apiSymbol(self.ctx, m.api) orelse return null;
     const home_self = (api_sym.type_params orelse return null)[0];
     const self_param = if (m.home == @as(*const SemContext, self.ctx)) home_self else try sema.proxyOf(self.ctx, .{ .module_id = m.api.module_id, .sym = home_self });
-    return try sema.substituteType(self.ctx, local_ty, .{ .params = &.{self_param}, .args = &.{self_ty} });
+    return try sema.substituteType(self.ctx, local_ty, .{ .params = &.{self.ctx.ref(self_param)}, .args = &.{self_ty} });
 }
 
 /// `x.area()` where two APIs that apply to `x`'s type declare `area`:
@@ -3000,7 +3001,7 @@ pub fn noteTarget(self: *Checker, module: u32, pos: u32, marked: bool, recv: Typ
     if (!marked) return;
     const a = self.ctx.arena.allocator();
     try self.ctx.recordInlineCall(call, .{ .fun = fun, .subst = .{
-        .params = try std.mem.concat(a, SymbolId, &.{ recv.params, self.inst_own.params }),
+        .params = try std.mem.concat(a, SymbolRef, &.{ recv.params, self.inst_own.params }),
         .args = try std.mem.concat(a, TypeId, &.{ recv.args, self.inst_own.args }),
     } });
 }
@@ -4969,7 +4970,7 @@ pub fn associatedCall(self: *Checker, obj: Sexp, nt: Checker.NamedType, name: []
             if (generic) {
                 // The type's arguments are given (`Pair[Int, ?String].make`)
                 // or come from the call's arguments.
-                const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try inferTypeArgs(self, nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names, .defaults = m.param_defaults } }, pos, CallCheck.expectedResult(self, f.returns), name)) orelse return CallCheck.skipCall(self, args);
+                const subst = if (nt.args) |given| TypeSubst{ .params = CallCheck.namedParams(self, nt), .args = given } else (try inferTypeArgs(self, nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names, .defaults = m.param_defaults } }, pos, CallCheck.expectedResult(self, f.returns), name)) orelse return CallCheck.skipCall(self, args);
                 if (nt.args == null) try self.ctx.recordType(obj, try ViewCheck.instantiate(self, nt.id, subst.args, pos));
                 f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                 recv = subst;
@@ -5006,7 +5007,7 @@ pub fn associatedCall(self: *Checker, obj: Sexp, nt: Checker.NamedType, name: []
         var subst = TypeSubst.empty;
         var ty = try CallCheck.namedTypeValue(self, nt);
         if (nt.args) |given| {
-            subst = .{ .params = nt.sym.type_params orelse &.{}, .args = given };
+            subst = .{ .params = CallCheck.namedParams(self, nt), .args = given };
             ty = try ViewCheck.instantiate(self, nt.id, given, pos);
         } else if (generic) {
             // Arguments that fill no field bind nothing to infer from:
@@ -5037,11 +5038,11 @@ pub fn associatedCall(self: *Checker, obj: Sexp, nt: Checker.NamedType, name: []
 /// parameter is left unbound or the arguments disagree on one.
 pub fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from: Checker.InferFrom, pos: u32, result: ?Checker.ResultType, member: ?[]const u8) Error!?TypeSubst {
     const sym = self.ctx.symbols.items[sym_id];
-    const params = sym.type_params orelse &.{};
+    const params = sema.paramRefs(self.ctx, self.ctx.ref(sym_id));
     const inf = try CallCheck.inferBindings(self, params, args, from, result);
     if (member) |name| try noteTypeArgsHint(self, sym_id, name, inf);
     for (params, inf.bound) |p, b| {
-        const pname = self.ctx.symbols.items[p].name;
+        const pname = sema.symbolAt(self.ctx, p).name;
         if (b.ty == sema.type_invalid) {
             if (inf.poisoned) return null;
             try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; name it (`{s}[...]`), or give the type where the value goes (`x: {s}[...] = ...`)", .{ pname, sym.name, sym.name, sym.name });
@@ -5053,7 +5054,7 @@ pub fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from:
             continue;
         }
         const c = try CallCheck.conflictText(self, b);
-        try self.err(pos, "conflicting {s} for `{s}` in `{s}`: `{s}` ({s}) and `{s}` ({s}); name it (`{s}[...]`)", .{ if (self.ctx.symbols.items[p].kind == .param) "values" else "types", pname, sym.name, c.first, c.first_from, c.second, c.second_from, sym.name });
+        try self.err(pos, "conflicting {s} for `{s}` in `{s}`: `{s}` ({s}) and `{s}` ({s}); name it (`{s}[...]`)", .{ if (sema.symbolAt(self.ctx, p).*.kind == .param) "values" else "types", pname, sym.name, c.first, c.first_from, c.second, c.second_from, sym.name });
         return null;
     }
     const bound = try self.ctx.arena.allocator().alloc(TypeId, params.len);

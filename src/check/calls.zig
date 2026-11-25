@@ -12,6 +12,7 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const ScopeId = sema.ScopeId;
 const TypeId = sema.TypeId;
 const Type = sema.Type;
@@ -549,12 +550,12 @@ pub fn ctCallInBody(self: *Checker, e: Sexp, target: sema.cteval.Target, f_there
         const fn_ty = try sema.importType(self.ctx, target.ctx, target.ctx.symbols.items[target.sym].ty, target.module_id);
         break :blk self.ctx.types.get(fn_ty).function;
     };
-    var params: std.ArrayList(SymbolId) = .empty;
+    var params: std.ArrayList(SymbolRef) = .empty;
     var args: std.ArrayList(TypeId) = .empty;
     var ok = true;
     for (sema.cteval.argsOf(e), f.ct_params, 0..) |g, pty, i| {
-        const sym = if (i < f.ct_syms.len) f.ct_syms[i].sym else sema.symbol_invalid;
-        const sized = sym != sema.symbol_invalid and self.ctx.types.get(pty) == .int and sema.usesParams(self.ctx, f.returns, &.{sym});
+        const sym = if (i < f.ct_syms.len) f.ct_syms[i] else SymbolRef{};
+        const sized = sym.sym != sema.symbol_invalid and self.ctx.types.get(pty) == .int and sema.usesParams(self.ctx, f.returns, &.{sym});
         if (!sized) {
             try ViewCheck.checkExpr(self, g, pty);
             continue;
@@ -600,7 +601,7 @@ pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId
     const gives = self.ctx.ref(nt.id) == self.ctx.builtins.task or self.ctx.ref(nt.id) == self.ctx.builtins.tasks;
     for (given, args, params, 0..) |g, *a, tp, i| {
         a.* = if (self.ctx.symbols.items[tp].kind == .param)
-            (try StdFormCheck.ctIntArg(self, g, tp, i, nt.sym.name)) orelse self.t().invalid_id
+            (try StdFormCheck.ctIntArg(self, g, self.ctx.ref(tp), i, nt.sym.name)) orelse self.t().invalid_id
         else if (gives and g.isKind(.propagate)) blk: {
             const inner = try typeArg(self, ir.Propagate.value(g));
             break :blk if (self.isPoison(inner)) inner else try self.ctx.intern(.{ .fallible = .{ .ok = inner } });
@@ -769,7 +770,7 @@ pub fn constructInstance(self: *Checker, call: Sexp, e: Sexp, nt: Checker.NamedT
         if (!self.isPoison(made) and made != ty) return badCall(self, args, e, "`{s}` freezes a `{s}`", .{ try self.tyName(ty), try self.tyName(made) });
         return made;
     }
-    const subst: TypeSubst = .{ .params = nt.sym.type_params orelse &.{}, .args = self.ctx.types.get(ty).parameterized_nominal.args };
+    const subst: TypeSubst = .{ .params = namedParams(self, nt), .args = self.ctx.types.get(ty).parameterized_nominal.args };
     return construct(self, nt.id, args, self.startOf(e), subst, null);
 }
 
@@ -2713,7 +2714,13 @@ pub fn selfArgs(self: *Checker, recv_ty: TypeId) TypeSubst {
         .parameterized_nominal => |pn| pn,
         else => return .empty,
     };
-    return .{ .params = sema.symbolAt(self.ctx, pn.sym).type_params orelse &.{}, .args = pn.args };
+    return .{ .params = sema.paramRefs(self.ctx, pn.sym), .args = pn.args };
+}
+
+/// The type parameters of generic named type `nt`, by ref.
+pub fn namedParams(self: *Checker, nt: Checker.NamedType) []const SymbolRef {
+    const r: SymbolRef = if (nt.foreign) |fo| .{ .module_id = fo.module_id, .sym = nt.id } else self.ctx.ref(nt.id);
+    return sema.paramRefs(self.ctx, r);
 }
 
 /// The signature a call of `f` uses: `f` itself, or for a generic
@@ -2735,7 +2742,7 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
     const n = f.ct_params.len;
     // The parameters an instance binds: the type parameters and the
     // integer value parameters, at their slots.
-    var own: std.ArrayList(SymbolId) = .empty;
+    var own: std.ArrayList(SymbolRef) = .empty;
     var own_slots: std.ArrayList(u32) = .empty;
     for (0..n) |i| {
         const sym = sema.ownParamOf(self.ctx, f, i) orelse continue;
@@ -2809,7 +2816,7 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
     if (self.tentative == 0) {
         const inst: sema.FnInstance = .{
             .name = callee,
-            .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
+            .params = try std.mem.concat(a, SymbolRef, &.{ recv.params, own.items }),
             .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
             .own = @intCast(own.items.len),
         };
@@ -2818,7 +2825,7 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
         // (`checkGenericInstantiations`).
         for (own_args) |arg| if (sema.containsTypeVar(self.ctx, arg)) {
             _ = try sema.checkBounds(self.ctx, own.items, own_args, pos, .{ .func = inst });
-            try self.ctx.param_calls.append(self.ctx.allocator, .{ .params = try a.dupe(SymbolId, own.items), .args = own_args, .pos = pos, .body = self.body_pos });
+            try self.ctx.param_calls.append(self.ctx.allocator, .{ .params = try a.dupe(SymbolRef, own.items), .args = own_args, .pos = pos, .body = self.body_pos });
             break;
         };
         _ = try self.ctx.recordFnInstanceIn(inst, pos, StdFormCheck.bodyRef(self));
@@ -2830,7 +2837,7 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
 /// (`GenericCall.params`).
 pub fn ctParamSyms(self: *Checker, f: FunctionType) Error![]const SymbolId {
     const params = try self.ctx.arena.allocator().alloc(SymbolId, f.ct_params.len);
-    for (f.ct_params, params) |slot, *p| p.* = sema.typeParamOf(self.ctx, slot) orelse sema.symbol_invalid;
+    for (f.ct_params, params) |slot, *p| p.* = if (sema.typeParamOf(self.ctx, slot)) |r| self.ctx.localSym(r) else sema.symbol_invalid;
     return params;
 }
 
@@ -2843,7 +2850,7 @@ pub fn ctWitnesses(self: *Checker, f: FunctionType, type_args: []const TypeId) E
     const params = try a.alloc(SymbolId, f.ct_params.len);
     var any = false;
     for (f.ct_params, params) |slot, *p| {
-        p.* = sema.typeParamOf(self.ctx, slot) orelse sema.symbol_invalid;
+        p.* = if (sema.typeParamOf(self.ctx, slot)) |r| self.ctx.localSym(r) else sema.symbol_invalid;
         if (p.* != sema.symbol_invalid and self.ctx.symbols.items[p.*].user_apis.len > 0) any = true;
     }
     if (!any) return &.{};
@@ -2852,8 +2859,8 @@ pub fn ctWitnesses(self: *Checker, f: FunctionType, type_args: []const TypeId) E
 }
 
 /// Whether the types of `f`'s parameters or result hold `sym`.
-pub fn signatureUses(self: *Checker, f: FunctionType, sym: SymbolId) bool {
-    const params = [_]SymbolId{sym};
+pub fn signatureUses(self: *Checker, f: FunctionType, sym: SymbolRef) bool {
+    const params = [_]SymbolRef{sym};
     for (f.params) |p| if (sema.usesParams(self.ctx, p, &params)) return true;
     return sema.usesParams(self.ctx, f.returns, &params);
 }
@@ -2865,7 +2872,7 @@ pub fn signatureUses(self: *Checker, f: FunctionType, sym: SymbolId) bool {
 /// and the type expected of it, when that says; otherwise a literal
 /// binds its default type (`Int`, `Float`). The first argument that
 /// disagrees with a binding is kept as a conflict.
-pub fn inferBindings(self: *Checker, own: []const SymbolId, args: []const Sexp, from: Checker.InferFrom, result: ?Checker.ResultType) Error!Checker.Inference {
+pub fn inferBindings(self: *Checker, own: []const SymbolRef, args: []const Sexp, from: Checker.InferFrom, result: ?Checker.ResultType) Error!Checker.Inference {
     var inf: Checker.Inference = .{ .own = own, .bound = try self.ctx.arena.allocator().alloc(Checker.Bound, own.len) };
     @memset(inf.bound, .{});
     // Closure literals are matched last, against the parameter types
@@ -3022,7 +3029,7 @@ pub fn lambdaPattern(ctx: *const SemContext, pat: TypeId) ?TypeId {
 /// result is its body's. Null when a parameter has no type yet.
 pub fn viewedLambdaType(self: *Checker, inf: *Checker.Inference, pattern: TypeId, lambda: Sexp) Error!?TypeId {
     const a = self.ctx.arena.allocator();
-    var params: std.ArrayList(SymbolId) = .empty;
+    var params: std.ArrayList(SymbolRef) = .empty;
     var types: std.ArrayList(TypeId) = .empty;
     for (inf.own, inf.bound) |p, b| {
         if (b.ty == sema.type_invalid or b.conflict != sema.type_invalid) continue;
@@ -3067,7 +3074,7 @@ pub fn viewedLambdaType(self: *Checker, inf: *Checker.Inference, pattern: TypeId
 /// checked aloud, with the parameter types the call gave it, they say
 /// why `param` is unbound. Each closure is checked aloud once (bit
 /// `i` of `reported`, for `inf.failed[i]`). Whether one was found.
-pub fn lambdaLeftUnbound(self: *Checker, inf: *const Checker.Inference, param: SymbolId, reported: *u64) Error!bool {
+pub fn lambdaLeftUnbound(self: *Checker, inf: *const Checker.Inference, param: SymbolRef, reported: *u64) Error!bool {
     var found = false;
     for (inf.failed.items, 0..) |l, i| {
         const returns = self.ctx.types.get(l.pattern).function.returns;
@@ -3132,7 +3139,7 @@ pub fn bindExpected(self: *Checker, inf: *Checker.Inference, r: Checker.ResultTy
 
 /// The bindings of `own` that make declared result `r.pattern` match
 /// `r.expected`.
-pub fn bindResult(self: *Checker, own: []const SymbolId, r: Checker.ResultType) Error!Checker.Inference {
+pub fn bindResult(self: *Checker, own: []const SymbolRef, r: Checker.ResultType) Error!Checker.Inference {
     var inf: Checker.Inference = .{ .own = own, .bound = try self.ctx.arena.allocator().alloc(Checker.Bound, own.len) };
     @memset(inf.bound, .{});
     try bindArg(self, &inf, r.pattern, r.expected, 0, 0);
@@ -3244,7 +3251,7 @@ pub fn boundFrom(self: *Checker, arg: u32) Error![]const u8 {
 /// from the arguments of a call, which fill `f.params[skip..]`, and
 /// the type expected of its result (`inferBindings`). Null after a
 /// diagnostic.
-pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId, args: []const Sexp, info: Checker.ParamInfo, skip: usize, callee: []const u8, pos: u32) Error!?[]TypeId {
+pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolRef, args: []const Sexp, info: Checker.ParamInfo, skip: usize, callee: []const u8, pos: u32) Error!?[]TypeId {
     const call = self.expect.current_call orelse Sexp.nil;
     const inf = try inferBindings(self, own, args, .{ .params = .{ .params = f.params[@min(skip, f.params.len)..], .names = info.names, .defaults = info.defaults } }, expectedResult(self, f.returns));
     const result = try self.ctx.arena.allocator().alloc(TypeId, own.len);
@@ -3254,7 +3261,7 @@ pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId,
     var ok = true;
     var lambdas_reported: u64 = 0;
     for (inf.bound, own, 0..) |b, param, i| {
-        const pname = self.ctx.symbols.items[param].name;
+        const pname = sema.symbolAt(self.ctx, param).name;
         if (b.ty == sema.type_invalid) {
             ok = false;
             if (try lambdaLeftUnbound(self, &inf, param, &lambdas_reported)) continue;
@@ -3271,7 +3278,7 @@ pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId,
             try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments or the type expected of its result; {s}", .{ pname, callee, try inferHint(self, f, own, result, i, callee, parens) });
         } else if (b.conflict != sema.type_invalid) {
             ok = false;
-            if (self.ctx.symbols.items[param].kind == .param) {
+            if (sema.symbolAt(self.ctx, param).*.kind == .param) {
                 const c = try conflictText(self, b);
                 try self.err(pos, "conflicting values for `{s}` in the call to `{s}`: `{s}` ({s}) and `{s}` ({s})", .{ pname, callee, c.first, c.first_from, c.second, c.second_from });
                 continue;
@@ -3319,8 +3326,8 @@ pub fn viewedClosureBound(self: *Checker, ty: TypeId, pname: []const u8, callee:
 /// Whether the value inference gave value parameter `param` (when it
 /// is one) is one it takes: a value its type holds, or a compile-time
 /// parameter of the same type. Reports one that is not.
-pub fn valueBindingFits(self: *Checker, param: SymbolId, b: Checker.Bound, callee: []const u8, pos: u32) Error!bool {
-    const p = self.ctx.symbols.items[param];
+pub fn valueBindingFits(self: *Checker, param: SymbolRef, b: Checker.Bound, callee: []const u8, pos: u32) Error!bool {
+    const p = sema.symbolAt(self.ctx, param).*;
     if (p.kind != .param or self.isPoison(p.ty)) return true;
     const from = if (b.expected) "the type expected of the result" else try boundFrom(self, b.arg);
     switch (self.ctx.types.get(b.ty)) {
@@ -3357,7 +3364,7 @@ pub fn inferredTypeFits(self: *Checker, b: Checker.Bound, args: []const Sexp) Er
 /// argument gives the parameter another type than the expected one,
 /// the fix for the mismatch that follows (`result_hints`): converting
 /// the result.
-pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own: []const SymbolId, inf: Checker.Inference, callee: []const u8) Error!void {
+pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own: []const SymbolRef, inf: Checker.Inference, callee: []const u8) Error!void {
     _ = self.literal_results.remove(id);
     _ = self.result_hints.remove(id);
     const path: Checker.ResultPath, const value = switch (self.ctx.types.get(f.returns)) {
@@ -3369,7 +3376,7 @@ pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own
         .type_var => |tv| tv,
         else => return,
     };
-    const i = std.mem.findScalar(SymbolId, own, self.ctx.localSym(tv)) orelse return;
+    const i = std.mem.findScalar(SymbolRef, own, tv) orelse return;
     const b = inf.bound[i];
     if (b.ty == sema.type_invalid) {
         // `id(none)` and `nothing()` give some optional.
@@ -3428,13 +3435,13 @@ pub fn bracketHint(self: *Checker, types: []const TypeId, index: usize, at: ?Typ
 /// determines: the bracket list, or, where a type in it has no
 /// expression spelling, the type where the value goes when the
 /// result holds the parameter.
-pub fn inferHint(self: *Checker, f: FunctionType, own: []const SymbolId, types: []const TypeId, index: usize, callee: []const u8, parens: []const u8) Error![]const u8 {
+pub fn inferHint(self: *Checker, f: FunctionType, own: []const SymbolRef, types: []const TypeId, index: usize, callee: []const u8, parens: []const u8) Error![]const u8 {
     const a = self.ctx.arena.allocator();
-    const pname = self.ctx.symbols.items[own[index]].name;
+    const pname = sema.symbolAt(self.ctx, own[index]).*.name;
     if (try bracketHint(self, types, index, null)) |brackets| return a.print("give `{s}` in brackets: `{s}[{s}]{s}`", .{ pname, callee, brackets, parens });
     // The result with each known type argument in place.
     const args = try a.alloc(TypeId, own.len);
-    for (own, types, args) |p, ty, *arg| arg.* = if (ty == sema.type_invalid) try self.ctx.intern(.{ .type_var = self.ctx.ref(p) }) else ty;
+    for (own, types, args) |p, ty, *arg| arg.* = if (ty == sema.type_invalid) try self.ctx.intern(.{ .type_var = p }) else ty;
     const shown = try sema.substituteType(self.ctx, f.returns, .{ .params = own, .args = args });
     const holds = (try sema.substituteType(self.ctx, f.returns, .{ .params = own[index .. index + 1], .args = &.{self.t().void_id} })) != f.returns;
     if (holds) return a.print("give the type where the value goes: `x: {s} = {s}{s}`, with a type in place of `{s}`", .{ try self.tyName(shown), callee, parens, pname });
@@ -3455,7 +3462,7 @@ pub fn bindArg(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
     const at = self.ctx.types.get(actual);
     switch (self.ctx.types.get(pattern)) {
         .type_var => |tv| {
-            const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(tv)) orelse return;
+            const i = std.mem.findScalar(SymbolRef, inf.own, tv) orelse return;
             const value = CompatCheck.readValue(self.ctx, actual);
             switch (self.ctx.types.get(value)) {
                 .none_literal => {
@@ -3546,7 +3553,7 @@ pub fn bindArg(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
         // the argument's type holds there: an array length, or a
         // generic type's value argument.
         .ct_param => |p| {
-            const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(p)) orelse return;
+            const i = std.mem.findScalar(SymbolRef, inf.own, p) orelse return;
             if (at != .ct_value and at != .ct_param) return;
             const b = &inf.bound[i];
             if (b.ty == sema.type_invalid) {
@@ -3640,7 +3647,7 @@ pub fn bindReturns(self: *Checker, inf: *Checker.Inference, pattern: TypeId, act
         .type_var => |tv| tv,
         else => return bindArg(self, inf, pattern, actual, arg, depth),
     };
-    const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(tv)) orelse return;
+    const i = std.mem.findScalar(SymbolRef, inf.own, tv) orelse return;
     const b = &inf.bound[i];
     if (b.ty == sema.type_invalid) {
         b.ty = a;
@@ -3677,7 +3684,7 @@ pub fn failsBySet(self: *Checker, f: sema.FunctionType) bool {
 /// or brackets.
 pub fn bindSet(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual: TypeId, arg: u32) Error!void {
     if (!sema.isSetParam(self.ctx, pattern) or self.isPoison(actual)) return;
-    const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(self.ctx.types.get(pattern).type_var)) orelse return;
+    const i = std.mem.findScalar(SymbolRef, inf.own, self.ctx.types.get(pattern).type_var) orelse return;
     if (inf.lambda) {
         if (i < 64) inf.lambda_sets |= @as(u64, 1) << @intCast(i);
         inf.lambda_arg = arg;

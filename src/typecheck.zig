@@ -45,6 +45,7 @@ const ir = parser.ir;
 const Tag = rig.Tag;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const ScopeId = sema.ScopeId;
 const TypeId = sema.TypeId;
 const Type = sema.Type;
@@ -1152,7 +1153,7 @@ pub const Checker = struct {
             else => return self.groupType(result),
         };
         const a = self.ctx.arena.allocator();
-        const subst: TypeSubst = .{ .params = sema.symbolAt(self.ctx, pn.sym).type_params orelse &.{}, .args = pn.args };
+        const subst: TypeSubst = .{ .params = sema.paramRefs(self.ctx, pn.sym), .args = pn.args };
         var data: std.ArrayList(Field) = .empty;
         var tys: std.ArrayList(TypeId) = .empty;
         for (fields) |f| {
@@ -2583,7 +2584,7 @@ pub const Checker = struct {
     pub const LiteralBound = struct { param: usize, ty: TypeId, arg: u32 };
 
     pub const Inference = struct {
-        own: []const SymbolId,
+        own: []const SymbolRef,
         bound: []Bound,
         literals: std.ArrayList(LiteralBound) = .empty,
         /// The first argument whose type does not have the shape of the
