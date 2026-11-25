@@ -3425,6 +3425,13 @@ test "check: each distinct instance of a generic function is recorded once" {
     try std.testing.expectEqual(2, r.ctx.fn_instances.items.len);
 }
 
+
+/// Every file of the ownership checker, for the tests that read its
+/// source.
+const ownership_src = @embedFile("ownership.zig") ++ @embedFile("ownership/state.zig") ++ @embedFile("ownership/live.zig") ++
+    @embedFile("ownership/transfer.zig") ++ @embedFile("ownership/rules.zig") ++ @embedFile("ownership/origins.zig") ++
+    @embedFile("ownership/exits.zig") ++ @embedFile("ownership/generic.zig") ++ @embedFile("ownership/types.zig") ++
+    @embedFile("ownership/notes.zig");
 test "check: every read of a view as a value is decided by writeViewRead" {
     // `readOf` is the one place type checking records that a view is read
     // as the value it reaches, and it asks `writeViewRead` first. Another
@@ -3438,7 +3445,7 @@ test "check: every read of a view as a value is decided by writeViewRead" {
     try std.testing.expect(std.mem.startsWith(u8, src[fn_at..], "pub fn readOf("));
     try std.testing.expect(std.mem.find(u8, src[fn_at..at], "writeViewRead(self") != null);
     // Every pass after type checking reads the fact; none records it.
-    for ([_][]const u8{ @embedFile("emit.zig"), @embedFile("ownership.zig"), @embedFile("storage.zig"), @embedFile("resolve.zig") }) |other| {
+    for ([_][]const u8{ @embedFile("emit.zig"), ownership_src, @embedFile("storage.zig"), @embedFile("resolve.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, needle));
     }
 }
@@ -3458,7 +3465,7 @@ test "check: where a Cell and a write view stand, and a branch viewed in place, 
     try std.testing.expectEqual(1, std.mem.count(u8, res, "sema." ++ "misplaced("));
     try std.testing.expectEqual(1, std.mem.count(u8, tc, "sema." ++ "writeViewMisplaced("));
     try std.testing.expectEqual(1, std.mem.count(u8, res, "sema." ++ "writeViewMisplaced("));
-    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
+    for ([_][]const u8{ ownership_src, @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, "sema." ++ "misplaced("));
         try std.testing.expectEqual(0, std.mem.count(u8, other, "sema." ++ "writeViewMisplaced("));
     }
@@ -3474,14 +3481,14 @@ test "check: where a Cell and a write view stand, and a branch viewed in place, 
     // What a Cell kept by value needed is gone: no per-instance
     // interior mutability, Cell temporaries, or write through a field.
     for ([_][]const u8{ "interior" ++ "Mutable", "ReadPtr" ++ "(", "Cell" ++ "Temp", "refuseHeld" ++ "Cell", "payloadReads" ++ "ThroughWrite", "headerCopies" ++ "WriteView" }) |gone| {
-        for ([_][]const u8{ sema_src, tc, res, @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("runtime.zig") }) |src| {
+        for ([_][]const u8{ sema_src, tc, res, ownership_src, @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("runtime.zig") }) |src| {
             try std.testing.expectEqual(0, std.mem.count(u8, src, gone));
         }
     }
     // A read view changes nothing, a Cell included (Core sentence 4): neither
     // the emitter nor the ownership checker treats a read view of a value
     // that holds a Cell differently from any other.
-    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("facts.zig") }) |src| {
+    for ([_][]const u8{ ownership_src, @embedFile("emit.zig"), @embedFile("facts.zig") }) |src| {
         try std.testing.expectEqual(0, std.mem.count(u8, src, "holdsCell" ++ "ByValue"));
     }
 }
@@ -3495,8 +3502,8 @@ test "check: what `!x` puts on `x` is decided once, by loanOfView" {
     const tc = typecheck_source;
     try std.testing.expectEqual(1, std.mem.count(u8, @embedFile("sema.zig"), "pub fn " ++ "loanOfView("));
     try std.testing.expectEqual(2, std.mem.count(u8, tc, "sema." ++ "loanOfView("));
-    try std.testing.expectEqual(2, std.mem.count(u8, @embedFile("ownership.zig"), "self.loan" ++ "Of("));
-    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
+    try std.testing.expectEqual(2, std.mem.count(u8, ownership_src, "loan" ++ "Of(self, "));
+    for ([_][]const u8{ ownership_src, @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, "loanOf" ++ "View("));
         try std.testing.expectEqual(0, std.mem.count(u8, other, "record" ++ "Loan("));
     }
@@ -3543,18 +3550,18 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     }
     // The decider is sema's alone.
     try std.testing.expectEqual(1, std.mem.count(u8, @embedFile("sema.zig"), "pub fn " ++ "decideBindingAccess("));
-    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("resolve.zig") }) |other| {
+    for ([_][]const u8{ ownership_src, @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("resolve.zig") }) |other| {
         try std.testing.expectEqual(0, std.mem.count(u8, other, decide));
         try std.testing.expectEqual(0, std.mem.count(u8, other, record));
     }
     // Ownership views a binding by its access, in `viewTarget` alone,
     // which reads neither the binding's type (`ref`) nor how the match
     // reached it (`payload_view`, `matchMode`).
-    const own = @embedFile("ownership.zig");
+    const own = ownership_src;
     const read_fact = "ctx." ++ "bindingAccess(";
     try std.testing.expectEqual(1, std.mem.count(u8, own, read_fact));
-    const target_at = std.mem.find(u8, own, "    fn " ++ "viewTarget(").?;
-    const body = own[target_at..std.mem.findPos(u8, own, target_at, "\n    }\n").?];
+    const target_at = std.mem.find(u8, own, "pub fn " ++ "viewTarget(").?;
+    const body = own[target_at .. std.mem.findPos(u8, own, target_at, "\n}\n").?];
     try std.testing.expect(std.mem.find(u8, body, read_fact) != null);
     for ([_][]const u8{ ".ref", "payload_view", "matchMode", "types.get" }) |other| {
         try std.testing.expect(std.mem.find(u8, body, other) == null);

@@ -36,7 +36,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │    cteval    src/cteval.zig      compile-time functions, run in the checker
   │  storage     src/storage.zig   the hidden storage emit makes
   │  lower       src/lower.zig     each body's LIR (src/lir.zig), in shadow
-  │  ownership   src/ownership.zig moves, loans, drops, aliasing
+  │  ownership   src/ownership/    moves, loans, drops, aliasing
   │  proofs      src/proofs.zig    the tests known to pass
   ▼
 decide           src/program.zig   the program table: the program-wide decisions,
@@ -230,7 +230,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/check/*.zig` | the expression pass by concern, each a file of functions over `*Checker`: `stmt` (statements, bindings, the check of a statement again in its rewritten form), `flow` (conditions, `if`, loops, jumps), `patterns` (`match`), `expr` (names, operators, literals), `views` (views, loans, temporaries, checking against an expected type), `calls`, `stdforms` (the std forms typed by hand, where the compiler knows std by name), `builtins` (error names, enum literals, list construction, `$`-calls), `closures` |
 | `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
 | `src/storage.zig` | the storage facts: the var table of the hidden storage emit makes and how bindings hold their values, decided once for emit and the ownership checker |
-| `src/ownership.zig` | the ownership checker |
+| `src/ownership.zig`, `src/ownership/` | the ownership checker, one file per part of the Core ([Ownership](#ownership)) |
 | `src/program.zig` | the program table: every decision made once for the whole program after every module is checked (inlined functions and calls, entry checks, dense calls, functions that never return, split units, word-held objects, exact enums' tags, text tables), keyed by module and place, which the graph owns (`ModuleGraph.table`), every module's context points at, and `Facts` reads; `ModuleGraph.decide` runs the deciders in order, and the word-held and exact-enum deciders live here |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/returns.zig` | which functions never return, emitted with the Zig result `noreturn`, decided once for the whole program after every module is checked (Emit, "Functions that never return") |
@@ -3262,8 +3262,24 @@ with its counts always atomic (`Counted(T, true)`), made by
 
 ## Ownership
 
-`ownership.zig` checks one function body at a time as a flow-sensitive
-abstract interpretation of the IR.
+The ownership checker checks one function body at a time as a
+flow-sensitive abstract interpretation of the IR. `src/ownership.zig`
+is its interface (`Checker`) and its tests; the checker itself is laid
+out by docs/CORE.md in `src/ownership/`, so each sentence's rules are
+in one place. Each file's functions take the `*Checker` first, and a
+call names the file it calls into (`rules.checkLive(self, ...)`):
+
+| File | Holds |
+|---|---|
+| `state.zig` | `Var`, `Flow`, `Loan`, `Paths`, points and the trail, join; the `Checker` |
+| `live.zig` | liveness: whether the var holding a loan may be used again (sentence 6) |
+| `transfer.zig` | the walk: what each construct does to the state, grouped by sentences 1 to 10, then return, branches, and loops |
+| `rules.zig` | the checks that reject a program, grouped by the sentence each enforces |
+| `origins.zig` | what a value carries (`carry`), what a call keeps (sentence 7), self's paths, and a body against its signature (`checkOrigins`) |
+| `exits.zig` | the one exit primitive (`exitTo`, CORE §9), defers, and jumps |
+| `generic.zig` | generic bodies: what they require of each instance |
+| `types.zig` | what the checker reads of sema's facts: per type and per expression (CORE §9) |
+| `notes.zig` | messages, and the notes that name both ends of a view |
 
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
 parameter, capture, pattern, loop element) paired with a `Flow`: its
