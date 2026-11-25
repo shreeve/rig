@@ -430,8 +430,6 @@ const Checker = struct {
         in_closure: bool = false,
         /// A test's body, where `return` gives the `Bool` that decides it.
         in_test: bool = false,
-        /// The body being checked, in which a rewrite finds its node.
-        root: Sexp = .nil,
     };
 
     const LoopFrame = struct {
@@ -1692,7 +1690,6 @@ const Checker = struct {
         const saved = self.body;
         defer self.body = saved;
         self.body = context;
-        self.body.root = body;
         const ret = context.ret;
         const wants_value = !context.is_sub and ret != self.t().void_id;
         if (!body.isKind(.block)) {
@@ -3998,7 +3995,7 @@ const Checker = struct {
     fn elaborateFor(self: *Checker, node: Sexp, how: rig.IterSource, mark: sema.Mark) Error!void {
         try self.ctx.rollback(mark);
         const p = self.ctx.parser.?;
-        const w = (try p.elaborateIterLoop(self.body.root, node, how)) orelse (try p.elaborateIterLoop(self.tree, node, how)).?;
+        const w = (try p.elaborateIterLoop(self.tree, node, how)).?;
         // The rewritten tree stays, inside a check an open mark may take
         // back, and so do the names and scopes of its new nodes.
         const open = self.ctx.pauseTrail();
