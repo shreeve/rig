@@ -3843,9 +3843,8 @@ fn recordPlainFacts(ctx: *SemContext) std.mem.Allocator.Error!void {
 fn recordInstancePlain(ctx: *SemContext) std.mem.Allocator.Error!void {
     if (ctx.plain_regions.items.len == 0) return;
     for (ctx.fn_instances.items) |f| try recordArgsPlain(ctx, f.inst.params, f.inst.args);
-    var it = ctx.instantiation_sites.keyIterator();
-    while (it.next()) |ty| {
-        const pn = switch (ctx.types.get(ty.*)) {
+    for (ctx.instantiation_sites.keys()) |ty| {
+        const pn = switch (ctx.types.get(ty)) {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
@@ -4402,8 +4401,9 @@ pub const SemContext = struct {
     alias_in_progress: FastMap(SymbolId, void) = .empty,
     /// Operations generic bodies apply to their type parameters.
     generic_requirements: std.ArrayList(GenericRequirement) = .empty,
-    /// Instantiated generic type -> position of its first spelling.
-    instantiation_sites: FastMap(TypeId, u32) = .empty,
+    /// Instantiated generic type -> position of its first spelling, in
+    /// the order the check finds them, which no TypeId decides.
+    instantiation_sites: fastmap.OrderedMap(TypeId, u32) = .empty,
     /// Instances of user generics spelled with type parameters, inside
     /// generic declarations (`Opt[T]` in `Wrap[T]`'s methods). See
     /// `expandInstantiations`.

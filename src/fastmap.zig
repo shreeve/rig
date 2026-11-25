@@ -11,6 +11,19 @@ pub fn Map(comptime K: type, comptime V: type) type {
     return std.HashMapUnmanaged(K, V, Context(K), std.hash_map.default_max_load_percentage);
 }
 
+/// A hash map from `K` to `V` hashed by `Context(K)` that keeps its
+/// entries in the order they were put, which no key's value decides.
+pub fn OrderedMap(comptime K: type, comptime V: type) type {
+    return std.ArrayHashMapUnmanaged(K, V, struct {
+        pub fn hash(_: @This(), k: K) u32 {
+            return @truncate(fold(0, k));
+        }
+        pub fn eql(_: @This(), a: K, b: K, _: usize) bool {
+            return std.meta.eql(a, b);
+        }
+    }, false);
+}
+
 /// Hashes a `K` by `hash` and compares two by their fields.
 pub fn Context(comptime K: type) type {
     return struct {
