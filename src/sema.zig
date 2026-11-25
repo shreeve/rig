@@ -1301,6 +1301,9 @@ pub const Symbol = struct {
     kind: SymbolKind,
     ty: TypeId,
     decl_pos: u32,
+    /// The leaf at `decl_pos` that names it, once one is recorded
+    /// (`SemContext.recordName`); 0 before.
+    decl_leaf: parser.LeafId = 0,
     scope: ScopeId,
     flags: SymbolFlags = .{},
     /// Members of a nominal or generic type, and the methods of an API;
@@ -1994,9 +1997,7 @@ pub const Facts = struct {
     /// (`.a(n), .b(n)`): it binds the name again, and neither reads nor
     /// uses it.
     rebinds: FastMap(u32, void) = .empty,
-    /// Leaves (by leaf id) that declare the symbol they name: those at
-    /// its `decl_pos` (`SemContext.recordName`).
-    declares: FastMap(u32, void) = .empty,
+
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: FastMap(NodeKey, ElemCall) = .empty,
     /// Callee (`member`) node -> the built-in type's method it calls.
@@ -2232,7 +2233,6 @@ pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .names = .{ .key = .raw },
     .writes = .{ .key = .raw },
     .rebinds = .{ .key = .raw },
-    .declares = .{ .key = .raw },
     .member_compares = .{ .key = .raw },
     .embeds = .{ .writer = .modules },
     .old_nones = .{ .writer = .ownership },
@@ -3090,10 +3090,10 @@ pub fn writeFactsDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, 
         var it = @field(ctx.facts, name).iterator();
         while (it.next()) |e| {
             const key = e.key_ptr.*;
-            // `writes`, `rebinds`, and `declares` are keyed by a leaf id,
+            // `writes` and `rebinds` are keyed by a leaf id,
             // `names` and the expression facts by `exprKey`, the rest by
             // node id.
-            const node: ?Sexp, const id: u64 = if (comptime std.mem.eql(u8, name, "writes") or std.mem.eql(u8, name, "rebinds") or std.mem.eql(u8, name, "declares"))
+            const node: ?Sexp, const id: u64 = if (comptime std.mem.eql(u8, name, "writes") or std.mem.eql(u8, name, "rebinds"))
                 .{ leaves.get(key), key }
             else if (Key == u64)
                 .{ if (key >> 32 != 0) nodes.get(@truncate(key)) else leaves.get(@truncate(key)), key & 0xffff_ffff }
@@ -5263,7 +5263,10 @@ pub const SemContext = struct {
         if (node != .src or sym == symbol_invalid) return;
         const key = recordExprKey(node).?;
         try self.putIn(.check, .names, key, sym);
-        if (node.src.pos == self.symbols.items[sym].decl_pos) try self.putIn(.check, .declares, @intCast(key), {});
+        // Each check of the declaration records the same leaf, so a
+        // rollback has nothing to give back.
+        const s = &self.symbols.items[sym];
+        if (node.src.pos == s.decl_pos) s.decl_leaf = node.src.leaf;
     }
 
     /// A `$embed` whose path's literal at `arg` holds `path`; recorded
@@ -6412,7 +6415,7 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
     var names = ctx.facts.names.iterator();
     while (names.next()) |e| {
         const leaf: u32 = @intCast(e.key_ptr.*);
-        if (!ctx.facts.declares.contains(leaf) and !ctx.facts.writes.contains(leaf) and !ctx.facts.rebinds.contains(leaf)) read.set(e.value_ptr.*);
+        if (ctx.symbols.items[e.value_ptr.*].decl_leaf != leaf and !ctx.facts.writes.contains(leaf) and !ctx.facts.rebinds.contains(leaf)) read.set(e.value_ptr.*);
     }
     for (ctx.symbols.items) |sym| {
         var origin = sym.origin;
