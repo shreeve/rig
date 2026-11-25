@@ -24,14 +24,30 @@ const StdFormCheck = @import("stdforms.zig");
 const StmtCheck = @import("stmt.zig");
 const ViewCheck = @import("views.zig");
 
-/// Synthesize without reporting diagnostics (the full check reports them).
+/// `e`'s type, checked only to learn it (`beginQuiet`).
 pub fn synthQuiet(self: *Checker, e: Sexp) Error!TypeId {
-    const mark = self.ctx.diagnostics.items.len;
-    self.ctx.quiet += 1;
-    defer self.ctx.quiet -= 1;
+    const m = beginQuiet(self);
     const ty = try PatternCheck.synthExpr(self, e);
-    self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+    _ = try endQuiet(self, m);
     return ty;
+}
+
+/// Start a quiet check, one run only to learn something: what it
+/// records and reports is taken back at `endQuiet`
+/// (`SemContext.rollback`), so the check that keeps them decides every
+/// fact.
+pub fn beginQuiet(self: *Checker) sema.Mark {
+    self.ctx.quiet += 1;
+    return self.ctx.mark();
+}
+
+/// End the quiet check started at `m`: how many diagnostics it made,
+/// all taken back with its facts.
+pub fn endQuiet(self: *Checker, m: sema.Mark) Error!usize {
+    self.ctx.quiet -= 1;
+    const made = self.ctx.diagnostics.items.len - m.diagnostics;
+    try self.ctx.rollback(m);
+    return made;
 }
 
 /// Returns the if's type in value position.

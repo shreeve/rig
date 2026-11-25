@@ -2291,9 +2291,10 @@ pub fn keptLeaf(self: *Checker, e: Sexp, kept: Checker.Kept) Error!void {
     // A chain whose result holds views of its source's items keeps
     // the source viewed, as a call keeps an argument it carries:
     // `vs = ?names.filter(f).collect()`.
-    if (self.chain_views.count() > 0 and e.isKind(.call)) if (self.chain_views.get(CompatCheck.nodeId(e))) |root| {
+    if (self.chain_views.count() > 0 and e.isKind(.call)) if (self.chain_views.get(CompatCheck.nodeId(e))) |source| {
+        const root = source.root;
         if (self.ctx.kept_reported.contains(CompatCheck.nodeId(e))) return;
-        if (!implicitSelf(self, root)) return keptLeaf(self, root, kept);
+        if (!implicitSelfOf(self, root, source.ty)) return keptLeaf(self, root, kept);
         if (self.ctx.quiet != 0) return;
         try self.ctx.putIn(.check, .kept_reported, CompatCheck.nodeId(e), {});
         // A chain reported is not rewritten into its loop, so the
@@ -2346,8 +2347,12 @@ pub fn implicitArgument(self: *Checker, arg: Sexp) bool {
 /// the call views to read with no `?` written: an owner, not a view
 /// that is copied.
 pub fn implicitSelf(self: *Checker, recv: Sexp) bool {
+    return implicitSelfOf(self, recv, self.ctx.typeOf(recv) orelse return false);
+}
+
+/// `implicitSelf` of a `recv` of type `ty`.
+pub fn implicitSelfOf(self: *Checker, recv: Sexp, ty: TypeId) bool {
     if (recv.isKind(.read) or recv.isKind(.write) or recv.isKind(.move)) return false;
-    const ty = self.ctx.typeOf(recv) orelse return false;
     if (self.isPoison(ty) or sema.isReadOrWriteView(self.ctx, ty)) return false;
     return hands(self, recv).kind == .place and StmtCheck.placeOf(self, recv).named();
 }

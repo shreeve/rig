@@ -1831,12 +1831,24 @@ and the decisions asked since, and closes the mark; `commit` closes it
 and keeps them. Marks nest, and with none open the trail is empty and
 a write costs nothing more. A symbol written through
 `SemContext.symbolMut` goes on the trail whole, so a rollback gives back
-its type and flags. Scopes, interned types, and the lists of what a
+its type and flags; one made since the mark stays as it was written.
+Scopes, interned types, the symbol each name names (`names`, a kept
+column: the one in scope where it stands), and the lists of what a
 check makes for what it names (generic instances and uses, API calls,
 embedded files) are not taken back: each is made once for what it
 names, and asking again finds the same one. A rewrite of the tree, and the names and scopes of the
 nodes it makes, are written outside every mark (`pauseTrail`), since
 the tree keeps the rewrite.
+
+**Quiet checks.** A check run only to learn something, a type
+(`synthQuiet`), how many errors a closure has, or whether a place may
+be written, runs between `beginQuiet` and `endQuiet` (`check/flow.zig`):
+under a mark, with `quiet` set, so what it records and reports is taken
+back and the check that keeps them decides every fact. What a caller
+needs from it is a value it returns, never a fact it left: a chain's
+source keeps the type its quiet check learned (`chain_views`), and
+`Actor.supervised` reads its captures' types after the call checked
+the closure aloud.
 
 **Storage questions.** A few questions about a node that emit,
 lowering, and the checkers all act on are each a pure function of
@@ -2552,9 +2564,9 @@ a pending one) and its subscriber list, a `List` its buffer's slice and
 length, a `^T` its pointer, and a read view the value it copies when it
 is viewed by copy (`viewByValue`: `?I128` is 16 bytes), else a pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
-from an argument, at that argument (`checkArraysIn`); a synthesis whose
-diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
-check that keeps them. An object or enum is checked after contents
+from an argument, at that argument (`checkArraysIn`); a quiet check
+(`synthQuiet`, under `quiet`) leaves it to the check that keeps its
+diagnostics. An object or enum is checked after contents
 are known (`checkTypeSizes`), and an array that mentions a generic
 parameter is kept in `generic_arrays` and checked, with the instance
 itself, at each instance (`checkInstanceSizes`). A type reported too
@@ -3898,7 +3910,7 @@ type parameter's value read in place; none a value), reporting an
 internal error where one is not. `sema.checkTypedClean` checks too that
 a module typecheck accepted types no expression `invalid`: a rejection
 reports why, so an `invalid` with no error is a verdict whose diagnostic
-a quiet check dropped. `SemContext.bindingAccess` reads the fact, and gives a
+was dropped. `SemContext.bindingAccess` reads the fact, and gives a
 parameter's or local's from its type. Every pass reads it, and none
 decides a binding's mode another way (a unit test checks the sources):
 

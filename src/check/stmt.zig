@@ -1161,14 +1161,13 @@ pub fn viewsPath(self: *Checker, place: Checker.Place) bool {
 /// so that a view of it may be the handle's own: `requireAccess` with
 /// no exemption for a handle that changes by a marked call.
 pub fn handleWritable(self: *Checker, place: Checker.Place, operand: Sexp) Error!bool {
-    const mark = self.ctx.diagnostics.items.len;
     const saved = self.expect.handle_exempt;
     self.expect.handle_exempt = false;
     defer self.expect.handle_exempt = saved;
-    self.ctx.quiet += 1;
-    defer self.ctx.quiet -= 1;
-    defer self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-    return requireAccess(self, place, .write_viewed, operand);
+    const m = FlowCheck.beginQuiet(self);
+    const writable = try requireAccess(self, place, .write_viewed, operand);
+    _ = try FlowCheck.endQuiet(self, m);
+    return writable;
 }
 
 /// Whether `place` is a handle that changes by a marked call

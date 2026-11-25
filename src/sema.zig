@@ -2187,8 +2187,10 @@ pub const Pass = enum { check, storage, modules, ownership, proofs };
 /// something else its writer names (a position, a symbol).
 pub const KeyKind = enum { node, expr, raw };
 
-/// A column's declaration: the one pass that writes it, and its key.
-pub const ColumnSpec = struct { writer: Pass = .check, key: ?KeyKind = null };
+/// A column's declaration: the one pass that writes it, its key, and
+/// whether a rollback leaves it (`kept`): a fact decided by where its
+/// node stands, which no check decides otherwise.
+pub const ColumnSpec = struct { writer: Pass = .check, key: ?KeyKind = null, kept: bool = false };
 
 /// The maps of `SemContext` outside `Facts` that are columns too.
 const ctx_columns = [_][:0]const u8{ "write_sites", "untakeable", "discards", "call_targets", "inline_calls", "once_captures", "const_ints", "const_floats", "ct_locals", "unit_of", "unit_roots", "proven", "proven_if", "flags", "result_bounds", "kept_reported", "closures_reported", "closures_in_error", "uncaptured_reported" };
@@ -2222,9 +2224,11 @@ pub const Column = blk: {
 /// asks of the binding's later writes; the type checker's for a move
 /// and a take, which need types), and `const_ints` (the resolver's for
 /// a module constant, folded before any type names it; the type
-/// checker's for a local).
+/// checker's for a local). The symbol a name names is the one in scope
+/// where it stands, so a rollback leaves `names`: a check taken back
+/// names it again alike.
 pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
-    .names = .{ .key = .raw },
+    .names = .{ .key = .raw, .kept = true },
     .writes = .{ .key = .raw },
     .rebinds = .{ .key = .raw },
     .member_compares = .{ .key = .raw },
@@ -2303,8 +2307,9 @@ pub const FactTrail = struct {
     }
 };
 
-/// A point the trail can be rolled back to (`SemContext.rollback`).
-pub const Mark = struct { entries: u32, olds: u32, diagnostics: u32 };
+/// A point the trail can be rolled back to (`SemContext.rollback`), and
+/// how many symbols there were then.
+pub const Mark = struct { entries: u32, olds: u32, diagnostics: u32, symbols: u32 };
 
 fn MapKey(comptime M: type) type {
     return @FieldType(M.KV, "key");
@@ -4364,9 +4369,9 @@ pub const SemContext = struct {
     /// The types reported as too large, each once; a type holding one is
     /// not reported again.
     oversized: FastMap(TypeId, void) = .empty,
-    /// Nonzero while an expression is checked with its diagnostics
-    /// dropped (`typecheck.synthQuiet`): an array too large is left to
-    /// the check that keeps them.
+    /// Nonzero during a quiet check, whose diagnostics and facts are
+    /// taken back (`check/flow.zig`, `beginQuiet`): an array too large
+    /// is left to the check that keeps them.
     quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
     byte_sizes: FastMap(TypeId, ?u128) = .empty,
@@ -5118,7 +5123,7 @@ pub const SemContext = struct {
     /// column of the trail holds, and the diagnostics. Marks nest; each is rolled back or kept (`commit`).
     pub fn mark(self: *SemContext) Mark {
         self.trail.open += 1;
-        return .{ .entries = @intCast(self.trail.entries.items.len), .olds = @intCast(self.trail.olds.items.len), .diagnostics = @intCast(self.diagnostics.items.len) };
+        return .{ .entries = @intCast(self.trail.entries.items.len), .olds = @intCast(self.trail.olds.items.len), .diagnostics = @intCast(self.diagnostics.items.len), .symbols = @intCast(self.symbols.items.len) };
     }
 
     /// Record outside every open mark until `resumeTrail`: what is
@@ -5143,13 +5148,14 @@ pub const SemContext = struct {
 
     /// Close `m` and take back what was recorded since: each fact gets
     /// the value it had at the mark, or none, and the diagnostics made
-    /// since are dropped.
+    /// since are dropped. A symbol made since stays as it was made,
+    /// with what was written to it since.
     pub fn rollback(self: *SemContext, m: Mark) std.mem.Allocator.Error!void {
         const entries = self.trail.entries.items;
         var i = entries.len;
         while (i > m.entries) {
             i -= 1;
-            try self.undo(entries[i]);
+            try self.undo(entries[i], m.symbols);
         }
         self.trail.entries.shrinkRetainingCapacity(m.entries);
         self.trail.olds.shrinkRetainingCapacity(m.olds);
@@ -5183,7 +5189,7 @@ pub const SemContext = struct {
     pub fn putIn(self: *SemContext, comptime p: Pass, comptime c: Column, key: MapKey(ColumnMap(c)), value: MapValue(ColumnMap(c))) std.mem.Allocator.Error!void {
         self.writing(p, c);
         const map = self.columnMap(c);
-        if (self.trail.open > 0) try self.trail.log(self.allocator, @backingInt(c), key, map.get(key));
+        if (!comptime specOf(c).kept) if (self.trail.open > 0) try self.trail.log(self.allocator, @backingInt(c), key, map.get(key));
         try map.put(self.allocator, key, value);
     }
 
@@ -5230,17 +5236,18 @@ pub const SemContext = struct {
     pub fn removeIn(self: *SemContext, comptime p: Pass, comptime c: Column, key: MapKey(ColumnMap(c))) std.mem.Allocator.Error!void {
         self.writing(p, c);
         const map = self.columnMap(c);
-        if (self.trail.open > 0) {
+        if (!comptime specOf(c).kept and self.trail.open > 0) {
             const old = map.get(key) orelse return;
             try self.trail.log(self.allocator, @backingInt(c), key, @as(?@TypeOf(old), old));
         }
         mapRemove(map, key);
     }
 
-    fn undo(self: *SemContext, e: FactTrail.Entry) std.mem.Allocator.Error!void {
+    fn undo(self: *SemContext, e: FactTrail.Entry, symbols: u32) std.mem.Allocator.Error!void {
         switch (e.column) {
             FactTrail.symbol_column => {
                 const id = FactTrail.keyOf(SymbolId, e.key);
+                if (id >= symbols) return;
                 self.symbols.items[id] = std.mem.bytesToValue(Symbol, self.trail.olds.items[e.old..][0..@sizeOf(Symbol)]);
             },
             inline 0...n_columns - 1 => |i| {
@@ -6380,10 +6387,10 @@ fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// A module typecheck accepted types no expression `invalid`, nor with
 /// `invalid` in it (`List[invalid]`): a check
 /// that rejects reports why, so an `invalid` with no error is a verdict
-/// whose diagnostic was dropped (a quiet check's, kept and reused), and
-/// emit would write what nothing checked. Reported at the first such
-/// expression, unless an instance's check in an earlier module reported
-/// the error (`failed_elsewhere`). Debug and test builds only.
+/// whose diagnostic was dropped, and emit would write what nothing
+/// checked. Reported at the first such expression, unless an instance's
+/// check in an earlier module reported the error (`failed_elsewhere`).
+/// Debug and test builds only.
 fn checkTypedClean(ctx: *SemContext, tree: Sexp) std.mem.Allocator.Error!void {
     if (ctx.hasErrors() or ctx.failed_elsewhere) return;
     if (typedInvalid(ctx, tree)) |e| try ctx.errAt(e, "internal error: `{s}` is typed `invalid`, and no error says why", .{diag.textOf(ctx.source, ctx.span(e))});
@@ -17450,7 +17457,7 @@ fn findNodes(node: Sexp, tag: Tag, out: *std.ArrayList(Sexp)) !void {
     for (node.items()) |c| try findNodes(c, tag, out);
 }
 
-test "trail: a rollback gives each fact and symbol the value it had at the mark" {
+test "trail: a rollback gives each fact and symbol the value it had at the mark, and leaves names and new symbols" {
     var r = try factsRun(
         \\fun f(a: Int) -> Int
         \\  b = a + 1
@@ -17467,7 +17474,7 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     const plus = findNode(r.tree, .@"+").?;
     const a_ty = r.leafType("a", 1).?;
     const plus_ty = ctx.typeOf(plus).?;
-    const names = ctx.facts.names.count();
+    const b_ty = r.leafType("b", 0).?;
     const plus_use = ctx.useOf(plus);
     const diagnostics = ctx.diagnostics.items.len;
     const b_sym = ctx.symbolAt(b).?;
@@ -17477,9 +17484,13 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
     // Changed, added, and removed facts, of a leaf and of a list node.
     try ctx.recordType(.{ .src = .{ .pos = a, .len = 1, .id = 0 } }, ctx.types.bool_id);
     try ctx.recordType(plus, ctx.types.bool_id);
-    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, 1);
-    try ctx.removeIn(.check, .names, b);
+    try ctx.recordType(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, ctx.types.bool_id);
+    try ctx.removeIn(.check, .types, exprKey(.{ .src = .{ .pos = b, .len = 1, .id = 0 } }).?);
     try ctx.err(0, "a diagnostic the rollback drops", .{});
+    // A name, and a symbol made since the mark, which stay.
+    try ctx.recordName(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }, 1);
+    const made = try ctx.addSymbol(b_was);
+    (try ctx.symbolMut(made)).ty = ctx.types.bool_id;
     // A symbol written through `symbolMut`.
     const s = try ctx.symbolMut(b_sym);
     s.ty = ctx.types.bool_id;
@@ -17493,9 +17504,10 @@ test "trail: a rollback gives each fact and symbol the value it had at the mark"
 
     try std.testing.expectEqual(a_ty, r.leafType("a", 1).?);
     try std.testing.expectEqual(plus_ty, ctx.typeOf(plus).?);
-    try std.testing.expectEqual(names, ctx.facts.names.count());
-    try std.testing.expect(ctx.symbolAt(b) != null);
-    try std.testing.expect(ctx.symbolAt(b + 1000) == null);
+    try std.testing.expectEqual(b_ty, r.leafType("b", 0).?);
+    try std.testing.expectEqual(null, ctx.typeOf(.{ .src = .{ .pos = b + 1000, .len = 1, .id = 0 } }));
+    try std.testing.expectEqual(1, ctx.symbolAt(b + 1000).?);
+    try std.testing.expectEqual(ctx.types.bool_id, ctx.symbols.items[made].ty);
     try std.testing.expectEqual(plus_use, ctx.useOf(plus));
     try std.testing.expectEqual(diagnostics, ctx.diagnostics.items.len);
     try std.testing.expectEqual(b_was.ty, ctx.symbols.items[b_sym].ty);

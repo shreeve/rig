@@ -2820,7 +2820,14 @@ pub fn actorSupervised(self: *Checker, callee: Sexp, method: []const u8, pos: u3
     }
     try requireTask(self, ty, .moves, self.startOf(f), "is given to an actor's task", false);
     if (sema.mayHoldView(self.ctx, ty)) return CallCheck.badCall(self, args, f, "an actor's value holds no view, and a `{s}` may hold a view", .{try self.tyName(ty)});
-    // The tasks that run the actor call the function, each in turn.
+    const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.actor, .args = try self.ctx.dupeIds(&.{ty}) } });
+    const params, const names = try optionParams(self, args, f_ty, "make");
+    const call: FunctionType = .{ .params = params, .returns = actor, .is_sub = false };
+    try noteCallee(self, call);
+    try CallCheck.checkArgs(self, args, call, .{ .names = names, .durations = optionDurations(names), .waits = true }, "Actor.supervised", self.startOf(callee), .{ .declared = call.params });
+    // The tasks that run the actor call the function, each in turn:
+    // each capture, typed where the call checked the closure, goes to
+    // them.
     for (sema.captureList(ir.Lambda.captures(ir.Share.operand(f)))) |cap| {
         const name_node = sema.captureNameNode(cap) orelse continue;
         const id = self.ctx.symbolOf(name_node) orelse continue;
@@ -2830,14 +2837,10 @@ pub fn actorSupervised(self: *Checker, callee: Sexp, method: []const u8, pos: u3
             try requireTask(self, cty, .moves, self.startOf(name_node), "is given to an actor's tasks", false);
             continue;
         };
-        if (try statedCrossing(self, blocker, .moves, self.startOf(name_node))) return CallCheck.skipCall(self, args);
-        return CallCheck.badCall(self, args, name_node, "the tasks that run the actor call the function that makes its value, and `{s}` {s}", .{ self.text(name_node), try blockerReason(self, blocker, false, if (blocker == cty) "is" else null) });
+        if (try statedCrossing(self, blocker, .moves, self.startOf(name_node))) return self.t().invalid_id;
+        try self.errAt(name_node, "the tasks that run the actor call the function that makes its value, and `{s}` {s}", .{ self.text(name_node), try blockerReason(self, blocker, false, if (blocker == cty) "is" else null) });
+        return self.t().invalid_id;
     }
-    const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.actor, .args = try self.ctx.dupeIds(&.{ty}) } });
-    const params, const names = try optionParams(self, args, f_ty, "make");
-    const call: FunctionType = .{ .params = params, .returns = actor, .is_sub = false };
-    try noteCallee(self, call);
-    try CallCheck.checkArgs(self, args, call, .{ .names = names, .durations = optionDurations(names), .waits = true }, "Actor.supervised", self.startOf(callee), .{ .declared = call.params });
     try self.ctx.record(.actor_supervised, node, {});
     self.ctx.makes_tasks = true;
     self.ctx.makes_actors = true;
@@ -3249,7 +3252,7 @@ pub fn chainCall(self: *Checker, callee: Sexp, method: []const u8, args: []const
     }
     var views = false;
     if (!try chainTypes(self, call, root, kind, zip, &views)) return self.t().invalid_id;
-    if (views and !for_source) try self.chain_views.put(self.ctx.allocator, CompatCheck.nodeId(call), root);
+    if (views and !for_source) try self.chain_views.put(self.ctx.allocator, CompatCheck.nodeId(call), .{ .root = root, .ty = found.ty });
     const node = if (for_source) self.expect.chain_for else call;
     const id = node.list.id;
     if (self.ctx.parser == null) {
@@ -3275,7 +3278,7 @@ pub fn madeHere(e: Sexp) bool {
 /// What a chain whose stages end at `root` walks, or null when `root`
 /// is no `for` source, or its type declares `method` itself, or, with
 /// no stage, a List's own `sum` or `reduce` takes the call.
-pub fn chainSource(self: *Checker, root: Sexp, method: []const u8, stages: usize) Error!?struct { kind: rig.ChainSource, copies: bool = true } {
+pub fn chainSource(self: *Checker, root: Sexp, method: []const u8, stages: usize) Error!?struct { kind: rig.ChainSource, copies: bool = true, ty: TypeId = sema.type_invalid } {
     if (root.isKind(.@"..")) return .{ .kind = .range };
     // A module's or a type's function (`par.map`, `task.all`) is no chain.
     if ((try CallCheck.moduleNamed(self, root)) != null or (try CallCheck.namedType(self, root)) != null) return null;
@@ -3289,14 +3292,14 @@ pub fn chainSource(self: *Checker, root: Sexp, method: []const u8, stages: usize
     };
     if (elem) |e| {
         if (stages == 0 and (std.mem.eql(u8, method, "sum") or std.mem.eql(u8, method, "reduce"))) return null;
-        return .{ .kind = .elements, .copies = sema.copies(self.ctx, e) == .yes };
+        return .{ .kind = .elements, .copies = sema.copies(self.ctx, e) == .yes, .ty = ty };
     }
     switch (try sema.iterItem(self.ctx, peeled)) {
         .item => {},
         else => return null,
     }
     if ((try sema.methodOfType(self.ctx, peeled, method)) != null) return null;
-    return .{ .kind = .iterator };
+    return .{ .kind = .iterator, .ty = ty };
 }
 
 /// Each stage and the consumer of a chain take the arguments they
@@ -3504,16 +3507,11 @@ pub fn chainArity(self: *Checker, f: Sexp, name: []const u8, what: []const u8, n
 pub fn chainFnResult(self: *Checker, f: Sexp, params: []const TypeId) Error!?TypeId {
     var ty: TypeId = undefined;
     if (f.isKind(.lambda)) {
-        const mark = self.ctx.diagnostics.items.len;
-        self.ctx.quiet += 1;
+        const m = FlowCheck.beginQuiet(self);
         self.tentative += 1;
-        defer {
-            self.ctx.quiet -= 1;
-            self.tentative -= 1;
-            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-        }
         const fn_ty = try ClosureCheck.checkLambdaGiven(self, f, null, params, false);
-        if (self.ctx.diagnostics.items.len != mark or self.isPoison(fn_ty) or self.ctx.types.get(fn_ty) != .function) return null;
+        self.tentative -= 1;
+        if (try FlowCheck.endQuiet(self, m) != 0 or self.isPoison(fn_ty) or self.ctx.types.get(fn_ty) != .function) return null;
         ty = self.ctx.types.get(fn_ty).function.returns;
     } else {
         const fty = try FlowCheck.synthQuiet(self, f);
@@ -3552,16 +3550,11 @@ pub fn noOrder(self: *Checker, ty: TypeId) Error!?sema.Lack {
 /// How many errors closure literal `f` has against function type
 /// `want`, checked quietly.
 pub fn lambdaErrorsQuietly(self: *Checker, f: Sexp, want: TypeId) Error!usize {
-    const mark = self.ctx.diagnostics.items.len;
-    self.ctx.quiet += 1;
+    const m = FlowCheck.beginQuiet(self);
     self.tentative += 1;
-    defer {
-        self.ctx.quiet -= 1;
-        self.tentative -= 1;
-        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-    }
     _ = try ClosureCheck.checkLambda(self, f, want);
-    return self.ctx.diagnostics.items.len - mark;
+    self.tentative -= 1;
+    return FlowCheck.endQuiet(self, m);
 }
 
 /// `xs.sum()` and `xs.sum(start: n)`: the elements of a slice, an
@@ -4661,16 +4654,11 @@ pub fn closureErrors(self: *Checker, f: Sexp, params: []const TypeId, sub: bool)
 /// Closure literal `f` checked quietly as `closureType` checks it, as
 /// one that can fail when `fails`: its type, and how many errors it has.
 pub fn closureQuietly(self: *Checker, f: Sexp, params: []const TypeId, sub: bool, fails: bool) Error!struct { TypeId, usize } {
-    const mark = self.ctx.diagnostics.items.len;
-    self.ctx.quiet += 1;
+    const m = FlowCheck.beginQuiet(self);
     self.tentative += 1;
-    defer {
-        self.ctx.quiet -= 1;
-        self.tentative -= 1;
-        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-    }
     const ty = try closureAs(self, f, params, sub, fails);
-    return .{ ty, self.ctx.diagnostics.items.len - mark };
+    self.tentative -= 1;
+    return .{ ty, try FlowCheck.endQuiet(self, m) };
 }
 
 /// Closure literal `f` checked as `closureType` checks it, as one that

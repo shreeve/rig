@@ -239,8 +239,9 @@ pub const Checker = struct {
     /// variant the checker knows, by name (`constVariant`).
     fixed_variants: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
     /// The chains whose result holds views of the items of their source,
-    /// each a consumer's call to the source it walks (`chainTypes`).
-    chain_views: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
+    /// each a consumer's call to the source it walks and the source's
+    /// type, learned by a quiet check (`chainSource`, `chainTypes`).
+    chain_views: std.AutoHashMapUnmanaged(parser.NodeId, struct { root: Sexp, ty: TypeId }) = .empty,
     /// The binding conditions whose `else` is being checked, innermost
     /// last: a name one binds is unbound there (`unboundHint`).
     else_conds: std.ArrayList(Sexp) = .empty,
@@ -3401,6 +3402,23 @@ test "check: each distinct instance of a generic function is recorded once" {
     try expectClean(&r.ctx);
     // `size[Int]`, spelled and inferred, and `size[P]`.
     try std.testing.expectEqual(2, r.ctx.fn_instances.items.len);
+}
+
+test "check: a quiet check takes back the facts it recorded" {
+    const source =
+        \\sub main()
+        \\  i = 1
+        \\  print(nosuch[i])
+        \\
+    ;
+    var r = try checkSource(std.testing.allocator, source);
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectDiagnostic(&r.ctx, "nosuch");
+    // The index of a value in error is checked quietly, only to
+    // learn its type (`synthQuiet`): it leaves no type behind.
+    const at: u32 = @intCast(std.mem.find(u8, source, "[i]").? + 1);
+    try std.testing.expectEqual(null, r.ctx.typeOf(.{ .src = .{ .pos = at, .len = 1, .id = 0 } }));
 }
 
 
