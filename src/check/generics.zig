@@ -26,7 +26,8 @@ const CompatCheck = @import("compat.zig");
 /// Every instantiation of a generic type, and every instance of a
 /// generic function, must support the operations its bodies apply to
 /// the type parameters (`@value + 1` requires a numeric `T`). Checked
-/// after all bodies, against every instance the module's code makes.
+/// after all bodies, against every instance the module's code makes
+/// that no earlier module made (`sema.checkedBefore`).
 /// An instance's type arguments, each standing as one (`sema.misplaced`):
 /// a value holding a Cell by value, a write view, a bare API object, a
 /// frozen value, or an actor's value is no type argument.
@@ -74,6 +75,10 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         if (!gop.found_existing) gop.value_ptr.* = .empty;
         try gop.value_ptr.append(ctx.allocator, @intCast(i));
     }
+    // An instance an earlier module made is checked there
+    // (`sema.checkedBefore`).
+    var key: sema.InstanceKey = .{};
+    defer key.deinit(ctx.allocator);
     var it = ctx.instantiation_sites.iterator();
     while (it.next()) |entry| {
         const pn = switch (ctx.types.get(entry.key_ptr.*)) {
@@ -81,44 +86,83 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             else => continue,
         };
         const params = ctx.symbols.items[ctx.localSym(pn.sym)].type_params orelse continue;
-        // A box holds an API object through its allocation, `^{Shape}`.
-        if (pn.sym == ctx.builtins.box and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) continue;
-        if (try misplacedArgs(ctx, pn.args, entry.value_ptr.*)) continue;
-        const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
-        if (!try sema.checkBounds(ctx, params, pn.args, entry.value_ptr.*, of)) continue;
-        if (!try checkRequirements(ctx, &reqs, params, pn.args, entry.value_ptr.*, of)) continue;
-        if (!try checkMethodCalls(ctx, .{ .params = params, .args = pn.args }, params, entry.value_ptr.*, of)) continue;
-        try checkInstanceSizes(ctx, params, pn.args, entry.value_ptr.*, of);
+        const k = try key.ofType(ctx, entry.key_ptr.*);
+        if (try checkedBefore(ctx, k) != null) continue;
+        const mark = ctx.diagnostics.items.len;
+        try checkTypeInstance(ctx, &reqs, entry.key_ptr.*, params, entry.value_ptr.*);
+        sema.noteInstanceChecked(ctx, k, mark);
     }
     // A method's instance checks only its own parameters; its type's
     // are checked with self's instance.
     // An instance made by one whose bounds failed is not checked: the
     // failure written at the call is the error, and the generics that
     // instance calls would only repeat it (`sort.sort[F32]` and each of
-    // the bounded helpers it reaches).
+    // the bounded helpers it reaches). In a later module, so is one made
+    // by an instance whose check failed in an earlier one.
     var failed: std.HashMapUnmanaged(sema.FnInstance, void, sema.FnInstance.Context, 80) = .empty;
     defer failed.deinit(ctx.allocator);
     var i: usize = 0;
     while (i < ctx.fn_instances.items.len) : (i += 1) {
         const f = ctx.fn_instances.items[i];
         if (f.via) |via| if (via == .func and failed.contains(via.func)) continue;
-        // An implementation's method reached through an API has the
-        // arguments the call's instance of the API's method checks and
-        // reports.
-        if (try misplacedArgs(ctx, f.inst.ownArgs(), if (f.through_api) null else f.site)) continue;
-        const of: sema.InstanceRoot = .{ .func = f.inst };
-        // So are its bounds, which are the API's method's.
-        const bounded = if (f.through_api) try sema.boundsMet(ctx, f.inst.ownParams(), f.inst.ownArgs()) else try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of);
-        if (!bounded) {
-            try failed.put(ctx.allocator, f.inst, {});
-            if (!f.through_api) if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
-        } else if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
-            try checkMethodCalls(ctx, f.inst.subst(), f.inst.ownParams(), f.site, of))
-        {
-            try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
-        } else if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
+        const k = try key.ofFn(ctx, f.inst);
+        if (try checkedBefore(ctx, k)) |before| {
+            if (before.failed) try failed.put(ctx.allocator, f.inst, {});
+            continue;
+        }
+        const mark = ctx.diagnostics.items.len;
+        if (!try checkFnInstance(ctx, &reqs, f)) try failed.put(ctx.allocator, f.inst, {});
+        sema.noteInstanceChecked(ctx, k, mark);
     }
     try checkReaches(ctx);
+}
+
+/// What an earlier module found checking the instance `key` names
+/// (`sema.checkedBefore`), noting an error it reported
+/// (`SemContext.failed_elsewhere`).
+fn checkedBefore(ctx: *SemContext, key: []const u8) Error!?sema.Checked {
+    const before = try sema.checkedBefore(ctx, key) orelse return null;
+    if (before.failed) ctx.failed_elsewhere = true;
+    return before;
+}
+
+/// Check the generic type's instance `ty`, over `params`, first made at
+/// `site`.
+fn checkTypeInstance(ctx: *SemContext, reqs: *const Requirements, ty: TypeId, params: []const SymbolId, site: u32) Error!void {
+    const pn = ctx.types.get(ty).parameterized_nominal;
+    // A box holds an API object through its allocation, `^{Shape}`.
+    if (pn.sym == ctx.builtins.box and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) return;
+    if (try misplacedArgs(ctx, pn.args, site)) return;
+    const of: sema.InstanceRoot = .{ .type = ty };
+    if (!try sema.checkBounds(ctx, params, pn.args, site, of)) return;
+    if (!try checkRequirements(ctx, reqs, params, pn.args, site, of)) return;
+    if (!try checkMethodCalls(ctx, .{ .params = params, .args = pn.args }, params, site, of)) return;
+    try checkInstanceSizes(ctx, params, pn.args, site, of);
+}
+
+/// An entry of `SemContext.fn_instances`: an instance and where it is made.
+const FnInstanceSite = @typeInfo(@FieldType(@FieldType(SemContext, "fn_instances"), "items")).pointer.child;
+
+/// Check the generic function's instance `f`. False when its bounds
+/// fail.
+fn checkFnInstance(ctx: *SemContext, reqs: *const Requirements, f: FnInstanceSite) Error!bool {
+    // An implementation's method reached through an API has the
+    // arguments the call's instance of the API's method checks and
+    // reports.
+    if (try misplacedArgs(ctx, f.inst.ownArgs(), if (f.through_api) null else f.site)) return true;
+    const of: sema.InstanceRoot = .{ .func = f.inst };
+    // So are its bounds, which are the API's method's.
+    const bounded = if (f.through_api) try sema.boundsMet(ctx, f.inst.ownParams(), f.inst.ownArgs()) else try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of);
+    if (!bounded) {
+        if (!f.through_api) if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
+        return false;
+    }
+    if (try checkRequirements(ctx, reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
+        try checkMethodCalls(ctx, f.inst.subst(), f.inst.ownParams(), f.site, of))
+    {
+        try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
+    } else if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
+    return true;
 }
 
 /// Every frame owner (`sema.FrameOwner`: a function, method, closure,
@@ -840,9 +884,15 @@ pub fn reportTaskReq(ctx: *SemContext, req: sema.GenericRequirement, at: u32, in
 /// (`GenericRequirement.body`): at the call that reaches it, or that
 /// makes the instance of the body whose call does.
 pub fn checkReaches(ctx: *SemContext) Error!void {
+    var key: sema.InstanceKey = .{};
+    defer key.deinit(ctx.allocator);
     var i: usize = 0;
     while (i < ctx.body_reaches.items.len) : (i += 1) {
         const r = ctx.body_reaches.items[i];
+        const k = try key.ofReach(ctx, r);
+        if (try checkedBefore(ctx, k) != null) continue;
+        const mark = ctx.diagnostics.items.len;
+        defer sema.noteInstanceChecked(ctx, k, mark);
         for (ctx.generic_requirements.items) |req| {
             if (req.body == sema.no_body or req.body != r.fun.pos) continue;
             if ((if (req.module_id == 0) ctx.module_id else req.module_id) != r.fun.module) continue;
