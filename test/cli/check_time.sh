@@ -19,7 +19,7 @@ passes=$(sed -E 's/ +[0-9]+\.[0-9]{3} ms$//' err.txt)
 expect_eq "$passes" "lex and parse
 resolve
 typecheck
-storage
+lower
 ownership
 proofs
 inlining
