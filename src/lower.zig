@@ -1706,20 +1706,13 @@ fn holdsErrorValue(ctx: *const SemContext, e: Sexp) bool {
 /// optional helpers.
 fn liftRouted(ctx: *const SemContext, lift: sema.Lift, strict: bool) bool {
     var o = lift.into;
-    var levels: u32 = if (lift.from == ctx.types.none_id) 1 else optionalDepth(ctx, lift.into) -| optionalDepth(ctx, lift.from);
+    var levels = lir.liftLevels(&ctx.types, lift);
     while (levels > 0) : (levels -= 1) {
         const inner = ctx.types.get(o).optional;
         if (sema.optionalRouted(ctx, inner, strict)) return true;
         o = inner;
     }
     return false;
-}
-
-fn optionalDepth(ctx: *const SemContext, ty: TypeId) u32 {
-    var n: u32 = 0;
-    var t = ty;
-    while (ctx.types.get(t) == .optional) : (n += 1) t = ctx.types.get(t).optional;
-    return n;
 }
 
 /// Whether view `view` makes anything of its value: any view but one
@@ -1753,7 +1746,6 @@ pub const Ask = enum(u8) {
     leaf_step,
     reaches_leaf,
     hands,
-    header_points,
     views_optional_value,
     drops_when_tested,
     self_hold,
@@ -1833,8 +1825,6 @@ fn answerAll(m: *Module, ctx: *const SemContext, e: Sexp) !void {
     if (e != .list) return;
     const subject = storage.headerSubject(e);
     if (subject != .nil) {
-        try x.put(subject, .header_points, storage.headerPoints(ctx, subject));
-        if (subject.isKind(.move)) try x.put(ir.Move.operand(subject), .header_points, storage.headerPoints(ctx, ir.Move.operand(subject)));
         if (e.isKind(.as)) try x.put(subject, .views_optional_value, storage.viewsOptionalValue(ctx, subject));
     }
     switch (e.kind() orelse return) {

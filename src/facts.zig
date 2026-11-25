@@ -88,6 +88,7 @@ pub const Header = sema.Header;
 /// storage emit prints.
 pub const Lowered = lowering.Module;
 pub const Coercion = @import("lir.zig").Coercion;
+pub const liftLevels = @import("lir.zig").liftLevels;
 pub const Ask = lowering.Ask;
 pub const Answer = lowering.Answer;
 pub const Hands = sema.Hands;

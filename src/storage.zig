@@ -1245,21 +1245,15 @@ pub fn throughWrite(ctx: *const SemContext, cond: Sexp) ?ThroughWrite {
 
 /// Whether payload binding `b` of `match` points at the field it binds
 /// (`payloadByAddress`), decided once.
-pub fn bindsByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
-    return decidePayloadByAddress(ctx, b, match);
-}
 
-fn decidePayloadByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
+pub fn bindsByAddress(ctx: *const SemContext, b: Sexp, match: Sexp) bool {
     return payloadByAddress(ctx, b, matchesInPlace(ctx, match));
 }
 
 /// Whether the catch-all binding `pattern` of a read `match` is captured by
 /// address where the match switches (`catchAllByAddress`), decided once.
-pub fn catchAllCaptured(ctx: *const SemContext, pattern: Sexp, match: Sexp) bool {
-    return decideCatchAllByAddress(ctx, pattern, match);
-}
 
-fn decideCatchAllByAddress(ctx: *const SemContext, pattern: Sexp, match: Sexp) bool {
+pub fn catchAllCaptured(ctx: *const SemContext, pattern: Sexp, match: Sexp) bool {
     const sym = ctx.symbolOf(pattern) orelse return false;
     const ty = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
     return catchAllByAddress(ctx, ty, matchesInPlace(ctx, match));
@@ -1546,15 +1540,12 @@ pub const StepPoint = enum(u8) {
 };
 
 /// Where the step of `while` loop `loop` runs, decided once.
-pub fn stepPoint(ctx: *const SemContext, loop: Sexp) StepPoint {
-    return decideStepPoint(ctx, loop);
-}
 
 /// A step that reads a name an `as` part of the condition binds runs in
 /// the bindings' scope, after the body; any other is the continue
 /// expression, which runs after that scope ends. A name reads a binding
 /// when it is the binding or a closure's capture of it (`sema.findUse`).
-fn decideStepPoint(ctx: *const SemContext, loop: Sexp) StepPoint {
+pub fn stepPoint(ctx: *const SemContext, loop: Sexp) StepPoint {
     const step = ir.While.step(loop);
     if (step == .nil) return .continue_expr;
     const Reads = struct {

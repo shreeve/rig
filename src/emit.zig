@@ -6807,12 +6807,6 @@ pub const Emitter = struct {
         if (open) try self.w.writeAll(")");
     }
 
-    /// How many levels of optional `lift` adds to its value: one for
-    /// `none`.
-    fn liftLevels(self: *Emitter, lift: facts.Lift) u32 {
-        if (lift.from == self.facts.types.none_id) return 1;
-        return optionalDepth(self.facts.types, lift.into) -| optionalDepth(self.facts.types, lift.from);
-    }
 
     /// `e`, whose value becomes the optional `lift.into` where it goes,
     /// packed level by level into each optional that goes through the
@@ -6821,7 +6815,7 @@ pub const Emitter = struct {
     fn emitLift(self: *Emitter, e: Sexp, lift: facts.Lift, tail: bool) Error!void {
         const saved = self.making(e, .lift);
         defer self.coercing = saved;
-        const opened = try self.openPacks(lift.into, self.liftLevels(lift));
+        const opened = try self.openPacks(lift.into, facts.liftLevels(self.facts.types, lift));
         self.bare = true;
         try self.emitValue(e, tail);
         for (0..opened) |_| try self.w.writeAll(")");
@@ -10220,7 +10214,7 @@ pub const Emitter = struct {
         if (!self.made(e, .lift)) if (decl.liftOf(e)) |lift| {
             const saved = self.making(e, .lift);
             defer self.coercing = saved;
-            const levels = if (lift.from == decl.types.none_id) 1 else optionalDepth(decl.types, lift.into) -| optionalDepth(decl.types, lift.from);
+            const levels = facts.liftLevels(decl.types, lift);
             var into = target;
             while (self.facts.types.get(into) == .fallible) into = self.facts.types.get(into).fallible.ok;
             const opened = try self.openPacks(into, levels);
@@ -12542,14 +12536,6 @@ test "every runtime call of a function value passes the slot it takes" {
     // The scan sees the calls that pass a slot: par.map, par.each,
     // par.workers, reduce, isolate, and select.
     try std.testing.expect(through_slot >= 7);
-}
-
-/// How many levels of optional `ty` has.
-fn optionalDepth(types: *const facts.TypeStore, ty: TypeId) u32 {
-    var n: u32 = 0;
-    var t = ty;
-    while (types.get(t) == .optional) : (n += 1) t = types.get(t).optional;
-    return n;
 }
 
 test "placeSites takes the marks out and names the line and column after each" {
