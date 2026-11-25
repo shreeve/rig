@@ -664,6 +664,12 @@ serve no HTTP.
 
 ### Compiler
 
+- **A check can be taken back:** every fact sema records goes through
+  one write path (`SemContext.putIn`), and while a mark is open each
+  write goes on a trail with the value it replaced, so a rollback gives
+  the facts table, the diagnostics, and the decisions what they held at
+  the mark (docs/internals/INTERNALS.md, "The trail"). Nothing uses it
+  yet but its test; the emitted Zig is the same.
 - **A conflict points at both ends of the view that blocks it:** beside
   "a read view of `v` is made here", a second note, "still used here", at
   the use that keeps the view in use, the next one after the conflict:

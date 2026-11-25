@@ -1788,6 +1788,18 @@ check, which a second replaces, give their memory back: from one arena,
 `rig check` of Trig peaked at 2.1 GB, against 0.65 GB
 (docs/history/records/2026-10/check-speed/).
 
+**The trail.** A check can be taken back. `SemContext.mark` opens a
+mark, and while one is open every write to a column of the facts table,
+and to the per-node records `write_sites`, `untakeable`, and `discards`
+(`sema.Column`), goes on the trail with the value it replaced
+(`putIn`, `removeIn`, the one way each is written). `rollback` gives
+every column what it held at the mark, drops the diagnostics reported
+and the decisions asked since, and closes the mark; `commit` closes it
+and keeps them. Marks nest, and with none open the trail is empty and
+a write costs nothing more. Symbols, scopes, and interned types are not
+taken back: each is made once for what it names, and asking again finds
+the same one.
+
 **Decisions.** A few questions about a node that emit, the storage plan,
 and the checkers all act on are recorded as answered the first time a
 pass asks them (`sema.Question`, `SemContext.decided`): every later
