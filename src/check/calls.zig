@@ -750,7 +750,7 @@ pub fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
     var op = e;
     while (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) : (op = ir.get(op, .operand)) try handles.append(self.ctx.arena.allocator(), op);
     if (!op.isKind(.propagate_none) and !op.isKind(.propagate)) return null;
-    if (self.ctx.parser) |p| if (p.hasParenSuffix(e)) {
+    if (self.ctx.parser) |p| if (p.marked(.paren_suffix, e)) {
         try self.errAt(e, "a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead", .{});
         return self.t().invalid_id;
     };
@@ -1624,7 +1624,7 @@ pub fn checkConversion(self: *Checker, target: TypeId, name: []const u8, args: [
         // own, and only its value, when constant, must fit.
         if (!sema.isInteger(self.ctx, from)) {
             try checkFloatFits(self, arg, target);
-        } else if (from == self.t().int_literal_id or sema.constInt(self.ctx, arg) != .not_constant) try BuiltinCheck.checkLiteralFits(self, arg, target);
+        } else if (from == self.t().int_literal_id or sema.cteval.constInt(self.ctx, arg) != .not_constant) try BuiltinCheck.checkLiteralFits(self, arg, target);
     }
     return target;
 }
@@ -1665,7 +1665,7 @@ pub fn checkFloatFits(self: *Checker, arg: Sexp, target: TypeId) Error!void {
     const f = CompatCheck.constFloatOf(self.ctx.source, arg) orelse return;
     const b = CompatCheck.intBounds(self.ctx.types.get(target).int);
     const whole = @trunc(f);
-    if (whole >= CompatCheck.wideToFloat(f64, b.min) and whole < CompatCheck.wideToFloat(f64, b.max) + 1) return;
+    if (whole >= sema.cteval.wideToFloat(f64, b.min) and whole < sema.cteval.wideToFloat(f64, b.max) + 1) return;
     if (@abs(f) < 1e18) {
         try self.errAt(arg, "`{d}` does not fit in `{s}`", .{ f, try self.tyName(target) });
     } else try self.errAt(arg, "`{e}` does not fit in `{s}`", .{ f, try self.tyName(target) });
@@ -2368,7 +2368,7 @@ pub fn constMakerCall(self: *Checker, home: *const SemContext, maker: sema.Const
                 };
                 nodes[i] = value;
             },
-            .default => |d| values[i] = sema.constIntOf(home, d.expr) orelse return returns,
+            .default => |d| values[i] = sema.cteval.constIntOf(home, d.expr) orelse return returns,
             .parts => return returns,
         }
     }
@@ -3086,19 +3086,15 @@ pub fn viewedLambdaType(self: *Checker, inf: *Checker.Inference, pattern: TypeId
         const ty = try sema.substituteType(self.ctx, p, .{ .params = params.items, .args = types.items });
         g.* = if (sema.usesParams(self.ctx, ty, inf.own)) sema.type_invalid else ty;
     }
-    const mark = self.ctx.diagnostics.items.len;
-    self.ctx.quiet += 1;
-    self.tentative += 1;
-    defer {
-        self.ctx.quiet -= 1;
-        self.tentative -= 1;
-        self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-    }
     // A closure where a result that can fail goes may propagate
     // with `!`: `?fun() -> R!` makes the body's `!` send its failure
     // to the caller, and `R` the type of the body's value.
     const fails = self.ctx.types.get(f.returns) == .fallible;
+    const m = FlowCheck.beginQuiet(self);
+    self.tentative += 1;
     const ty = try ClosureCheck.checkLambdaGiven(self, lambda, null, given, fails);
+    self.tentative -= 1;
+    const errors = try FlowCheck.endQuiet(self, m);
     const got = self.ctx.types.get(ty).function;
     // A parameter whose written type is in error never gets one: the
     // diagnostic about it explains what it leaves unbound.
@@ -3108,7 +3104,7 @@ pub fn viewedLambdaType(self: *Checker, inf: *Checker.Inference, pattern: TypeId
     }
     for (got.params) |p| if (self.isPoison(p)) return null;
     if (got.params.len != f.params.len) return null;
-    if (self.ctx.diagnostics.items.len != mark) try inf.failed.append(a, .{ .lambda = lambda, .given = given, .fails = fails, .pattern = pattern });
+    if (errors != 0) try inf.failed.append(a, .{ .lambda = lambda, .given = given, .fails = fails, .pattern = pattern });
     return ty;
 }
 
@@ -3942,7 +3938,7 @@ pub fn checkNoneArg(self: *Checker, args: []const Sexp, fields: []const Field, n
         } else if (data == 1) a else continue;
         const is_none = if (none.variant) |v|
             std.mem.eql(u8, constVariant(self, value) orelse "", v)
-        else switch (sema.constIntBy(self.ctx, value, resolve.ConstNames{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params })) {
+        else switch (sema.cteval.constIntBy(self.ctx, value, resolve.ConstNames{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params })) {
             .value => |v| v == none.value,
             else => false,
         };

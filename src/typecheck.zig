@@ -240,8 +240,9 @@ pub const Checker = struct {
     /// variant the checker knows, by name (`constVariant`).
     fixed_variants: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
     /// The chains whose result holds views of the items of their source,
-    /// each a consumer's call to the source it walks (`chainTypes`).
-    chain_views: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
+    /// each a consumer's call to the source it walks and the source's
+    /// type, learned by a quiet check (`chainSource`, `chainTypes`).
+    chain_views: std.AutoHashMapUnmanaged(parser.NodeId, struct { root: Sexp, ty: TypeId }) = .empty,
     /// The binding conditions whose `else` is being checked, innermost
     /// last: a name one binds is unbound there (`unboundHint`).
     else_conds: std.ArrayList(Sexp) = .empty,
@@ -752,7 +753,7 @@ pub const Checker = struct {
     }
 
     /// A module constant's integer arithmetic is checked here, when Rig
-    /// computes it (`sema.ctFoldBy`): Zig would compute it again when it
+    /// computes it (`sema.cteval.foldInt`): Zig would compute it again when it
     /// compiles, and stop at an overflow or a division by zero. So each
     /// operand is a value Rig knows; one the target sets, or a constant
     /// branching on something Rig does not compute, is rejected.
@@ -764,7 +765,7 @@ pub const Checker = struct {
         }
         const ty = self.ctx.typeOf(e) orelse return;
         if (!sema.isInteger(self.ctx, ty) and ty != self.t().int_literal_id) return;
-        if (sema.constInt(self.ctx, e) != .not_constant) return;
+        if (sema.cteval.constInt(self.ctx, e) != .not_constant) return;
         const operand = self.unknownOperand(e) orelse return;
         if (try self.perTarget(operand, "the operands of a module constant's arithmetic")) return;
         try self.errAt(operand, "the operands of a module constant's arithmetic must be values Rig computes when it checks the program, and it does not compute `{s}`; branch on integers, or write each branch's value", .{CallCheck.sourceText(self, operand)});
@@ -779,7 +780,7 @@ pub const Checker = struct {
             if (o == .nil) continue;
             if (CompatCheck.isArithmetic(o)) {
                 if (self.unknownOperand(o)) |x| return x;
-            } else if (sema.constInt(self.ctx, o) == .not_constant) return o;
+            } else if (sema.cteval.constInt(self.ctx, o) == .not_constant) return o;
         }
         return null;
     }
@@ -1851,7 +1852,7 @@ pub const Checker = struct {
     /// loops' names and scopes from `resolve.resolveChains`), and the
     /// statement is checked again in that form
     /// (docs/internals/INTERNALS.md, "Strings as bytes", "Chains"). Only a
-    /// statement the parser found may hold one (`rig.Parser.rewrite_stmts`)
+    /// statement the parser found may hold one (`rig.Parser.Mark.rewrite`)
     /// is checked under a mark.
     pub inline fn checkRewritten(self: *Checker, slot: *const Sexp, comptime check: anytype, args: anytype) @typeInfo(@TypeOf(check)).@"fn".return_type.? {
         if (!self.mayRewrite(slot.*)) return @call(.auto, check, .{ self, slot.* } ++ args);
@@ -1950,7 +1951,7 @@ pub const Checker = struct {
     pub fn mayRewrite(self: *Checker, s: Sexp) bool {
         return switch (s) {
             .src => sema.isStringLiteralText(self.text(s)),
-            .list => |l| if (self.ctx.parser) |p| p.mayRewrite(l.id) else false,
+            .list => if (self.ctx.parser) |p| p.marked(.rewrite, s) else false,
             else => false,
         };
     }
@@ -3412,6 +3413,23 @@ test "check: each distinct instance of a generic function is recorded once" {
     try expectClean(&r.ctx);
     // `size[Int]`, spelled and inferred, and `size[P]`.
     try std.testing.expectEqual(2, r.ctx.fn_instances.items.len);
+}
+
+test "check: a quiet check takes back the facts it recorded" {
+    const source =
+        \\sub main()
+        \\  i = 1
+        \\  print(nosuch[i])
+        \\
+    ;
+    var r = try checkSource(std.testing.allocator, source);
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectDiagnostic(&r.ctx, "nosuch");
+    // The index of a value in error is checked quietly, only to
+    // learn its type (`synthQuiet`): it leaves no type behind.
+    const at: u32 = @intCast(std.mem.find(u8, source, "[i]").? + 1);
+    try std.testing.expectEqual(null, r.ctx.typeOf(.{ .src = .{ .pos = at, .len = 1, .id = 0 } }));
 }
 
 
