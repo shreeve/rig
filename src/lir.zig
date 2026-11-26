@@ -72,7 +72,7 @@ pub const Expr = union(enum) {
     /// module), and the values its captures take, made here.
     closure: struct { node: Sexp, owner: u32, captures: []const ExprId },
     /// `value`, the value of `node`, made the type its context takes:
-    /// `how`, one of the node's coercions (`lower.Module.Coerced`).
+    /// `how`, one of the node's coercions (`lower.Module.Chain`).
     coerce: struct { node: Sexp, how: *const Coercion, value: ExprId },
 
     pub const Op = struct { node: Sexp, args: []const ExprId };
@@ -89,7 +89,7 @@ pub const Expr = union(enum) {
 /// How a value becomes the type its context takes, where it goes. Each
 /// is a typing fact of the node it wraps, made explicit where the value
 /// is read: a value held in a var first is coerced where the var is
-/// written, or where it is read (`Module.Coerced`).
+/// written, or where it is read (`lower.Module.chainOf`).
 pub const Coercion = union(enum) {
     /// A scalar beside a vector, standing for every lane: the vector's
     /// type (`sema.splatOf`).
