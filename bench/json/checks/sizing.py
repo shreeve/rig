@@ -30,7 +30,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 DATA = os.path.join(ROOT, "bench", "json", "check", "data", "simd-json")
 FILES = ["twitter", "twitterescaped", "canada", "citm_catalog", "gsoc-2018", "github_events"]
-JOBS = os.environ.get("CPUQ_CORES", "2")
+JOBS = "2"
 
 def sub_lines(src, pred, fn):
     out, n = [], 0

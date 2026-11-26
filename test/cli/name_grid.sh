@@ -8,10 +8,10 @@
 # are the `fail` cases of test/rig/names-name-grid.rig.test, which must be
 # what _name_grid.py --cases writes.
 # timeout: 120
+# cpus: 2
 source "$ROOT/test/cli/_lib.sh"
 
-jobs=${CPUQ_CORES:-2}
-jobs=${jobs%%-*}
+jobs=2
 
 python3 "$ROOT/test/cli/_name_grid.py" --cases cases.rig.test || fail "write the rejected names' cases"
 cmp -s cases.rig.test "$ROOT/test/rig/names-name-grid.rig.test" ||

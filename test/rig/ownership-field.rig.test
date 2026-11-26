@@ -1167,6 +1167,57 @@ test "a view through a read-view field of self outlives a write of self", "8 8 7
   emit_from(!c)
   print(x, y, c.builder.out[0] - 1, c.builder.out.len)
 
+test "the view a read-view field of self holds outlives a write of self", "6 6 6 6 1"
+  # `?@ids` is the read view `ids` holds, a copy of it, and a method of
+  # `@ids` that returns a view `from @` views what that view views: not
+  # `@` (Core s7), so a write view of `@` may be made while either lives.
+  # The same through a write-view parameter, and in a loop that writes
+  # self on every pass.
+  # oracle: Checker.whole accept
+  # oracle: Checker.method accept
+  # oracle: Checker.loop accept
+  # oracle: whole_param accept
+
+  obj Ids
+    names: List[String]
+
+    fun name(?@, i: Int) -> ?String from @
+      ?@names[i]
+
+  obj Checker
+    ids: ?Ids
+    n: Int
+
+    fun bump(!@) -> Bool
+      @n += 1
+      @n > 99
+
+    fun whole(!@) -> Int
+      b = ?@ids
+      (!@).bump()
+      b.names[0].len
+
+    fun method(!@) -> Int
+      s = @ids.name(0)
+      (!@).bump()
+      s.len
+
+    fun loop(!@) -> Int
+      s = ?@ids.name(0)
+      for k in 0..3
+        return 0 if s.len > k and (!@).bump()
+      s.len
+
+  fun whole_param(c: !Checker) -> Int
+    b = ?c.ids
+    (!c).bump()
+    b.names.len
+
+  ids = Ids(names: List())
+  !ids.names.push(String("abcdef"))
+  c = Checker(ids: ?ids, n: 0)
+  print((!c).whole(), (!c).method(), (!c).loop(), ids.names[0].len, whole_param(!c))
+
 fail "a view through an owned field of self views self", "cannot change `@` while a read view of `@program.files` is still in use"
   # The sibling shape: `program` is owned, so the view is a loan on `@`.
   # oracle: Checker.look reject C4

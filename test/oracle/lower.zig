@@ -3367,7 +3367,12 @@ const Lowerer = struct {
             try self.emit(.{ .pos = pos, .what = .view, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .kind = .read } });
             return t;
         }
-        if (p.via == .read or (p.via == .own and pk == .read_view and !p.slice and !pointer)) {
+        // A field declared as a read view, reached through a write view
+        // (`?@ids` in a `!@` method, `?c.ids` of a `c: !Checker`), holds
+        // a view as an owned place's does: `?` copies it, carrying its
+        // loans, not a loan on the holder (Core s7).
+        const held_view = p.via == .write and mode == .read and p.path.len > 0 and self.ctx.types.get(p.ty) == .read_view and !p.slice and !pointer;
+        if (p.via == .read or (p.via == .own and pk == .read_view and !p.slice and !pointer) or held_view) {
             if (mode != .read) return abstain("a write view through a read view");
             const t = try self.viewTemp(ty, kind, pos);
             try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(p.root), .def = t, .access = readAccess(p), .carry = p.carry });
@@ -3721,6 +3726,8 @@ const Lowerer = struct {
         // The receiver's vars in `reads` and `moves`, and whether its
         // write view's loan is the call's own.
         var recv_vars: std.ArrayList(VarId) = .empty;
+        // Whether the call is a task's wait, or a set's (`>t`, `>ts`).
+        var task_wait = false;
         // For a `from` that names paths of self (`FromPath`): what the
         // receiver is, whose loans the result carries, and its place,
         // whose paths the result's loans are on (a receiver that is no
@@ -3985,6 +3992,7 @@ const Lowerer = struct {
                             // A wait or cancel takes the task it ends (T2).
                             const mn = leafText(ir.Member.name(callee), self.src);
                             if (self.f.vars.items[rv].hidden and sema.isTask(self.ctx, recv_ty) and (std.mem.eql(u8, mn, "wait") or std.mem.eql(u8, mn, "cancel"))) self.f.vars.items[rv].waits = true;
+                            task_wait = sema.holdsCallLoans(self.ctx, sema.unwrapViews(self.ctx, recv_ty)) and std.mem.eql(u8, mn, "wait");
                         }
                     },
                 }
@@ -4121,6 +4129,9 @@ const Lowerer = struct {
         const result: ?VarId = if (parts.len > 0) null else if (arm_call != null) try self.viewTemp(rt, .write_view, pos) else switch (rinfo) {
             .void, .noreturn => null,
             else => try self.temp(rt, pos),
+        };
+        if (task_wait) if (result) |rv| {
+            self.f.vars.items[rv].waited = true;
         };
         // What the result carries, or each of several results (Core s7,
         // per result). A task keeps every loan its call was given, until
@@ -4441,8 +4452,13 @@ const Lowerer = struct {
             if (info.holds_type_var or info.has_type_var or info.poison) continue;
             for (self.f.loans.items, 0..) |l, li| {
                 // A loan through a write view is on memory the view may
-                // write: the var carries it as any view of it does.
-                if (l.external or l.deref or l.ty == sema.type_invalid) continue;
+                // write: the var carries it as any view of it does, so
+                // that what is stored through a view of the write view
+                // reaches its place. What a task's wait gives is a call's
+                // result, never stored through, which views what was
+                // passed to the task only where its type could hold that,
+                // as any call's result does (Core s7).
+                if (l.external or (l.deref and !(v.waited and v.kind != .write_view)) or l.ty == sema.type_invalid) continue;
                 const gop = try memo.getOrPut(self.a, .{ l.ty, v.ty });
                 if (!gop.found_existing) gop.value_ptr.* = try reach.owns(self.ctx, l.ty, v.ty);
                 keep[vi * nl + li] = gop.value_ptr.*;
