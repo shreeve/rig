@@ -131,7 +131,7 @@ pub const StorageKind = enum {
     /// fork. Emit makes it in this slot, `var __rig_task_N =
     /// rig.Task(T).frame.spawn(f, .{ x })`, and starts it there,
     /// `t = __rig_task_N.start()`; it counts in the frame
-    /// (`typecheck.checkFrames`).
+    /// (`accounts.count`).
     task_record,
     /// A value made here whose address emit takes where Zig holds it, in
     /// no slot: a leaf no statement slot keeps (`storage.leafStep` is
@@ -1633,7 +1633,7 @@ pub const task_header_bytes = 512;
 /// in a slot of `block`'s frame (`task_record`): a `frameTaskSite` whose
 /// task never leaves its binding (`task_stays`), with a record of at most
 /// `max_frame_task_bytes`. Asked by the plan (`Planner.frameTasks`) and by
-/// the frame count, where the record counts (`typecheck.checkFrames`).
+/// the frame count, where the record counts (`accounts.count`).
 pub fn taskRecordIn(ctx: *SemContext, stmt: Sexp, block: Sexp) !?Sexp {
     const task = frameTaskSite(ctx, stmt) orelse return null;
     if (!taskStays(ctx, stmt, block)) return null;

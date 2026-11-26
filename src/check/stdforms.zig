@@ -2952,7 +2952,7 @@ pub fn actorCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, method:
 /// function marked `inline` also records the instance it makes
 /// (`sema.InlineCall`): its type's parameters bound by `recv`, then
 /// its own (`inst_own`, so this runs after `instantiateCall`), which
-/// the frame check lands its values at (`FrameWalker.addInlined`).
+/// the frame check lands its values at (`accounts.Walker.addInlined`).
 pub fn noteTarget(self: *Checker, module: u32, pos: u32, marked: bool, recv: TypeSubst) Error!void {
     const call = self.expect.current_call orelse return;
     if (pos >= sema.imported_decl_pos) return;
