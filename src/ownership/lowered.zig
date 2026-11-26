@@ -13,7 +13,6 @@ const parser = @import("../parser.zig");
 const sema = @import("../sema.zig");
 const lir = @import("../lir.zig");
 const lower = @import("../lower.zig");
-const storage = @import("../storage.zig");
 const diag = @import("../diag.zig");
 const rig = @import("../rig.zig");
 const self_check = @import("build_options").self_check;
@@ -77,7 +76,7 @@ fn under(b: *const Body, start: lir.ExprId) lir.ExprId {
 
 /// The hidden var of `kind` lowering made for `node` in the body being
 /// walked.
-pub fn hiddenOf(self: *const Checker, node: Sexp, kind: storage.StorageKind) ?lir.VarId {
+pub fn hiddenOf(self: *const Checker, node: Sexp, kind: lir.StorageKind) ?lir.VarId {
     const b = self.lir_body orelse return null;
     const vars = b.f.vars.items;
     if (self.sema.lowered) |m| if (m.varOf(node, kind)) |v| {

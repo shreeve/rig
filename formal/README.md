@@ -663,7 +663,7 @@ by the compiler alone for rules λRig does not have (an unread local,
   the first argument of one call; one given a write view (`!mk().pop()`), a
   temporary a call keeps (`!p.watch(?t)`, which needs stores, Next, 4),
   a header's temporaries, and the drop order of several in one statement
-  are not modeled. That `src/storage.zig` gives each temporary the
+  are not modeled. That `src/lower.zig` gives each temporary the
   statement's scope is the compiler's part, held by the suite.
 - **Tasks beyond TaskViews.lean.** A task holds one loan, of an owner in
   scope, and is waited for where its scope ends; it moves nowhere. A

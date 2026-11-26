@@ -8,7 +8,7 @@ const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const sema = @import("../sema.zig");
 const arith = @import("../arith.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const Wide = sema.Wide;
 const resolve = @import("../resolve.zig");
 const Sexp = parser.Sexp;
@@ -4364,7 +4364,7 @@ pub fn badArms(self: *Checker, args: []const Sexp, at: anytype, comptime fmt: []
 
 pub fn skipArms(self: *Checker, args: []const Sexp) Error!TypeId {
     for (args) |a| {
-        const arm = storage.argValue(a);
+        const arm = lowering.argValue(a);
         if (arm.isKind(.call) and ir.Call.callee(arm).isKind(.member)) {
             const obj = ir.Member.object(ir.Call.callee(arm));
             if ((try CallCheck.moduleNamed(self, obj)) == null) _ = try PatternCheck.synthExpr(self, if (obj.isKind(.write) or obj.isKind(.read)) ir.get(obj, .operand) else obj);

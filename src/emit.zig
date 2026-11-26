@@ -548,7 +548,7 @@ pub const Emitter = struct {
     /// is reached through `constSlot`.
     read_place: bool = false,
     /// The `match` subject being emitted, which it reaches where it is
-    /// (`storage.matchesInPlace`): a generic read view held on its path,
+    /// (`lower.matchesInPlace`): a generic read view held on its path,
     /// by its name, a field, or an element, is the value it reaches in
     /// place, `rig.viewedPtr(T, &view).*`, never a copy (`onSubjectPath`).
     subject_path: Sexp = .nil,
@@ -3112,7 +3112,7 @@ pub const Emitter = struct {
         try self.w.writeAll(";");
     }
 
-    /// A new local array a fill builds in place (`storage.fillsInPlace`):
+    /// A new local array a fill builds in place (`lower.fillsInPlace`):
     /// `var a: [n]T = undefined; @memset(&a, x);`. The element is
     /// evaluated before the name is visible, so a shadow reads the old
     /// binding.
@@ -3141,7 +3141,7 @@ pub const Emitter = struct {
         const s = self.facts.symbols.items[sym];
         const ty = self.symType(sym);
         // The address of a viewed place, a view held as a pointer, or the
-        // value (`storage.bindHold`).
+        // value (`lower.bindHold`).
         const hold = try self.need((try self.assignOf(set)).hold, set);
         const is_view = hold == .view;
         const holds_ptr = hold != .value;
@@ -3417,7 +3417,7 @@ pub const Emitter = struct {
     /// Every assignment evaluates its value first, then its target from
     /// the base of its path outward, and only then finds the place and
     /// stores (SPEC §4), which is the order the ownership checker walks
-    /// it in (`storage.eachSetStep`): a call in the value that grows,
+    /// it in (`lower.eachSetStep`): a call in the value that grows,
     /// replaces, or frees what the target lies in cannot leave the store
     /// pointing into freed memory, and a call in the target cannot change
     /// what the value reads. When a step can act (`SetOrder.held`), this
@@ -3450,7 +3450,7 @@ pub const Emitter = struct {
     }
 
     /// Evaluate the steps of assignment `set`'s target that it holds, in
-    /// their turn (`storage.eachTargetStep`): its base into
+    /// their turn (`lower.eachTargetStep`): its base into
     /// `__rig_base_<id>` when `SetOrder.base`, then each index that is not
     /// pure into `__rig_ix_<id>_<k>`, from the base outward.
     fn hoistTarget(self: *Emitter, set: Sexp, id: u32) Error!void {
@@ -3543,7 +3543,7 @@ pub const Emitter = struct {
 
     /// `x op= e` on a name or place, with the place evaluated once, after
     /// `e` (`openAssign`). An operator that lowers to a call
-    /// (`storage.compoundCall`: `@divTrunc` for integer `/`, `rig.rem`,
+    /// (`lower.compoundCall`: `@divTrunc` for integer `/`, `rig.rem`,
     /// `@shlExact`, a vector's lane shifts, saturating and checked lanes,
     /// and a mask's operators) assigns the call's result; the others use
     /// Zig's own compound assignment.
@@ -3779,7 +3779,7 @@ pub const Emitter = struct {
     }
 
     /// `return a, b` whose later part can leave after an earlier one that
-    /// owns (`storage.hoistsResults`): each part is made into
+    /// owns (`lower.hoistsResults`): each part is made into
     /// `__rig_arg_N_i` in its turn, an owned one dropped on the way out
     /// unless the return takes it.
     fn emitHoistedResults(self: *Emitter, value: Sexp, parts: []const Sexp, tys: []const TypeId) Error!void {
@@ -4492,7 +4492,7 @@ pub const Emitter = struct {
         try self.popScope();
     }
 
-    /// A `for` that folds integers into a local (`storage.fold`): one
+    /// A `for` that folds integers into a local (`lower.fold`): one
     /// call, which counts the loop's turns as the loop would.
     ///
     ///     s = rig.fold(.add, s, xs, &__rig_turns_N);
@@ -4632,7 +4632,7 @@ pub const Emitter = struct {
         /// into `reread`, which the arm then takes.
         temp: bool = false,
         /// A read match switches on its subject where it is
-        /// (`storage.matchesInPlace`).
+        /// (`lower.matchesInPlace`).
         in_place: bool = false,
     };
 
@@ -5091,7 +5091,7 @@ pub const Emitter = struct {
         return .{ lo, if (rig.isInclusive(pattern)) hi else hi - 1 };
     }
 
-    /// Whether the pattern of `arm` takes every value (`storage.catchesAll`).
+    /// Whether the pattern of `arm` takes every value (`lower.catchesAll`).
     fn catchesAll(self: *Emitter, arm: Sexp) Error!bool {
         return (try self.need(self.lowered.?.armOf(arm), arm)).catch_all;
     }
@@ -5106,7 +5106,7 @@ pub const Emitter = struct {
 
     /// The catch-all binding `pattern` of the matched value `subj`, used
     /// in `used_in`: its address for a write view, and for a read one
-    /// captured by address (`storage.catchAllByAddress`, as `emitCapture`
+    /// captured by address (`lower.catchAllByAddress`, as `emitCapture`
     /// decides it), the value for a copy.
     fn wholeBinding(self: *Emitter, pattern: Sexp, subj: []const u8, info: MatchInfo, used_in: Sexp) Error![]const Alias {
         const local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
@@ -5334,7 +5334,7 @@ pub const Emitter = struct {
         return self.ownedParts(captures, parts, used_in);
     }
 
-    /// A match with a guarded arm, or on text (`storage.matchSelects`). A
+    /// A match with a guarded arm, or on text (`lower.matchSelects`). A
     /// Zig `switch` has no guards and no strings, so the arm is picked
     /// first, trying each in order (a guard sees the bindings it names),
     /// and a `switch` on its index runs it:
@@ -5950,7 +5950,7 @@ pub const Emitter = struct {
         } else {
             // A read binding of a write view to a value read by copy holds
             // the write view, a pointer to that value
-            // (`storage.throughWrite`).
+            // (`lower.throughWrite`).
             const through = (try self.answers(cond)).through_write;
             const local = try self.declare(.{ .sym = sym.?, .ty = ty, .is_ptr = through == .value }, self.srcText(name));
             try self.w.print("|{s}| ", .{local.zig_name});
@@ -5958,7 +5958,7 @@ pub const Emitter = struct {
         return .{};
     }
 
-    /// `storage.viewsOptionalValue`.
+    /// `lower.viewsOptionalValue`.
     fn viewsOptionalValue(self: *Emitter, value: Sexp) Error!bool {
         return (try self.answers(value)).views_optional_value;
     }
@@ -5971,7 +5971,7 @@ pub const Emitter = struct {
         const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(o.name));
         // A read binding of a write view inside the optional is the read
         // view of what it views: the write view itself, or the value it
-        // points at, copied out (`storage.throughWrite`).
+        // points at, copied out (`lower.throughWrite`).
         const through = (try self.answers(o.cond)).through_write;
         // A binding of the String inside, or of the String a write view inside
         // points at, is its bytes.
@@ -7436,7 +7436,7 @@ pub const Emitter = struct {
 
     /// The runtime helper that checks arithmetic `op` on the integer lanes
     /// of a vector, or null when it is not `checked` so
-    /// (`storage.laneChecked`, a recorded fact). Zig's own vector `+`, `-`, `*`, and `-` test LLVM's
+    /// (`lower.laneChecked`, a recorded fact). Zig's own vector `+`, `-`, `*`, and `-` test LLVM's
     /// overflow bits, which aarch64 gets wrong for wide byte vectors (see
     /// `rig.vecAdd`).
     fn laneHelper(op: Tag, checked: bool) ?[]const u8 {
@@ -8148,7 +8148,7 @@ pub const Emitter = struct {
     }
 
     /// Whether `e` is reached where its leaves are: the recorded decision
-    /// (`storage.reachesLeaf`).
+    /// (`lower.reachesLeaf`).
     fn reachesLeaf(self: *Emitter, e: Sexp) Error!bool {
         return (self.lowered.?.answersOf(e) orelse return self.unsupported(e, "a value no checker decided how to reach")).reaches_leaf;
     }
@@ -8157,7 +8157,7 @@ pub const Emitter = struct {
     /// that branches, the address of the leaf it takes,
     /// `(if (c) &a else &b)` for `a if c else b`, and for `o ?? d`,
     /// `e catch d`, `o?`, and `e!`, the address of the payload where it
-    /// is, `(if (o) |*v| v else &d)`, walked as `storage.leafStep` says. A
+    /// is, `(if (o) |*v| v else &d)`, walked as `lower.leafStep` says. A
     /// place is reached where it is, a value kept in its statement's slot
     /// there, and a jump leaves. Any other value made here is a Zig
     /// temporary of the expression, which may be constant: nothing
@@ -10333,7 +10333,7 @@ pub const Emitter = struct {
         try self.emitBare(arg);
     }
 
-    /// `storage.consumedTemporary`.
+    /// `lower.consumedTemporary`.
     fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
         return if ((try self.answers(call)).consumes_self) self.facts.node(.selfOf, call) else null;
     }
@@ -10669,7 +10669,7 @@ pub const Emitter = struct {
     }
 
     /// `^v`: `v` moved into a new heap allocation. `^[n of x]` fills the
-    /// allocation itself (`storage.fillsInPlace`).
+    /// allocation itself (`lower.fillsInPlace`).
     fn emitBox(self: *Emitter, sexp: Sexp) Error!void {
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped box"));
         if ((try self.answers(sexp)).fills_in_place) {
@@ -11595,7 +11595,7 @@ pub const Emitter = struct {
         return self.facts.layout(.unwrapViews, ty);
     }
 
-    /// `storage.variantPayload`.
+    /// `lower.variantPayload`.
     fn variantPayload(self: *Emitter, enum_ty: TypeId, vname: []const u8) ?[]const facts.Field {
         return self.facts.layout(.variantPayload, .{ enum_ty, vname });
     }

@@ -1017,7 +1017,7 @@ test "loop fold many in one function", "175"
   print(many(d))
 
 code "loop fold is one call", "s = rig.fold(.add, s, xs, null);"
-  # The fold is the storage plan's decision (`storage.fold`); emit
+  # The fold is the storage plan's decision (`lower.fold`); emit
   # writes it.
   fun sum(xs: ?[]Int) -> Int
     s = 0

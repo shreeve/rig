@@ -7,7 +7,7 @@ const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const diag = @import("../diag.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SemContext = sema.SemContext;
@@ -866,7 +866,7 @@ pub fn defaultBindingType(self: *Checker, rhs: Sexp, ty: TypeId, name: []const u
 /// write view (also `f(x)! = v` and `f(x)? = v`), and compound forms.
 pub fn checkPlaceAssign(self: *Checker, kind: rig.BindingKind, target: Sexp, type_node: Sexp, rhs: Sexp) Error!void {
     const head = target.kind();
-    const through = storage.assignedThrough(target);
+    const through = lowering.assignedThrough(target);
     if (head != .member and head != .index and !through) {
         if (head == .propagate or head == .propagate_none) {
             _ = try PatternCheck.synthExpr(self, ir.get(target, .value));
@@ -939,11 +939,11 @@ pub fn checkPlaceAssign(self: *Checker, kind: rig.BindingKind, target: Sexp, typ
 
 /// `f(x) = v` or `f(x) op= v`, where the call returns a write view
 /// `!T`, and so `f(x)! = v` and `f(x)? = v` of a call that returns a
-/// fallible or optional one (`storage.assignedThrough`): the `T` the
+/// fallible or optional one (`lower.assignedThrough`): the `T` the
 /// view reaches is written, as `__v: T = v; w = f(x); w op= __v`
 /// writes it through a hidden binding `w` (Core §6). The value runs
 /// first, then the call, as any target's base does
-/// (`storage.eachSetStep`). A call that returns a value, a read view,
+/// (`lower.eachSetStep`). A call that returns a value, a read view,
 /// or a `![]T` is not assigned through.
 pub fn assignThroughCall(self: *Checker, kind: rig.BindingKind, target: Sexp, view_ty: TypeId, rhs: Sexp) Error!void {
     if (self.isPoison(view_ty)) {

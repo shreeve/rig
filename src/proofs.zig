@@ -64,7 +64,7 @@ const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
 const arith = @import("arith.zig");
-const storage = @import("storage.zig");
+const lowering = @import("lower.zig");
 const diag = @import("diag.zig");
 const lir = @import("lir.zig");
 
@@ -788,7 +788,7 @@ const Pass = struct {
 
     /// `K(u)`, the writes of unit `root` before it ends: every write in
     /// it but an assignment's own store, which comes after every other
-    /// step of the assignment (`storage.eachSetStep`).
+    /// step of the assignment (`lower.eachSetStep`).
     fn unitKills(p: *Pass, root: Sexp) Error!Kills {
         if (!root.isKind(.set)) return p.killsOf(root);
         var out: Kills = .{};
@@ -1462,7 +1462,7 @@ const Pass = struct {
     fn walkSelection(p: *Pass, node: Sexp, sel: *State) Error!void {
         applyKills(sel, &(try p.selectionKills(node)));
         const none: State = .{};
-        try p.walkParts(ir.Match.subject(node), if (storage.matchRereads(p.ctx, node)) &none else sel);
+        try p.walkParts(ir.Match.subject(node), if (lowering.matchRereads(p.ctx, node)) &none else sel);
         for (ir.Match.arms(node)) |arm| {
             try p.walkParts(ir.Arm.pattern(arm), sel);
             try p.walkParts(ir.Arm.guard(arm), sel);
@@ -1763,7 +1763,7 @@ const Pass = struct {
 
     /// A statement `match`: the selection unit (its subject, patterns, and
     /// guards), then each arm from the selection's end. A subject the
-    /// match reads again after picking an arm (`storage.matchRereads`)
+    /// match reads again after picking an arm (`lower.matchRereads`)
     /// proves nothing.
     fn walkMatch(p: *Pass, node: Sexp, arms: []const RegionId, st: *State) Error!void {
         var sel = try st.clone(p.a);
@@ -1892,7 +1892,7 @@ fn constructs(ctx: *const SemContext, call: Sexp, ty: sema.TypeId) bool {
         return ctx.symbols.items[id].kind == .nominal_type;
     }
     if (!callee.isKind(.member)) return false;
-    const s = storage.moduleMemberSym(ctx, callee) orelse return false;
+    const s = lowering.moduleMemberSym(ctx, callee) orelse return false;
     return s.kind == .nominal_type;
 }
 
