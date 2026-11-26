@@ -29,24 +29,52 @@ const notes = @import("notes.zig");
 const types = @import("types.zig");
 const Checker = state.Checker;
 
+/// A value for each node of a body: a list node's in an array by its id
+/// less `lo`, where the body's list nodes' ids lie close enough
+/// together (the parser numbers them in the order it makes them); any
+/// other node's in a table by its key.
+pub const NodeTable = struct {
+    dense: []u32 = &.{},
+    lo: u32 = 0,
+    map: sema.FastMap(u64, u32) = .empty,
+
+    const none = std.math.maxInt(u32);
+
+    fn slot(t: *const NodeTable, node: Sexp) ?*u32 {
+        if (node != .list or t.dense.len == 0) return null;
+        const i = node.list.id -% t.lo;
+        return if (i < t.dense.len) &t.dense[i] else null;
+    }
+
+    pub fn get(t: *const NodeTable, node: Sexp) ?u32 {
+        if (t.slot(node)) |at| return if (at.* == none) null else at.*;
+        return t.map.get(sema.decisionKeyOf(node) orelse return null);
+    }
+
+    /// Record `v` for `node`, unless one is recorded (`first`) or
+    /// over it.
+    fn put(t: *NodeTable, a: std.mem.Allocator, node: Sexp, v: u32, first: bool) Error!void {
+        if (t.slot(node)) |at| {
+            if (!first or at.* == none) at.* = v;
+            return;
+        }
+        const gop = try t.map.getOrPut(a, sema.decisionKeyOf(node) orelse return);
+        if (!first or !gop.found_existing) gop.value_ptr.* = v;
+    }
+};
+
 /// A body lowered, and what the walk looks up in it by tree node.
 pub const Body = struct {
     f: *const lir.Func,
-    /// The outermost expression made for each node, by its key: each
-    /// list node's, and in the shadow each leaf's too (`leaves`). A list
-    /// node's is in `dense`, by its id less `dense_lo`, where the body's
-    /// list nodes' ids lie close enough together; else in `exprs`.
-    exprs: sema.FastMap(u64, lir.ExprId) = .empty,
-    dense: []lir.ExprId = &.{},
-    dense_lo: u32 = 0,
+    /// The outermost expression made for each node: each list node's,
+    /// and in the shadow each leaf's too (`leaves`).
+    exprs: NodeTable = .{},
     leaves: bool = false,
-    /// The region made for each block, by its node's key: the body's
-    /// by the key of the function's block, a `defer`'s by its body's, a
-    /// `catch`'s by its handler's.
-    regions: sema.FastMap(u64, lir.RegionId) = .empty,
-    /// The region of each statement, which holds its temporaries, by
-    /// its node's key.
-    stmts: sema.FastMap(u64, lir.RegionId) = .empty,
+    /// The region made for each block: the body's by the function's
+    /// block, a `defer`'s by its body, a `catch`'s by its handler.
+    regions: NodeTable = .{},
+    /// The region of each statement, which holds its temporaries.
+    stmts: NodeTable = .{},
     /// The calls and array literals that evaluate parts first, in a
     /// region of kind `call`, by their nodes' keys.
     calls: sema.FastMap(u64, void) = .empty,
@@ -58,10 +86,9 @@ pub const Body = struct {
     /// The value each hidden var a region evaluates first holds (a part
     /// a call or an assignment holds), by the var: the operand that
     /// reads the var is walked as that value, where it stands.
-    hoisted: sema.FastMap(lir.VarId, lir.ExprId) = .empty,
+    /// By var id; empty where no region holds a part first.
+    hoisted: []lir.ExprId = &.{},
 };
-
-const no_expr = std.math.maxInt(lir.ExprId);
 
 /// An expression the walk reaches: its tree node, and, in a lowered
 /// body, the LIR expression made for it (`id`), whose operands the
@@ -71,19 +98,20 @@ pub const Expr = struct {
     id: ?lir.ExprId = null,
 };
 
+/// The value hidden var `v` holds, where a region evaluates it first.
+fn hoistedOf(b: *const Body, v: lir.VarId) ?lir.ExprId {
+    if (v >= b.hoisted.len or b.hoisted[v] == NodeTable.none) return null;
+    return b.hoisted[v];
+}
+
 /// Tree node `node` as the walk reaches it: with the outermost LIR
 /// expression made for it, in a lowered body.
 pub fn exprAt(self: *const Checker, node: Sexp) Expr {
     const b = self.lir_body orelse return .{ .node = node };
     // A leaf's expression has no operands: only the shadow, which reads
     // the var a name's use reads, looks one up.
-    if (node == .list and b.dense.len > 0) {
-        const i = node.list.id -% b.dense_lo;
-        if (i >= b.dense.len or b.dense[i] == no_expr) return .{ .node = node };
-        return .{ .node = node, .id = b.dense[i] };
-    }
     if (!b.leaves and node != .list) return .{ .node = node };
-    return .{ .node = node, .id = b.exprs.get(sema.decisionKeyOf(node) orelse return .{ .node = node }) };
+    return .{ .node = node, .id = b.exprs.get(node) };
 }
 
 /// The node LIR expression `id` of body `b` is the value of.
@@ -111,7 +139,7 @@ pub fn opOf(self: *const Checker, e: Expr) ?lir.Expr.Op {
     while (true) switch (b.f.exprs.items[id]) {
         .coerce => |c| id = c.value,
         .hold => |h| id = h.value,
-        .@"var" => |x| id = b.hoisted.get(x.v) orelse return null,
+        .@"var" => |x| id = hoistedOf(b, x.v) orelse return null,
         .block => |r| {
             const reg = &b.f.regions.items[r];
             switch (reg.kind) {
@@ -152,7 +180,7 @@ pub fn heldFirst(self: *const Checker, e: Expr) bool {
     var id = e.id orelse return false;
     while (true) switch (b.f.exprs.items[id]) {
         .coerce => |c| id = c.value,
-        .@"var" => |x| return b.hoisted.contains(x.v),
+        .@"var" => |x| return hoistedOf(b, x.v) != null,
         else => return false,
     };
 }
@@ -198,23 +226,41 @@ pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
             hi = @max(hi, node.list.id);
         } else if (node == .src) leaves += 1;
     }
-    if (lists > 0 and hi - lo < 4 * lists + 256) {
-        out.dense = try a.alloc(lir.ExprId, hi - lo + 1);
-        @memset(out.dense, no_expr);
-        out.dense_lo = lo;
-        lists = 0;
+    var regions: u32 = 0;
+    var hoists = false;
+    for (f.regions.items) |r| {
+        if (r.node == .list and r.node.list.id != 0) {
+            regions += 1;
+            lo = @min(lo, r.node.list.id);
+            hi = @max(hi, r.node.list.id);
+        }
+        for (r.steps.items) |s| switch (s) {
+            .bind => |x| if (f.vars.items[x.v].name == .hidden) {
+                if (!hoists) {
+                    out.hoisted = try a.alloc(lir.ExprId, f.vars.items.len);
+                    @memset(out.hoisted, NodeTable.none);
+                    hoists = true;
+                }
+                out.hoisted[x.v] = x.value;
+            },
+            else => {},
+        };
     }
-    try out.exprs.ensureTotalCapacity(a, lists + if (out.leaves) leaves else 0);
-    try out.stmts.ensureTotalCapacity(a, @intCast(f.regions.items.len));
+    if (lists + regions > 0 and hi - lo < 4 * (lists + regions) + 256) {
+        // One array for the three tables.
+        const n = hi - lo + 1;
+        const all = try a.alloc(u32, 3 * n);
+        @memset(all, NodeTable.none);
+        out.exprs.dense, out.stmts.dense, out.regions.dense = .{ all[0..n], all[n .. 2 * n], all[2 * n ..] };
+        out.exprs.lo, out.stmts.lo, out.regions.lo = .{ lo, lo, lo };
+        lists = 0;
+    } else try out.stmts.map.ensureTotalCapacity(a, regions);
+    try out.exprs.map.ensureTotalCapacity(a, lists + if (out.leaves) leaves else 0);
     if (self.on_lir) for (f.vars.items) |v| switch (v.name) {
         .binding => |s| if (sema.decisionKeyOf(v.node)) |key| try out.binds.put(a, key, s),
         .hidden => |k| if (k == .temp) if (sema.decisionKeyOf(v.node)) |key| try out.temps.put(a, key, {}),
     };
-    for (f.regions.items) |r| for (r.steps.items) |s| switch (s) {
-        .bind => |x| if (f.vars.items[x.v].name == .hidden) try out.hoisted.put(a, x.v, x.value),
-        else => {},
-    };
-    try out.regions.put(a, sema.decisionKeyOf(body).?, f.body);
+    try out.regions.put(a, body, f.body, false);
     try index(out, a, f.body);
     return out;
 }
@@ -237,10 +283,9 @@ fn index(b: *Body, a: std.mem.Allocator, r: lir.RegionId) Error!void {
                 .@"catch" => ir.Catch.handler(reg.node),
                 else => reg.node,
             };
-            const gop = try b.regions.getOrPut(a, sema.decisionKeyOf(body) orelse key);
-            if (!gop.found_existing) gop.value_ptr.* = r;
+            try b.regions.put(a, if (sema.decisionKeyOf(body) != null) body else reg.node, r, true);
         },
-        .stmt => try b.stmts.put(a, key, r),
+        .stmt => try b.stmts.put(a, reg.node, r, false),
         .call => try b.calls.put(a, key, {}),
         else => {},
     };
@@ -294,13 +339,7 @@ fn nodeOfExpr(e: lir.Expr) Sexp {
 fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
     const e = b.f.exprs.items[id];
     const node = nodeOfExpr(e);
-    if (node == .list and b.dense.len > 0 and node.list.id != 0) {
-        const slot = &b.dense[node.list.id - b.dense_lo];
-        if (slot.* == no_expr) slot.* = id;
-    } else if (b.leaves or node == .list) if (sema.decisionKeyOf(node)) |key| {
-        const gop = b.exprs.getOrPutAssumeCapacity(key);
-        if (!gop.found_existing) gop.value_ptr.* = id;
-    };
+    if (b.leaves or node == .list) try b.exprs.put(a, node, id, true);
     switch (e) {
         .@"var", .leaf, .closure => {},
         .op => |o| for (o.args) |x| try expr(b, a, x),
@@ -326,7 +365,7 @@ fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
 /// as an internal error, and has none.
 pub fn stmtsOf(self: *Checker, body: Sexp) Error!Stmts {
     const b = self.lir_body orelse return noStmts(self, body);
-    const r = b.regions.get(sema.decisionKeyOf(body) orelse return noStmts(self, body)) orelse return noStmts(self, body);
+    const r = b.regions.get(body) orelse return noStmts(self, body);
     const reg = &b.f.regions.items[r];
     var out: std.ArrayList(Sexp) = .empty;
     const a = self.arena();
@@ -366,14 +405,14 @@ pub fn stepOf(self: *const Checker, stmt: Sexp) ?lir.Step {
 /// The steps of statement `stmt`'s region, in order.
 pub fn stepsOf(self: *const Checker, stmt: Sexp) []const lir.Step {
     const b = self.lir_body orelse return &.{};
-    const r = b.stmts.get(sema.decisionKeyOf(stmt) orelse return &.{}) orelse return &.{};
+    const r = b.stmts.get(stmt) orelse return &.{};
     return b.f.regions.items[r].steps.items;
 }
 
 /// Statement `stmt`, whose value its body yields, as its region's value.
 pub fn yieldOf(self: *const Checker, stmt: Sexp) Expr {
     const b = self.lir_body orelse return exprAt(self, stmt);
-    const r = b.stmts.get(sema.decisionKeyOf(stmt) orelse return exprAt(self, stmt)) orelse return exprAt(self, stmt);
+    const r = b.stmts.get(stmt) orelse return exprAt(self, stmt);
     return stepOperand(self, stmt, b.f.regions.items[r].value orelse return exprAt(self, stmt));
 }
 
@@ -433,8 +472,7 @@ pub fn indexUses(self: *Checker, f: *const lir.Func) Error!void {
     try u.region(f.body);
     // In source order, as the tree lists them: LIR evaluates an
     // assignment's value before its target.
-    var it = self.uses.valueIterator();
-    while (it.next()) |list| std.mem.sort(u32, list.items, {}, std.sort.asc(u32));
+    for (self.uses.all()) |e| std.mem.sort(u32, e.at.items, {}, std.sort.asc(u32));
 }
 
 const Uses = struct {
@@ -548,9 +586,8 @@ const Uses = struct {
 pub fn reindexUses(self: *Checker, f: *const lir.Func, at: Sexp) Error!void {
     var tree_uses = self.uses;
     var tree_deferred = self.defer_used;
-    self.uses = .empty;
+    self.uses = .{};
     self.defer_used = .empty;
-    self.last_use.clearRetainingCapacity();
     defer {
         tree_uses.deinit(self.gpa);
         tree_deferred.deinit(self.gpa);
@@ -565,7 +602,7 @@ pub fn reindexUses(self: *Checker, f: *const lir.Func, at: Sexp) Error!void {
 /// binding that may hold a loan is compared: liveness matters only for
 /// a var holding one, and a compile-time value named in a type, which
 /// LIR does not lower, holds none.
-pub fn usesDiffer(c: *const Checker, tree_uses: *const std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32)), tree_deferred: *const std.AutoHashMapUnmanaged(SymbolId, void)) ?SymbolId {
+pub fn usesDiffer(c: *const Checker, tree_uses: *const state.Uses, tree_deferred: *const std.AutoHashMapUnmanaged(SymbolId, void)) ?SymbolId {
     const binding = struct {
         fn is(ch: *const Checker, sym: SymbolId) bool {
             const d = ch.sema.symbols.items[sym];
@@ -576,11 +613,10 @@ pub fn usesDiffer(c: *const Checker, tree_uses: *const std.AutoHashMapUnmanaged(
         }
     };
     inline for (.{ .{ tree_uses, &c.uses }, .{ &c.uses, tree_uses } }) |pair| {
-        var it = pair[0].iterator();
-        while (it.next()) |kv| {
-            if (!binding.is(c, kv.key_ptr.*)) continue;
-            const other = pair[1].get(kv.key_ptr.*) orelse return kv.key_ptr.*;
-            for (kv.value_ptr.items) |p| if (std.mem.findScalar(u32, other.items, p) == null) return kv.key_ptr.*;
+        for (pair[0].all()) |e| {
+            if (!binding.is(c, e.sym)) continue;
+            const other = pair[1].get(e.sym) orelse return e.sym;
+            for (e.at.items) |p| if (std.mem.findScalar(u32, other.items, p) == null) return e.sym;
         }
     }
     var it = tree_deferred.keyIterator();

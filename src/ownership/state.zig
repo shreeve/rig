@@ -325,6 +325,78 @@ pub const Value = struct {
     loans: []const Loan = &.{},
 };
 
+/// Where each parameter's loans were first returned or stored, by its
+/// bit (`FnCtx.sites`).
+pub const ParamSites = struct {
+    returned_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
+    /// The expression each was first returned by, so the diagnostic
+    /// points at the branch that gives the view (`resultPos`).
+    returned_by: [@bitSizeOf(sema.ParamMask)]Sexp = @splat(.nil),
+    stored_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
+    /// The name of the parameter each was first stored in.
+    stored_in: [@bitSizeOf(sema.ParamMask)][]const u8 = @splat(""),
+};
+
+/// The uses of each symbol in the function being checked: an entry per
+/// symbol used, found by symbol id. Entries and their lists are kept for
+/// the next function.
+pub const Uses = struct {
+    /// Each used symbol's entry, plus one, by symbol id; 0 for none.
+    slots: std.ArrayList(u32) = .empty,
+    entries: std.ArrayList(Use) = .empty,
+    /// The entries in use.
+    len: u32 = 0,
+
+    pub const Use = struct { sym: SymbolId, last: u32, at: std.ArrayList(u32) };
+
+    pub fn entry(u: *const Uses, sym: SymbolId) ?*Use {
+        if (sym >= u.slots.items.len) return null;
+        const i = u.slots.items[sym];
+        return if (i == 0) null else &u.entries.items[i - 1];
+    }
+
+    /// The positions `sym` is used at.
+    pub fn get(u: *const Uses, sym: SymbolId) ?std.ArrayList(u32) {
+        return (u.entry(sym) orelse return null).at;
+    }
+
+    /// The last position `sym` is used at.
+    pub fn last(u: *const Uses, sym: SymbolId) ?u32 {
+        return (u.entry(sym) orelse return null).last;
+    }
+
+    pub fn note(u: *Uses, gpa: std.mem.Allocator, sym: SymbolId, pos: u32, symbols: usize) Error!void {
+        if (sym >= u.slots.items.len) try u.slots.appendNTimes(gpa, 0, @max(sym + 1, symbols) - u.slots.items.len);
+        const e = u.entry(sym) orelse made: {
+            if (u.len == u.entries.items.len) try u.entries.append(gpa, .{ .sym = sym, .last = pos, .at = .empty });
+            const e = &u.entries.items[u.len];
+            e.* = .{ .sym = sym, .last = pos, .at = e.at };
+            e.at.clearRetainingCapacity();
+            u.len += 1;
+            u.slots.items[sym] = u.len;
+            break :made e;
+        };
+        if (e.last < pos) e.last = pos;
+        try e.at.append(gpa, pos);
+    }
+
+    /// The entries in use.
+    pub fn all(u: *const Uses) []Use {
+        return u.entries.items[0..u.len];
+    }
+
+    pub fn clear(u: *Uses) void {
+        for (u.all()) |e| u.slots.items[e.sym] = 0;
+        u.len = 0;
+    }
+
+    pub fn deinit(u: *Uses, gpa: std.mem.Allocator) void {
+        for (u.entries.items) |*e| e.at.deinit(gpa);
+        u.entries.deinit(gpa);
+        u.slots.deinit(gpa);
+    }
+};
+
 pub const FnCtx = struct {
     /// The return type can carry views: returned values are checked
     /// for loans on locals.
@@ -345,19 +417,14 @@ pub const FnCtx = struct {
     /// `recordStore`).
     returned: sema.ParamMask = 0,
     stored: sema.ParamMask = 0,
-    /// Where each was first returned or stored, for the diagnostic.
-    returned_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
-    /// The expression each was first returned by, so the diagnostic
-    /// points at the branch that gives the view (`resultPos`).
-    returned_by: [@bitSizeOf(sema.ParamMask)]Sexp = @splat(.nil),
-    stored_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
+    /// Where each was first returned or stored, for the diagnostic,
+    /// made at the first (`Checker.paramSites`).
+    sites: ?*ParamSites = null,
     /// The parameters whose loans reached a value of a type parameter's
     /// type, which carries no loan in a generic body (`taintGeneric`),
     /// and where the body first returns such a value.
     generic: sema.ParamMask = 0,
     generic_returned_at: ?u32 = null,
-    /// The name of the parameter each was first stored in.
-    stored_in: [@bitSizeOf(sema.ParamMask)][]const u8 = @splat(""),
     /// Where the body first stores a value of a type parameter's type in
     /// what each parameter leads to, past the parameter itself
     /// (`noteGenericStore`).
@@ -600,12 +667,11 @@ pub const Checker = struct {
     /// Views end at their last use (see `holderLive`): for the function
     /// being checked, the last position each symbol is used at, and the
     /// symbols used in deferred code, which runs at scope exit.
-    last_use: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
     defer_used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// Every position each symbol is used at (`indexUses`), so a use in
     /// the statement being walked counts only while it is ahead
-    /// (`useAhead`).
-    uses: std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32)) = .empty,
+    /// (`useAhead`), and the last.
+    uses: Uses = .{},
     /// The positions of the uses walked so far in the statements being
     /// walked, each statement's dropped when it ends (`walkStmtValue`).
     walked: std.ArrayList(u32) = .empty,
@@ -614,13 +680,13 @@ pub const Checker = struct {
     /// that evaluates its arguments first, an assignment's value): walked
     /// only once that consumer is done (`walkLate`).
     late: std.ArrayList(u32) = .empty,
-    /// `last_use` describes the code being walked.
+    /// `uses` describes the code being walked.
     nll: bool = false,
     /// The innermost statement being walked.
     cur_stmt: Sexp = .nil,
     /// While a `while` loop's step is walked: where it runs, after the
     /// body (`stepAt`), which stands for the step's statements in
-    /// `last_use` and in the liveness checks.
+    /// `uses` and in the liveness checks.
     step_at: ?u32 = null,
     scopes: std.ArrayList(Scope) = .empty,
     /// What the targets of the assignments whose values are being walked
@@ -808,7 +874,6 @@ pub const Checker = struct {
         self.loan_counts.deinit(self.gpa);
         self.trail.deinit(self.gpa);
         self.scratch.deinit(self.gpa);
-        self.last_use.deinit(self.gpa);
         self.defer_used.deinit(self.gpa);
         self.uses.deinit(self.gpa);
         self.walked.deinit(self.gpa);
@@ -841,6 +906,15 @@ pub const Checker = struct {
 
     pub fn hasErrors(self: *const Checker) bool {
         return diag.hasErrorsIn(self.diagnostics.items);
+    }
+
+    /// The function's `ParamSites`, made at the first ask.
+    pub fn paramSites(self: *Checker) Error!*ParamSites {
+        if (self.func.sites) |at| return at;
+        const at = try self.arena().create(ParamSites);
+        at.* = .{};
+        self.func.sites = at;
+        return at;
     }
 
     pub fn arena(self: *Checker) std.mem.Allocator {
@@ -978,6 +1052,7 @@ pub const Checker = struct {
     /// one its var in the body being walked declares, or the one the var
     /// read there binds, when the body has one; else as sema resolved it.
     pub fn bindingOf(self: *const Checker, node: Sexp) ?SymbolId {
+        if (!self.on_lir) return self.sema.symbolOf(node);
         return lowered.bindingAt(self, node) orelse lowered.symbolOf(self, node) orelse self.sema.symbolOf(node);
     }
 

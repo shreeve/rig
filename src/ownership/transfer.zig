@@ -179,9 +179,8 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
     defer self.lir_body = saved_lir;
     self.lir_body = try lowered.enter(self, root, body);
     if (top) {
-        self.last_use.clearRetainingCapacity();
         self.defer_used.clearRetainingCapacity();
-        self.uses.clearRetainingCapacity();
+        self.uses.clear();
         try live.indexUses(self, params, false, null);
         try live.indexUses(self, body, false, null);
         if (self.on_lir) if (self.lir_body) |b| try lowered.reindexUses(self, b.f, if (name != .nil) name else body);
@@ -199,7 +198,7 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
     try origins.bindSelfPaths(self);
     const result = try walkBody(self, body, returns_value);
     try self.popScopeWith(result.loans);
-    if (name != .nil) try origins.checkOrigins(self, try std.fmt.allocPrint(self.arena(), "`{s}`", .{types.text(self, name)}), name, params);
+    if (name != .nil) try origins.checkOrigins(self, name, params);
     try self.rewind(outer);
     // Nothing allocated for a module-level function outlives it.
     if (self.fn_depth == 1) _ = self.fn_arena_state.reset(.{ .retain_with_limit = 1 << 20 });
@@ -3199,7 +3198,7 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
     try bindParams(self, params);
     const result = try walkBody(self, body, returns_value);
     try self.popScopeWith(result.loans);
-    try origins.checkOrigins(self, "this closure", .nil, params);
+    try origins.checkOrigins(self, .nil, params);
     self.func = saved_func;
     self.loop = saved_loop;
     try self.rewind(snap);

@@ -63,12 +63,8 @@ pub fn usePos(self: *const Checker, pos: u32) u32 {
 
 pub fn noteUse(self: *Checker, sym: SymbolId, written: u32, in_defer: bool) Error!void {
     const pos = usePos(self, written);
-    const gop = try self.last_use.getOrPut(self.gpa, sym);
-    if (!gop.found_existing or gop.value_ptr.* < pos) gop.value_ptr.* = pos;
     if (in_defer) try self.defer_used.put(self.gpa, sym, {});
-    const at = try self.uses.getOrPut(self.gpa, sym);
-    if (!at.found_existing) at.value_ptr.* = .empty;
-    try at.value_ptr.append(self.arena(), pos);
+    try self.uses.note(self.gpa, sym, pos, self.sema.symbols.items.len);
 }
 
 /// Whether `holder` still uses what it views once a statement's
@@ -133,7 +129,7 @@ pub fn holderLiveDepth(self: *const Checker, id: VarId, at: ?u32, depth: u8) boo
     // viewed loop element only views a value.)
     const owns = !v.payload_view and !v.loop_view and v.ref == .none;
     if (owns and sema.dropRunsBody(ctx, ty) != .no) return true;
-    if (self.last_use.get(sym)) |last| {
+    if (self.uses.last(sym)) |last| {
         // A use in the statement being walked counts while it is
         // ahead; in a loop the var was declared outside of, every use
         // in the loop runs again.
