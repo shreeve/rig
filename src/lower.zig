@@ -91,8 +91,13 @@ pub const Module = struct {
     /// key, and the body that names its root, for the self-checking
     /// build's asserts (`placeOf`).
     place_of: sema.FastMap(u64, PlaceAt) = .empty,
+    /// The expression each node was lowered to, and its body, by the
+    /// node's key, where emit reads what lowering decided of it
+    /// (`answersOf`). Kept for emit's lowering alone.
+    at: sema.FastMap(u64, ExprAt) = .empty,
 
     pub const PlaceAt = struct { f: *const lir.Func, i: u32 };
+    pub const ExprAt = struct { f: *const lir.Func, id: ExprId };
 
     pub const VarKey = struct { node: u64, kind: StorageKind };
 
@@ -169,7 +174,11 @@ pub const Module = struct {
     /// The answer to `ask` about `node`; null for a node no question of
     /// its kind is asked about.
     pub fn answer(m: *const Module, node: Sexp, comptime ask: Ask) ?Answer(ask) {
-        const a = m.answers.get(.{ .key = sema.decisionKeyOf(node) orelse return null, .ask = ask }) orelse return null;
+        return m.answerOf(sema.decisionKeyOf(node) orelse return null, ask);
+    }
+
+    fn answerOf(m: *const Module, key: u64, comptime ask: Ask) ?Answer(ask) {
+        const a = m.answers.get(.{ .key = key, .ask = ask }) orelse return null;
         return switch (@typeInfo(Answer(ask))) {
             .bool => a != 0,
             .@"enum" => @fromBackingInt(@intCast(a)),
@@ -177,6 +186,13 @@ pub const Module = struct {
             .@"struct" => @bitCast(a),
             else => comptime unreachable,
         };
+    }
+
+    /// What emit's lowering decided of `node`; null for a node no body
+    /// lowered.
+    pub fn answersOf(m: *const Module, node: Sexp) ?lir.Answers {
+        const at = m.at.get(sema.decisionKeyOf(node) orelse return null) orelse return null;
+        return at.f.answersOf(at.id);
     }
 
     /// The coercions of `node` made where it is written: at its place,
@@ -1243,9 +1259,58 @@ const Lowerer = struct {
     // Expressions
     // -------------------------------------------------------------------------
 
-    /// Record that node `n` lowered to `e`.
+    /// Record that node `n` lowered to `e`; emit's lowering records
+    /// where, and what it decides of `n` (`decide`).
     fn note(l: *Lowerer, n: Sexp, e: ExprId) Error!void {
-        if (sema.decisionKeyOf(n)) |k| try l.exprs.put(l.gpa, k, e);
+        const k = sema.decisionKeyOf(n) orelse return;
+        try l.exprs.put(l.gpa, k, e);
+        if (l.opts.checked) return;
+        try l.module.at.put(l.ma, k, .{ .f = l.f, .id = e });
+        try l.decide(n);
+    }
+
+    /// What emit's lowering decides of node `n`, just lowered, and of the
+    /// operands its form decides of, each kept by its expression.
+    fn decide(l: *Lowerer, n: Sexp) Error!void {
+        const ctx = l.ctx;
+        try l.answer(n, .hands, storage.handsKind(ctx, n));
+        try l.answer(n, .reaches_leaf, storage.reachesLeaf(ctx, n));
+        if (n != .list) return;
+        switch (n.kind() orelse return) {
+            .@"==", .@"!=" => for ([2]Sexp{ ir.get(n, .left), ir.get(n, .right) }) |operand| {
+                try l.answer(operand, .drops_when_tested, storage.dropsWhenTested(ctx, operand));
+            },
+            .call => {
+                for (ir.Call.args(n)) |a| try l.answer(storage.argValue(a), .argument_hold, storage.argumentHold(ctx, storage.argValue(a)));
+                if (ctx.isPrintCall(n) or storage.stringCall(ctx, n) != null) for (ir.Call.args(n)) |a| {
+                    try l.answer(a, .prints_by_address, storage.printsByAddress(ctx, a));
+                };
+            },
+            .array => for (ir.Array.elems(n)) |v| try l.answer(v, .argument_hold, storage.argumentHold(ctx, v)),
+            .panic => for (ir.Panic.args(n)) |a| try l.answer(a, .prints_by_address, storage.printsByAddress(ctx, a)),
+            .template => for (0..rig.Template.slotCount(n)) |i| {
+                const v = rig.Template.value(n, i);
+                try l.answer(v, .prints_by_address, storage.printsByAddress(ctx, v));
+            },
+            .box => try l.answer(n, .fills_in_place, storage.fillsInPlace(ctx, n)),
+            .@"+", .@"-", .@"*", .neg => try l.answer(n, .lane_checked, storage.laneChecked(ctx, n)),
+            .as => {
+                try l.answer(ir.As.value(n), .views_optional_value, storage.viewsOptionalValue(ctx, ir.As.value(n)));
+                try l.answer(n, .binds_string_bytes, storage.bindsStringBytes(ctx, n));
+                try l.answer(n, .through_write, storage.throughWrite(ctx, n));
+            },
+            .results => try l.answer(n, .hoists_results, storage.hoistsResults(ctx, n)),
+            else => {},
+        }
+    }
+
+    /// Keep `value` as what emit's lowering decides of `node`, by the
+    /// expression it was lowered to.
+    fn answer(l: *Lowerer, node: Sexp, comptime field: std.meta.FieldEnum(lir.Answers), value: @FieldType(lir.Answers, @tagName(field))) Error!void {
+        const id = l.exprOf(node) orelse return;
+        const list = &l.f.answers;
+        if (list.items.len <= id) try list.appendNTimes(l.a, .{}, id + 1 - list.items.len);
+        @field(list.items[id], @tagName(field)) = value;
     }
 
     /// Expression `e`: its operands first, in the tree's order, then the
@@ -1855,7 +1920,14 @@ const Lowerer = struct {
             const arm_r = l.region(r.*);
             arm_r.catch_all = storage.catchesAll(l.ctx, a);
             const p = ir.Arm.pattern(a);
-            if (arm_r.catch_all and l.ctx.symbolOf(p) != null) arm_r.catch_all_by_address = storage.catchAllCaptured(l.ctx, p, m);
+            if (arm_r.catch_all) {
+                if (l.ctx.symbolOf(p) != null) arm_r.catch_all_by_address = storage.catchAllCaptured(l.ctx, p, m);
+            } else for (storage.prongsOf(ctx, &p)) |prong| if (prong.isKind(.variant_pattern)) {
+                for (ctx.payloadBindings(prong) orelse continue) |b| if (b != .nil) {
+                    const v = l.bindings.get(ctx.symbolOf(b) orelse continue) orelse continue;
+                    l.f.vars.items[v].payload_by_address = storage.bindsByAddress(ctx, b, m);
+                };
+            };
         }
         if (!value) try l.matchRules(m, scope);
         const answers: lir.MatchAnswers = if (l.opts.checked) .{} else .{
@@ -2204,6 +2276,9 @@ const Lowerer = struct {
             }
         }
         rec.wrap.folds = callFolds(ctx, c);
+        if (l.opts.checked) return rec;
+        rec.self_hold = storage.selfHold(ctx, c);
+        rec.consumes_self = storage.consumedTemporary(ctx, c) != null;
         return rec;
     }
 
@@ -2426,6 +2501,7 @@ const Lowerer = struct {
     fn leaf(l: *Lowerer, e: Sexp) Error!void {
         const how = storage.leafStep(l.ctx, e);
         if (!l.inConstants()) if (sema.decisionKeyOf(e)) |key| try l.module.answers.put(l.ma, .{ .key = key, .ask = .leaf_step }, encode(.leaf_step, how));
+        if (!l.opts.checked) try l.answer(e, .leaf_step, how);
         switch (how) {
             .place, .part, .view, .jump => {},
             .made => if (!l.ctx.dropsTemp(e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),
@@ -2931,8 +3007,9 @@ pub fn answerAll(m: *Module, ctx: *const SemContext, e: Sexp) !void {
     if (enabled) checkAnswerFields(m);
 }
 
-/// That each answer emit's lowering keeps on a step, an arm, or a
-/// `match` of `m` is the one `answerAll` gives of its node.
+/// That each answer emit's lowering keeps on a step, an arm, a `match`,
+/// an expression, a call, or a binding of `m` is the one `answerAll`
+/// gives of its node.
 fn checkAnswerFields(m: *const Module) void {
     const C = struct {
         fn same(comptime what: []const u8, node: Sexp, kept: anytype, asked: anytype) void {
@@ -2976,7 +3053,49 @@ fn checkAnswerFields(m: *const Module) void {
             .match => |c| C.choice(m, f, c),
             else => {},
         };
+        for (f.exprs.items) |e| switch (e) {
+            .op => |x| if (x.kind == .call) {
+                const rec = f.calls.items[x.aux];
+                C.same("self_hold", x.node, rec.self_hold, m.answer(x.node, .self_hold).?);
+                C.same("consumes_self", x.node, rec.consumes_self, m.answer(x.node, .consumes_self).?);
+            },
+            else => {},
+        };
+        for (f.vars.items) |v| if (v.name == .binding) {
+            C.same("payload_by_address", v.node, v.payload_by_address, m.answer(v.node, .payload_by_address) orelse false);
+        };
     }
+    var it = m.at.iterator();
+    while (it.next()) |en| {
+        const at = en.value_ptr.*;
+        const n = notedNode(at.f, at.id);
+        if (sema.decisionKeyOf(n) != en.key_ptr.*) std.debug.panic("internal error: lir: node {d} is noted at an expression of node {d}", .{ en.key_ptr.*, sema.decisionKeyOf(n) orelse 0 });
+        const kept = at.f.answersOf(at.id);
+        const default: lir.Answers = .{};
+        inline for (comptime std.meta.fieldNames(lir.Answers)) |name| {
+            const ask = @field(Ask, name);
+            // An assignment's and a loop's answers are their steps'.
+            const step = (n.isKind(.set) and (ask == .lane_checked or ask == .fills_in_place)) or (n.isKind(.@"for") and ask == .binds_string_bytes);
+            // A question not asked of the node keeps its default.
+            if (!step) C.same(name, n, @field(kept, name), if (m.answer(n, ask)) |x| x else @field(default, name));
+        }
+    }
+}
+
+/// The node expression `id` of `f` was lowered from, under what lowering
+/// put in its place: a coercion, a hold, a var, or a call's block.
+fn notedNode(f: *const lir.Func, id: ExprId) Sexp {
+    return switch (f.exprs.items[id]) {
+        .leaf => |n| n,
+        .@"var" => |u| u.node,
+        .op => |o| o.node,
+        .hold => |h| f.vars.items[h.v].node,
+        .block => |r| f.regions.items[r].node,
+        .branch => |b| b.node,
+        .choice => |c| c.node,
+        .closure => |c| c.node,
+        .coerce => |c| c.node,
+    };
 }
 
 fn answerNode(m: *Module, ctx: *const SemContext, e: Sexp) !void {

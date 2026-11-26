@@ -43,6 +43,9 @@ pub const Var = struct {
     parts: []const ?sema.ResourceKind = &.{},
     /// A binding a use may move out: its drop is armed behind a flag.
     flag: bool = false,
+    /// A payload binding of a `match` arm that holds the payload's
+    /// address (`storage.bindsByAddress`); emit's lowering decides it.
+    payload_by_address: bool = false,
 
     pub const Name = union(enum) {
         binding: sema.SymbolId,
@@ -238,6 +241,11 @@ pub const Call = struct {
     self: ?Self = null,
     wrap: Wrap = .{},
     flags: Flags = .{},
+    /// How the call holds its self first, and whether it consumes an
+    /// owned temporary as its self; emit's lowering decides both
+    /// (`storage.selfHold`, `storage.consumedTemporary`).
+    self_hold: ?storage.SelfHold = null,
+    consumes_self: bool = false,
 
     /// How the callee is written, as the ownership checker walks it.
     pub const Callee = enum(u8) {
@@ -463,6 +471,36 @@ pub const Assign = struct {
     hold: ?storage.BindHold = null,
 };
 
+/// What emit's lowering decides of the node an expression was lowered
+/// from (`Func.answersOf`): of every node, how it hands its value over
+/// and whether it is read where its leaves are; the rest of a node of
+/// the form each names, or of an operand its operation's form names.
+pub const Answers = struct {
+    hands: sema.Hands.Kind = .place,
+    reaches_leaf: bool = false,
+    /// A value read by address where its leaves are (`storage.leafStep`).
+    leaf_step: ?storage.LeafStep = null,
+    /// `+`, `-`, `*`, or `-x` checked on a vector's integer lanes.
+    lane_checked: bool = false,
+    /// `^[n of x]`, filling its allocation.
+    fills_in_place: bool = false,
+    /// The value of `v as name` that views an optional's value.
+    views_optional_value: bool = false,
+    /// An operand of `==` or `!=` dropped once tested.
+    drops_when_tested: bool = false,
+    /// A part a call or an array literal holds first: how.
+    argument_hold: ?storage.ArgumentHold = null,
+    /// An argument of `print`, a `String` form, `panic`, or a template's
+    /// slot, written by address.
+    prints_by_address: bool = false,
+    /// `v as name`: how the binding reads through a write view, and
+    /// whether it binds a string's bytes.
+    through_write: ?storage.ThroughWrite = null,
+    binds_string_bytes: bool = false,
+    /// `return a, b` whose parts are made first.
+    hoists_results: bool = false,
+};
+
 /// What emit's lowering decides of a `match` (`Expr.Choice`).
 pub const MatchAnswers = packed struct(u8) {
     mode: storage.MatchMode = .read,
@@ -535,6 +573,11 @@ pub const Func = struct {
     /// The places `member` and `index` operations reach, each named by
     /// its op (`Op.aux - 1`); filled in a self-checking build.
     places: Checked(Place) = if (self_check) .empty else .{},
+    /// What emit's lowering decides of the node each expression was
+    /// lowered from, by the expression's id (`answersOf`); empty in the
+    /// checkers' lowering, and shorter than `exprs` where the rest take
+    /// the default.
+    answers: std.ArrayList(Answers) = .empty,
     body: RegionId = 0,
 
     pub fn addVar(f: *Func, a: std.mem.Allocator, v: Var) !VarId {
@@ -556,6 +599,12 @@ pub const Func = struct {
     pub fn roleOf(f: *const Func, e: ExprId) Operand {
         if (!self_check) return .{};
         return if (e < f.roles.items.len) f.roles.items[e] else .{};
+    }
+
+    /// What emit's lowering decides of the node expression `e` was
+    /// lowered from.
+    pub fn answersOf(f: *const Func, e: ExprId) Answers {
+        return if (e < f.answers.items.len) f.answers.items[e] else .{};
     }
 
     pub fn region(f: *Func, r: RegionId) *Region {
