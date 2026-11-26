@@ -179,6 +179,36 @@ pub const Control = union(enum) {
     }
 };
 
+/// Guard `guard` of arm `i` of the match `c` controls, as the arm's
+/// region tests it before its body.
+pub fn guardOf(self: *const Checker, c: ?Control, i: usize, guard: Sexp) Expr {
+    const b = self.lir_body orelse return exprAt(self, guard);
+    const m = c orelse return exprAt(self, guard);
+    if (m != .match or i >= m.match.arms.len) return exprAt(self, guard);
+    const steps = b.f.regions.items[m.match.arms[i]].steps.items;
+    if (steps.len == 0 or steps[steps.len - 1] != .@"if") return exprAt(self, guard);
+    return exprFor(self, guard, steps[steps.len - 1].@"if".cond);
+}
+
+/// The value capture `i` of closure `e` takes, `value` in the tree.
+pub fn captureOf(self: *const Checker, e: Expr, i: usize, value: Sexp) Expr {
+    const b = self.lir_body orelse return exprAt(self, value);
+    var id = e.id orelse return exprAt(self, value);
+    while (true) switch (b.f.exprs.items[id]) {
+        .coerce => |c| id = c.value,
+        .hold => |h| id = h.value,
+        .closure => |c| return if (i < c.captures.len) exprFor(self, value, c.captures[i]) else exprAt(self, value),
+        else => return exprAt(self, value),
+    };
+}
+
+/// Construct `inner` of statement `stmt` (what a label names), found
+/// from the statement's region.
+pub fn within(self: *const Checker, stmt: Sexp, inner: Sexp) Expr {
+    const b = self.lir_body orelse return exprAt(self, inner);
+    return .{ .node = inner, .r = b.stmts.get(stmt) };
+}
+
 /// The region operand `i` of operation `e` is, where it is one.
 pub fn argRegion(self: *const Checker, e: Expr, i: usize) ?lir.RegionId {
     const o = opOf(self, e) orelse return null;
@@ -429,6 +459,19 @@ pub fn stepsOf(self: *const Checker, stmt: Sexp) []const lir.Step {
     const b = self.lir_body orelse return &.{};
     const r = b.stmts.get(stmt) orelse return &.{};
     return b.f.regions.items[r].steps.items;
+}
+
+/// The value statement `stmt`'s step takes, `node` in the tree: what
+/// it stores, binds, evaluates, or leaves with.
+pub fn stepValue(self: *const Checker, stmt: Sexp, node: Sexp) Expr {
+    if (node != .nil) if (stepOf(self, stmt)) |step| switch (step) {
+        .store => |x| return stepOperand(self, node, x.value),
+        .bind => |x| return stepOperand(self, node, x.value),
+        .eval => |x| return stepOperand(self, node, x),
+        .jump => |j| if (j.value) |id| return stepOperand(self, node, id),
+        else => {},
+    };
+    return exprAt(self, node);
 }
 
 /// Statement `stmt`, whose value its body yields, as its region's value.

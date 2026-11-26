@@ -305,7 +305,7 @@ pub fn conflictingLoan(self: *Checker, id: VarId, path: PathId, access: Access, 
     // Every arm of `task.select` is made before it runs one, so the
     // views two arms make live at once: the fix moves the use out of
     // one.
-    if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none and notes.inTwoArms(self, self.cur_stmt, pos, l.pos)) {
+    if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none and notes.selectWith(self, self.cur_stmt, pos, l.pos) != null) {
         try notes.err(self, pos, "cannot change `{s}` while {s} is still in use: `task.select` makes every arm before it runs one, so two arms cannot each hold a write view of `{s}`; let one arm write it, or have each arm give a value and write `{s}` after the select", .{ name, view, name, name });
         try notes.noteLoan(self, l);
         try notes.noteStillUsed(self, l, pos);
@@ -360,12 +360,6 @@ pub fn checkAssignable(self: *Checker, id: VarId, pos: u32) Error!void {
 // -----------------------------------------------------------------------------
 // A view may not outlive its root
 // -----------------------------------------------------------------------------
-
-/// Report loans in `v` on vars of the innermost scope and drop them.
-pub fn checkValueEscapesScope(self: *Checker, v: Value) Error!Value {
-    if (!self.reachable) return .{};
-    return escapeVarsFrom(self, v, self.scopes.items[self.scopes.items.len - 1].start);
-}
 
 /// Value `v` leaving the scopes of the vars `>= start`: report its
 /// loans on them and drop those.

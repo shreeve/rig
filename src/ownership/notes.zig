@@ -531,12 +531,6 @@ pub fn holdsCellHandle(self: *const Checker, id: VarId) bool {
     };
 }
 
-/// Whether positions `a` and `b` lie in two arms of one `task.select`
-/// in `node`.
-pub fn inTwoArms(self: *const Checker, node: Sexp, a: u32, b: u32) bool {
-    return selectWith(self, node, a, b) != null;
-}
-
 /// The `task.select` in `node` that has positions `a` and `b` in two
 /// of its arms.
 pub fn selectWith(self: *const Checker, node: Sexp, a: u32, b: u32) ?Sexp {
