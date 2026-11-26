@@ -1822,6 +1822,10 @@ pub fn dropStmtTemps(self: *Checker, start: usize) Error!void {
 /// that the statement temporaries held since `drops`, or the calls'
 /// storage held since `drops` (`call`), end today.
 pub fn shadowEnds(self: *Checker, node: Sexp, r: ?lir.RegionId, mark: VarId, drops: usize, call: bool) Error!void {
+    return shadowEndsOf(self, node, r, try lowered.endsOf(self, r, mark, call), drops, call);
+}
+
+pub fn shadowEndsOf(self: *Checker, node: Sexp, r: ?lir.RegionId, new: []const VarId, drops: usize, call: bool) Error!void {
     if (!self_check or self.lir_body == null) return;
     var old: std.ArrayList(VarId) = .empty;
     if (call) {
@@ -1838,7 +1842,6 @@ pub fn shadowEnds(self: *Checker, node: Sexp, r: ?lir.RegionId, mark: VarId, dro
             if (isStmtTempVar(self, d.id, d.pos)) try old.append(self.arena(), d.id);
         }
     }
-    const new = try lowered.endsOf(self, r, mark, call);
     if (std.mem.eql(VarId, old.items, new)) return;
     const at = diag.lineCol(self.source, notes.startOf(self, node));
     const b = self.lir_body.?;
@@ -4270,7 +4273,7 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
             }
         };
     }
-    try shadowEnds(self, node, lowered.regionOf(self, source_e, .header), vars_mark, drops, false);
+    if (self_check and self.lir_body != null) try shadowEndsOf(self, node, lowered.regionOf(self, source_e, .header), try lowered.headerEnds(self, source_e, vars_mark), drops, false);
     try dropStmtTemps(self, drops);
     var v = try walkLoop(self, spec);
     // The value the loop held ends with it.

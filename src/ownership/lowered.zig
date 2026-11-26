@@ -154,10 +154,15 @@ pub fn noteMade(self: *Checker, lv: ?lir.VarId, id: state.VarId) Error!void {
 /// the one a call holds its parts in.
 pub fn regionOf(self: *const Checker, e: Expr, kind: lir.Region.Kind) ?lir.RegionId {
     const b = self.lir_body orelse return null;
-    const key = sema.decisionKeyOf(e.node) orelse return null;
+    var key = sema.decisionKeyOf(e.node) orelse return null;
     var id = e.id orelse return null;
     while (true) switch (b.f.exprs.items[id]) {
         .coerce => |c| id = c.value,
+        .op => |o| {
+            if (o.kind != .view or o.args.len != 1) return null;
+            key = sema.decisionKeyOf(ir.get(o.node, .operand)) orelse return null;
+            id = o.args[0];
+        },
         .hold => |h| id = h.value,
         .@"var" => |x| id = hoistedOf(b, x.v) orelse return null,
         .block => |r| {
@@ -194,6 +199,28 @@ pub fn endsOf(self: *Checker, r: ?lir.RegionId, mark: state.VarId, call: bool) E
         const v = &self.vars.items[id];
         if (v.kind != .hidden or v.call_held != call or v.decl != notes.startOf(self, b.f.vars.items[lv].node)) continue;
         try out.append(self.arena(), id);
+    }
+    return out.items;
+}
+
+/// The checker vars that end where header `e` ends (`endsOf`): its
+/// header region's, or, for a range, each bound's, the last one's first.
+pub fn headerEnds(self: *Checker, e: Expr, mark: state.VarId) Error![]const state.VarId {
+    if (regionOf(self, e, .header)) |r| return endsOf(self, r, mark, false);
+    const b = self.lir_body orelse return &.{};
+    const o = switch (b.f.exprs.items[e.id orelse return &.{}]) {
+        .op => |o| o,
+        else => return &.{},
+    };
+    if (!o.node.isKind(.@"..")) return &.{};
+    var out: std.ArrayList(state.VarId) = .empty;
+    var i = o.args.len;
+    while (i > 0) {
+        i -= 1;
+        switch (b.f.exprs.items[o.args[i]]) {
+            .block => |r| if (b.f.regions.items[r].kind == .header) try out.appendSlice(self.arena(), try endsOf(self, r, mark, false)),
+            else => {},
+        }
     }
     return out.items;
 }
