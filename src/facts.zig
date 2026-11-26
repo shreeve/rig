@@ -85,8 +85,6 @@ pub const Header = sema.Header;
 pub const Lowered = lowering.Module;
 pub const Coercion = @import("lir.zig").Coercion;
 pub const liftLevels = @import("lir.zig").liftLevels;
-pub const Ask = lowering.Ask;
-pub const Answer = lowering.Answer;
 pub const Hands = sema.Hands;
 pub const StorageKind = storage.StorageKind;
 pub const StorageBy = storage.StorageBy;
@@ -491,16 +489,12 @@ pub const Facts = struct {
     pub fn hasTextTable(f: Facts, sym: SymbolId) bool {
         return f.c().decides(.text_tables, sym);
     }
-    /// The module's bodies lowered, with emit's questions answered: tree
-    /// `module` is the module's. Sema lowered them for its checks and
-    /// freed them once they finished; emit lowers each module again as
-    /// it writes it.
+    /// The module's bodies lowered, with what lowering decides for emit:
+    /// tree `module` is the module's. Sema lowered them for its checks
+    /// and freed them once they finished; emit lowers each module again
+    /// as it writes it.
     pub fn lower(f: Facts, gpa: std.mem.Allocator, module: Sexp, strict_optionals: bool) !Lowered {
-        const ctx = @constCast(f.c());
-        var m = try lowering.lowerModule(gpa, ctx, module, .{ .strict_optionals = strict_optionals });
-        errdefer m.deinit();
-        try lowering.answerAll(&m, ctx, module);
-        return m;
+        return lowering.lowerModule(gpa, @constCast(f.c()), module, .{ .strict_optionals = strict_optionals });
     }
     /// The value a constant pattern compares with (`sema.patternConst`).
     pub fn patternConst(f: Facts, pattern: Sexp) ?sema.ConstScalar {
@@ -934,16 +928,13 @@ test "Facts reads the leaf walk lowering decided" {
     var reached: usize = 0;
     var made: usize = 0;
     for (nodes.items) |n| {
-        // Decided for every expression.
-        if (n == .src or (n == .list and n.list.id != 0)) {
-            const r = lowered.answer(n, .reaches_leaf) orelse return error.TestUnexpectedResult;
-            if (r) reached += 1;
-        }
-        if (lowered.answer(n, .leaf_step)) |step| if (step == .made) {
+        const d = lowered.answersOf(n) orelse continue;
+        if (d.reaches_leaf) reached += 1;
+        if (d.leaf_step == .made) {
             made += 1;
             // Reached where Zig holds it: its LIR has a var for it.
             try std.testing.expectEqual(StorageBy.owned, (lowered.varOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
-        };
+        }
     }
     // `r if k else mkr(5)`, with `mkr(5)` made there.
     try std.testing.expectEqual(1, reached);
