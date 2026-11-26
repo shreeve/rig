@@ -13318,13 +13318,15 @@ pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
 
 /// Whether the temporaries `child` makes are its parent `stmt`'s: a
 /// block or a closure holds statements of its own, a `match` arm's body
-/// is a statement of its own (as the one statement of a block is), and
-/// a header (an `if`'s condition, a `match`'s subject, an arm's guard)
-/// or a `while` loop's step is a statement of its own; every other part
-/// of a statement, a branch, a `??` fallback, and a `catch` handler
-/// included, makes its temporaries for the statement.
+/// and a `defer`'s body are statements of their own (as the one
+/// statement of a block is), and a header (an `if`'s condition, a
+/// `match`'s subject, an arm's guard) or a `while` loop's step is a
+/// statement of its own; every other part of a statement, a branch, a
+/// `??` fallback, and a `catch` handler included, makes its
+/// temporaries for the statement.
 pub fn sharesStmtTemps(stmt: Sexp, child: Sexp) bool {
     if (child != .list or child.isKind(.block) or child.isKind(.lambda)) return false;
+    if (stmt.isKind(.@"defer") or stmt.isKind(.@"errdefer")) return false;
     return !isHeaderOf(stmt, child) and !isWhileStep(stmt, child) and !isArmBody(stmt, child);
 }
 

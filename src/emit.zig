@@ -2698,6 +2698,9 @@ pub const Emitter = struct {
         try self.emitErasedSlots(sexp);
         const first = self.temp_slots.items.len;
         try self.emitTempSlots(sexp);
+        // A `defer`'s one statement is its own, but Zig defers a
+        // statement and not a declaration: its slots come first.
+        if (sexp.isKind(.@"defer") or sexp.isKind(.@"errdefer")) try self.emitTempSlots(ir.get(sexp, .body));
         defer self.temp_slots.shrinkRetainingCapacity(first);
         const flat = try self.openFlat(first);
         try self.emitStmtOnly(sexp);
