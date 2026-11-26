@@ -13,6 +13,7 @@ const parser = @import("../parser.zig");
 const sema = @import("../sema.zig");
 const lir = @import("../lir.zig");
 const lower = @import("../lower.zig");
+const storage = @import("../storage.zig");
 const diag = @import("../diag.zig");
 const rig = @import("../rig.zig");
 const self_check = @import("build_options").self_check;
@@ -82,6 +83,9 @@ pub const Body = struct {
     /// reads the var is walked as that value, where it stands.
     /// By var id; empty where no region holds a part first.
     hoisted: []lir.ExprId = &.{},
+    /// The checker var the walk made last for each hidden var, by LIR
+    /// var (`noteMade`); empty until it makes one.
+    made: []state.VarId = &.{},
 };
 
 /// An expression the walk reaches: its tree node, and, in a lowered
@@ -111,6 +115,87 @@ fn under(b: *const Body, start: lir.ExprId) lir.ExprId {
         .@"var" => |x| id = hoistedOf(b, x.v) orelse return id,
         else => return id,
     };
+}
+
+/// The hidden var of `kind` lowering made for `node` in the body being
+/// walked.
+pub fn hiddenOf(self: *const Checker, node: Sexp, kind: storage.StorageKind) ?lir.VarId {
+    const b = self.lir_body orelse return null;
+    const vars = b.f.vars.items;
+    if (self.sema.lowered) |m| if (m.varOf(node, kind)) |v| {
+        const at = @intFromPtr(v);
+        const lo = @intFromPtr(vars.ptr);
+        if (at >= lo and at < lo + vars.len * @sizeOf(lir.Var)) return @intCast((at - lo) / @sizeOf(lir.Var));
+    };
+    // The module's compile-time body is in no index of the module's.
+    if (!b.f.root.isKind(.module)) return null;
+    const key = sema.decisionKeyOf(node) orelse return null;
+    for (vars, 0..) |v, i| switch (v.name) {
+        .hidden => |k| if (k == kind and sema.decisionKeyOf(v.node) == key) return @intCast(i),
+        .binding => {},
+    };
+    return null;
+}
+
+/// Record checker var `id` as the one the walk made for hidden var `lv`.
+pub fn noteMade(self: *Checker, lv: ?lir.VarId, id: state.VarId) Error!void {
+    const v = lv orelse return;
+    const b = self.lir_body orelse return;
+    if (b.made.len == 0) {
+        const a = if (b.f.root.isKind(.module)) self.const_arena_state.allocator() else self.fn_arena_state.allocator();
+        b.made = try a.alloc(state.VarId, b.f.vars.items.len);
+        @memset(b.made, NodeTable.none);
+    }
+    b.made[v] = id;
+}
+
+/// The region of `kind` expression `e` is, under its coercions and
+/// holds, whose node is `e`'s: a header's that ends its temporaries, or
+/// the one a call holds its parts in.
+pub fn regionOf(self: *const Checker, e: Expr, kind: lir.Region.Kind) ?lir.RegionId {
+    const b = self.lir_body orelse return null;
+    const key = sema.decisionKeyOf(e.node) orelse return null;
+    var id = e.id orelse return null;
+    while (true) switch (b.f.exprs.items[id]) {
+        .coerce => |c| id = c.value,
+        .hold => |h| id = h.value,
+        .@"var" => |x| id = hoistedOf(b, x.v) orelse return null,
+        .block => |r| {
+            const reg = &b.f.regions.items[r];
+            if (sema.decisionKeyOf(reg.node) != key) return null;
+            if (reg.kind == kind or (kind == .call and reg.kind == .value)) return r;
+            id = reg.value orelse return null;
+        },
+        else => return null,
+    };
+}
+
+/// The region of statement `e`, which holds its temporaries: its own,
+/// or, for a condition walked as a statement, its header's.
+pub fn stmtRegion(self: *const Checker, e: Expr) ?lir.RegionId {
+    const b = self.lir_body orelse return null;
+    return b.stmts.get(e.node) orelse regionOf(self, e, .header);
+}
+
+/// The checker vars made since var `mark` for the hidden vars region `r`
+/// declares, newest first, that are still held: those a call holds
+/// (`call`), or a statement's. Leaving `r` ends them.
+pub fn endsOf(self: *Checker, r: ?lir.RegionId, mark: state.VarId, call: bool) Error![]const state.VarId {
+    const b = self.lir_body orelse return &.{};
+    if (b.made.len == 0) return &.{};
+    var out: std.ArrayList(state.VarId) = .empty;
+    const decls = b.f.regions.items[r orelse return &.{}].decls.items;
+    var i = decls.len;
+    while (i > 0) {
+        i -= 1;
+        const lv = decls[i];
+        const id = b.made[lv];
+        if (id == NodeTable.none or id < mark or id >= self.vars.items.len) continue;
+        const v = &self.vars.items[id];
+        if (v.kind != .hidden or v.call_held != call or v.decl != notes.startOf(self, b.f.vars.items[lv].node)) continue;
+        try out.append(self.arena(), id);
+    }
+    return out.items;
 }
 
 /// Node `node`, which the walk reaches with no LIR expression made for
