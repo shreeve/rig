@@ -95,9 +95,14 @@ pub const Module = struct {
     /// node's key, where emit reads what lowering decided of it
     /// (`answersOf`). Kept for emit's lowering alone.
     at: sema.FastMap(u64, ExprAt) = .empty,
+    /// The step of each assignment and binding's declaration, by its
+    /// `set`'s key, where emit reads what lowering decided of it
+    /// (`assignOf`). Kept for emit's lowering alone.
+    sets: sema.FastMap(u64, StepAt) = .empty,
 
     pub const PlaceAt = struct { f: *const lir.Func, i: u32 };
     pub const ExprAt = struct { f: *const lir.Func, id: ExprId };
+    pub const StepAt = struct { f: *const lir.Func, r: RegionId, i: u32 };
 
     pub const VarKey = struct { node: u64, kind: StorageKind };
 
@@ -193,6 +198,17 @@ pub const Module = struct {
     pub fn answersOf(m: *const Module, node: Sexp) ?lir.Answers {
         const at = m.at.get(sema.decisionKeyOf(node) orelse return null) orelse return null;
         return at.f.answersOf(at.id);
+    }
+
+    /// What emit's lowering decided of assignment or declaration `set`,
+    /// kept on its step; null for one no body lowered.
+    pub fn assignOf(m: *const Module, set: Sexp) ?lir.Assign {
+        const at = m.sets.get(sema.decisionKeyOf(set) orelse return null) orelse return null;
+        return switch (at.f.regions.items[at.r].steps.items[at.i]) {
+            .store => |x| x.answers,
+            .bind => |x| x.answers,
+            else => unreachable,
+        };
     }
 
     /// The coercions of `node` made where it is written: at its place,
@@ -1145,17 +1161,17 @@ const Lowerer = struct {
         if (kind.operator() != null) {
             try l.openAssign(set, order, r);
             if (storage.compoundCall(ctx, set) != null and target != .src) try l.hoistVar(target, .slot, .pointer, .assignment, null, r);
-            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
+            return l.assignStep(r, set, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
         }
         if (target != .src) {
             if (kind == .default) try l.placeAssign(set, order, r);
-            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
+            return l.assignStep(r, set, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
         }
         if (std.mem.eql(u8, rig.leafText(ctx.source, target.src), "_")) {
             try l.holdVar(value, .discard, .owned, .statement, storage.dropOf(ctx, value), l.stmt_region);
             return l.step(r, .{ .eval = value_e });
         }
-        if (declared) |v| return l.step(r, .{ .bind = .{ .v = v, .value = value_e, .set = set, .answers = l.assignAnswers(set, order, true) } });
+        if (declared) |v| return l.assignStep(r, set, .{ .bind = .{ .v = v, .value = value_e, .set = set, .answers = l.assignAnswers(set, order, true) } });
         // A reassigned resource's new value is made before the old one is
         // dropped, as any store whose value can act is.
         if (sym != null and (order.drops_old or storage.storesAfterValue(ctx, set))) {
@@ -1163,7 +1179,15 @@ const Lowerer = struct {
             value_e = l.exprOf(value) orelse value_e;
             if (enabled) try l.role(value_e, value, sink);
         }
-        try l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
+        try l.assignStep(r, set, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
+    }
+
+    /// Step `s` of assignment or declaration `set`, in region `r`, where
+    /// emit's lowering records it (`Module.assignOf`).
+    fn assignStep(l: *Lowerer, r: RegionId, set: Sexp, s: lir.Step) Error!void {
+        try l.step(r, s);
+        if (l.opts.checked) return;
+        try l.module.sets.put(l.ma, sema.decisionKeyOf(set).?, .{ .f = l.f, .r = r, .i = @intCast(l.region(r).steps.items.len - 1) });
     }
 
     /// What emit's lowering decides of assignment or declaration `set`,
@@ -2949,9 +2973,6 @@ pub const Ask = enum(u8) {
     prints_by_address,
     lane_checked,
     fills_in_place,
-    set_order,
-    compound_call,
-    bind_hold,
     step_point,
     fold,
     binds_string_bytes,
@@ -2976,9 +2997,6 @@ pub fn Answer(comptime ask: Ask) type {
         .hands => sema.Hands.Kind,
         .self_hold => ?storage.SelfHold,
         .argument_hold => storage.ArgumentHold,
-        .set_order => storage.SetOrder,
-        .compound_call => ?storage.CompoundCall,
-        .bind_hold => storage.BindHold,
         .step_point => storage.StepPoint,
         .fold => ?storage.Fold,
         .through_write => ?storage.ThroughWrite,
@@ -3016,13 +3034,6 @@ fn checkAnswerFields(m: *const Module) void {
             if (std.meta.eql(kept, asked)) return;
             std.debug.panic("internal error: lir: emit's lowering keeps {s} {any} of node {d}, which answerAll answers {any}", .{ what, kept, sema.decisionKeyOf(node) orelse 0, asked });
         }
-        fn assign(mm: *const Module, set: Sexp, a: lir.Assign, declares: bool) void {
-            same("set_order", set, a.order, mm.answer(set, .set_order).?);
-            same("fills_in_place", set, a.fills_in_place, mm.answer(set, .fills_in_place).?);
-            same("lane_checked", set, a.lane_checked, mm.answer(set, .lane_checked).?);
-            same("compound_call", set, a.compound, mm.answer(set, .compound_call) orelse null);
-            same("bind_hold", set, a.hold, if (declares) mm.answer(set, .bind_hold).? else null);
-        }
         fn choice(mm: *const Module, f: *const lir.Func, c: lir.Expr.Choice) void {
             same("match_mode", c.node, c.answers.mode, mm.answer(c.node, .match_mode).?);
             same("matches_in_place", c.node, c.answers.in_place, mm.answer(c.node, .matches_in_place).?);
@@ -3043,8 +3054,6 @@ fn checkAnswerFields(m: *const Module) void {
             else => {},
         };
         for (f.regions.items) |r| for (r.steps.items) |st| switch (st) {
-            .store => |x| C.assign(m, x.node, x.answers, false),
-            .bind => |x| if (x.set != .nil) C.assign(m, x.set, x.answers, true),
             .loop => |x| C.same("step_point", x.node, x.step_point, m.answer(x.node, .step_point).?),
             .each => |x| {
                 C.same("fold", x.node, x.fold, m.answer(x.node, .fold).?);
@@ -3074,8 +3083,8 @@ fn checkAnswerFields(m: *const Module) void {
         const default: lir.Answers = .{};
         inline for (comptime std.meta.fieldNames(lir.Answers)) |name| {
             const ask = @field(Ask, name);
-            // An assignment's and a loop's answers are their steps'.
-            const step = (n.isKind(.set) and (ask == .lane_checked or ask == .fills_in_place)) or (n.isKind(.@"for") and ask == .binds_string_bytes);
+            // A loop's answers are its step's.
+            const step = n.isKind(.@"for") and ask == .binds_string_bytes;
             // A question not asked of the node keeps its default.
             if (!step) C.same(name, n, @field(kept, name), if (m.answer(n, ask)) |x| x else @field(default, name));
         }
@@ -3137,16 +3146,6 @@ fn answerNode(m: *Module, ctx: *const SemContext, e: Sexp) !void {
         .template => for (0..rig.Template.slotCount(e)) |i| {
             const v = rig.Template.value(e, i);
             try x.put(v, .prints_by_address, storage.printsByAddress(ctx, v));
-        },
-        .set => {
-            try x.put(e, .lane_checked, storage.laneChecked(ctx, e));
-            try x.put(e, .fills_in_place, storage.fillsInPlace(ctx, e));
-            try x.put(e, .set_order, storage.setOrder(ctx, e));
-            const target = ir.Set.target(e);
-            if (rig.bindingKindOf(ir.Set.op(e)).operator() != null) try x.put(e, .compound_call, storage.compoundCall(ctx, e));
-            if (target == .src) if (ctx.symbolOf(target)) |sym| if (ctx.symbols.items[sym].decl_pos == target.src.pos) {
-                try x.put(e, .bind_hold, storage.bindHold(ctx, e));
-            };
         },
         .box => try x.put(e, .fills_in_place, storage.fillsInPlace(ctx, e)),
         .@"+", .@"-", .@"*", .neg => try x.put(e, .lane_checked, storage.laneChecked(ctx, e)),

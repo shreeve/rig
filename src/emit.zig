@@ -3006,7 +3006,7 @@ pub const Emitter = struct {
         // reassigns one.
         const sym = self.facts.node(.symbolOf, target) orelse return self.unsupported(target, "an unresolved binding");
         // A fill is built in the local, never on the stack first.
-        const in_place = try self.need(self.answer(.fills_in_place, sexp), sexp);
+        const in_place = (try self.assignOf(sexp)).fills_in_place;
         if (self.facts.symbols.items[sym].decl_pos == target.src.pos) {
             if (in_place) return self.emitFillBind(target, sym, expr);
             // A fork's record is made in the slot of this frame its
@@ -3142,7 +3142,7 @@ pub const Emitter = struct {
         const ty = self.symType(sym);
         // The address of a viewed place, a view held as a pointer, or the
         // value (`storage.bindHold`).
-        const hold = try self.need(self.answer(.bind_hold, set), set);
+        const hold = try self.need((try self.assignOf(set)).hold, set);
         const is_view = hold == .view;
         const holds_ptr = hold != .value;
         var local: Local = .{ .sym = sym, .ty = ty, .is_ptr = holds_ptr };
@@ -3245,7 +3245,7 @@ pub const Emitter = struct {
                 try self.emitWriteViewPtr(value);
                 return self.w.writeAll(";");
             }
-            if ((try self.need(self.answer(.set_order, set), set)).drops_old) {
+            if (((try self.assignOf(set)).order).drops_old) {
                 const new = try self.openNewValue(pointee, value);
                 return self.w.print("; " ++ rt(.drop) ++ "({s}); {s}.* = {s}; }}", .{ local.zig_name, local.zig_name, new.name });
             }
@@ -3311,7 +3311,7 @@ pub const Emitter = struct {
     /// var __rig_live_N_new = true; defer if (__rig_live_N_new) rig.drop(&__rig_new_N);`.
     fn openSetValue(self: *Emitter, set: Sexp, ty: ?TypeId, how: AssignValue) Error!NewValue {
         const value = ir.Set.value(set);
-        const order = try self.need(self.answer(.set_order, set), set);
+        const order = (try self.assignOf(set)).order;
         const id = self.nextId();
         const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
         const kind: ?ResourceKind = if (order.guard) try self.dropOf(value, .new_value) else null;
@@ -3371,7 +3371,7 @@ pub const Emitter = struct {
             try self.w.writeAll(";");
             return self.closeAssign(order);
         }
-        const may_own = (try self.need(self.answer(.set_order, set), set)).drops_old;
+        const may_own = ((try self.assignOf(set)).order).drops_old;
         if (!may_own) {
             const order = try self.openAssign(set, place_ty, .value);
             try self.emitTarget(target);
@@ -3386,7 +3386,7 @@ pub const Emitter = struct {
         }
         const new = try self.openSetValue(set, place_ty, .value);
         const first = self.hoisted.items.len;
-        if ((try self.need(self.answer(.set_order, set), set)).held) try self.hoistTarget(set, new.id);
+        if (((try self.assignOf(set)).order).held) try self.hoistTarget(set, new.id);
         const slot = try self.hiddenStorage(target, .slot, .pointer, .{ .id = new.id });
         try self.w.print("const {s} = &", .{slot});
         try self.emitTarget(target);
@@ -3427,7 +3427,7 @@ pub const Emitter = struct {
     /// written next names them. Returns what `closeAssign` needs, or null
     /// when nothing can act and the order is unobservable.
     fn openAssign(self: *Emitter, set: Sexp, ty: ?TypeId, how: AssignValue) Error!?usize {
-        if (!(try self.need(self.answer(.set_order, set), set)).held) return null;
+        if (!((try self.assignOf(set)).order).held) return null;
         const first = self.hoisted.items.len;
         const value = ir.Set.value(set);
         var id: u32 = undefined;
@@ -3467,7 +3467,7 @@ pub const Emitter = struct {
                 }
             }
         };
-        const order = try self.need(self.answer(.set_order, set), set);
+        const order = (try self.assignOf(set)).order;
         try facts.syntax.eachTargetStep(ir.Set.target(set), Steps{ .e = self, .id = id, .base = order.base });
     }
 
@@ -3551,7 +3551,8 @@ pub const Emitter = struct {
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
         const shift = op == .@"<<" or op == .@"<<%" or op == .@">>";
-        const call = try self.need(self.answer(.compound_call, set), set);
+        const assigned = try self.assignOf(set);
+        const call = assigned.compound;
         // A vector's lanes shift (`vecShift`) and saturate through the
         // runtime, which takes the amount as it is.
         const lanes = call == .lane_shift;
@@ -3567,7 +3568,7 @@ pub const Emitter = struct {
             .div => "@divTrunc",
             .div_generic => rt(.div),
             .shl => "@shlExact",
-            .lane_checked => self.laneHelper(set, op),
+            .lane_checked => laneHelper(op, assigned.lane_checked),
         } else null;
         // The value of a shift is its amount, of any integer type.
         const value_ty = self.typeOf(if (shift) value else target);
@@ -7175,7 +7176,7 @@ pub const Emitter = struct {
                 const operand = ir.Neg.operand(sexp);
                 // Zig rejects the literal `-0` as ambiguous; `0 - 0` is 0.
                 if (operand == .src and isIntZeroText(self.srcText(operand))) return self.w.writeAll("0");
-                if (self.laneHelper(sexp, .neg)) |helper| {
+                if (laneHelper(.neg, self.answer(.lane_checked, sexp) orelse false)) |helper| {
                     try self.w.print("{s}(", .{helper});
                     try self.emitBare(operand);
                     return self.w.writeAll(")");
@@ -7433,13 +7434,13 @@ pub const Emitter = struct {
         try self.emitPlace(place);
     }
 
-    /// The runtime helper that checks the arithmetic `e` on the integer
-    /// lanes of a vector, or null when `e` is not that (`storage.laneChecked`,
-    /// a recorded fact). Zig's own vector `+`, `-`, `*`, and `-` test LLVM's
+    /// The runtime helper that checks arithmetic `op` on the integer lanes
+    /// of a vector, or null when it is not `checked` so
+    /// (`storage.laneChecked`, a recorded fact). Zig's own vector `+`, `-`, `*`, and `-` test LLVM's
     /// overflow bits, which aarch64 gets wrong for wide byte vectors (see
     /// `rig.vecAdd`).
-    fn laneHelper(self: *Emitter, e: Sexp, op: Tag) ?[]const u8 {
-        if (!(self.answer(.lane_checked, e) orelse false)) return null;
+    fn laneHelper(op: Tag, checked: bool) ?[]const u8 {
+        if (!checked) return null;
         return switch (op) {
             .@"+" => rt(.vecAdd),
             .@"-" => rt(.vecSub),
@@ -7556,7 +7557,7 @@ pub const Emitter = struct {
         if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2(rt(.addProven) ++ "(", operands, ")");
         // An add known not to overflow while a flag holds (`provenIf`).
         if (kind == .@"+") if (self.provenIf(sexp)) |c| if (c.tests.no_overflow) return self.emitCall2(rt(.addIf) ++ "(", operands, try self.fmt(", {s})", .{c.flag}));
-        if (self.laneHelper(sexp, kind)) |helper| {
+        if (laneHelper(kind, self.answer(.lane_checked, sexp) orelse false)) |helper| {
             try self.w.print("{s}(", .{helper});
             try self.emitBare(operands[0]);
             try self.w.writeAll(", ");
@@ -10472,6 +10473,12 @@ pub const Emitter = struct {
     fn hasStorage(self: *Emitter, e: Sexp) Error!bool {
         const kind = try self.need(self.answer(.hands, e), e);
         return (facts.Hands{ .kind = kind }).hasStorage();
+    }
+
+    /// What lowering decided of assignment or declaration `set`, kept on
+    /// its step (`lower.Module.assignOf`).
+    fn assignOf(self: *Emitter, set: Sexp) Error!facts.lir.Assign {
+        return self.need(self.lowered.?.assignOf(set), set);
     }
 
     /// The answer to `ask` about `node`, which lowering asks of every node
