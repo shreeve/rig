@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stack traces through preempted code, on arm64 macOS: the trampoline
+# Stack traces through preempted code: the trampoline
 # in a preempted fiber's trace, and the program's lines through the
 # `.dSYM` written for its section kept apart.
 source "$ROOT/test/cli/_lib.sh"
@@ -28,14 +28,21 @@ RIG
 # The trampoline is a frame like a call's: a trace taken where a fiber
 # is preempted (`RIG_PREEMPT_TRACE=1`, the first preemption's) walks
 # through it into the stopped code and on to the fiber's base. A debug
-# build is preempted on arm64 macOS alone (Linux x86-64's debug builds
-# use Zig's own backend, which takes no trampoline).
-if [[ "$(uname -s)/$(uname -m)" == Darwin/arm64 ]]; then
+# build is preempted on arm64 macOS and, built by LLVM, on Linux x86-64,
+# where the trampoline's frame describes the stopped stack pointer by an
+# expression (`sched.preemptEntryX86`).
+case "$(uname -s)/$(uname -m)" in
+    Darwin/arm64) entry=preemptEntryArm ;;
+    Linux/x86_64) entry=preemptEntryX86 ;;
+    *) entry= ;;
+esac
+if [[ -n $entry ]]; then
     out=$(RIG_PREEMPT_TRACE=1 "$TIMEOUT_CMD" 120 "$RIG" run spin.rig 2>trace.txt) || fail "spin.rig, debug, with the trace: $out $(cat trace.txt)"
     expect_eq "$out" "0 1" "spin.rig, debug, with the trace"
-    grep -q ' in preemptEntryArm ' trace.txt || fail "spin.rig: the trace has no trampoline: $(cat trace.txt)"
-    n=$(grep -c ' in preemptEntryArm ' trace.txt)
+    grep -q " in $entry " trace.txt || fail "spin.rig: the trace has no trampoline: $(cat trace.txt)"
+    n=$(grep -c " in $entry " trace.txt)
     [[ $n == 1 ]] || fail "spin.rig: the trace walks the trampoline $n times: $(head -20 trace.txt)"
+    grep -q ' in waiter ' trace.txt || fail "spin.rig: the trace does not reach the stopped code: $(cat trace.txt)"
     grep -q ' in fiberMain ' trace.txt || fail "spin.rig: the trace stops at the trampoline: $(cat trace.txt)"
 fi
 
