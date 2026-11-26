@@ -379,7 +379,8 @@ statement temporaries and evaluation order written out, then checks
 moves, loans, and drops with a dataflow over the function's control
 flow. Each function gets its verdict, accept or reject, or none when
 the function uses a form the oracle does not model yet. The suite's
-core runs it over three sets, and checks it with a lint:
+core runs it over four sets, the last only where Trig is at hand, and
+checks it with a lint:
 
 | Id | Programs |
 |---|---|
@@ -387,6 +388,20 @@ core runs it over three sets, and checks it with a lint:
 | `oracle.tests` | the behavior and rejection tests, as `test/rig.rip` writes them out, and `examples` |
 | `oracle.docs` | every doc example but fragments |
 | `oracle.matrix` | the matrix programs (`test/matrix.py --oracle`) |
+| `oracle.trig` | Trig, when `TRIG` names a checkout or `~/Data/Code/trig` exists (about 30 s) |
+
+`oracle.trig` reads Trig and never changes it: the run links Trig's
+`src/` modules into a folder of its own, takes `tools/trig/main.rig` as
+the program, and puts two stubs in place of the modules a Trig build
+generates, `buildinfo` (`rig_commit` and `trig_commit`) and `libtrees`
+(`sections` and `node_records`, each giving an empty List), whose
+signatures the stubs must keep. It is held to the same lists as the
+other sets, under the program name `trig`, with no coverage floor, since
+Trig's own changes move its count. It also fails when the compiler stops
+Trig before its ownership checks (Trig no longer checks with this Rig,
+or a stub no longer matches), since the oracle would then decide
+nothing. Like the other sets, it is not checked again while its inputs,
+Trig's `.rig` files among them, are as they were when it last passed.
 
 A set fails when the compiler accepts a function the oracle rejects:
 that may be a soundness hole, and it can never be allowlisted. It also
