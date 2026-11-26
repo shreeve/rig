@@ -287,6 +287,59 @@ pub const Call = struct {
     };
 };
 
+/// How an operation or a step uses an operand, decided once by lowering
+/// (`Lowerer.role`) for each expression: an expression is the operand of
+/// one operation or step, so its role is kept by its id
+/// (`Func.roles`), in a self-checking build for now, where the ownership
+/// checker asserts that it decides each the same.
+pub const Operand = packed struct(u16) {
+    use: Use = .read,
+    sink: Sink = .none,
+    /// Viewed to read where a view is expected, with no sigil
+    /// (`sema.View.implicit`).
+    implicit: bool = false,
+    /// A view of the operand's elements, or a String's bytes: `?a`
+    /// viewed as `?a[..]`.
+    elems: bool = false,
+    /// A held write view passed on where a read view is expected.
+    read_only: bool = false,
+    /// Held first in a hidden var of its call or array literal
+    /// (`argument`).
+    held: bool = false,
+    _: u5 = 0,
+
+    /// What an operand's user does with it (Core sentences 1, 2, 4, 5).
+    pub const Use = enum(u3) {
+        /// A place read where it stands, or a value read as it is.
+        read,
+        /// `<x`: the operand of a move.
+        move,
+        /// `?x` and `!x`: the operand of a view, or a value viewed to read
+        /// where a view is expected (`Operand.implicit`).
+        read_view,
+        write_view,
+        /// A held write view (`w`, `e.t`) passed to a call: it is a write
+        /// view of its holder for as long as the result may keep it.
+        pass_view,
+        /// A value made where it stands, which its user takes.
+        made,
+    };
+
+    /// Where a consumed operand goes (Core sentences 3, 7), as the ownership
+    /// checker names it (`ownership.Sink`).
+    pub const Sink = enum(u4) {
+        none,
+        binding,
+        argument,
+        field,
+        element,
+        allocation,
+        box,
+        ret,
+        brk,
+    };
+};
+
 /// How a value becomes the type its context takes, where it goes. Each
 /// is a typing fact of the node it wraps, made explicit where the value
 /// is read: a value held in a var first is coerced where the var is
@@ -401,6 +454,10 @@ pub const Func = struct {
     regions: std.ArrayList(Region) = .empty,
     /// The record of each call, which its op names (`Op.aux`).
     calls: std.ArrayList(Call) = .empty,
+    /// The role of each expression as an operand, by its id; filled in
+    /// a self-checking build, and shorter than `exprs` where the rest
+    /// take the default.
+    roles: std.ArrayList(Operand) = .empty,
     body: RegionId = 0,
 
     pub fn addVar(f: *Func, a: std.mem.Allocator, v: Var) !VarId {
@@ -416,6 +473,11 @@ pub const Func = struct {
     pub fn addRegion(f: *Func, a: std.mem.Allocator, node: Sexp, kind: Region.Kind) !RegionId {
         try f.regions.append(a, .{ .node = node, .kind = kind });
         return @intCast(f.regions.items.len - 1);
+    }
+
+    /// The role of expression `e` as an operand.
+    pub fn roleOf(f: *const Func, e: ExprId) Operand {
+        return if (e < f.roles.items.len) f.roles.items[e] else .{};
     }
 
     pub fn region(f: *Func, r: RegionId) *Region {

@@ -1025,6 +1025,7 @@ const Lowerer = struct {
     fn jump(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
         const value: Sexp = if (s.isKind(.@"continue")) .nil else ir.get(s, .value);
         const v: ?ExprId = if (value != .nil) try l.expr(value) else null;
+        if (v) |id| try l.role(id, value, if (s.isKind(.@"break")) .brk else .ret);
         if (s.isKind(.@"return")) try l.returnParts(s);
         try l.step(r, .{ .jump = .{ .node = s, .value = v } });
     }
@@ -1050,6 +1051,7 @@ const Lowerer = struct {
             return l.step(r, .{ .eval = e });
         }
         // `<e` of anything but a name drops what it takes.
+        try l.role(e, target, .binding);
         try l.holdVar(target, .discard, .owned, .statement, storage.dropOf(l.ctx, target), l.stmt_region);
         try l.step(r, .{ .eval = e });
     }
@@ -1074,6 +1076,13 @@ const Lowerer = struct {
         } else try l.expr(target);
         const t1 = l.temps.items.len;
         var value_e = try l.expr(value);
+        // A field or element takes the value, as a binding does, but for
+        // an operator's assignment to a name, which reads it.
+        const sink: lir.Operand.Sink = if (target != .src) .field else switch (kind) {
+            .default, .fixed, .shadow => .binding,
+            else => .none,
+        };
+        try l.role(value_e, value, sink);
         std.mem.rotate(VarId, l.temps.items[t0..], t1 - t0);
         l.declareInOrder(l.temps.items[t0..]);
         const order = storage.setOrder(ctx, set);
@@ -1096,6 +1105,7 @@ const Lowerer = struct {
         if (sym != null and (order.drops_old or storage.storesAfterValue(ctx, set))) {
             try l.hoistVar(value, .new_value, .owned, .assignment, storage.dropOf(ctx, value), r);
             value_e = l.exprOf(value) orelse value_e;
+            try l.role(value_e, value, sink);
         }
         try l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
     }
@@ -1162,6 +1172,7 @@ const Lowerer = struct {
         };
         const value = ir.Destructure.value(d);
         const value_e = try l.expr(value);
+        try l.role(value_e, value, .binding);
         const tys: []const TypeId = if (storage.typeOf(l.ctx, value)) |t| switch (l.ctx.types.get(t)) {
             .results => |rs| rs,
             else => &.{},
@@ -1187,9 +1198,13 @@ const Lowerer = struct {
     /// vars it makes, then the coercions that make its value the type its
     /// context takes.
     fn expr(l: *Lowerer, e: Sexp) Error!ExprId {
-        if (e == .list) if (l.headers.get(sema.decisionKeyOf(e).?)) |h| if (h == null) return l.header(e, sema.decisionKeyOf(e).?);
-        const id = try l.made(e);
-        try l.coerce(e, id);
+        const id = header: {
+            if (e == .list) if (l.headers.get(sema.decisionKeyOf(e).?)) |h| if (h == null) break :header try l.header(e, sema.decisionKeyOf(e).?);
+            const id = try l.made(e);
+            try l.coerce(e, id);
+            break :header id;
+        };
+        try l.role(id, e, .none);
         return id;
     }
 
@@ -1373,6 +1388,7 @@ const Lowerer = struct {
             o.aux = @intCast(l.f.calls.items.len);
             try l.f.calls.append(l.a, l.callRecord(e));
         }
+        try l.operandRoles(o, kids);
         const id = try l.addExpr(.{ .op = o });
         try l.note(e, id);
         try l.temp(e);
@@ -2185,6 +2201,9 @@ const Lowerer = struct {
         const shown = if (hold == .viewed) param else ty;
         const lifted = shown != ty;
         try l.hoistHeld(v, .argument, by, life, if (by == .pointer or ctx.viewsTempArray(v)) null else storage.dropOf(ctx, v), r, if (lifted) .lifted else .read);
+        if (enabled) if (l.exprOf(v)) |id| if (id < l.f.roles.items.len) {
+            l.f.roles.items[id].held = true;
+        };
     }
 
     /// A call through an API object's table: the object, read once
@@ -2200,6 +2219,66 @@ const Lowerer = struct {
         if (recv != .src) try l.hoistVar(recv, .api_object, .copy, .call, null, try l.callBlock(c, id));
         const entry = sema.tableEntry(ctx, d) orelse return;
         if (entry.result_out) _ = try l.hiddenVar(c, .result_place, .owned, .call, null, try l.callBlock(c, id));
+    }
+
+    // -------------------------------------------------------------------------
+    // Operand roles
+    // -------------------------------------------------------------------------
+
+    /// Record how its user takes expression `id`, of node `e`, consumed
+    /// into `sink` (`.none` where nothing consumes it), in a
+    /// self-checking build, whose ownership checker asserts that it
+    /// decides each the same.
+    fn role(l: *Lowerer, id: ExprId, e: Sexp, sink: lir.Operand.Sink) Error!void {
+        if (!enabled) return;
+        const roles = &l.f.roles;
+        if (roles.items.len <= id) try roles.appendNTimes(l.a, .{}, id + 1 - roles.items.len);
+        var o = useOf(l.ctx, e, sink);
+        o.held = roles.items[id].held;
+        roles.items[id] = o;
+    }
+
+    /// The roles operation `o` gives its operands, the tree's `kids`:
+    /// where each it consumes goes, and the operand of a move or a view.
+    fn operandRoles(l: *Lowerer, o: lir.Expr.Op, kids: []const Sexp) Error!void {
+        if (!enabled) return;
+        const args = o.args;
+        switch (o.node.kind() orelse return) {
+            .call => {
+                for (kids[2..], args[2..]) |c, x| try l.role(x, c, .argument);
+                // A self the method takes by value is taken as an
+                // argument is: the object of its member callee, under an
+                // instance's.
+                const s = l.f.calls.items[o.aux].self orelse return;
+                if (s.mode != .value) return;
+                var callee = l.opAt(args[1]) orelse return;
+                if (callee.node.isKind(.inst)) callee = l.opAt(callee.args[0]) orelse return;
+                if (callee.node.isKind(.member)) try l.role(callee.args[0], ir.Member.object(callee.node), .argument);
+            },
+            .kwarg => try l.role(args[1], kids[1], .argument),
+            .array => for (kids, args) |c, x| try l.role(x, c, .element),
+            .array_fill => try l.role(args[1], kids[1], .element),
+            .box => try l.role(args[0], kids[0], .box),
+            .share => try l.role(args[0], kids[0], .allocation),
+            .move => l.f.roles.items[args[0]].use = .move,
+            .read, .write => {
+                const r = &l.f.roles.items[args[0]];
+                r.use = if (o.node.isKind(.read)) .read_view else .write_view;
+                r.elems = if (l.ctx.viewOf(o.node)) |v| viewsElems(v) else false;
+            },
+            else => {},
+        }
+    }
+
+    /// The operation expression `id` is, under its coercions and holds.
+    fn opAt(l: *const Lowerer, id: ExprId) ?lir.Expr.Op {
+        var at = id;
+        while (true) switch (l.f.exprs.items[at]) {
+            .coerce => |c| at = c.value,
+            .hold => |h| at = h.value,
+            .op => |o| return o,
+            else => return null,
+        };
     }
 
     // -------------------------------------------------------------------------
@@ -2246,6 +2325,58 @@ const Lowerer = struct {
 // =============================================================================
 
 /// What the operation of node `e` does, by its form.
+/// How its user takes `e` consumed into `sink`, from its form and the
+/// typing facts, in the order the ownership checker asks
+/// (`walkConsumedE`): a value viewed to read where a view goes, a closure
+/// literal, a held write view passed to a call, then what `e` hands over.
+fn useOf(ctx: *const SemContext, e: Sexp, sink: lir.Operand.Sink) lir.Operand {
+    var o: lir.Operand = .{ .sink = sink };
+    const view = ctx.viewOf(e);
+    if (view) |v| if (v.implicit) {
+        o.use = .read_view;
+        o.implicit = true;
+        o.elems = viewsElems(v);
+        return o;
+    };
+    if (e.isKind(.lambda)) {
+        o.use = .made;
+        return o;
+    }
+    if (sink == .argument and passesWriteView(ctx, e)) {
+        o.use = .pass_view;
+        o.read_only = if (view) |v| v.has(.read_only) else false;
+        return o;
+    }
+    o.use = switch (sema.handsOver(ctx, e).kind) {
+        .made, .view => .made,
+        else => .read,
+    };
+    return o;
+}
+
+/// Whether `view` views the elements of its operand (an array's or a
+/// List's, or a String's bytes): its first row past any lift is theirs.
+fn viewsElems(view: sema.View) bool {
+    for (view.steps()) |step| switch (step) {
+        .lift => {},
+        .elems, .text => return true,
+        else => return false,
+    };
+    return false;
+}
+
+/// Whether `e` is a place whose value holds a write view (`w`, or a
+/// `(!T)?` name): passing it to a call passes that view on.
+fn passesWriteView(ctx: *const SemContext, e: Sexp) bool {
+    const ty = ctx.typeOf(e) orelse return false;
+    if (ty == ctx.types.unknown_id or ty == ctx.types.invalid_id) return false;
+    if (!sema.holdsWriteView(ctx, ty)) return false;
+    return switch (sema.handsOver(ctx, e).kind) {
+        .place, .part_of_made => true,
+        else => false,
+    };
+}
+
 fn opKind(e: Sexp) lir.OpKind {
     const head = e.kind() orelse return .other;
     return switch (head) {
