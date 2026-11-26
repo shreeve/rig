@@ -152,11 +152,12 @@ test "a supervised actor starts again once what its method started has ended", s
   made
   read 5
   made
-  -1 5
+  -1 5 5
 '''
   # The task views the value the panic abandoned, in the place the new
   # value is made, so the value is made again only once the task has
-  # ended.
+  # ended. The first call after the panic makes it, `later`'s or, when
+  # `later` came first, the last `get`.
   use std.task
   use std.time
 
@@ -201,7 +202,53 @@ test "a supervised actor starts again once what its method started has ended", s
   time.sleep(ms: 2)!
   u = task.isolate(|+a| a.work()) catch -1
   >t
-  print(u, >v)
+  print(u, >v, a.get())
+
+test "a supervised actor called while idle starts again once what its method started has ended", seeds: 20, '''
+  made 1
+  read 1 1 true
+  made 2
+  -1 true 2
+'''
+  # The actor is idle when `work` is called, and `later` may call it
+  # while `reader` still views the value the panic abandoned: the method
+  # runs on the actor's own task, never inline, so the value is made again
+  # only once `reader` has ended, and `reader` never sees the new one.
+  use std.task
+
+  sub reader(s: ?[8]Int)
+    k = 0
+    for i in 0..400000
+      k += i % 3
+    print("read", s[0], s[7], k > 0)
+
+  obj S
+    v: [8]Int
+
+    fun work(?@) -> Int
+      t = reader(?@v)&
+      panic("mid") if @v[0] > 0
+      >t
+      1
+
+    fun get(?@) -> Int
+      @v[7]
+
+  fun make(made: *Cell[Int]) -> S
+    k = (!made).add(1)
+    print("made", k)
+    S(v: [8 of k])
+
+  fun later(a: *Actor[S]) -> Int
+    task.check() catch |_|
+      return 0
+    a.get()
+
+  made = *Cell(0)
+  a = *Actor.supervised(*|+made| make(+made))
+  v = later(+a)&
+  u = task.isolate(|+a| a.work()) catch -1
+  print(u, >v > 0, a.get())
 
 test "a task queued on the supervised actor that started it cannot hold up its restart", seeds: 20, timeout: 20, '''
   -1
