@@ -4160,10 +4160,10 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
         const value = try walkE(self, source_e);
         // The type checker let the loop read a source a call gives in
         // place where the recorded fact says its loans name only places
-        // (`lower.livesIn`, CORE §9); the loans walked here agree, or
+        // (`sema.livesIn`, CORE §9); the loans walked here agree, or
         // the fact is wrong.
         ends = try lowered.headerEnds(self, source_e, vars_mark);
-        if (self_check) if (lowering.livesIn(self.sema, source).onlyPlaces()) if (loanOn(value, ends.?) != null) {
+        if (self_check) if (sema.livesIn(self.sema, source).onlyPlaces()) if (loanOn(value, ends.?) != null) {
             const lc = diag.lineCol(self.source, notes.startOf(self, source));
             std.debug.panic("{d}:{d}: internal error: the loop's source was decided to live only in places (`lives_in`), but its loans name a value made in its header", .{ lc.line, lc.col });
         };

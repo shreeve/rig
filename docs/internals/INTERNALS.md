@@ -1386,7 +1386,7 @@ operand lives, a call the join over the inputs its recorded origins
 say its result carries, a value made of parts the join of its parts),
 and a value whose type sema does not know, or a call it checked against
 no signature, counts as made. `sema.livesIn` gives where the memory a
-loop's source reads in place lives (`lower.livesIn`), and `sema.madeIn` the made value a message
+loop's source reads in place lives, and `sema.madeIn` the made value a message
 names. Whether the value lives for the whole program is not classified
 yet (Core §9). The list is an
 exhaustive switch over the IR's kinds (`shapeOf`), so a new kind does
