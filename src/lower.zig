@@ -1505,15 +1505,14 @@ const Lowerer = struct {
 
     /// A step of `while` loop `w` that reads a binding of its condition
     /// runs inside the `if`s that bind it, after the body
-    /// (`storage.StepPoint.after_body`), so every binding there stays
+    /// (`storage.StepPoint.after_body`, the same walk), so every binding there stays
     /// until the step is done: each must be plain data (neither a view nor
     /// owning), and no `continue` in the condition, which would go on past
     /// the step, may skip binding one.
     fn stepBindings(l: *Lowerer, w: Sexp) Error!void {
         const ctx = l.ctx;
         const cond = ir.While.cond(w);
-        if (!l.opts.checked or !(rig.isConditionJoin(cond) or cond.isKind(.as))) return;
-        if (storage.stepPoint(ctx, w) != .after_body) return;
+        if (!l.opts.checked) return;
         const Parts = struct {
             ctx: *const SemContext,
             step: Sexp,
@@ -2004,12 +2003,6 @@ const Lowerer = struct {
     }
 };
 
-// =============================================================================
-// Coercions
-// =============================================================================
-
-/// Whether coercion `c` of a value held in a var first is made where the
-/// var is read, not where it is written.
 /// The type of what a `for` over a source of type `ty` binds, without
 /// its views: an element of the table, List, array, or slice it walks;
 /// null for a byte of text.
@@ -2052,6 +2045,12 @@ fn continuesTo(ctx: *const SemContext, e: Sexp, w: Sexp) bool {
     return false;
 }
 
+// =============================================================================
+// Coercions
+// =============================================================================
+
+/// Whether coercion `c` of a value held in a var first is made where the
+/// var is read, not where it is written.
 fn readCoercion(held: Lowerer.Held, c: lir.Coercion) bool {
     if (held == .all) return false;
     return switch (c) {

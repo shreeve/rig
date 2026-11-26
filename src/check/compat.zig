@@ -220,14 +220,6 @@ pub fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return pn.args[0];
 }
 
-/// Whether `node` is `tree` or inside it.
-pub fn contains(tree: Sexp, node: Sexp) bool {
-    if (sameNode(tree, node)) return true;
-    if (tree != .list) return false;
-    for (tree.items()) |item| if (contains(item, node)) return true;
-    return false;
-}
-
 /// The element type of a Cell holding a List (`Cell[List[E]]`, `?Cell[List[E]]`, `*Cell[List[E]]`, ...).
 pub fn cellListElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return sema.listElem(ctx, cellElementType(ctx, ty) orelse return null);
