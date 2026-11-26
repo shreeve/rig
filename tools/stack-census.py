@@ -1512,7 +1512,7 @@ def main():
 class ProgramFiles:
     """The emitted files of a Rig program: `__rig_main.zig` and the program's
     own modules, not the runtime's nor std's shims nor Zig's."""
-    RUNTIME = {"runtime.zig", "sched.zig", "tasks.zig", "net.zig", "alloc.zig", "ordered.zig", "unordered.zig", "split.zig", "table.zig"}
+    RUNTIME = {"runtime.zig", "sched.zig", "tasks.zig", "net.zig", "alloc.zig", "ordered.zig", "unordered.zig", "split.zig", "table.zig", "arith.zig", "names.zig"}
 
     def __contains__(self, f):
         return f.endswith(".zig") and f not in self.RUNTIME and not f.startswith("__rig_std") and "/" not in f and f not in ("start.zig", "debug.zig", "mem.zig", "fmt.zig", "Thread.zig", "Io.zig", "posix.zig", "heap.zig", "atomic.zig", "math.zig", "array_list.zig", "Threaded.zig", "builtin.zig")

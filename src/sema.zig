@@ -50,6 +50,7 @@
 
 const std = @import("std");
 const zig_builtin = @import("builtin");
+const arith = @import("arith.zig");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 pub const diag = @import("diag.zig");
@@ -12641,7 +12642,7 @@ pub const MakerPart = enum {
             .hour => .{ 0, 23 },
             .minute, .second => .{ 0, 59 },
             .ns => .{ 0, 999_999_999 },
-            .duration_s => .{ -std.math.maxInt(i64), std.math.maxInt(i64) },
+            .duration_s => .{ -arith.duration_max_s, arith.duration_max_s },
             .duration_ns, .unix_ns => .{ -999_999_999, 999_999_999 },
             .unix_s => .{ @divFloor(instant_min_ns, 1_000_000_000), @divFloor(instant_max_ns, 1_000_000_000) },
             .unix_ms => .{ @divFloor(instant_min_ns, 1_000_000), @divFloor(instant_max_ns, 1_000_000) },
@@ -12771,10 +12772,6 @@ pub const Duration = struct {
         return if (d.opt != type_invalid) d.opt else d.ty;
     }
 };
-
-/// `x * unit` rounded once from its exact value, as the program converts
-/// it: a constant converts by the runtime's own `rig.floatToNs`.
-pub const floatToNs = @import("runtime.zig").floatToNs;
 
 /// How a duration form becomes its value (docs/design/datetime.md
 /// §5.2), decided once by the checker on a positive list: `total`, a form

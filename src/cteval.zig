@@ -32,6 +32,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
+const arith = @import("arith.zig");
 const resolve = @import("resolve.zig");
 const diag = sema.diag;
 
@@ -943,7 +944,7 @@ pub fn ctArith(h: Tag, a: Wide, b: Wide, int: ?IntInfo) Arith {
         // A shift keeps the low bits too, if its amount is below the
         // width.
         .@"<<%" => {
-            if (b < 0 or b >= int.?.width()) return .shift_range;
+            if (!arith.shiftInRange(b, int.?.width())) return .shift_range;
             return .{ .value = wrapTo(int.?, a << @intCast(b)) };
         },
         else => {},
@@ -953,14 +954,14 @@ pub fn ctArith(h: Tag, a: Wide, b: Wide, int: ?IntInfo) Arith {
         .@"-" => std.math.sub(Wide, a, b) catch null,
         .@"*" => std.math.mul(Wide, a, b) catch null,
         .@"/" => if (b == 0) return .div_zero else std.math.divTrunc(Wide, a, b) catch null,
-        .@"%" => if (b == 0) return .div_zero else if (b == -1) 0 else @rem(a, b),
+        .@"%" => if (b == 0) return .div_zero else arith.rem(a, b),
         // A shift by the width or more is out of range; one that loses
         // bits overflows.
-        .@"<<" => if (b < 0 or b >= (int orelse IntInfo{}).width()) return .shift_range else blk: {
+        .@"<<" => if (!arith.shiftInRange(b, (int orelse IntInfo{}).width())) return .shift_range else blk: {
             const r = a << @intCast(b);
             break :blk if (r >> @intCast(b) == a) r else null;
         },
-        .@">>" => if (b < 0 or b >= (int orelse IntInfo{}).width()) return .shift_range else a >> @intCast(b),
+        .@">>" => if (!arith.shiftInRange(b, (int orelse IntInfo{}).width())) return .shift_range else a >> @intCast(b),
         .@"&" => a & b,
         .@"|" => a | b,
         .@"^" => a ^ b,

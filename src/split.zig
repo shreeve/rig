@@ -13,7 +13,7 @@ const root = @import("root");
 const rt = @import("runtime.zig");
 
 /// Whether this compilation is one unit of a split build.
-pub const on = @hasDecl(root, "__rig_unit");
+pub const on = @hasDecl(root, @import("names.zig").decl(.unit));
 /// This unit's number: 0 in a build that is not split.
 pub const unit: u32 = if (on) root.__rig_unit.id else 0;
 /// Whether this unit defines the process's cells: unit 0, or the whole

@@ -101,7 +101,7 @@ pub fn placeSites(allocator: std.mem.Allocator, text: []const u8) error{OutOfMem
 /// So the places travel with the executable. Only a build that keeps
 /// traces reads it; any other compiles none of it.
 pub fn writeSiteTable(w: *Writer, sites: []const u8) Writer.Error!void {
-    try w.print("\nfn __rig_sites_anchor() callconv(.c) void {{}}\npub const __rig_sites: " ++ rt(.SiteTable) ++ " = .{{ .anchor = &__rig_sites_anchor, .text = \"{f}\" }};\n", .{std.zig.fmtString(sites)});
+    try w.print("\nfn __rig_sites_anchor() callconv(.c) void {{}}\npub const " ++ runtime_names.decl(.sites) ++ ": " ++ rt(.SiteTable) ++ " = .{{ .anchor = &__rig_sites_anchor, .text = \"{f}\" }};\n", .{std.zig.fmtString(sites)});
 }
 /// The runtime's tasks (`src/tasks.zig`), written beside it.
 pub const tasks_filename = "rig/tasks.zig";
@@ -129,6 +129,13 @@ pub const ordered_source = @embedFile("ordered.zig");
 /// written beside the runtime.
 pub const unordered_filename = "rig/unordered.zig";
 pub const unordered_source = @embedFile("unordered.zig");
+/// The rules of arithmetic (`src/arith.zig`) and the names
+/// (`src/names.zig`) the compiler shares with the runtime, written beside
+/// it.
+pub const arith_filename = "rig/arith.zig";
+pub const arith_source = @embedFile("arith.zig");
+pub const names_filename = "rig/names.zig";
+pub const names_source = @embedFile("names.zig");
 /// The program's symbols, written next to the modules
 /// (`src/symbols.zig`), which a module that writes one imports as
 /// `__rig_sym`.
@@ -989,7 +996,7 @@ pub const Emitter = struct {
             // `exact`: its fields in declaration order, its bytes theirs.
             try self.w.print("pub const {f} = extern struct {{\n", .{ident(name)});
         } else try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
-        if (self.facts.layout(.cellObjectSym, sym)) try self.w.writeAll("    pub const __rig_synced = {};\n");
+        if (self.facts.layout(.cellObjectSym, sym)) try self.w.writeAll("    pub const " ++ runtime_names.decl(.synced) ++ " = {};\n");
         try self.emitFields(1);
         try self.emitRigName(1);
         try self.emitOwnApis(1);
@@ -1008,7 +1015,7 @@ pub const Emitter = struct {
             if (std.mem.eql(u8, f.name, none.field)) break f;
         } else return self.unsupported(.nil, "an object's none without its field");
         try self.writeIndent(depth);
-        try self.w.print("pub const __rig_none_field = \"{f}\";\n", .{std.zig.fmtString(none.field)});
+        try self.w.print("pub const " ++ runtime_names.decl(.none_field) ++ " = \"{f}\";\n", .{std.zig.fmtString(none.field)});
         try self.writeIndent(depth);
         try self.w.writeAll("pub const __rig_none: ");
         try self.emitTypeTy(field.ty);
@@ -1028,7 +1035,7 @@ pub const Emitter = struct {
     fn emitStrictOptional(self: *Emitter, depth: u32) Error!void {
         if (!self.strict_optionals or !self.facts.layout(.isCompoundSym, self.nominal.?.sym)) return;
         try self.writeIndent(depth);
-        try self.w.writeAll("pub const __rig_strict_optional = {};\n");
+        try self.w.writeAll("pub const " ++ runtime_names.decl(.strict_optional) ++ " = {};\n");
     }
 
     /// `(generic_struct Name (T...) members...)` → a type-returning function.
@@ -1037,7 +1044,7 @@ pub const Emitter = struct {
         const prev = try self.enterNominal(ir.GenericStruct.name(node), true, members);
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericStruct.tparams(node), "struct");
-        if (self.facts.layout(.cellObjectSym, self.nominal.?.sym)) try self.w.writeAll("        pub const __rig_synced = {};\n");
+        if (self.facts.layout(.cellObjectSym, self.nominal.?.sym)) try self.w.writeAll("        pub const " ++ runtime_names.decl(.synced) ++ " = {};\n");
         try self.emitFields(2);
         try self.emitRigName(2);
         try self.emitOwnApis(2);
@@ -1314,7 +1321,7 @@ pub const Emitter = struct {
         try self.w.writeAll("    __rig_weak_drop: " ++ rt(.ErasedWeak) ++ ",\n");
         try self.w.writeAll("    __rig_upgrade: " ++ rt(.ErasedUpgrade) ++ ",\n");
         // The API's name, for `$name` of an object's type (`rig.typeName`).
-        try self.w.print("\n    pub const __rig_name = .{{ .module = \"{s}\", .name = \"{s}\" }};\n", .{ nameModule(self.facts), sym.name });
+        try self.w.print("\n    pub const " ++ runtime_names.decl(.name) ++ " = .{{ .module = \"{s}\", .name = \"{s}\" }};\n", .{ nameModule(self.facts), sym.name });
         try self.w.writeAll("};\n\n");
         try self.w.print("pub fn __rig_table_{s}_of(comptime __rig_T: type, comptime __rig_W: type, comptime __rig_H: " ++ rt(.ApiHolding) ++ ") *const __rig_table_{s} {{\n", .{ sym.name, sym.name });
         try self.w.writeAll("    return &struct {\n");
@@ -1811,19 +1818,19 @@ pub const Emitter = struct {
         const view = rt(.viewOf) ++ "(@This(), a), " ++ rt(.viewOf) ++ "(@This(), b)";
         if (facts.syntax.ownApiMethod(sym, .Eq) != null) {
             try self.writeIndent(depth);
-            try self.w.print("pub fn __rig_own_eq(a: *const @This(), b: *const @This()) bool {{ return @This().eq({s}); }}\n", .{view});
+            try self.w.print("pub fn " ++ runtime_names.decl(.own_eq) ++ "(a: *const @This(), b: *const @This()) bool {{ return @This().eq({s}); }}\n", .{view});
         }
         if (facts.syntax.ownApiMethod(sym, .Ord) != null) {
             try self.writeIndent(depth);
-            try self.w.print("pub fn __rig_own_order(a: *const @This(), b: *const @This()) " ++ rt(.Order) ++ " {{ return @This().order({s}); }}\n", .{view});
+            try self.w.print("pub fn " ++ runtime_names.decl(.own_order) ++ "(a: *const @This(), b: *const @This()) " ++ rt(.Order) ++ " {{ return @This().order({s}); }}\n", .{view});
         }
         if (facts.syntax.ownApiMethod(sym, .Print) != null) {
             try self.writeIndent(depth);
-            try self.w.writeAll("pub fn __rig_own_print(a: *const @This(), out: *" ++ rt(.Printer) ++ ") void { @This().print(" ++ rt(.viewOf) ++ "(@This(), a), out); }\n");
+            try self.w.writeAll("pub fn " ++ runtime_names.decl(.own_print) ++ "(a: *const @This(), out: *" ++ rt(.Printer) ++ ") void { @This().print(" ++ rt(.viewOf) ++ "(@This(), a), out); }\n");
         }
         if (facts.syntax.ownApiMethod(sym, .Hash) != null) {
             try self.writeIndent(depth);
-            try self.w.writeAll("pub fn __rig_own_hash(a: *const @This()) u64 { var h: " ++ rt(.Hasher) ++ " = .{}; @This().hash_into(" ++ rt(.viewOf) ++ "(@This(), a), &h); return h.state; }\n");
+            try self.w.writeAll("pub fn " ++ runtime_names.decl(.own_hash) ++ "(a: *const @This()) u64 { var h: " ++ rt(.Hasher) ++ " = .{}; @This().hash_into(" ++ rt(.viewOf) ++ "(@This(), a), &h); return h.state; }\n");
         }
     }
 
@@ -1840,7 +1847,7 @@ pub const Emitter = struct {
         else
             try self.facts.layout(.formatTypeValue, .{ a, facts.Type{ .nominal = self.facts.refOf(sym) } });
         try self.writeIndent(depth);
-        try self.w.print("pub const __rig_name = .{{ .module = \"{s}\", .name = ", .{nameModule(self.facts)});
+        try self.w.print("pub const " ++ runtime_names.decl(.name) ++ " = .{{ .module = \"{s}\", .name = ", .{nameModule(self.facts)});
         try self.writeSpelling(spelling, .parts, null);
         try self.w.writeAll(" };\n");
         try self.emitRepr(depth);
@@ -1860,7 +1867,7 @@ pub const Emitter = struct {
         const word = self.facts.layout(.wordBitsOfSym, sym) != null;
         if (ty == null and !zeros and !word) return;
         try self.writeIndent(depth);
-        try self.w.writeAll("pub const __rig_repr: " ++ rt(.Repr) ++ " = .{");
+        try self.w.writeAll("pub const " ++ runtime_names.decl(.repr) ++ ": " ++ rt(.Repr) ++ " = .{");
         var sep: []const u8 = " ";
         if (ty) |t| {
             try self.w.print(" .drops = {}, .copied = {}", .{ self.facts.layout(.typeHasDropGlue, t), self.facts.layout(.viewByValue, t) });
@@ -1945,7 +1952,7 @@ pub const Emitter = struct {
         try self.emitBlock(ir.DropDecl.body(node));
         try self.popScope();
         try self.w.writeAll("\n\n");
-        try self.line("pub fn __rig_drop(self: *{s}) void {{", .{nom});
+        try self.line("pub fn " ++ runtime_names.decl(.drop) ++ "(self: *{s}) void {{", .{nom});
         try self.line("    self.__rig_user_drop();", .{});
         try self.line("    " ++ rt(.dropFields) ++ "(self);", .{});
         try self.line("}}", .{});

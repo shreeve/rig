@@ -7,6 +7,7 @@ const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const diag = @import("../diag.zig");
 const sema = @import("../sema.zig");
+const arith = @import("../arith.zig");
 const storage = @import("../storage.zig");
 const Wide = sema.Wide;
 const resolve = @import("../resolve.zig");
@@ -3514,7 +3515,7 @@ pub fn recordLiteralType(self: *Checker, e: Sexp, target: TypeId) Error!void {
             const amount = ir.get(e, .right);
             const bits = self.ctx.types.get(target).int.width();
             if (ExprCheck.constInt(self, amount)) |v| if (v >= bits) {
-                try self.errAt(amount, "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(target), bits - 1 });
+                try self.errAt(amount, arith.shift_range_text, .{ v, try self.tyName(target), bits - 1 });
             };
         },
         else => return,
