@@ -12,6 +12,7 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const ScopeId = sema.ScopeId;
 const TypeId = sema.TypeId;
 const Type = sema.Type;
@@ -146,8 +147,8 @@ pub fn memberOf(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!TypeId
         try self.err(pos, "opaque type `{s}` has no accessible fields", .{owner.name});
     } else {
         const hint = sema.stdRenamed(decl.ctx, owner.name, field) orelse try ExprCheck.memberHint(self, owner.fields.?, field, .field);
-        try self.err(pos, "no field `{s}` on type `{s}`{s}", .{ field, owner.name, hint });
-        try PatternCheck.noteDeclared(self, owner, decl.module_id == null);
+        try self.err(pos, "no field `{s}` on type `{s}`{s}", .{ field, try declName(self, decl), hint });
+        try PatternCheck.noteDeclaredAt(self, decl);
     }
     return self.t().invalid_id;
 }
@@ -158,9 +159,9 @@ pub fn memberOf(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!TypeId
 /// read-only here (`noteReadOnly`).
 pub fn dataField(self: *Checker, obj_ty: TypeId, name: []const u8, pos: u32, member: Sexp) Error!?TypeId {
     if (try sema.lookupDataField(self.ctx, obj_ty, name)) |f| {
-        const owner = self.ctx.symbols.items[f.nominal_sym];
-        try checkVisible(self, f.field, owner, null, pos);
-        try noteReadOnly(self, member, f.field, owner, null);
+        const owner = sema.moduleCtx(self.ctx, f.module).symbols.items[f.nominal_sym];
+        try checkVisible(self, f.field, owner, f.module, pos);
+        try noteReadOnly(self, member, f.field, owner, f.module);
         return f.ty;
     }
     const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
@@ -177,12 +178,11 @@ pub fn dataField(self: *Checker, obj_ty: TypeId, name: []const u8, pos: u32, mem
 /// module: read-only here. The one place this is decided.
 pub fn noteReadOnly(self: *Checker, member: Sexp, f: Field, owner: sema.Symbol, module: ?u32) Error!void {
     if (member == .nil or !f.read_only) return;
-    const m = module orelse if (sema.isProxy(owner)) owner.from.module_id else return;
+    const m = module orelse return;
     if (m == self.ctx.module_id) return;
     const foreign = self.ctx.foreign_semas.get(m) orelse return;
-    // An imported type is named as checkVisible names it; a proxy is
-    // already named as this module spells it (`lib.Wrap`).
-    const owner_name = if (module != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, owner.name }) else owner.name;
+    // An imported type is named as checkVisible names it.
+    const owner_name = try qualifiedOwner(self, foreign, owner);
     try self.ctx.record(.read_only_fields, member, .{ .field = f.name, .owner = owner_name, .module = foreign.name });
 }
 
@@ -192,14 +192,12 @@ pub fn noteReadOnly(self: *Checker, member: Sexp, f: Field, owner: sema.Symbol, 
 /// type), or here (a proxy stands for another module's generic type).
 pub fn checkVisible(self: *Checker, f: Field, owner: sema.Symbol, module: ?u32, pos: u32) Error!void {
     if (f.is_pub or f.is_variant) return;
-    const m = module orelse if (sema.isProxy(owner)) owner.from.module_id else return;
+    const m = module orelse return;
     if (m == self.ctx.module_id) return;
     const foreign = self.ctx.foreign_semas.get(m) orelse return;
-    // A proxy is named as this module spells it already: `lib.Wrap`.
-    const tname = if (module != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, owner.name }) else owner.name;
+    const tname = try qualifiedOwner(self, foreign, owner);
     if (f.is_method) {
-        // A proxy's methods have this module's types.
-        const types = if (module != null) foreign.types else self.t();
+        const types = foreign.types;
         const is_sub = switch (types.get(f.ty)) {
             .function => |fty| fty.is_sub,
             else => false,
@@ -220,8 +218,34 @@ pub fn checkVisible(self: *Checker, f: Field, owner: sema.Symbol, module: ?u32, 
     if (f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(m, f.decl_pos, "`{s}` declared here", .{f.name});
 }
 
+/// The name of the type `decl` declares, as this module spells it:
+/// another module's generic type with its module (`lib.Wrap`).
+fn declName(self: *Checker, decl: sema.NominalDecl) Error![]const u8 {
+    const module = decl.module_id orelse return decl.symbol().name;
+    if (decl.symbol().kind != .generic_type) return decl.symbol().name;
+    return sema.formatTypeValue(self.ctx, self.ctx.arena.allocator(), .{ .nominal = .{ .module_id = module, .sym = decl.sym } });
+}
+
+/// Type `owner` of module `foreign` as this module names it: `lib.Point`,
+/// or a generic type already named so (`foreignGeneric`).
+fn qualifiedOwner(self: *Checker, foreign: *const SemContext, owner: sema.Symbol) Error![]const u8 {
+    if (owner.kind != .generic_type) return self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, owner.name });
+    if (std.mem.findScalar(u8, owner.name, '.') != null) return owner.name;
+    // A generic type is spelled as the type printer spells it: a built-in
+    // one written in Rig by its name alone.
+    if (std.mem.eql(u8, foreign.name, "std." ++ rig.builtin_module_name)) return owner.name;
+    for (self.ctx.imports) |imp| if (imp.module_id == foreign.module_id) return self.ctx.arena.allocator().print("{s}.{s}", .{ imp.local_name, owner.name });
+    return self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, owner.name });
+}
+
 pub fn findMethod(self: *Checker, obj_ty: TypeId, name: []const u8) Error!?Checker.Method {
     if (try sema.lookupMethod(self.ctx, obj_ty, name)) |m| {
+        if (m.module) |module| {
+            // Another module's generic type, named as this module spells it.
+            const home = sema.moduleCtx(self.ctx, module);
+            const owner = try sema.formatTypeValue(self.ctx, self.ctx.arena.allocator(), .{ .nominal = .{ .module_id = module, .sym = m.nominal_sym } });
+            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = owner, .nominal_sym = sema.symbol_invalid, .source = home.source, .owner_sym = home.symbols.items[m.nominal_sym], .module = module, .args = m.subst.args };
+        }
         return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = declSource(self, m.nominal_sym), .owner_sym = self.ctx.symbols.items[m.nominal_sym], .args = m.subst.args };
     }
     const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
@@ -256,7 +280,7 @@ pub fn namedType(self: *Checker, obj: Sexp) Error!?Checker.NamedType {
         const target = (try instTarget(self, ir.get(obj, .object))) orelse return null;
         // `Simd[T, n]` and `Slot[n]` are built-in types, not nominal
         // ones (`builtinTypeNamed`).
-        if (target != .generic or self.ctx.ref(target.generic.id) == self.ctx.builtins.simd or self.ctx.ref(target.generic.id) == self.ctx.builtins.slot) return null;
+        if (target != .generic or target.generic.ref(self.ctx) == self.ctx.builtins.simd or target.generic.ref(self.ctx) == self.ctx.builtins.slot) return null;
         var nt = target.generic;
         const ty = try typeInstance(self, obj, nt);
         const arity = if (nt.sym.type_params) |tps| tps.len else 0;
@@ -276,7 +300,7 @@ pub fn namedType(self: *Checker, obj: Sexp) Error!?Checker.NamedType {
         }
         if (sym.kind != .nominal_type and sym.kind != .generic_type) return null;
         try self.ctx.recordName(obj, id);
-        return .{ .id = id, .sym = sym };
+        return try localNamed(self, id, sym);
     }
     if (!obj.isKind(.member)) return null;
     const id = (try moduleNamed(self, ir.Member.object(obj))) orelse return null;
@@ -298,37 +322,51 @@ pub fn aliasNamedType(self: *Checker, ty: TypeId) ?Checker.NamedType {
             const foreign = self.ctx.foreign_semas.get(r.module_id) orelse break :blk null;
             break :blk .{ .id = r.sym, .sym = foreign.symbols.items[r.sym], .foreign = .{ .ctx = foreign, .module_id = r.module_id } };
         },
-        .parameterized_nominal => |pn| .{ .id = self.ctx.localSym(pn.sym), .sym = sema.symbolAt(self.ctx, pn.sym).*, .args = pn.args },
+        .parameterized_nominal => |pn| if (self.ctx.owns(pn.sym)) .{ .id = pn.sym.sym, .sym = self.ctx.symbols.items[pn.sym.sym], .args = pn.args } else blk: {
+            const foreign = self.ctx.foreign_semas.get(pn.sym.module_id) orelse break :blk null;
+            var nt = foreignGeneric(self, .{ .ctx = foreign, .module_id = pn.sym.module_id, .id = pn.sym.sym, .sym = foreign.symbols.items[pn.sym.sym] }) catch break :blk null;
+            nt.args = pn.args;
+            break :blk nt;
+        },
         else => null,
     };
 }
 
 /// A named type as this module spells it: `lib.Point` for another
-/// module's (a generic one's proxy is named so already).
+/// module's (a generic one's is named so already, `foreignGeneric`).
 pub fn namedTypeName(self: *Checker, nt: Checker.NamedType) Error![]const u8 {
     const fo = nt.foreign orelse return nt.sym.name;
+    if (nt.sym.kind == .generic_type) return nt.sym.name;
     return self.ctx.arena.allocator().print("{s}.{s}", .{ fo.ctx.name, nt.sym.name });
 }
 
-/// Another module's generic type, named here by its proxy
-/// (`sema.proxyOf`), whose members are in this module's types.
+/// Another module's generic type, named as this module spells it
+/// (`lib.Wrap`).
 pub fn foreignGeneric(self: *Checker, found: Checker.Foreign) Error!Checker.NamedType {
-    const id = try sema.proxyOf(self.ctx, .{ .module_id = found.module_id, .sym = found.id });
-    return .{ .id = id, .sym = self.ctx.symbols.items[id] };
+    var sym = found.sym;
+    sym.name = try sema.formatTypeValue(self.ctx, self.ctx.arena.allocator(), .{ .nominal = .{ .module_id = found.module_id, .sym = found.id } });
+    return .{ .id = found.id, .sym = sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
+}
+
+/// The named type local symbol `id` is: an alias names another module's
+/// generic type (`resolve.registerPrelude`).
+pub fn localNamed(self: *Checker, id: SymbolId, sym: sema.Symbol) Error!Checker.NamedType {
+    if (!sema.isAlias(sym)) return .{ .id = id, .sym = sym };
+    const home = self.ctx.foreign_semas.get(sym.from.module_id).?;
+    return foreignGeneric(self, .{ .ctx = home, .module_id = sym.from.module_id, .id = sym.from.sym, .sym = home.symbols.items[sym.from.sym] });
 }
 
 /// The source of the module that declares symbol `id`'s members and
-/// defaults: another module's, for a proxy.
+/// defaults.
 pub fn declSource(self: *Checker, id: SymbolId) []const u8 {
-    const sym = self.ctx.symbols.items[id];
-    if (!sema.isProxy(sym)) return self.ctx.source;
-    return (self.ctx.foreign_semas.get(sym.from.module_id) orelse return self.ctx.source).source;
+    _ = id;
+    return self.ctx.source;
 }
 
 /// The type a (non-generic) named type denotes.
 pub fn namedTypeValue(self: *Checker, nt: Checker.NamedType) Error!TypeId {
     if (nt.foreign) |fo| return self.ctx.intern(.{ .nominal = .{ .module_id = fo.module_id, .sym = nt.id } });
-    return self.ctx.intern(.{ .nominal = self.ctx.ref(nt.id) });
+    return self.ctx.intern(.{ .nominal = nt.ref(self.ctx) });
 }
 
 /// `Type.variant`: a variant without a payload.
@@ -364,11 +402,11 @@ pub fn typeMember(self: *Checker, nt: Checker.NamedType, field: []const u8, pos:
             try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ tname, field, tname, field });
             return self.t().invalid_id;
         }
-        if (nt.args) |given| return ViewCheck.instantiate(self, nt.id, given, pos);
+        if (nt.args) |given| return ViewCheck.instantiate(self, nt.ref(self.ctx), given, pos);
         return namedTypeValue(self, nt);
     }
     try self.err(pos, "no member `{s}` on type `{s}`", .{ field, tname });
-    try PatternCheck.noteDeclared(self, nt.sym, nt.foreign == null);
+    try PatternCheck.noteDeclaredNamed(self, nt);
     return self.t().invalid_id;
 }
 
@@ -392,7 +430,7 @@ pub fn instTarget(self: *Checker, obj: Sexp) Error!?Checker.InstTarget {
             .function, .@"extern" => return .{ .function = fnTarget(self.ctx, sym.ty) },
             .generic_type => {
                 try self.ctx.recordName(obj, id);
-                return .{ .generic = .{ .id = id, .sym = sym } };
+                return .{ .generic = try localNamed(self, id, sym) };
             },
             .nominal_type, .type_alias => return .{ .not_generic = sym.name },
             else => return null,
@@ -549,12 +587,12 @@ pub fn ctCallInBody(self: *Checker, e: Sexp, target: sema.cteval.Target, f_there
         const fn_ty = try sema.importType(self.ctx, target.ctx, target.ctx.symbols.items[target.sym].ty, target.module_id);
         break :blk self.ctx.types.get(fn_ty).function;
     };
-    var params: std.ArrayList(SymbolId) = .empty;
+    var params: std.ArrayList(SymbolRef) = .empty;
     var args: std.ArrayList(TypeId) = .empty;
     var ok = true;
     for (sema.cteval.argsOf(e), f.ct_params, 0..) |g, pty, i| {
-        const sym = if (i < f.ct_syms.len) f.ct_syms[i].sym else sema.symbol_invalid;
-        const sized = sym != sema.symbol_invalid and self.ctx.types.get(pty) == .int and sema.usesParams(self.ctx, f.returns, &.{sym});
+        const sym = if (i < f.ct_syms.len) f.ct_syms[i] else SymbolRef{};
+        const sized = sym.sym != sema.symbol_invalid and self.ctx.types.get(pty) == .int and sema.usesParams(self.ctx, f.returns, &.{sym});
         if (!sized) {
             try ViewCheck.checkExpr(self, g, pty);
             continue;
@@ -576,6 +614,7 @@ pub fn ctCallInBody(self: *Checker, e: Sexp, target: sema.cteval.Target, f_there
 /// diagnostic.
 pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId {
     const params = nt.sym.type_params orelse &.{};
+    const home = nt.home(self.ctx);
     var given = sema.bracketArgs(e);
     // `List[T, inline: n]()`: the first `n` elements live inside the List.
     var inline_len: u32 = 0;
@@ -583,7 +622,7 @@ pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId
         const kw = given[given.len - 1];
         given = given[0 .. given.len - 1];
         const key = self.text(ir.Kwarg.name(kw));
-        if (self.ctx.ref(nt.id) != self.ctx.builtins.list or !std.mem.eql(u8, key, "inline")) {
+        if (nt.ref(self.ctx) != self.ctx.builtins.list or !std.mem.eql(u8, key, "inline")) {
             try self.errAt(kw, "`{s}:` names no argument of `{s}`; only a List takes one, `List[T, inline: n]`", .{ key, nt.sym.name });
             return self.t().invalid_id;
         }
@@ -591,16 +630,16 @@ pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId
         inline_len = (try r.inlineLen(ir.Kwarg.value(kw))) orelse return self.t().invalid_id;
     }
     if (given.len != params.len) {
-        try self.errAt(e, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ nt.sym.name, params.len, resolve.argsNoun(self.ctx, params), CompatCheck.plural(params.len), given.len });
+        try self.errAt(e, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ nt.sym.name, params.len, resolve.argsNoun(home, params), CompatCheck.plural(params.len), given.len });
         return self.t().invalid_id;
     }
     const args = try self.ctx.arena.allocator().alloc(TypeId, given.len);
     var bad = false;
     // What a task gives may fail: `Tasks[Int!]()`.
-    const gives = self.ctx.ref(nt.id) == self.ctx.builtins.task or self.ctx.ref(nt.id) == self.ctx.builtins.tasks;
+    const gives = nt.ref(self.ctx) == self.ctx.builtins.task or nt.ref(self.ctx) == self.ctx.builtins.tasks;
     for (given, args, params, 0..) |g, *a, tp, i| {
-        a.* = if (self.ctx.symbols.items[tp].kind == .param)
-            (try StdFormCheck.ctIntArg(self, g, tp, i, nt.sym.name)) orelse self.t().invalid_id
+        a.* = if (home.symbols.items[tp].kind == .param)
+            (try StdFormCheck.ctIntArg(self, g, home.ref(tp), i, nt.sym.name)) orelse self.t().invalid_id
         else if (gives and g.isKind(.propagate)) blk: {
             const inner = try typeArg(self, ir.Propagate.value(g));
             break :blk if (self.isPoison(inner)) inner else try self.ctx.intern(.{ .fallible = .{ .ok = inner } });
@@ -619,9 +658,9 @@ pub fn typeInstance(self: *Checker, e: Sexp, nt: Checker.NamedType) Error!TypeId
         }
     }
     if (bad) return self.t().invalid_id;
-    var ty = try ViewCheck.instantiate(self, nt.id, args, self.startOf(e));
+    var ty = try ViewCheck.instantiate(self, nt.ref(self.ctx), args, self.startOf(e));
     if (inline_len > 0 and !self.isPoison(ty))
-        ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(nt.id), .args = args, .inline_len = inline_len } });
+        ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = nt.ref(self.ctx), .args = args, .inline_len = inline_len } });
     try self.ctx.record(.instances, e, .{ .type = ty });
     return ty;
 }
@@ -754,23 +793,23 @@ pub fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
 pub fn constructInstance(self: *Checker, call: Sexp, e: Sexp, nt: Checker.NamedType, args: []const Sexp) Error!TypeId {
     const ty = try typeInstance(self, e, nt);
     if (self.isPoison(ty)) return skipCall(self, args);
-    if (self.ctx.ref(nt.id) == self.ctx.builtins.list) {
+    if (nt.ref(self.ctx) == self.ctx.builtins.list) {
         try BuiltinCheck.checkListConstruction(self, call, ty);
         return ty;
     }
-    if (self.ctx.ref(nt.id) == self.ctx.builtins.table) {
+    if (nt.ref(self.ctx) == self.ctx.builtins.table) {
         try StdFormCheck.checkTableConstruction(self, call);
         return ty;
     }
-    if (self.ctx.ref(nt.id) == self.ctx.builtins.signal and !CompatCheck.sameNode(call, self.expect.shared_operand)) return badCall(self, args, e, Checker.stack_signal, .{});
-    if (self.ctx.ref(nt.id) == self.ctx.builtins.chan) return StdFormCheck.chanMake(self, call, e, ty, args);
-    if (self.ctx.ref(nt.id) == self.ctx.builtins.frozen) {
+    if (nt.ref(self.ctx) == self.ctx.builtins.signal and !CompatCheck.sameNode(call, self.expect.shared_operand)) return badCall(self, args, e, Checker.stack_signal, .{});
+    if (nt.ref(self.ctx) == self.ctx.builtins.chan) return StdFormCheck.chanMake(self, call, e, ty, args);
+    if (nt.ref(self.ctx) == self.ctx.builtins.frozen) {
         const made = try StdFormCheck.frozenMake(self, call, e, args);
         if (!self.isPoison(made) and made != ty) return badCall(self, args, e, "`{s}` freezes a `{s}`", .{ try self.tyName(ty), try self.tyName(made) });
         return made;
     }
-    const subst: TypeSubst = .{ .params = nt.sym.type_params orelse &.{}, .args = self.ctx.types.get(ty).parameterized_nominal.args };
-    return construct(self, nt.id, args, self.startOf(e), subst, null);
+    const subst: TypeSubst = .{ .params = namedParams(self, nt), .args = self.ctx.types.get(ty).parameterized_nominal.args };
+    return construct(self, nt.id, args, self.startOf(e), subst, nt.foreign);
 }
 
 /// The module a name leaf denotes, recorded as its symbol; null when
@@ -961,7 +1000,7 @@ pub fn hashFix(self: *Checker, e: Sexp, obj_ty: TypeId, idx_ty: TypeId) Error!bo
         .parameterized_nominal => |pn| pn,
         else => return false,
     };
-    const sym = self.ctx.symbols.items[self.ctx.localSym(pn.sym)];
+    const sym = sema.symbolAt(self.ctx, pn.sym).*;
     const is_map = std.mem.eql(u8, sym.name, "Map") or std.mem.eql(u8, sym.name, "HashMap");
     const is_set = std.mem.eql(u8, sym.name, "Set") or std.mem.eql(u8, sym.name, "HashSet");
     if (!is_map and !is_set) return false;
@@ -2713,7 +2752,12 @@ pub fn selfArgs(self: *Checker, recv_ty: TypeId) TypeSubst {
         .parameterized_nominal => |pn| pn,
         else => return .empty,
     };
-    return .{ .params = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].type_params orelse &.{}, .args = pn.args };
+    return .{ .params = sema.paramRefs(self.ctx, pn.sym), .args = pn.args };
+}
+
+/// The type parameters of generic named type `nt`, by ref.
+pub fn namedParams(self: *Checker, nt: Checker.NamedType) []const SymbolRef {
+    return sema.paramRefs(self.ctx, nt.ref(self.ctx));
 }
 
 /// The signature a call of `f` uses: `f` itself, or for a generic
@@ -2735,7 +2779,7 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
     const n = f.ct_params.len;
     // The parameters an instance binds: the type parameters and the
     // integer value parameters, at their slots.
-    var own: std.ArrayList(SymbolId) = .empty;
+    var own: std.ArrayList(SymbolRef) = .empty;
     var own_slots: std.ArrayList(u32) = .empty;
     for (0..n) |i| {
         const sym = sema.ownParamOf(self.ctx, f, i) orelse continue;
@@ -2809,7 +2853,7 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
     if (self.tentative == 0) {
         const inst: sema.FnInstance = .{
             .name = callee,
-            .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
+            .params = try std.mem.concat(a, SymbolRef, &.{ recv.params, own.items }),
             .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
             .own = @intCast(own.items.len),
         };
@@ -2818,7 +2862,7 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
         // (`checkGenericInstantiations`).
         for (own_args) |arg| if (sema.containsTypeVar(self.ctx, arg)) {
             _ = try sema.checkBounds(self.ctx, own.items, own_args, pos, .{ .func = inst });
-            try self.ctx.param_calls.append(self.ctx.allocator, .{ .params = try a.dupe(SymbolId, own.items), .args = own_args, .pos = pos, .body = self.body_pos });
+            try self.ctx.param_calls.append(self.ctx.allocator, .{ .params = try a.dupe(SymbolRef, own.items), .args = own_args, .pos = pos, .body = self.body_pos });
             break;
         };
         _ = try self.ctx.recordFnInstanceIn(inst, pos, StdFormCheck.bodyRef(self));
@@ -2828,9 +2872,9 @@ pub fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const
 
 /// The type parameter each compile-time slot of `f` declares
 /// (`GenericCall.params`).
-pub fn ctParamSyms(self: *Checker, f: FunctionType) Error![]const SymbolId {
-    const params = try self.ctx.arena.allocator().alloc(SymbolId, f.ct_params.len);
-    for (f.ct_params, params) |slot, *p| p.* = sema.typeParamOf(self.ctx, slot) orelse sema.symbol_invalid;
+pub fn ctParamSyms(self: *Checker, f: FunctionType) Error![]const SymbolRef {
+    const params = try self.ctx.arena.allocator().alloc(SymbolRef, f.ct_params.len);
+    for (f.ct_params, params) |slot, *p| p.* = sema.typeParamOf(self.ctx, slot) orelse .{};
     return params;
 }
 
@@ -2842,18 +2886,25 @@ pub fn ctWitnesses(self: *Checker, f: FunctionType, type_args: []const TypeId) E
     const a = self.ctx.arena.allocator();
     const params = try a.alloc(SymbolId, f.ct_params.len);
     var any = false;
+    // The parameters are the function's, all declared in its module.
+    var home: *const SemContext = self.ctx;
     for (f.ct_params, params) |slot, *p| {
-        p.* = sema.typeParamOf(self.ctx, slot) orelse sema.symbol_invalid;
-        if (p.* != sema.symbol_invalid and self.ctx.symbols.items[p.*].user_apis.len > 0) any = true;
+        const r = sema.typeParamOf(self.ctx, slot) orelse {
+            p.* = sema.symbol_invalid;
+            continue;
+        };
+        home = sema.homeOf(self.ctx, r);
+        p.* = r.sym;
+        if (home.symbols.items[p.*].user_apis.len > 0) any = true;
     }
     if (!any) return &.{};
     for (type_args) |ty| if (ty == sema.type_invalid or self.isPoison(ty)) return &.{};
-    return (try sema.argWitnesses(self.ctx, self.ctx, params, type_args)) orelse &.{};
+    return (try sema.argWitnesses(self.ctx, home, params, type_args)) orelse &.{};
 }
 
 /// Whether the types of `f`'s parameters or result hold `sym`.
-pub fn signatureUses(self: *Checker, f: FunctionType, sym: SymbolId) bool {
-    const params = [_]SymbolId{sym};
+pub fn signatureUses(self: *Checker, f: FunctionType, sym: SymbolRef) bool {
+    const params = [_]SymbolRef{sym};
     for (f.params) |p| if (sema.usesParams(self.ctx, p, &params)) return true;
     return sema.usesParams(self.ctx, f.returns, &params);
 }
@@ -2865,7 +2916,7 @@ pub fn signatureUses(self: *Checker, f: FunctionType, sym: SymbolId) bool {
 /// and the type expected of it, when that says; otherwise a literal
 /// binds its default type (`Int`, `Float`). The first argument that
 /// disagrees with a binding is kept as a conflict.
-pub fn inferBindings(self: *Checker, own: []const SymbolId, args: []const Sexp, from: Checker.InferFrom, result: ?Checker.ResultType) Error!Checker.Inference {
+pub fn inferBindings(self: *Checker, own: []const SymbolRef, args: []const Sexp, from: Checker.InferFrom, result: ?Checker.ResultType) Error!Checker.Inference {
     var inf: Checker.Inference = .{ .own = own, .bound = try self.ctx.arena.allocator().alloc(Checker.Bound, own.len) };
     @memset(inf.bound, .{});
     // Closure literals are matched last, against the parameter types
@@ -3022,7 +3073,7 @@ pub fn lambdaPattern(ctx: *const SemContext, pat: TypeId) ?TypeId {
 /// result is its body's. Null when a parameter has no type yet.
 pub fn viewedLambdaType(self: *Checker, inf: *Checker.Inference, pattern: TypeId, lambda: Sexp) Error!?TypeId {
     const a = self.ctx.arena.allocator();
-    var params: std.ArrayList(SymbolId) = .empty;
+    var params: std.ArrayList(SymbolRef) = .empty;
     var types: std.ArrayList(TypeId) = .empty;
     for (inf.own, inf.bound) |p, b| {
         if (b.ty == sema.type_invalid or b.conflict != sema.type_invalid) continue;
@@ -3063,7 +3114,7 @@ pub fn viewedLambdaType(self: *Checker, inf: *Checker.Inference, pattern: TypeId
 /// checked aloud, with the parameter types the call gave it, they say
 /// why `param` is unbound. Each closure is checked aloud once (bit
 /// `i` of `reported`, for `inf.failed[i]`). Whether one was found.
-pub fn lambdaLeftUnbound(self: *Checker, inf: *const Checker.Inference, param: SymbolId, reported: *u64) Error!bool {
+pub fn lambdaLeftUnbound(self: *Checker, inf: *const Checker.Inference, param: SymbolRef, reported: *u64) Error!bool {
     var found = false;
     for (inf.failed.items, 0..) |l, i| {
         const returns = self.ctx.types.get(l.pattern).function.returns;
@@ -3128,7 +3179,7 @@ pub fn bindExpected(self: *Checker, inf: *Checker.Inference, r: Checker.ResultTy
 
 /// The bindings of `own` that make declared result `r.pattern` match
 /// `r.expected`.
-pub fn bindResult(self: *Checker, own: []const SymbolId, r: Checker.ResultType) Error!Checker.Inference {
+pub fn bindResult(self: *Checker, own: []const SymbolRef, r: Checker.ResultType) Error!Checker.Inference {
     var inf: Checker.Inference = .{ .own = own, .bound = try self.ctx.arena.allocator().alloc(Checker.Bound, own.len) };
     @memset(inf.bound, .{});
     try bindArg(self, &inf, r.pattern, r.expected, 0, 0);
@@ -3240,7 +3291,7 @@ pub fn boundFrom(self: *Checker, arg: u32) Error![]const u8 {
 /// from the arguments of a call, which fill `f.params[skip..]`, and
 /// the type expected of its result (`inferBindings`). Null after a
 /// diagnostic.
-pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId, args: []const Sexp, info: Checker.ParamInfo, skip: usize, callee: []const u8, pos: u32) Error!?[]TypeId {
+pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolRef, args: []const Sexp, info: Checker.ParamInfo, skip: usize, callee: []const u8, pos: u32) Error!?[]TypeId {
     const call = self.expect.current_call orelse Sexp.nil;
     const inf = try inferBindings(self, own, args, .{ .params = .{ .params = f.params[@min(skip, f.params.len)..], .names = info.names, .defaults = info.defaults } }, expectedResult(self, f.returns));
     const result = try self.ctx.arena.allocator().alloc(TypeId, own.len);
@@ -3250,7 +3301,7 @@ pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId,
     var ok = true;
     var lambdas_reported: u64 = 0;
     for (inf.bound, own, 0..) |b, param, i| {
-        const pname = self.ctx.symbols.items[param].name;
+        const pname = sema.symbolAt(self.ctx, param).name;
         if (b.ty == sema.type_invalid) {
             ok = false;
             if (try lambdaLeftUnbound(self, &inf, param, &lambdas_reported)) continue;
@@ -3267,7 +3318,7 @@ pub fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId,
             try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments or the type expected of its result; {s}", .{ pname, callee, try inferHint(self, f, own, result, i, callee, parens) });
         } else if (b.conflict != sema.type_invalid) {
             ok = false;
-            if (self.ctx.symbols.items[param].kind == .param) {
+            if (sema.symbolAt(self.ctx, param).*.kind == .param) {
                 const c = try conflictText(self, b);
                 try self.err(pos, "conflicting values for `{s}` in the call to `{s}`: `{s}` ({s}) and `{s}` ({s})", .{ pname, callee, c.first, c.first_from, c.second, c.second_from });
                 continue;
@@ -3315,8 +3366,8 @@ pub fn viewedClosureBound(self: *Checker, ty: TypeId, pname: []const u8, callee:
 /// Whether the value inference gave value parameter `param` (when it
 /// is one) is one it takes: a value its type holds, or a compile-time
 /// parameter of the same type. Reports one that is not.
-pub fn valueBindingFits(self: *Checker, param: SymbolId, b: Checker.Bound, callee: []const u8, pos: u32) Error!bool {
-    const p = self.ctx.symbols.items[param];
+pub fn valueBindingFits(self: *Checker, param: SymbolRef, b: Checker.Bound, callee: []const u8, pos: u32) Error!bool {
+    const p = sema.symbolAt(self.ctx, param).*;
     if (p.kind != .param or self.isPoison(p.ty)) return true;
     const from = if (b.expected) "the type expected of the result" else try boundFrom(self, b.arg);
     switch (self.ctx.types.get(b.ty)) {
@@ -3326,9 +3377,9 @@ pub fn valueBindingFits(self: *Checker, param: SymbolId, b: Checker.Bound, calle
             return false;
         },
         .ct_param => |sym| {
-            const ty = self.ctx.symbols.items[self.ctx.localSym(sym)].ty;
+            const ty = sema.symbolAt(self.ctx, sym).ty;
             if (!self.isPoison(ty) and ty != p.ty) {
-                try self.err(pos, "{s} gives `{s}` of `{s}` the compile-time `{s}` `{s}`; `{s}` is a `{s}`", .{ from, p.name, callee, try self.tyName(ty), self.ctx.symbols.items[self.ctx.localSym(sym)].name, p.name, try self.tyName(p.ty) });
+                try self.err(pos, "{s} gives `{s}` of `{s}` the compile-time `{s}` `{s}`; `{s}` is a `{s}`", .{ from, p.name, callee, try self.tyName(ty), sema.symbolAt(self.ctx, sym).name, p.name, try self.tyName(p.ty) });
                 return false;
             }
         },
@@ -3353,7 +3404,7 @@ pub fn inferredTypeFits(self: *Checker, b: Checker.Bound, args: []const Sexp) Er
 /// argument gives the parameter another type than the expected one,
 /// the fix for the mismatch that follows (`result_hints`): converting
 /// the result.
-pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own: []const SymbolId, inf: Checker.Inference, callee: []const u8) Error!void {
+pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own: []const SymbolRef, inf: Checker.Inference, callee: []const u8) Error!void {
     _ = self.literal_results.remove(id);
     _ = self.result_hints.remove(id);
     const path: Checker.ResultPath, const value = switch (self.ctx.types.get(f.returns)) {
@@ -3365,7 +3416,7 @@ pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own
         .type_var => |tv| tv,
         else => return,
     };
-    const i = std.mem.findScalar(SymbolId, own, self.ctx.localSym(tv)) orelse return;
+    const i = std.mem.findScalar(SymbolRef, own, tv) orelse return;
     const b = inf.bound[i];
     if (b.ty == sema.type_invalid) {
         // `id(none)` and `nothing()` give some optional.
@@ -3382,7 +3433,7 @@ pub fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own
     if (path == .propagate_none) return;
     if (b.wanted == sema.type_invalid) return;
     const a = self.ctx.arena.allocator();
-    const took = try a.print("`{s}` takes `{s} = {s}` from argument {d}", .{ callee, self.ctx.symbols.items[self.ctx.localSym(tv)].name, try self.tyName(b.ty), b.arg });
+    const took = try a.print("`{s}` takes `{s} = {s}` from argument {d}", .{ callee, sema.symbolAt(self.ctx, tv).name, try self.tyName(b.ty), b.arg });
     if (sema.isNumeric(self.ctx, b.ty) and sema.isNumeric(self.ctx, b.wanted)) {
         try self.result_hints.put(self.ctx.allocator, id, try a.print("{s}; convert its result with `{s}(...)`", .{ took, try self.tyName(b.wanted) }));
         return;
@@ -3424,13 +3475,13 @@ pub fn bracketHint(self: *Checker, types: []const TypeId, index: usize, at: ?Typ
 /// determines: the bracket list, or, where a type in it has no
 /// expression spelling, the type where the value goes when the
 /// result holds the parameter.
-pub fn inferHint(self: *Checker, f: FunctionType, own: []const SymbolId, types: []const TypeId, index: usize, callee: []const u8, parens: []const u8) Error![]const u8 {
+pub fn inferHint(self: *Checker, f: FunctionType, own: []const SymbolRef, types: []const TypeId, index: usize, callee: []const u8, parens: []const u8) Error![]const u8 {
     const a = self.ctx.arena.allocator();
-    const pname = self.ctx.symbols.items[own[index]].name;
+    const pname = sema.symbolAt(self.ctx, own[index]).*.name;
     if (try bracketHint(self, types, index, null)) |brackets| return a.print("give `{s}` in brackets: `{s}[{s}]{s}`", .{ pname, callee, brackets, parens });
     // The result with each known type argument in place.
     const args = try a.alloc(TypeId, own.len);
-    for (own, types, args) |p, ty, *arg| arg.* = if (ty == sema.type_invalid) try self.ctx.intern(.{ .type_var = self.ctx.ref(p) }) else ty;
+    for (own, types, args) |p, ty, *arg| arg.* = if (ty == sema.type_invalid) try self.ctx.intern(.{ .type_var = p }) else ty;
     const shown = try sema.substituteType(self.ctx, f.returns, .{ .params = own, .args = args });
     const holds = (try sema.substituteType(self.ctx, f.returns, .{ .params = own[index .. index + 1], .args = &.{self.t().void_id} })) != f.returns;
     if (holds) return a.print("give the type where the value goes: `x: {s} = {s}{s}`, with a type in place of `{s}`", .{ try self.tyName(shown), callee, parens, pname });
@@ -3451,7 +3502,7 @@ pub fn bindArg(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
     const at = self.ctx.types.get(actual);
     switch (self.ctx.types.get(pattern)) {
         .type_var => |tv| {
-            const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(tv)) orelse return;
+            const i = std.mem.findScalar(SymbolRef, inf.own, tv) orelse return;
             const value = CompatCheck.readValue(self.ctx, actual);
             switch (self.ctx.types.get(value)) {
                 .none_literal => {
@@ -3542,7 +3593,7 @@ pub fn bindArg(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
         // the argument's type holds there: an array length, or a
         // generic type's value argument.
         .ct_param => |p| {
-            const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(p)) orelse return;
+            const i = std.mem.findScalar(SymbolRef, inf.own, p) orelse return;
             if (at != .ct_value and at != .ct_param) return;
             const b = &inf.bound[i];
             if (b.ty == sema.type_invalid) {
@@ -3606,7 +3657,7 @@ pub fn bindArg(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual:
 pub fn reachedForView(self: *Checker, pattern: TypeId, actual: TypeId) Error!TypeId {
     switch (self.ctx.types.get(pattern)) {
         .type_var => |tv| {
-            const apis = self.ctx.symbols.items[self.ctx.localSym(tv)].user_apis;
+            const apis = sema.symbolAt(self.ctx, tv).user_apis;
             if (apis.len == 0) return actual;
             const reached = GenericCheck.reachedValue(self.ctx, actual);
             if (reached == actual) return actual;
@@ -3636,7 +3687,7 @@ pub fn bindReturns(self: *Checker, inf: *Checker.Inference, pattern: TypeId, act
         .type_var => |tv| tv,
         else => return bindArg(self, inf, pattern, actual, arg, depth),
     };
-    const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(tv)) orelse return;
+    const i = std.mem.findScalar(SymbolRef, inf.own, tv) orelse return;
     const b = &inf.bound[i];
     if (b.ty == sema.type_invalid) {
         b.ty = a;
@@ -3673,7 +3724,7 @@ pub fn failsBySet(self: *Checker, f: sema.FunctionType) bool {
 /// or brackets.
 pub fn bindSet(self: *Checker, inf: *Checker.Inference, pattern: TypeId, actual: TypeId, arg: u32) Error!void {
     if (!sema.isSetParam(self.ctx, pattern) or self.isPoison(actual)) return;
-    const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.localSym(self.ctx.types.get(pattern).type_var)) orelse return;
+    const i = std.mem.findScalar(SymbolRef, inf.own, self.ctx.types.get(pattern).type_var) orelse return;
     if (inf.lambda) {
         if (i < 64) inf.lambda_sets |= @as(u64, 1) << @intCast(i);
         inf.lambda_arg = arg;
@@ -3835,13 +3886,14 @@ pub fn mentionsCtLocal(self: *Checker, e: Sexp) bool {
 /// Construct an object (`User(name: ...)`). Field types go through
 /// `subst` (generic constructors) or are imported from `foreign`.
 pub fn construct(self: *Checker, sym_id: SymbolId, args: []const Sexp, pos: u32, subst: TypeSubst, foreign: ?Checker.ForeignFields) Error!TypeId {
-    const sym = if (foreign) |fo| fo.ctx.symbols.items[sym_id] else self.ctx.symbols.items[sym_id];
-    const result = if (foreign) |fo|
-        try self.ctx.intern(.{ .nominal = .{ .module_id = fo.module_id, .sym = sym_id } })
-    else if (subst.isEmpty())
-        try self.ctx.intern(.{ .nominal = self.ctx.ref(sym_id) })
+    var sym = if (foreign) |fo| fo.ctx.symbols.items[sym_id] else self.ctx.symbols.items[sym_id];
+    const r: SymbolRef = if (foreign) |fo| .{ .module_id = fo.module_id, .sym = sym_id } else self.ctx.ref(sym_id);
+    // Another module's generic type is named as this module spells it.
+    if (foreign != null and sym.kind == .generic_type) sym.name = try sema.formatTypeValue(self.ctx, self.ctx.arena.allocator(), .{ .nominal = r });
+    const result = if (subst.isEmpty())
+        try self.ctx.intern(.{ .nominal = r })
     else
-        try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(sym_id), .args = subst.args } });
+        try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = r, .args = subst.args } });
     const fields = sym.fields orelse return badCall(self, args, pos, "opaque type `{s}` cannot be constructed", .{sym.name});
     const is_enum = for (fields) |f| {
         if (f.is_variant) break true;
@@ -3855,11 +3907,11 @@ pub fn construct(self: *Checker, sym_id: SymbolId, args: []const Sexp, pos: u32,
     // those defaults give, which the type itself chose: any module
     // may make one.
     if (!(args.len == 0 and everyFieldDefaulted(fields))) try checkConstructible(self, sym, fields, if (foreign) |fo| fo.module_id else null, pos, args.len == 0);
-    const origin = if (sema.isProxy(sym)) sema.proxyOrigin(self.ctx, sym) else null;
     try checkFieldArgs(self, args, fields, .{
         .owner = sym.name,
-        .decl_pos = if (origin) |o| o.pos else sym.decl_pos,
-        .module_id = if (origin) |o| o.module_id else 0,
+        .decl_pos = sym.decl_pos,
+        // Another module's generic type's fields are declared there.
+        .module_id = if (foreign != null and sym.kind == .generic_type) foreign.?.module_id else 0,
         .pos = pos,
         .subst = subst,
         .foreign = foreign,
@@ -3926,7 +3978,7 @@ pub fn everyFieldDefaulted(fields: []const Field) bool {
 /// modules construct one another's objects (`io.stdin()` makes a
 /// `file.File`).
 pub fn checkConstructible(self: *Checker, sym: sema.Symbol, fields: []const Field, module: ?u32, pos: u32, empty: bool) Error!void {
-    const m = module orelse if (sema.isProxy(sym)) sym.from.module_id else return;
+    const m = module orelse return;
     const foreign = self.ctx.foreign_semas.get(m) orelse return;
     if (foreign.is_std and self.ctx.is_std) return;
     var private: std.ArrayList(u8) = .empty;
@@ -3944,7 +3996,7 @@ pub fn checkConstructible(self: *Checker, sym: sema.Symbol, fields: []const Fiel
         if (f.read_only) read_only += 1;
     }
     if (count == 0) return;
-    const tname = if (module != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, sym.name }) else sym.name;
+    const tname = try qualifiedOwner(self, foreign, sym);
     const kind = if (read_only == 0) "private" else if (read_only == count) "read-only" else "private or read-only";
     const which = .{ if (count == 1) "field" else "fields", private.items, if (count == 1) "is" else "are", kind };
     if (empty) {
@@ -4034,7 +4086,7 @@ pub fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field,
             const likely = ExprCheck.memberSuggest(fields, fname, .field);
             if (likely.best) |b| try meant.put(self.ctx.allocator, b, {});
             try self.err(fpos, "no field `{s}` on {s} `{s}`{s}", .{ fname, if (info.kind == .constructor) "type" else "variant", info.owner, try likely.hint(self.ctx.arena.allocator()) });
-            if (info.foreign == null and info.decl_pos < sema.imported_decl_pos and info.decl_pos != 0) try self.ctx.noteIn(info.module_id, info.decl_pos, "`{s}` declared here", .{info.owner});
+            if ((info.foreign == null or info.module_id != 0) and info.decl_pos < sema.imported_decl_pos and info.decl_pos != 0) try self.ctx.noteIn(info.module_id, info.decl_pos, "`{s}` declared here", .{info.owner});
             _ = try PatternCheck.synthExpr(self, value);
             continue;
         };
@@ -4048,7 +4100,7 @@ pub fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field,
     for (fields) |f| {
         if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name) or meant.contains(f.name)) continue;
         try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
-        if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
+        if ((info.foreign == null or info.module_id != 0) and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
     }
 }
 
@@ -4109,7 +4161,7 @@ pub fn soleField(fields: []const Field) ?Field {
 }
 
 pub fn fieldType(self: *Checker, f: Field, info: Checker.FieldArgs) Error!TypeId {
-    if (info.foreign != null) return memberType(self, info.foreign, f.ty);
+    if (info.foreign != null and info.subst.isEmpty()) return memberType(self, info.foreign, f.ty);
     return sema.substituteType(self.ctx, f.ty, info.subst);
 }
 
@@ -4168,7 +4220,7 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
     if (try ViewCheck.numberType(self, obj)) |nty| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.numberTypeCall(self, callee, obj, nty, method, pos, args, ct));
     if (try StdFormCheck.apiNamedCallee(self, obj)) |ref| return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.apiNameCall(self, ref, sourceText(self, obj), method, pos, args, ct));
     if (try namedType(self, obj)) |nt| {
-        if (self.ctx.ref(nt.id) == self.ctx.builtins.actor) return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.actorSupervised(self, callee, method, pos, args));
+        if (nt.ref(self.ctx) == self.ctx.builtins.actor) return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.actorSupervised(self, callee, method, pos, args));
         return StdFormCheck.misreachedWrite(self, misreached, obj, method, try StdFormCheck.associatedCall(self, obj, nt, method, pos, args, ct));
     }
 
@@ -4324,8 +4376,8 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
         } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
             const sym = decl.symbol();
             const hint = sema.stdRenamed(decl.ctx, sym.name, method) orelse try ExprCheck.memberHint(self, sym.fields orelse &.{}, method, .method);
-            try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, hint });
-            try PatternCheck.noteDeclared(self, sym, decl.module_id == null);
+            try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, try declName(self, decl), hint });
+            try PatternCheck.noteDeclaredAt(self, decl);
         } else if (self.ctx.types.get(peeled) == .weak) {
             try weakReach(self, obj, peeled, pos);
         } else {

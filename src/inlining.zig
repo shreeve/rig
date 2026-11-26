@@ -368,7 +368,7 @@ const Pass = struct {
     fn paramsBound(self: *Pass, c: *const SemContext, ty: sema.TypeId) !bool {
         if (!c.typeInfo(ty).has_type_var) return true;
         switch (c.types.get(ty)) {
-            .type_var, .ct_param => |sym| return self.bound.contains(originOf(c, sym.sym)),
+            .type_var, .ct_param => |sym| return self.bound.contains(sema.declRef(c, sym)),
             else => {},
         }
         var it = sema.typeChildren(c, ty);
@@ -380,10 +380,10 @@ const Pass = struct {
     /// a generic type's, and a generic function's, its type's included.
     fn bind(self: *Pass, c: *const SemContext) !void {
         for (c.instantiation_sites.keys()) |ty| switch (c.types.get(ty)) {
-            .parameterized_nominal => |pn| for (c.symbols.items[c.localSym(pn.sym)].type_params orelse &.{}) |p| try self.bound.put(self.a, originOf(c, p), {}),
+            .parameterized_nominal => |pn| for (sema.symbolAt(c, pn.sym).type_params orelse &.{}) |p| try self.bound.put(self.a, sema.declRef(c, sema.homeOf(c, pn.sym).ref(p)), {}),
             else => {},
         };
-        for (c.fn_instances.items) |f| for (f.inst.params) |p| try self.bound.put(self.a, originOf(c, p), {});
+        for (c.fn_instances.items) |f| for (f.inst.params) |p| try self.bound.put(self.a, sema.declRef(c, p), {});
     }
 
     fn add(self: *Pass, module: usize, owner: u32, o: sema.FrameOwner) !u32 {
@@ -1365,13 +1365,6 @@ const Pass = struct {
         };
     }
 };
-
-/// The declaration parameter `sym` of `c` stands for: its proxy's
-/// origin, or itself.
-fn originOf(c: *const SemContext, sym: sema.SymbolId) sema.SymbolRef {
-    const s = c.symbols.items[sym];
-    return if (sema.isProxy(s)) s.from else .{ .module_id = c.module_id, .sym = sym };
-}
 
 /// The forms in `e`, each node of the tree once. A keyword argument
 /// counts as its value: its name emits nothing, so `f(1, by: 2)` is as
