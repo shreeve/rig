@@ -771,7 +771,7 @@ pub const Checker = struct {
     /// `checkNoImplicitCopy` is inside an expression whose context reads
     /// the value a view reaches (`SemContext.readsThrough`).
     copy_reads: bool = false,
-    /// The next value `walkConsumed` takes is read the same way: a
+    /// The next value `walkConsumedE` takes is read the same way: a
     /// `break` or `else` value of a loop whose value is read.
     value_reads: bool = false,
     /// The loop about to be walked is labeled, and its value is read.

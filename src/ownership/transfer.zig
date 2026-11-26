@@ -529,7 +529,8 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
                 self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
                 break :blk .{};
             },
-            .raw_block => walkTailPartE(self, lowered.exprAtS(self, @src(), ir.RawBlock.body(sexp)), takeTail(self, sexp)),
+            // A block is walked by its region.
+            .raw_block => walkTailPartE(self, .{ .node = ir.RawBlock.body(sexp) }, takeTail(self, sexp)),
             .enum_lit, .symbol, .use, .type, .generic_struct, .generic_inst => .{},
             // Operators on values produce fresh Copy results. A binary
             // operator reads its left operand where it runs, and uses
@@ -568,10 +569,6 @@ pub fn walkRejectedView(self: *Checker, e: lowered.Expr) Error!Value {
 }
 
 /// Walk an expression in a position that takes ownership of its value.
-pub fn walkConsumed(self: *Checker, expr: Sexp, sink: Sink) Error!Value {
-    return walkConsumedE(self, lowered.exprAtS(self, @src(), expr), sink);
-}
-
 pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
     const expr = e.node;
     // A bare value viewed to read where a view is expected is walked as
@@ -3559,8 +3556,8 @@ pub fn walkConditionPart(self: *Checker, ce: lowered.Expr, body: Sexp) Error!voi
     const cond = ce.node;
     // Each part is a header, its own statement: its temporaries end
     // with it, after the binding takes what it binds.
-    if (cond.isKind(.as_results)) return walkResultsBinding(self, cond, body);
-    if (cond.isKind(.as_match)) return walkAsMatch(self, cond, body);
+    if (cond.isKind(.as_results)) return walkResultsBinding(self, ce, body);
+    if (cond.isKind(.as_match)) return walkAsMatch(self, ce, body);
     if (!cond.isKind(.as)) {
         _ = try walkStmtValueE(self, ce, null);
         return;
@@ -3572,10 +3569,10 @@ pub fn walkConditionPart(self: *Checker, ce: lowered.Expr, body: Sexp) Error!voi
     const header = headerOf(self, cond);
     const saved_held = self.held;
     defer self.held = saved_held;
-    if (header == .held) try holdBase(self, cond);
+    const value = lowered.operand(self, ce, 0);
+    if (header == .held) try holdBase(self, cond, value);
     const temps_start = self.temps.items.len;
     const drops = self.stmt_drops.items.len;
-    const value = lowered.operand(self, ce, 0);
     const bound = if (header != null) try walkView(self, value, .read) else try walkConsumedE(self, value, .binding);
     self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
     try self.pushScopeFor(.block, body);
@@ -3603,11 +3600,12 @@ pub fn headerOf(self: *const Checker, node: Sexp) ?sema.Header {
 /// Hold the value the header `node` makes of which its subject is a
 /// part (`SemContext.heldBaseOf`) in a hidden var of a scope opened
 /// for the construct: `var _h = <base`, whose part the construct
-/// views. The caller pops the scope where the construct ends.
-pub fn holdBase(self: *Checker, node: Sexp) Error!void {
+/// views, the root of the path its subject `subject` reads. The caller
+/// pops the scope where the construct ends.
+pub fn holdBase(self: *Checker, node: Sexp, subject: lowered.Expr) Error!void {
     const ctx = self.sema;
     const base = ctx.heldBaseOf(node) orelse return;
-    const v = try walkConsumed(self, base, .binding);
+    const v = try walkConsumedE(self, lowered.baseOf(self, subject, base), .binding);
     try self.pushScopeFor(.block, node);
     const id = try self.addVar(.{ .name = notes.spanText(self, base), .decl = notes.startOf(self, base), .ty = types.exprType(self, base), .kind = .hidden }, .{ .loans = v.loans });
     self.held = .{ .base = base, .id = id };
@@ -3747,7 +3745,8 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
 /// match's and its pattern bound as an arm's, in a new scope over
 /// `body`, which the caller pops. The values the pattern does not
 /// match go on to the `else`.
-pub fn walkAsMatch(self: *Checker, part: Sexp, body: Sexp) Error!void {
+pub fn walkAsMatch(self: *Checker, pe: lowered.Expr, body: Sexp) Error!void {
+    const part = pe.node;
     const match = rig.asMatchOf(part);
     const scrut = ir.Match.subject(match);
     const pattern = ir.Arm.pattern(rig.asMatchArm(part));
@@ -3761,7 +3760,7 @@ pub fn walkAsMatch(self: *Checker, part: Sexp, body: Sexp) Error!void {
     // a scope the caller ends with the body's.
     const saved_held = self.held;
     defer self.held = saved_held;
-    const subject = try walkSubject(self, match, lowered.exprAtS(self, @src(), scrut), "as");
+    const subject = try walkSubject(self, match, lowered.asMatchSubject(self, pe, match, scrut), "as");
     const info, const scrut_value, const header_temps = .{ subject.info, subject.value, subject.header_temps };
     try self.pushScopeFor(.block, body);
     self.arm_var = null;
@@ -3790,7 +3789,7 @@ const Subject = struct { info: Scrutinee, value: Value, header_temps: []const Va
 fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const u8) Error!Subject {
     const scrut = ir.Match.subject(match);
     const header = headerOf(self, match);
-    if (header == .held) try holdBase(self, match);
+    if (header == .held) try holdBase(self, match, scrut_e);
     var info: Scrutinee = .{};
     var node = scrut;
     const written = scrut.isKind(.read) or scrut.isKind(.write);
@@ -3984,7 +3983,8 @@ pub const LoopSpec = struct {
 /// `body`, which the caller pops. The loans taken to make the results
 /// end with the header, as `as`'s do, and so do those of a result no
 /// name takes.
-pub fn walkResultsBinding(self: *Checker, cond: Sexp, body: Sexp) Error!void {
+pub fn walkResultsBinding(self: *Checker, ce: lowered.Expr, body: Sexp) Error!void {
+    const cond = ce.node;
     const value = ir.AsResults.value(cond);
     const names = ir.AsResults.names(cond).items();
     const temps_start = self.temps.items.len;
@@ -3992,7 +3992,7 @@ pub fn walkResultsBinding(self: *Checker, cond: Sexp, body: Sexp) Error!void {
     const saved_results = self.results_of;
     defer self.results_of = saved_results;
     self.results_of = null;
-    const whole = try walkConsumed(self, value, .binding);
+    const whole = try walkConsumedE(self, lowered.operand(self, ce, 0), .binding);
     const parts: []const Value = blk: {
         if (self.results_of) |r| if (sameNode(r.node, value) and r.parts.len == names.len) break :blk r.parts;
         const all = try self.arena().alloc(Value, names.len);
@@ -4050,7 +4050,7 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
     const header = headerOf(self, node);
     const saved_held = self.held;
     defer self.held = saved_held;
-    if (header == .held) try holdBase(self, node);
+    if (header == .held) try holdBase(self, node, source_e);
     // The source is a header: its temporaries end with it, before
     // the loop walks what it gives.
     const drops = self.stmt_drops.items.len;

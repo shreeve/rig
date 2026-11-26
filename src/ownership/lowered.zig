@@ -59,6 +59,9 @@ pub const NodeTable = struct {
 };
 
 /// A body lowered, and what the walk looks up in it by tree node.
+/// Steps `start..end` of region `r`.
+pub const Steps = struct { r: lir.RegionId, start: u32, end: u32 };
+
 pub const Body = struct {
     f: *const lir.Func,
     /// The region made for each block: the body's by the function's
@@ -70,6 +73,9 @@ pub const Body = struct {
     /// The calls and array literals that evaluate parts first, in a
     /// region of kind `call`, by their nodes' keys.
     calls: sema.FastMap(u64, void) = .empty,
+    /// The steps of each target of `q, r = f()`, by the target's node:
+    /// a stretch of the region of the destructuring's targets.
+    targets: sema.FastMap(u64, Steps) = .empty,
     /// The value each hidden var a region evaluates first holds (a part
     /// a call or an assignment holds), by the var: the operand that
     /// reads the var is walked as that value, where it stands.
@@ -92,6 +98,18 @@ pub const Expr = struct {
 fn hoistedOf(b: *const Body, v: lir.VarId) ?lir.ExprId {
     if (v >= b.hoisted.len or b.hoisted[v] == NodeTable.none) return null;
     return b.hoisted[v];
+}
+
+/// Expression `id` under the coercions and holds of its node, and the
+/// var that holds it first, where a region evaluates it first.
+fn under(b: *const Body, start: lir.ExprId) lir.ExprId {
+    var id = start;
+    while (true) switch (b.f.exprs.items[id]) {
+        .coerce => |c| id = c.value,
+        .hold => |h| id = h.value,
+        .@"var" => |x| id = hoistedOf(b, x.v) orelse return id,
+        else => return id,
+    };
 }
 
 /// Tree node `node`, which no LIR operation reached it through: the
@@ -150,10 +168,9 @@ pub fn controlOf(self: *const Checker, e: Expr) ?Control {
     const key = sema.decisionKeyOf(e.node) orelse return null;
     if (e.id) |start| {
         var id = start;
-        while (true) switch (b.f.exprs.items[id]) {
-            .coerce => |c| id = c.value,
-            .hold => |h| id = h.value,
-            .block => |r| id = b.f.regions.items[r].value orelse return null,
+        while (true) switch (b.f.exprs.items[under(b, id)]) {
+            // A region that runs the construct (a value `loop`).
+            .block => |r| id = b.f.regions.items[r].value orelse return controlFrom(b, r, key),
             .branch => |x| return if (sema.decisionKeyOf(x.node) == key) .{ .@"if" = x } else null,
             .choice => |x| return if (sema.decisionKeyOf(x.node) == key) .{ .match = x } else null,
             else => return null,
@@ -210,14 +227,34 @@ pub fn guardOf(self: *const Checker, c: ?Control, i: usize, guard: Sexp) Expr {
 
 /// The value capture `i` of closure `e` takes, `value` in the tree.
 pub fn captureOf(self: *const Checker, e: Expr, i: usize, value: Sexp) Expr {
+    // A capture of a name takes no value.
+    if (value == .nil) return .{ .node = .nil };
     const b = self.lir_body orelse return exprAtS(self, @src(), value);
-    var id = e.id orelse return exprAtS(self, @src(), value);
-    while (true) switch (b.f.exprs.items[id]) {
-        .coerce => |c| id = c.value,
-        .hold => |h| id = h.value,
-        .closure => |c| return if (i < c.captures.len) exprFor(self, value, c.captures[i]) else exprAtS(self, @src(), value),
-        else => return exprAtS(self, @src(), value),
+    return switch (b.f.exprs.items[under(b, e.id orelse return exprAtS(self, @src(), value))]) {
+        .closure => |c| if (i < c.captures.len) exprFor(self, value, c.captures[i]) else exprAtS(self, @src(), value),
+        else => exprAtS(self, @src(), value),
     };
+}
+
+/// The subject of the `match` of `as_match` condition part `e`, `scrut`
+/// in the tree, as the match LIR made for the part tests it.
+pub fn asMatchSubject(self: *const Checker, e: Expr, match: Sexp, scrut: Sexp) Expr {
+    const o = opOf(self, e) orelse return exprAtS(self, @src(), scrut);
+    if (o.args.len == 0) return exprAtS(self, @src(), scrut);
+    const c = controlOf(self, .{ .node = match, .id = o.args[0] }) orelse return exprAtS(self, @src(), scrut);
+    return if (c == .match) exprFor(self, scrut, c.match.subject) else exprAtS(self, @src(), scrut);
+}
+
+/// The value a header holds for its construct, `base` in the tree: the
+/// root of the path that subject `e` reads.
+pub fn baseOf(self: *const Checker, e: Expr, base: Sexp) Expr {
+    var at = e;
+    const key = sema.decisionKeyOf(base);
+    while (sema.decisionKeyOf(at.node) != key) {
+        if (!(at.node.isKind(.member) or at.node.isKind(.index) or at.node.isKind(.read) or at.node.isKind(.write))) return exprAtS(self, @src(), base);
+        at = operand(self, at, 0);
+    }
+    return at;
 }
 
 /// Construct `inner` of statement `stmt` (what a label names), found
@@ -256,7 +293,10 @@ pub fn partExpr(self: *const Checker, node: Sexp, r: lir.RegionId) Expr {
     const out: Expr = if (node.isKind(.block))
         .{ .node = node }
     else if (reg.value) |v| (if (sema.decisionKeyOf(nodeOf(b, v)) == key) .{ .node = node, .id = v } else return exprAtS(self, @src(), node)) else blk: {
-        // A construct the region runs, an `else if`'s `if`.
+        // A statement the region evaluates (`stmt if cond`), or a
+        // construct it runs, an `else if`'s `if`.
+        const steps = reg.steps.items;
+        if (steps.len > 0 and steps[steps.len - 1] == .eval and sema.decisionKeyOf(nodeOf(b, steps[steps.len - 1].eval)) == key) break :blk .{ .node = node, .id = steps[steps.len - 1].eval };
         if (controlFrom(b, r, key orelse return exprAtS(self, @src(), node)) != null) break :blk .{ .node = node, .r = r };
         return exprAtS(self, @src(), node);
     };
@@ -413,16 +453,39 @@ fn indexRegion(b: *Body, a: std.mem.Allocator, reg: *const lir.Region, r: lir.Re
                 .@"catch" => ir.Catch.handler(reg.node),
                 else => reg.node,
             };
+            // A `defer` of one statement runs it as the region's.
+            if (reg.node.isKind(.@"defer") or reg.node.isKind(.@"errdefer")) if (!body.isKind(.block) and sema.decisionKeyOf(body) != null) return b.stmts.put(a, body, r, true);
             try b.regions.put(a, if (sema.decisionKeyOf(body) != null) body else reg.node, r, true);
         },
         .stmt => try b.stmts.put(a, reg.node, r, false),
         .call => try b.calls.put(a, key, {}),
+        // Each target's steps end with the one that stores, binds, or
+        // discards its result; those before it hold its parts first.
+        // A name `if f() as a, b` takes a result into is bound by its
+        // region's step.
+        .value => if (reg.node.isKind(.set)) try b.stmts.put(a, reg.node, r, true) else if (reg.node.isKind(.destructure)) {
+            var start: u32 = 0;
+            var i: u32 = 0;
+            for (ir.Destructure.targets(reg.node).items()) |t| {
+                if (!t.isKind(.set)) continue;
+                while (i < reg.steps.items.len and isHold(b.f, reg.steps.items[i])) i += 1;
+                if (i == reg.steps.items.len) break;
+                i += 1;
+                try b.targets.put(a, sema.decisionKeyOf(t) orelse continue, .{ .r = r, .start = start, .end = i });
+                start = i;
+            }
+        },
         else => {},
     };
     // A jump that is no statement of its own (a branch, an arm's body,
     // the right of `??`) is found by the region that ends with it.
     const steps = reg.steps.items;
     if (reg.kind != .stmt and steps.len > 0 and steps[steps.len - 1] == .jump) try b.stmts.put(a, steps[steps.len - 1].jump.node, r, true);
+}
+
+/// Whether step `s` binds a hidden var, holding a part first.
+fn isHold(f: *const lir.Func, s: lir.Step) bool {
+    return s == .bind and f.vars.items[s.bind.v].name == .hidden;
 }
 
 /// The module's compile-time body is walked: free its tables and its
@@ -478,14 +541,18 @@ pub fn stepOf(self: *const Checker, stmt: Sexp) ?lir.Step {
 /// The steps of statement `stmt`'s region, in order.
 pub fn stepsOf(self: *const Checker, stmt: Sexp) []const lir.Step {
     const b = self.lir_body orelse return &.{};
-    const r = b.stmts.get(stmt) orelse return &.{};
+    const r = b.stmts.get(stmt) orelse {
+        const t = b.targets.get(sema.decisionKeyOf(stmt) orelse return &.{}) orelse return &.{};
+        return b.f.regions.items[t.r].steps.items[t.start..t.end];
+    };
     return b.f.regions.items[r].steps.items;
 }
 
 /// The value statement `stmt`'s step takes, `node` in the tree: what
 /// it stores, binds, evaluates, or leaves with.
 pub fn stepValue(self: *const Checker, stmt: Sexp, node: Sexp) Expr {
-    if (node != .nil) if (stepOf(self, stmt)) |step| switch (step) {
+    if (node == .nil) return .{ .node = .nil };
+    if (stepOf(self, stmt)) |step| switch (step) {
         .store => |x| return stepOperand(self, node, x.value),
         .bind => |x| return stepOperand(self, node, x.value),
         .eval => |x| return stepOperand(self, node, x),
