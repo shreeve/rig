@@ -64,6 +64,7 @@ comptime {
         started_ns,
         process,
         process_args,
+        table_zig.fault_ahead,
         broken_pipe_dies,
         broken_pipe_ignored,
         threaded,
@@ -843,6 +844,7 @@ pub const int_hash_mul = unordered_zig.int_mul;
 test {
     _ = sched;
     _ = net;
+    _ = table_zig;
     _ = split;
     _ = fast_alloc;
     _ = ordered_zig;
@@ -8500,6 +8502,12 @@ pub fn start(init: std.process.Init.Minimal) void {
         if (init.environ.getPosix(name)) |path| {
             if (std.Io.Dir.cwd().createFile(io(), path, .{})) |file| file.close(io()) else |_| {}
         }
+    }
+    // RIG_TABLE_FAULT_AHEAD=1: a reserved Table's push faults in its
+    // first 2 MiB 64 KiB at a time (`table.zig`, `fault_ahead`), an
+    // experiment measured on and off in one build.
+    if (builtin.os.tag == .linux) {
+        if (init.environ.getPosix("RIG_TABLE_FAULT_AHEAD")) |v| table_zig.fault_ahead.* = std.mem.eql(u8, v, "1");
     }
     if (map_trace) map_tracer.open(init.environ);
     if (sanitize) {

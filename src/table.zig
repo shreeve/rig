@@ -14,7 +14,9 @@
 //!   pages and the rest asks for huge ones while the system has free
 //!   2 MiB blocks to spare (`reserve`). The system gives each page as
 //!   zeros when it is first touched, so a slot never written costs no
-//!   memory. It is never one of `alloc.zig`'s blocks, which are reused
+//!   memory. With `RIG_TABLE_FAULT_AHEAD=1` set as a program starts on
+//!   Linux, a push into the first 2 MiB faults in 64 KiB at a time
+//!   (`fault_ahead`). It is never one of `alloc.zig`'s blocks, which are reused
 //!   unzeroed and faulted in ahead.
 //! - **Made.** Any other `T`: `n` slots on the heap, each `T()`, dropped
 //!   all `n` when the table is, since `t[s] = x` may write past `len`.
@@ -99,6 +101,23 @@ const page = std.heap.page_size_min;
 /// A huge page's bytes on Linux.
 const huge: usize = 2 << 20;
 
+/// What a reserved table's push faults in at once inside its first 2 MiB
+/// while `fault_ahead` is on: 16 small pages, one system call where each
+/// would take its own fault.
+const ahead_step: usize = 64 << 10;
+
+/// Linux's `MADV_POPULATE_WRITE` (5.14 and later), as `alloc.zig` names
+/// it. An older kernel refuses it, and the pages fault in as touched.
+const madv_populate_write: u32 = 23;
+
+/// Whether a reserved table's push faults in the next 64 KiB of its first
+/// 2 MiB as it reaches them (`Table.reach`): an experiment, on only when
+/// `RIG_TABLE_FAULT_AHEAD=1` is set as the program starts on Linux
+/// (`runtime.start`), so one build is measured both ways. Past the first
+/// 2 MiB a table asks for huge pages and takes no step.
+var fault_ahead_var = false;
+pub const fault_ahead = rt.split.cell(&fault_ahead_var, "table.fault_ahead");
+
 /// `bytes` of address space, zero pages, none committed. On Linux the
 /// first 2 MiB keep small pages, since a huge page would commit 2 MiB at
 /// a small table's first touch, and the rest, from a 2 MiB boundary, asks
@@ -160,6 +179,8 @@ pub fn Table(comptime T: type, comptime n: u64) type {
     if (how != .committed and bytes_wide > std.math.maxInt(usize)) @compileError("rig.Table: the table does not fit the address space");
     // The bytes the slots take, rounded up to whole pages for a mapping.
     const bytes: usize = if (how == .committed) 0 else std.mem.alignForward(usize, @intCast(bytes_wide), page);
+    // Whether a push may fault in ahead (`fault_ahead`), so tests `limit`.
+    const steps = how == .reserved and builtin.os.tag == .linux and @sizeOf(T) > 0;
     return struct {
         /// Slot `s` is `slots[s]`. Never null: an optional of a table, or
         /// of an object that holds one, may keep `none` as a null here.
@@ -170,6 +191,9 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         cap: if (how == .committed) usize else void = if (how == .committed) 0 else {},
         /// The leak checker's record of the mapping (`token`).
         token: if (how == .reserved and leak_checked) [*]u8 else void = undefined,
+        /// The `len` at which `push` takes its slow path (`reach`): `n`,
+        /// or below it the slots faulted in ahead so far (`fault_ahead`).
+        limit: if (steps) u64 else void = if (steps) n else {},
 
         const Self = @This();
         pub const __rig_args = .{ T, n };
@@ -186,6 +210,9 @@ pub fn Table(comptime T: type, comptime n: u64) type {
                     const p = reserve(bytes);
                     var t: Self = .{ .slots = @ptrCast(@alignCast(p)) };
                     if (comptime leak_checked) t.token = (rt.allocSlice(u8, 1)).ptr;
+                    if (comptime steps) if (fault_ahead.*) {
+                        t.limit = 0;
+                    };
                     return t;
                 },
                 .made => {
@@ -202,7 +229,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// `n` are pushed. The slot is dropped first, as any store into a
         /// place drops what was there.
         pub fn push(self: *Self, value: T) Index {
-            if (self.len == n) fullPanic(n);
+            if (self.len >= if (comptime steps) self.limit else n) self.reach();
             // `len < n` here, as only `push` raises `len`, and `n - 1`
             // fits `Index`: the cast is exact.
             rt.invariant(self.len < n);
@@ -212,6 +239,34 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             p.* = value;
             self.len += 1;
             return s;
+        }
+
+        /// `push` at `limit`: panics when all `n` are pushed, and otherwise
+        /// faults in the 64 KiB step of the first 2 MiB that slot `len`
+        /// ends in, from its first page, with one `MADV_POPULATE_WRITE`,
+        /// and moves `limit` to the step's end, or to `n` past the first
+        /// 2 MiB. Pages already in, by a plain `t[s] = x`, are left as
+        /// they are; a kernel that refuses it ends the table's steps.
+        noinline fn reach(self: *Self) void {
+            @branchHint(.cold);
+            if (self.len == n) fullPanic(n);
+            if (comptime !steps) unreachable;
+            const head = @min(bytes, huge);
+            const start: usize = @intCast(self.len * @sizeOf(T));
+            const end = start + @sizeOf(T);
+            if (end > head) {
+                self.limit = n;
+                return;
+            }
+            const from = std.mem.alignBackward(usize, start, page);
+            const stop = @min(head, std.mem.alignForward(usize, end, ahead_step));
+            const first: [*]align(page) u8 = @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.slots)) + from));
+            // A kernel before 5.14 refuses it: the table takes no more steps.
+            std.posix.madvise(first, stop - from, madv_populate_write) catch {
+                self.limit = n;
+                return;
+            };
+            self.limit = @min(n, stop / @sizeOf(T));
         }
 
         /// `par.push`'s push of `total` slots at once (`tasks.parPushInto`):
@@ -320,4 +375,64 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             }
         }
     };
+}
+
+/// The bytes of `p[0..len]` in memory, by `mincore`.
+fn residentForTest(p: [*]const u8, len: usize) !usize {
+    var vec: [1024]u8 = undefined;
+    const pages = len / page;
+    if (pages > vec.len) return error.TooLong;
+    const rc: isize = @bitCast(std.os.linux.syscall3(.mincore, @intFromPtr(p), len, @intFromPtr(&vec)));
+    if (rc < 0) return error.NoMincore;
+    var in: usize = 0;
+    for (vec[0..pages]) |v| in += v & 1;
+    return in * page;
+}
+
+test "on Linux with fault_ahead a push faults in the first 2 MiB 64 KiB at a time, and past it a page at a time" {
+    if (builtin.os.tag != .linux or page != 4096) return error.SkipZigTest;
+    const T = Table(u64, 1 << 20);
+    const step = ahead_step / @sizeOf(u64);
+    const head = huge / @sizeOf(u64);
+    fault_ahead.* = false;
+    var off = T.init();
+    defer off.__rig_drop();
+    _ = off.push(1);
+    try std.testing.expectEqual(@as(usize, page), try residentForTest(@ptrCast(off.slots), ahead_step));
+    fault_ahead.* = true;
+    defer fault_ahead.* = false;
+    var t = T.init();
+    defer t.__rig_drop();
+    const base: [*]const u8 = @ptrCast(t.slots);
+    _ = t.push(1);
+    try std.testing.expectEqual(ahead_step, try residentForTest(base, 4 * ahead_step));
+    while (t.len < step) _ = t.push(@intCast(t.len + 1));
+    try std.testing.expectEqual(ahead_step, try residentForTest(base, 4 * ahead_step));
+    _ = t.push(@intCast(t.len + 1));
+    try std.testing.expectEqual(2 * ahead_step, try residentForTest(base, 4 * ahead_step));
+    while (t.len < head) _ = t.push(@intCast(t.len + 1));
+    try std.testing.expectEqual(huge, try residentForTest(base, huge));
+    try std.testing.expectEqual(@as(u64, 1 << 20), t.limit);
+    _ = t.push(@intCast(t.len + 1));
+    for (t.items(), 1..) |v, i| try std.testing.expectEqual(@as(u64, i), v);
+}
+
+test "with fault_ahead a table whose slots cross each 64 KiB step keeps every value pushed" {
+    const S = struct {
+        a: u64 = 0,
+        b: u64 = 0,
+        c: u64 = 0,
+        pub const __rig_repr: rt.Repr = .{ .zeros = true };
+    };
+    const T = Table(S, 200_000);
+    fault_ahead.* = true;
+    defer fault_ahead.* = false;
+    var t = T.init();
+    defer t.__rig_drop();
+    var i: u64 = 0;
+    while (i < 200_000) : (i += 1) _ = t.push(.{ .a = i, .b = i +% 1, .c = ~i });
+    for (t.items(), 0..) |v, k| {
+        try std.testing.expectEqual(@as(u64, k), v.a);
+        try std.testing.expectEqual(~@as(u64, k), v.c);
+    }
 }
