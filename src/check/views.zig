@@ -3512,7 +3512,7 @@ pub fn recordLiteralType(self: *Checker, e: Sexp, target: TypeId) Error!void {
             try recordLiteralType(self, ir.get(e, .left), target);
             if (self.ctx.types.get(target) != .int) return;
             const amount = ir.get(e, .right);
-            const bits = CompatCheck.intBounds(self.ctx.types.get(target).int).bits;
+            const bits = self.ctx.types.get(target).int.width();
             if (ExprCheck.constInt(self, amount)) |v| if (v >= bits) {
                 try self.errAt(amount, "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(target), bits - 1 });
             };
