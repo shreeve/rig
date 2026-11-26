@@ -91,9 +91,10 @@ pub const Module = struct {
     /// key, and the body that names its root, for the self-checking
     /// build's asserts (`placeOf`).
     place_of: sema.FastMap(u64, PlaceAt) = .empty,
-    /// The expression each node was lowered to, and its body, by the
-    /// node's key, where emit reads what lowering decided of it
-    /// (`answersOf`). Kept for emit's lowering alone.
+    /// The expression each node was lowered to, its body, and what
+    /// lowering decided of it, by the node's key (`answersOf`). Kept for
+    /// emit's lowering alone: on no `lir.Func`, so the checkers' lowering
+    /// carries nothing for it.
     at: sema.FastMap(u64, ExprAt) = .empty,
     /// The step of each assignment and binding's declaration, by its
     /// `set`'s key, where emit reads what lowering decided of it
@@ -101,7 +102,7 @@ pub const Module = struct {
     sets: sema.FastMap(u64, StepAt) = .empty,
 
     pub const PlaceAt = struct { f: *const lir.Func, i: u32 };
-    pub const ExprAt = struct { f: *const lir.Func, id: ExprId };
+    pub const ExprAt = struct { f: *const lir.Func, id: ExprId, answers: lir.Answers = .{} };
     pub const StepAt = struct { f: *const lir.Func, r: RegionId, i: u32 };
 
     pub const VarKey = struct { node: u64, kind: StorageKind };
@@ -197,7 +198,7 @@ pub const Module = struct {
     /// lowered.
     pub fn answersOf(m: *const Module, node: Sexp) ?lir.Answers {
         const at = m.at.get(sema.decisionKeyOf(node) orelse return null) orelse return null;
-        return at.f.answersOf(at.id);
+        return at.answers;
     }
 
     /// What emit's lowering decided of assignment or declaration `set`,
@@ -1288,15 +1289,17 @@ const Lowerer = struct {
     fn note(l: *Lowerer, n: Sexp, e: ExprId) Error!void {
         const k = sema.decisionKeyOf(n) orelse return;
         try l.exprs.put(l.gpa, k, e);
-        if (l.opts.checked) return;
-        try l.module.at.put(l.ma, k, .{ .f = l.f, .id = e });
-        try l.decide(n);
+        if (!l.opts.checked) try l.decide(n, k, e);
     }
 
-    /// What emit's lowering decides of node `n`, just lowered, and of the
-    /// operands its form decides of, each kept by its expression.
-    fn decide(l: *Lowerer, n: Sexp) Error!void {
+    /// Where node `n`, of key `k`, was lowered (`e`), and what emit's
+    /// lowering decides of it and of the operands its form decides of,
+    /// each kept by its expression. Out of line, so the checkers'
+    /// lowering pays nothing for it.
+    noinline fn decide(l: *Lowerer, n: Sexp, k: u64, e: ExprId) Error!void {
         const ctx = l.ctx;
+        const gop = try l.module.at.getOrPut(l.ma, k);
+        gop.value_ptr.* = .{ .f = l.f, .id = e };
         try l.answer(n, .hands, storage.handsKind(ctx, n));
         try l.answer(n, .reaches_leaf, storage.reachesLeaf(ctx, n));
         if (n != .list) return;
@@ -1305,6 +1308,8 @@ const Lowerer = struct {
                 try l.answer(operand, .drops_when_tested, storage.dropsWhenTested(ctx, operand));
             },
             .call => {
+                try l.answer(n, .self_hold, storage.selfHold(ctx, n));
+                try l.answer(n, .consumes_self, storage.consumedTemporary(ctx, n) != null);
                 for (ir.Call.args(n)) |a| try l.answer(storage.argValue(a), .argument_hold, storage.argumentHold(ctx, storage.argValue(a)));
                 if (ctx.isPrintCall(n) or storage.stringCall(ctx, n) != null) for (ir.Call.args(n)) |a| {
                     try l.answer(a, .prints_by_address, storage.printsByAddress(ctx, a));
@@ -1328,13 +1333,11 @@ const Lowerer = struct {
         }
     }
 
-    /// Keep `value` as what emit's lowering decides of `node`, by the
-    /// expression it was lowered to.
+    /// Keep `value` as what emit's lowering decides of `node`, where its
+    /// expression is noted (`Module.at`).
     fn answer(l: *Lowerer, node: Sexp, comptime field: std.meta.FieldEnum(lir.Answers), value: @FieldType(lir.Answers, @tagName(field))) Error!void {
-        const id = l.exprOf(node) orelse return;
-        const list = &l.f.answers;
-        if (list.items.len <= id) try list.appendNTimes(l.a, .{}, id + 1 - list.items.len);
-        @field(list.items[id], @tagName(field)) = value;
+        const at = l.module.at.getPtr(sema.decisionKeyOf(node) orelse return) orelse return;
+        @field(at.answers, @tagName(field)) = value;
     }
 
     /// Expression `e`: its operands first, in the tree's order, then the
@@ -2300,9 +2303,6 @@ const Lowerer = struct {
             }
         }
         rec.wrap.folds = callFolds(ctx, c);
-        if (l.opts.checked) return rec;
-        rec.self_hold = storage.selfHold(ctx, c);
-        rec.consumes_self = storage.consumedTemporary(ctx, c) != null;
         return rec;
     }
 
@@ -3062,14 +3062,6 @@ fn checkAnswerFields(m: *const Module) void {
             .match => |c| C.choice(m, f, c),
             else => {},
         };
-        for (f.exprs.items) |e| switch (e) {
-            .op => |x| if (x.kind == .call) {
-                const rec = f.calls.items[x.aux];
-                C.same("self_hold", x.node, rec.self_hold, m.answer(x.node, .self_hold).?);
-                C.same("consumes_self", x.node, rec.consumes_self, m.answer(x.node, .consumes_self).?);
-            },
-            else => {},
-        };
         for (f.vars.items) |v| if (v.name == .binding) {
             C.same("payload_by_address", v.node, v.payload_by_address, m.answer(v.node, .payload_by_address) orelse false);
         };
@@ -3079,7 +3071,7 @@ fn checkAnswerFields(m: *const Module) void {
         const at = en.value_ptr.*;
         const n = notedNode(at.f, at.id);
         if (sema.decisionKeyOf(n) != en.key_ptr.*) std.debug.panic("internal error: lir: node {d} is noted at an expression of node {d}", .{ en.key_ptr.*, sema.decisionKeyOf(n) orelse 0 });
-        const kept = at.f.answersOf(at.id);
+        const kept = at.answers;
         const default: lir.Answers = .{};
         inline for (comptime std.meta.fieldNames(lir.Answers)) |name| {
             const ask = @field(Ask, name);
