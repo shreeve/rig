@@ -8,6 +8,7 @@
 # are the `fail` cases of test/rig/names-name-grid.rig.test, which must be
 # what _name_grid.py --cases writes.
 # timeout: 120
+# cpus: 2
 source "$ROOT/test/cli/_lib.sh"
 
 jobs=2

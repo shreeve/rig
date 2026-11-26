@@ -8,6 +8,7 @@
 # shifts and arithmetic, `lag`, `lookup`), each against its own scalar
 # reference.
 # timeout: 1800
+# cpus: 2
 source "$ROOT/test/cli/_lib.sh"
 
 jobs=2

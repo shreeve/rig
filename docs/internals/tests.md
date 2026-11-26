@@ -177,7 +177,9 @@ holds no CPU of its own: `cpuq run --driver --label rig:test -- swarm
 test/rig.rip -w N`; a build runs as `cpuq run --label rig:build -- zig
 build -j1`. Where cpuq is on `PATH`, each command a case runs is started
 as `cpuq run -- CMD`, so a running case holds one CPU of the pool;
-`RIG_NO_CPUQ=1` starts them plain.
+`RIG_NO_CPUQ=1` starts them plain. A script marked `# cpus: N`, which
+measures work spread over several CPUs, runs plain as well, since one
+pooled CPU cannot show it.
 
 Beside the test files, the runner reads the docs' examples, each
 ```` ```rig ```` block of a Markdown file a case (below), and two
