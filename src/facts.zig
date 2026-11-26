@@ -155,6 +155,12 @@ pub const Facts = struct {
         };
     }
 
+    /// In a self-checking build, that `call`'s LIR record is of
+    /// `kind`, the form emit writes it as (`lower.Module.expectCall`).
+    pub fn expectCall(f: Facts, m: *const Lowered, call: Sexp, kind: lir.CallKind) void {
+        m.expectCall(f.c(), call, kind, "emit");
+    }
+
     fn c(f: Facts) *const SemContext {
         return @ptrCast(@alignCast(f.sema_context));
     }

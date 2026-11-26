@@ -83,6 +83,10 @@ pub const Module = struct {
     /// (`Ask`), by the node's key and the question, encoded: asked as
     /// emit starts on the module (`answerAll`).
     answers: sema.FastMap(AnswerKey, u8) = .empty,
+    /// The record of each call, by the call's key, for the self-checking
+    /// build's asserts that it is what emit and the ownership checker
+    /// decide (`callOf`).
+    calls: sema.FastMap(u64, *const lir.Call) = .empty,
 
     pub const VarKey = struct { node: u64, kind: StorageKind };
 
@@ -197,6 +201,33 @@ pub const Module = struct {
             };
         }
     };
+
+    /// The record of call `node`; null in a build that does not check
+    /// itself, or for a call no body lowered.
+    pub fn callOf(m: *const Module, node: Sexp) ?*const lir.Call {
+        if (!enabled) return null;
+        return m.calls.get(sema.decisionKeyOf(node) orelse return null);
+    }
+
+    /// In a self-checking build, that call `node`'s recorded kind is
+    /// `kind`, the form `consumer` chose for it.
+    pub fn expectCall(m: *const Module, ctx: *const SemContext, node: Sexp, kind: lir.CallKind, consumer: []const u8) void {
+        if (!enabled) return;
+        const c = m.callOf(node) orelse return;
+        if (c.kind == kind) return;
+        const at = diag.lineCol(ctx.source, ctx.startOf(node));
+        std.debug.panic("{s}:{d}:{d}: internal error: lir: a call recorded as `{s}` that {s} writes as `{s}`", .{ ctx.name, at.line, at.col, @tagName(c.kind), consumer, @tagName(kind) });
+    }
+
+    /// In a self-checking build, that `ok` holds of call `node`'s record:
+    /// what the ownership checker decides of the call, `what`.
+    pub fn expectCallFact(m: *const Module, ctx: *const SemContext, node: Sexp, comptime what: []const u8, ok: fn (*const lir.Call) bool) void {
+        if (!enabled) return;
+        const c = m.callOf(node) orelse return;
+        if (ok(c)) return;
+        const at = diag.lineCol(ctx.source, ctx.startOf(node));
+        std.debug.panic("{s}:{d}:{d}: internal error: lir: a call recorded as `{s}`, callee `{s}`, that the ownership checker finds " ++ what, .{ ctx.name, at.line, at.col, @tagName(c.kind), @tagName(c.callee) });
+    }
 
     /// The var of binding `sym`.
     pub fn bindingOf(m: *const Module, sym: SymbolId) ?*const lir.Var {
@@ -396,6 +427,10 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
             .hidden => |k| if (sema.decisionKeyOf(v.node)) |key| try m.vars.put(a, .{ .node = key, .kind = k }, v),
         };
         for (f.regions.items) |r| if (r.kind == .call) try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
+        if (enabled) for (f.exprs.items) |e| switch (e) {
+            .op => |x| if (x.kind == .call) try m.calls.put(a, sema.decisionKeyOf(x.node).?, &f.calls.items[x.aux]),
+            else => {},
+        };
     };
     return m;
 }
@@ -484,9 +519,13 @@ const Lowerer = struct {
     /// The nodes any coercion fact names (`coercibleNodes`): `coerce`
     /// asks its eight questions of these alone.
     coercible: sema.FastMap(u64, void) = .empty,
+    /// The locals a closure literal declares, which hold it in the frame
+    /// (`lir.CallKind.stack_closure`).
+    stack_closures: sema.FastMap(SymbolId, void) = .empty,
 
     fn deinit(l: *Lowerer) void {
         l.scratch.deinit(l.gpa);
+        l.stack_closures.deinit(l.gpa);
         l.coercible.deinit(l.gpa);
         l.temps.deinit(l.gpa);
         l.exprs.deinit(l.gpa);
@@ -1038,6 +1077,7 @@ const Lowerer = struct {
         // The value's temporaries are made before the target's (Core §6).
         const t0 = l.temps.items.len;
         var declared: ?VarId = null;
+        if (declares and value.isKind(.lambda)) try l.stack_closures.put(l.gpa, sym.?, {});
         const target_e = if (declares) blk: {
             declared = try l.bindingVar(target, l.block);
             const e = try l.addExpr(.{ .@"var" = .{ .v = declared.?, .node = target } });
@@ -1321,7 +1361,12 @@ const Lowerer = struct {
         const kids = if (e.kind() == null) e.items() else rig.children(e);
         const args = try l.a.alloc(ExprId, kids.len);
         for (kids, args) |c, *x| x.* = try l.expr(c);
-        const id = try l.addExpr(.{ .op = .{ .node = e, .args = args } });
+        var o: lir.Expr.Op = .{ .node = e, .args = args, .kind = opKind(e) };
+        if (o.kind == .call) {
+            o.aux = @intCast(l.f.calls.items.len);
+            try l.f.calls.append(l.a, l.callRecord(e));
+        }
+        const id = try l.addExpr(.{ .op = o });
         try l.note(e, id);
         try l.temp(e);
         try l.viewRules(e);
@@ -1389,7 +1434,7 @@ const Lowerer = struct {
             l.region(h).value = handled;
         }
         const args = try l.a.dupe(ExprId, &.{ value, try l.addExpr(.{ .block = h }) });
-        const id = try l.addExpr(.{ .op = .{ .node = e, .args = args } });
+        const id = try l.addExpr(.{ .op = .{ .node = e, .args = args, .kind = .@"catch" } });
         try l.note(e, id);
         try l.temp(e);
         try l.viewRules(e);
@@ -1465,7 +1510,7 @@ const Lowerer = struct {
         const args = try l.a.alloc(ExprId, 1 + names.len);
         args[0] = value;
         for (names, args[1..]) |n, *x| x.* = if (try l.bindingVar(n, l.guarded)) |v| try l.addExpr(.{ .@"var" = .{ .v = v, .node = n } }) else try l.expr(n);
-        const id = try l.addExpr(.{ .op = .{ .node = e, .args = args } });
+        const id = try l.addExpr(.{ .op = .{ .node = e, .args = args, .kind = .as } });
         try l.note(e, id);
         try l.temp(e);
         try l.viewRules(e);
@@ -1914,6 +1959,44 @@ const Lowerer = struct {
     // Calls
     // -------------------------------------------------------------------------
 
+    /// The record of call `c`: how its callee is written and its self
+    /// taken; for the checkers, its flags; and for emit, its kind
+    /// (`classifyCall`) and what is opened around it, which the checkers'
+    /// lowering records only in a self-checking build.
+    fn callRecord(l: *Lowerer, c: Sexp) lir.Call {
+        const ctx = l.ctx;
+        const callee = ctx.calleeOf(c);
+        var rec: lir.Call = .{ .kind = .unclassified, .callee = calleeForm(ctx, c, callee) };
+        if (rec.callee == .member) {
+            const obj = ir.Member.object(callee);
+            const explicit = obj.isKind(.write) or obj.isKind(.read);
+            rec.self = .{ .explicit = explicit, .mode = if (obj.isKind(.write)) .write else selfMode(ctx, if (explicit) ir.get(obj, .operand) else obj, callee) };
+        }
+        if (l.opts.checked) {
+            rec.flags = .{
+                .local = ctx.isLocalTask(c),
+                .dense = c == .list and ctx.decides(.dense_calls, c.list.id),
+                .text_only = ctx.isPrintCall(c) or (ctx.stringCallOf(c) orelse ctx.stringCallOf(callee)) != null,
+                .keeps_no_loan = ctx.isActorCall(c) or ctx.selectArmOf(c) != null,
+                .swap = ctx.swapCallOf(c) != null and ir.Call.args(c).len == 2,
+            };
+            if (!enabled) return rec;
+        }
+        rec.kind = classifyCall(ctx, c, &l.stack_closures);
+        rec.wrap.const_maker = ctx.isConstMaker(c);
+        if (c == .list and ctx.decides(.inlined_calls, c.list.id)) {
+            const ty = storage.typeOf(ctx, c);
+            const form = if (ty) |t| ctx.types.get(t) else .unknown;
+            switch (form) {
+                .optional => rec.wrap.rt_optional = true,
+                .fallible => rec.wrap.rt_fallible = true,
+                else => rec.wrap.rt_plain = true,
+            }
+        }
+        rec.wrap.folds = callFolds(ctx, c);
+        return rec;
+    }
+
     /// The region that evaluates the parts call `c` (lowered to `id`)
     /// holds first: `c` becomes a value block that yields the call.
     fn callBlock(l: *Lowerer, c: Sexp, id: ExprId) Error!RegionId {
@@ -1932,6 +2015,9 @@ const Lowerer = struct {
         const ctx = l.ctx;
         const callee = ctx.calleeOf(c);
         const hoists = ctx.elemCallOf(callee) == null and storage.hoistsArgs(ctx, c);
+        // Its record is the last made: its operands' calls were lowered
+        // before it.
+        l.f.calls.items[l.f.calls.items.len - 1].wrap.held = hoists;
         // A temporary array viewed as a slice by a call that evaluates its
         // arguments where they stand is viewed where Zig holds it.
         if (!hoists) for (ir.Call.args(c)) |a| if (ctx.viewsTempArray(storage.argValue(a))) try l.holdVar(storage.argValue(a), .zig_temp, .owned, .statement, null, l.stmt_region);
@@ -2039,6 +2125,208 @@ const Lowerer = struct {
         }
     }
 };
+
+// =============================================================================
+// Operations
+// =============================================================================
+
+/// What the operation of node `e` does, by its form.
+fn opKind(e: Sexp) lir.OpKind {
+    const head = e.kind() orelse return .other;
+    return switch (head) {
+        .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .neg => .arith,
+        .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => .compare,
+        .@"and", .@"or", .not => .logic,
+        .read, .write => .view,
+        .move => .move,
+        .clone => .clone,
+        .weak => .weak,
+        .share => .share,
+        .box => .box,
+        .member => .member,
+        .index => .index,
+        .inst => .inst,
+        .call => .call,
+        .array => .array,
+        .array_fill => .array_fill,
+        .template => .template,
+        .propagate => .propagate,
+        .propagate_none => .propagate_none,
+        .@"??" => .nullish,
+        .@"catch" => .@"catch",
+        .kwarg => .kwarg,
+        .panic => .panic,
+        .results => .results,
+        .enum_lit, .symbol => .literal,
+        .as, .as_results, .as_match, .matches => .as,
+        else => .other,
+    };
+}
+
+/// What call `c` is: the first form of `lir.CallKind` it fits, in the
+/// order emit's call ladder asks (`Emitter.emitCall`, `emitCallDirect`,
+/// `emitTask`, `emitCallArgs`). `stack_closures` are the locals a
+/// closure literal declares.
+pub fn classifyCall(ctx: *const SemContext, c: Sexp, stack_closures: *const sema.FastMap(SymbolId, void)) lir.CallKind {
+    const types = ctx.types;
+    const callee = ctx.calleeOf(c);
+    const ty = storage.typeOf(ctx, c);
+    if (ctx.elemCallOf(callee) != null) return .elem;
+    if (ty) |t| if (types.get(t) == .simd) {
+        const written = ir.Call.callee(c);
+        if (storage.isTypeCallee(ctx, written)) return .simd_conversion;
+        if (ctx.symbolOf(written)) |id| if (ctx.symbols.items[id].kind == .type_alias) return .simd_conversion;
+    };
+    if (ir.Call.task(c) != .nil) return if (ctx.isActorCall(c)) .actor_spawn else .task;
+    if (ctx.builtinOf(c)) |b| return switch (b) {
+        .print => .print,
+        .warn => .warn,
+        .conversion => .conversion,
+        .swap => .swap,
+    };
+    if (storage.stringCall(ctx, c) != null) return .string;
+    if (isAliasCallee(ctx, callee)) {
+        const t = ty orelse return .alias_object;
+        if (sema.isNumeric(ctx, t)) return .alias_conversion;
+        if (types.get(t) == .parameterized_nominal) {
+            const g = types.get(t).parameterized_nominal.sym;
+            if (g == ctx.builtins.list) return .alias_list;
+            if (g == ctx.builtins.signal) return .alias_signal;
+        }
+        return .alias_object;
+    }
+    if (callee.isKind(.enum_lit)) return .variant;
+    if (callee.isKind(.lambda)) return .inline_invoke;
+    if (ctx.dispatchOf(c)) |d| switch (d) {
+        .static => return .witness,
+        .dynamic => return .object,
+        .direct => {},
+    };
+    if (callee == .src) {
+        if (ctx.symbolOf(callee)) |sym| {
+            if (stack_closures.contains(sym)) return .stack_closure;
+            const ref = ctx.ref(sym);
+            if (ref == ctx.builtins.list) return .list;
+            if (ref == ctx.builtins.table) return .table;
+            if (ref == ctx.builtins.signal) return .signal;
+            if (storage.isTypeSym(ctx, sym)) return .constructor;
+        }
+    }
+    if (callee.isKind(.member) and ctx.typeOf(callee) == null) if (ty) |t| {
+        const vname = rig.leafText(ctx.source, ir.Member.name(callee).src);
+        const peeled = sema.unwrapViews(ctx, t);
+        const error_set = types.get(peeled) == .any_error or sema.isErrorSet(ctx, peeled) or sema.isSetParam(ctx, peeled);
+        if (error_set and storage.variantPayload(ctx, t, vname) != null) return .error_member;
+        if (storage.variantPayload(ctx, t, vname) != null) return .variant_member;
+        if (switch (types.get(t)) {
+            .nominal => |r| !ctx.owns(r),
+            else => false,
+        }) return .foreign_object;
+        if (types.get(t) == .parameterized_nominal and storage.isTypeCallee(ctx, callee)) return .instance;
+    };
+    if (storage.typeOf(ctx, callee)) |t| {
+        if (sema.callableFn(ctx, t) != null) return .fn_ref;
+        if (sema.ownedClosureFn(ctx, t) != null) return .closure_handle;
+    }
+    if (ctx.builtinCallOf(callee) != null) return .builtin_method;
+    if (ctx.taskJoinOf(c) != null) return .task_join;
+    if (ctx.isActorCall(c)) return .actor_call;
+    if (ctx.isSelect(c)) return if (selectResult(ctx, ty)) .select_value else .select_into;
+    if (ctx.selectArmOf(c)) |arm| return switch (arm) {
+        .recv => .arm_recv,
+        .send => .arm_send,
+        .after => .arm_after,
+        else => .arm_end,
+    };
+    if (ctx.isHttpServe(c)) return .http_serve;
+    if (ctx.isReduceCall(c)) return .reduce;
+    if (ctx.isIoCopy(c)) return .io_copy;
+    if (ctx.isSuperviseCall(c)) return .supervise;
+    if (ctx.isIsolateCall(c)) return .isolate;
+    if (ctx.parCallOf(c)) |p| return switch (p) {
+        .map => .par_map,
+        .each => .par_each,
+        .workers => .par_workers,
+        .push => .par_push,
+    };
+    if (callee.isKind(.member)) if (storage.typeOf(ctx, ir.Member.object(callee))) |t| {
+        if (isBuiltinInstance(ctx, t, ctx.builtins.tasks) and rig.isWaitMember(callee)) return .wait_all;
+        if (isBuiltinInstance(ctx, t, ctx.builtins.task)) return .wait;
+    };
+    return .plain;
+}
+
+/// How call `c`'s callee is written, as the ownership checker walks it
+/// (`walkCallBody`).
+fn calleeForm(ctx: *const SemContext, c: Sexp, callee: Sexp) lir.Call.Callee {
+    if (callee.isKind(.member)) {
+        const keeps_no_loan = ctx.isActorCall(c) or ctx.selectArmOf(c) != null;
+        if (!keeps_no_loan and !storage.isTypeCallee(ctx, ir.Member.object(callee)) and !storage.hasSelf(ctx, c)) return .field_fn;
+        return .member;
+    }
+    if (callee == .src) return .name;
+    if (callee.isKind(.lambda)) return .lambda;
+    return .other;
+}
+
+/// How method `callee` takes its self `obj`: by value when the self is
+/// taken with `<` or the method's first parameter is an object, as a
+/// write view when that parameter is one, else as a read view.
+fn selfMode(ctx: *const SemContext, obj: Sexp, callee: Sexp) sema.SelfMode {
+    if (obj.isKind(.move)) return .value;
+    if (ctx.typeOf(obj)) |t| if (ctx.types.get(t) == .shared) return .read;
+    const fty = ctx.typeOf(callee) orelse return .read;
+    const f = ctx.types.get(fty);
+    if (f != .function or f.function.params.len == 0) return .read;
+    return switch (ctx.types.get(f.function.params[0])) {
+        .write_view => .write,
+        .nominal, .parameterized_nominal => .value,
+        else => .read,
+    };
+}
+
+/// Whether a duration form of call `c` joins its failure
+/// (`sema.DurationHow.folded`).
+fn callFolds(ctx: *const SemContext, c: Sexp) bool {
+    for (ir.Call.args(c)) |a| {
+        if (ctx.durationOf(storage.argValue(a))) |d| if (d.how == .folded) return true;
+    }
+    if (ctx.callSlotsOf(c)) |slots| for (slots) |sl| switch (sl) {
+        .parts => |p| if (p.how == .folded) return true,
+        else => {},
+    };
+    return false;
+}
+
+/// A callee naming a type alias, this module's or an imported one.
+fn isAliasCallee(ctx: *const SemContext, callee: Sexp) bool {
+    if (callee.isKind(.member)) return if (storage.moduleMemberSym(ctx, callee)) |m| m.kind == .type_alias else false;
+    if (callee != .src) return false;
+    const id = ctx.symbolOf(callee) orelse return false;
+    return ctx.symbols.items[id].kind == .type_alias;
+}
+
+/// Whether a select of result type `ty` gives the value of its own type
+/// (`sema.selectType`), not a select of closures.
+fn selectResult(ctx: *const SemContext, ty: ?TypeId) bool {
+    const t = ty orelse return false;
+    const ok = switch (ctx.types.get(t)) {
+        .fallible => |f| f.ok,
+        else => return false,
+    };
+    return switch (ctx.types.get(ok)) {
+        .nominal => |sym| ctx.owns(sym) and ctx.symbols.items[sym.sym].flags.select_result,
+        else => false,
+    };
+}
+
+/// Whether `ty`, through its views, is an instance of built-in `sym`.
+fn isBuiltinInstance(ctx: *const SemContext, ty: TypeId, sym: sema.SymbolRef) bool {
+    return switch (ctx.types.get(sema.unwrapViews(ctx, ty))) {
+        .parameterized_nominal => |pn| pn.sym == sym,
+        else => false,
+    };
+}
 
 /// An element of the table, List, array, or slice a `for` over a source
 /// of type `ty` walks; null for a byte of text.
