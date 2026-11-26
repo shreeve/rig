@@ -6004,6 +6004,13 @@ at least two chunks of `units.chunk_lines` lines: one unit a chunk, up
 to the cores at hand (`units.count`). `--units=N` sets the count, and
 `--units=1` never splits. A release build is one unit unless `--units`
 says otherwise: a call between units is a call LLVM cannot inline.
+`RIG_UNIT_LAUNCHER`, when set, is a command, split on spaces, that each
+unit's `zig build-obj` runs under (`Env.unitLauncher`): `cpuq run --`
+makes each unit take a CPU of its own from a machine's pool, and the
+compiler knows nothing of the pool. The link, and a build of one unit,
+run Zig directly, and the kept executable's hash leaves the command
+out, so it changes nothing a build writes
+(`test/cli/unit_launcher.sh`).
 
 Every unit compiles the whole package; what differs is its root:
 

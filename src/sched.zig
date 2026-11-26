@@ -1122,6 +1122,10 @@ const Preempt = struct {
     /// or too little stack for the trampoline.
     outside: u64 = 0,
     cramped: u64 = 0,
+    /// Signals that found the stack pointer off the alignment the
+    /// trampoline keeps (`onPreempt`): stopped on x86-64, declined on
+    /// arm64.
+    unaligned: u64 = 0,
     /// The stack pointer the last signal stopped a fiber at, and the most
     /// any stop then took of the fiber's stack, from there to the switch
     /// to the worker's stack: what `preempt_room` has to hold
@@ -1203,13 +1207,15 @@ pub noinline fn holdOn() void {
 const preempt_signal: std.posix.SIG = .URG;
 
 /// The room below the stack pointer a stop needs on the fiber's stack:
-/// the red zone, the trampoline's save of the registers, and the few
+/// the red zone, the stopped instruction's address and, on x86-64, the
+/// 16-byte boundary below it that the trampoline starts at with its two
+/// words (`onPreempt`), the trampoline's save of the registers, and the few
 /// frames that switch to the worker's stack (`preemptSwitch`, `stopIn`,
 /// `switchTo`), which decides there (`afterPreempt`). A debug build's
 /// frames are larger, and `RIG_PREEMPT_TRACE`'s walk runs on the fiber's
 /// stack, so those keep the old 32 KiB.
 const trampoline_room: usize = switch (builtin.cpu.arch) {
-    .x86_64 => 136 + 96 + 64 + std.mem.alignForward(usize, vector_state.size, 64),
+    .x86_64 => 136 + 32 + 96 + 64 + std.mem.alignForward(usize, vector_state.size, 64),
     .aarch64 => 144 + 720,
     else => 0,
 };
@@ -1283,14 +1289,39 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     // pointer, the stopped frame pointer then the stopped pc, as if the
     // stopped instruction had called the trampoline; the 16 bytes of the
     // red zone it covers are kept in a slot below the red zone, which the
-    // trampoline puts back as it returns (`preemptEntryArm`).
-    const ret = sp - red_zone - if (builtin.cpu.arch == .aarch64) 16 else 8;
+    // trampoline puts back as it returns (`preemptEntryArm`). The stack
+    // pointer there is a multiple of 16 wherever code uses it; a stop at
+    // one that is not is declined.
+    //
+    // On x86-64 the stopped stack pointer may be any address: a function
+    // that calls none may move it by any count of bytes (a debug build's
+    // `sub $20, %rsp` for five 4-byte locals). The address goes at
+    // `ret`, 136 bytes below it and as aligned as it is, where the
+    // trampoline's last `retq $128` takes it and leaves the stack pointer
+    // exactly where it was stopped. The trampoline itself starts at the
+    // 16-byte boundary below, on two words: `ret`, which it pops into the
+    // stack pointer before that return, and the address again, aligned,
+    // where an unwinder reads it (`preemptEntryX86`).
     if (builtin.cpu.arch == .aarch64) {
+        if (sp % 16 != 0) {
+            preOf(w).unaligned += 1;
+            declined(w, pc);
+            owe(w);
+            return;
+        }
+        const ret = sp - red_zone - 16;
         const record: *[2]usize = @ptrFromInt(sp - 16);
         @as(*[2]usize, @ptrFromInt(ret)).* = record.*;
         record.* = .{ @as(*const usize, @ptrCast(@alignCast(regs + darwin_fp))).*, pc };
-    } else @as(*usize, @ptrFromInt(ret)).* = pc;
-    sp_at.* = ret;
+        sp_at.* = ret;
+    } else {
+        const ret = sp - red_zone - 8;
+        const entry = std.mem.alignBackward(usize, ret, 16) - 16;
+        if (sp % 8 != 0) preOf(w).unaligned += 1;
+        @as(*align(1) usize, @ptrFromInt(ret)).* = pc;
+        @as(*[2]usize, @ptrFromInt(entry)).* = .{ ret, pc };
+        sp_at.* = entry;
+    }
     pc_at.* = @intFromPtr(&preemptEntry);
     preOf(w).stopped_sp = sp;
 }
@@ -1314,16 +1345,21 @@ const vector_state: struct { size: usize, mask: u32, save: []const u8, restore: 
     };
 };
 
-/// Where a preempted fiber resumes, entered with the program counter it
-/// stopped at on top of its stack, 128 bytes (the red zone) below where
-/// its stack pointer was. On x86-64 it pushes the frame pointer onto it,
-/// making the frame record a call would leave, saves the flags and the
-/// registers a call may change, clears the direction flag, saves the
-/// vector state on a 64-byte boundary (its header zeroed, as `xrstor`
-/// needs), calls `preemptSwitch`, restores all of it, and returns past the
-/// red zone. A walk of frame pointers, and one by its unwind information,
-/// goes on from it into the stopped code: its frame's canonical address
-/// is the stopped stack pointer, and its return address the stopped pc.
+/// Where a preempted fiber resumes, below the red zone of the stack it
+/// stopped on. On x86-64 it is entered on a 16-byte boundary holding two
+/// words (`onPreempt`): where the stopped program counter lies, 136 bytes
+/// below where the stack pointer was, as unaligned as that was, and the
+/// program counter itself. It pushes the frame pointer, making the frame
+/// record a call would leave, saves the flags and the registers a call may
+/// change, clears the direction flag, saves the vector state on a 64-byte
+/// boundary (its header zeroed, as `xrstor` needs), calls `preemptSwitch`,
+/// restores all of it, pops the first word into the stack pointer, and
+/// returns past the red zone, to the stopped stack pointer exactly. A
+/// walk of frame pointers, and one by its unwind information, goes on
+/// from it into the stopped code: its frame's canonical address is the
+/// stopped stack pointer, the first word and 136 (`DW_CFA_def_cfa_expression`),
+/// and its return address the aligned second word (`DW_CFA_expression`),
+/// so an unwinder reads no unaligned word.
 fn preemptEntry() callconv(.naked) void {
     switch (builtin.cpu.arch) {
         .x86_64 => preemptEntryX86(),
@@ -1353,13 +1389,16 @@ inline fn preemptEntryX86() void {
         \\
     , .{vector_state.mask});
     asm volatile (std.fmt.comptimePrint(
-            \\ .cfi_def_cfa %%rsp, 136
-            \\ .cfi_offset %%rip, -136
+            \\ .cfi_escape 0x0f, 0x06, 0x77, 0x00, 0x06, 0x23, 0x88, 0x01
+            \\ .cfi_escape 0x10, 0x10, 0x02, 0x77, 0x08
             \\ pushq %%rbp
-            \\ .cfi_def_cfa_offset 144
-            \\ .cfi_offset %%rbp, -144
+            \\ .cfi_escape 0x0f, 0x06, 0x77, 0x08, 0x06, 0x23, 0x88, 0x01
+            \\ .cfi_escape 0x10, 0x10, 0x02, 0x77, 0x10
+            \\ .cfi_escape 0x10, 0x06, 0x02, 0x77, 0x00
             \\ movq %%rsp, %%rbp
-            \\ .cfi_def_cfa_register %%rbp
+            \\ .cfi_escape 0x0f, 0x06, 0x76, 0x08, 0x06, 0x23, 0x88, 0x01
+            \\ .cfi_escape 0x10, 0x10, 0x02, 0x76, 0x10
+            \\ .cfi_escape 0x10, 0x06, 0x02, 0x76, 0x00
             \\ pushfq
             \\ pushq %%rax
             \\ pushq %%rcx
@@ -1390,7 +1429,12 @@ inline fn preemptEntryX86() void {
             \\ popq %%rax
             \\ popfq
             \\ popq %%rbp
+            \\ .cfi_escape 0x0f, 0x06, 0x77, 0x00, 0x06, 0x23, 0x88, 0x01
+            \\ .cfi_escape 0x10, 0x10, 0x02, 0x77, 0x08
+            \\ .cfi_same_value %%rbp
+            \\ popq %%rsp
             \\ .cfi_def_cfa %%rsp, 136
+            \\ .cfi_offset %%rip, -136
             \\ retq $128
         :
         : [f] "X" (&preemptedC),
@@ -4205,14 +4249,14 @@ fn printStats() void {
     const p = rt.process.* orelse return;
     const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
     if (!std.mem.eql(u8, v, "1")) return;
-    var buf: [320]u8 = undefined;
+    var buf: [384]u8 = undefined;
     if (preempt) if (std.fmt.bufPrint(&buf, "rig: monitor: looked {d} times\n", .{monitor_looks.load(.monotonic)})) |line| {
         _ = std.posix.system.write(2, line.ptr, line.len);
     } else |_| {};
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         const line = (if (preempt)
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, inlined {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.inlined, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, inlined {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room, {d} at an unaligned stack pointer), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.inlined, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).unaligned, preOf(w).deepest, preempt_room })
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, inlined {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.inlined })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
