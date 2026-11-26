@@ -182,9 +182,10 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
     if (top) {
         self.defer_used.clearRetainingCapacity();
         self.uses.clear();
-        try live.indexUses(self, params, false, null);
-        try live.indexUses(self, body, false, null);
-        if (self.on_lir) if (self.lir_body) |b| try lowered.reindexUses(self, b.f, if (name != .nil) name else body);
+        if (self.lir_body) |b| try lowered.indexUses(self, b.f) else {
+            try live.indexUses(self, params, false, null);
+            try live.indexUses(self, body, false, null);
+        }
         self.nll = true;
     }
     defer if (top) {
@@ -417,7 +418,7 @@ pub fn walkUnerased(self: *Checker, e: lowered.Expr) Error!Value {
     };
     // A temporary is taken into its statement's slot: a block or
     // `match` value's tail leaves its scope as it would for a binding.
-    if (lowered.holdsTemp(self, sexp) orelse ctx.dropsTemp(sexp)) {
+    if (ctx.dropsTemp(sexp)) {
         try rules.checkNoImplicitCopy(self, sexp, .binding, false);
         setTail(self, sexp, .binding);
         return holdTemp(self, sexp, try walkList(self, e, kind));
@@ -2952,7 +2953,7 @@ pub fn selfLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
     // A value its statement keeps in a slot (`dropsTemp`), a copy of a
     // branching value's leaf included, is viewed there.
     const ctx = self.sema;
-    if (lowered.holdsTemp(self, base) orelse ctx.dropsTemp(base)) {
+    if (ctx.dropsTemp(base)) {
         const pos = notes.startOf(self, base);
         if (stmtTempAt(self, pos)) |id| return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
     }

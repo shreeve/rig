@@ -938,7 +938,6 @@ pub const ModuleGraph = struct {
         defer if (own_live) own.deinit();
         try own.check(m.ir);
         timing.stop(self.timing, .ownership, t0);
-        try ownership.shadow(self.allocator, m.sema, m.source, m.ir, &own);
         const first: u32 = @intCast(m.sema.diagnostics.items.len);
         // A diagnostic about a node a rewrite wrote (a spread's field read)
         // is at the node's home in the source, as typecheck's are, and
@@ -1157,7 +1156,6 @@ fn hasTypeErrors(items: []const diag.Diagnostic) bool {
     }
     return false;
 }
-
 
 /// Whether a module's tree declares `main`, a program's entry.
 pub fn declaresMain(source: []const u8, tree: parser.Sexp) bool {

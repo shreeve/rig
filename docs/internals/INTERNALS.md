@@ -3330,7 +3330,7 @@ call names the file it calls into (`rules.checkLive(self, ...)`):
 | `generic.zig` | generic bodies: what they require of each instance |
 | `types.zig` | what the checker reads of sema's facts: per type and per expression (CORE §9) |
 | `notes.zig` | messages, and the notes that name both ends of a view |
-| `lowered.zig` | the walk's view of each body's [LIR](#lir), and the shadow that compares the two walks |
+| `lowered.zig` | the walk's view of each body's [LIR](#lir) |
 
 **The walk on LIR.** The checkers' lowering (`lower.Options.checked`)
 lowers every body the checker walks: the module's constants and what
@@ -3345,21 +3345,18 @@ of an expression from the LIR operation made for its node
 (`lowered.Expr`, `lowered.operand`): those of plain operators, `and`
 and `or`, members, indexes, and every operation walked by its
 children. A part a region holds first in a var is walked as the value
-the var holds, where it stands. The walk enters a tree node through
-the body's index of the outermost expression made for each node
-(`lowered.exprAt`). In a self-checking build each module is checked
-twice, the second time with `Checker.on_lir` set, and a module whose
-two walks report other diagnostics is an internal error
-(`ownership.shadow`). The second walk reads from each body's LIR the
-statements of each body and block (its regions'), the symbol of each
-binding it declares (its `lir.Var`'s), the binding each name it reads
-names (the var its use reads, `lir.Expr.var`), which values are
-statement temporaries (the vars its regions declare for them), and the
-uses liveness reads: each name a var is read or dropped at, each
-binding's declaring name, and a pattern's names, which LIR does not
-lower. A body whose uses of a binding that may hold a loan differ from
-its tree's is an internal error. A body or node the LIR does not cover
-is read from the tree.
+the var holds, where it stands. A statement is reached by the
+expression its region evaluates or yields (`lowered.stmtExpr`); an
+`if`, a loop, or a `match` by its LIR step or expression
+(`lowered.controlOf`), whose condition, subject, or source is that
+step's operand, and each of whose branches, arms, and bodies is the
+region made for it (`lowered.partExpr`). The place walker (views,
+moves, slices, takes) and the path of an assignment's target take each
+part as an operand of the part that holds it. The uses liveness reads
+are the LIR's (`lowered.indexUses`): each name a var is read or dropped
+at, each binding's declaring name, and a pattern's names, which LIR
+does not lower. A node no LIR operation reaches is walked from the
+tree (`lowered.exprAt`), as is a body the LIR does not cover.
 
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
 parameter, capture, pattern, loop element) paired with a `Flow`: its
