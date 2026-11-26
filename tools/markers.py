@@ -55,6 +55,8 @@ HELPERS = """DOT: U8 = 0x2E
 ZERO: U8 = 0x30
 NINE: U8 = 0x39
 LOWER_E: U8 = 0x65
+PLUS: U8 = 0x2B
+MINUS: U8 = 0x2D
 
 fun is_digit(b: U8) -> Bool
   b >= ZERO and b <= NINE
@@ -72,6 +74,8 @@ fun number(s: ?String, i: Int) -> Int
       j += 1
   if j < s.len and s[j] == LOWER_E
     j += 1
+    if j < s.len and (s[j] == PLUS or s[j] == MINUS)
+      j += 1
     e = 0
     while j < s.len and is_digit(s[j])
       e = e * 10 + Int(s[j] - ZERO)
@@ -105,6 +109,9 @@ fun doc[dense: Bool](s: ?String) -> Int
       i += 1
     else if b == 0x2C or b == 0x3A
       words += 2
+      i += 1
+    else if b == 0x22
+      words += 1
       i += 1
     else
       words += 1
@@ -277,7 +284,7 @@ def text():
              ["The large marked function's caller computes."], LARGE),
         case("test \"markers inline nest 256 deep\", \"256\"",
              ["Calls of marked `inline` functions nest at most 256 deep",
-              "(`typecheck.max_inline_depth`): Zig analyzes each inlined body inside",
+              "(`accounts.max_inline_depth`): Zig analyzes each inlined body inside",
               "the one around it, and runs out of its own stack some thousands deep.",
               "`main` calls g0, and each marked g_i calls g_(i+1), 256 deep."], chain(256)),
     ]

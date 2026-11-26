@@ -842,6 +842,19 @@ obj Grid
   cells: [1024][1024]Int
   more: [8]Int
 
+sub main()
+  big = [2000000 of 0]
+  print(big.len)
+```
+
+```error
+`Grid` takes 8388672 bytes; a value takes at most 8388608 (8 MiB)
+`[2000000]Int` takes 16000000 bytes
+```
+
+A frame is counted once its module has no other error:
+
+```rig reject
 fun sums(k: Int) -> Int
   a = [800000 of k]
   b = [800000 of k]
@@ -849,14 +862,11 @@ fun sums(k: Int) -> Int
   a[0] + b[0] + c[0]
 
 sub main()
-  big = [2000000 of 0]
-  print(big.len, sums(1))
+  print(sums(1))
 ```
 
 ```error
-`Grid` takes 8388672 bytes; a value takes at most 8388608 (8 MiB)
 `sums` keeps 19200008 bytes of values on its stack; a function keeps at most 13631488 (13 MiB)
-`[2000000]Int` takes 16000000 bytes
 ```
 
 ### Slices

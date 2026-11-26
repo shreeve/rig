@@ -5998,14 +5998,20 @@ fail "marker main rarely", "4:3: `main` is the program's entry point, which the 
     rarely
     0
 
-fail "mask size", "6:9: `[140000]Simd[Bool, 64]` takes 8960000 bytes; a value takes at most 8388608 (8 MiB)", "9:5: `two` keeps 14400136 bytes of values on its stack; a function keeps at most 13631488 (13 MiB)"
+fail "mask size", "6:9: `[140000]Simd[Bool, 64]` takes 8960000 bytes; a value takes at most 8388608 (8 MiB)"
   # A mask of more than 16 lanes takes a byte a lane, as it is held (a
-  # narrower one a bit a lane), so the 8 MiB limit on a value and the 13 MiB
-  # limit on a function's frame count its bytes.
+  # narrower one a bit a lane), so the 8 MiB limit on a value counts its
+  # bytes.
 
   obj Flags
     rows: [140000]Simd[Bool, 64]
     n: Int
+
+  print(1)
+
+fail "mask frame size", "4:5: `two` keeps 14400136 bytes of values on its stack; a function keeps at most 13631488 (13 MiB)", errors: 1
+  # The 13 MiB limit on a function's frame counts a wide mask's bytes too:
+  # a frame is counted once its module has no other error.
 
   fun two(i: Int) -> Bool
     a = [112500 of Simd[Bool, 64].splat(false)]
