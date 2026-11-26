@@ -35,6 +35,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │    typecheck src/typecheck.zig   every expression's type and facts
   │    cteval    src/cteval.zig      compile-time functions, run in the checker
   │  lower       src/lower.zig     each body's LIR (src/lir.zig): order, hidden storage, drops
+  │  accounts    src/accounts.zig  each frame's values, reach, and operations, on its LIR
   │  ownership   src/ownership/    moves, loans, drops, aliasing
   │  proofs      src/proofs.zig    the tests known to pass
   ▼
@@ -231,6 +232,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/storage.zig` | the storage deciders: pure functions of the typing facts that say which hidden storage emit makes, and how, which lowering and emit ask |
 | `src/ownership.zig`, `src/ownership/` | the ownership checker, one file per part of the Core ([Ownership](#ownership)) |
 | `src/program.zig` | the program table: every decision made once for the whole program after every module is checked (inlined functions and calls, entry checks, dense calls, functions that never return, split units, word-held objects, exact enums' tags, text tables), keyed by module and place, which the graph owns (`ModuleGraph.table`), every module's context points at, and `Facts` reads; `ModuleGraph.decide` runs the deciders in order, and the word-held and exact-enum deciders live here |
+| `src/accounts.zig` | each frame owner's account: the values its frame keeps, its reach, and its operations, counted by one walk of its LIR once the module is lowered |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/returns.zig` | which functions never return, emitted with the Zig result `noreturn`, decided once for the whole program after every module is checked (Emit, "Functions that never return") |
 | `src/units.zig` | a split build: how many units a program is built as, and which unit owns each function it cuts, decided once for the whole program ([Split builds](#split-builds)) |
@@ -2077,7 +2079,7 @@ source order.
 | `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
 | `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `held_header` | `__rig_header` | a parameter holding a write view of a `String`, or of a `List` with no inline room, which the body uses in a loop: its header, held for the body and written back by `defer`, which the parameter's name views (`Lowerer.heldHeaders`); none where a task, a closure, or a `raw` block names the parameter, or the result holds a view | copy | block |
-| `task_record` | `__rig_task` | a fork: the record of a task made by `t = f(x)&`, an assignment written `=` that declares a fresh name in a block, not through an actor's handle, that stays in its maker's frame (`storage.taskStaysInFrame`, `storage.taskRecordIn`). Every later naming of `t` in the block is the task of `>t`, the self of `<t.cancel()`, or a read view `?t`, outside every closure, so its drop, which waits, runs before the block ends; any other naming (a move, `return`, a `Tasks` add, a stored field, a closure's capture, an assignment) keeps it off, as does a record (header, arguments, and result) over `max_frame_task_bytes`, 1 KiB. The record counts in the frame (`typecheck.checkFrames`, `storage.taskRecordIn`); emit makes it in the slot, `var __rig_task_N = rig.Task(T).frame.spawn(f, .{ x })`, which records the fork on its fiber (`Fiber.fork`), and the binding starts it there, `t = __rig_task_N.start()` (`sched.startAt`) | owned | block |
+| `task_record` | `__rig_task` | a fork: the record of a task made by `t = f(x)&`, an assignment written `=` that declares a fresh name in a block, not through an actor's handle, that stays in its maker's frame (`storage.taskStaysInFrame`, `storage.taskRecordIn`). Every later naming of `t` in the block is the task of `>t`, the self of `<t.cancel()`, or a read view `?t`, outside every closure, so its drop, which waits, runs before the block ends; any other naming (a move, `return`, a `Tasks` add, a stored field, a closure's capture, an assignment) keeps it off, as does a record (header, arguments, and result) over `max_frame_task_bytes`, 1 KiB. The record counts in the frame (`accounts.count`, from the `task_record` var); emit makes it in the slot, `var __rig_task_N = rig.Task(T).frame.spawn(f, .{ x })`, which records the fork on its fiber (`Fiber.fork`), and the binding starts it there, `t = __rig_task_N.start()` (`sched.startAt`) | owned | block |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array passed to a call as a view that evaluates its arguments where they stand (`viewsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
@@ -2570,18 +2572,25 @@ itself, at each instance (`checkInstanceSizes`). A type reported too
 large goes into `oversized`, and `minBytes` of anything holding it is
 null, so it is reported once. After the bodies are checked,
 `typecheck.recordFrameOwners` lists the frame owners
-([Frame owners](#frame-owners)), and `typecheck.checkFrames` sums each
-owner's frame against `sema.max_frame_bytes` (13 MiB): each binding and by-value parameter at its declaration, and
-each array literal, fill, and call that is not a `set`'s value; a
-closure's captures count in the enclosing frame. This count is a limit
+([Frame owners](#frame-owners)). Once the module is lowered,
+`accounts.count` walks each owner's LIR, in the order it runs, and sums
+its frame against `sema.max_frame_bytes` (13 MiB): each binding a region
+declares and each by-value parameter, a fork's record (`task_record`),
+and each array literal, fill, and call whose value no binding or place
+takes; a closure's captures count in the enclosing frame. A module with
+an error is not lowered, so its frames are counted once it has no other
+error, and the instances it makes have their frames checked after its
+LIR is counted (`checkInstanceFrames`). This count is a limit
 on how a program keeps its data; safety rests on the frame's *reach*
 ([The program's stack](#the-programs-stack)). The same walk adds a copy
 of every value of more than `sema.register_bytes` (16) that the code
-makes or copies (`FrameWalker.copy`): every expression but, by a
+makes or copies (`Walker.copy`): every expression but, by a
 positive list (`copiedIn`), a callee, an assignment's target, one viewed
-where it is used, and the base of a field or element path or the operand
+where it is used, a part held in a var first (counted once, where the
+var is read), and the base of a field or element path or the operand
 of a view that is storage (`storage.hasStorage`) or reached where its
-leaf is (`storage.reachesLeaf`); a self a method takes by value
+leaf is (`storage.reachesLeaf`). A `match`'s patterns make no value and
+count nothing. A self a method takes by value
 counts again, and a view its context reads through (`readsThrough`)
 counts at the size of what it views. A fill built in place
 (`storage.fillsInPlace`) is neither a temporary nor a copy. Code Zig
@@ -5272,10 +5281,10 @@ and a query that decides more than that is a recorded fact.
   declaration by the same position (`inline_decls`).
 
   What a marked function lands in a caller is counted once, in the
-  module that declares it (`inlineFrame`, at the end of `checkFrames`):
+  module that declares it (`inlineFrame`, at the end of `accounts.count`):
   its own values and copies, and those of the marked functions it calls,
   each substituted at its call, over its own and its type's parameters.
-  The frame walker of every owner adds, at each recorded call, that frame
+  The frame count of every owner adds, at each recorded call, that frame
   imported into the caller's module and substituted at the call's
   instance, each slot marked: the owner's account keeps them apart as
   its `marked` part ([Frame owners](#frame-owners)), and the frame check
@@ -5304,10 +5313,13 @@ and a query that decides more than that is a recorded fact.
 
   Without a marker, a function is inlined when
 
-  - its body has at most `inlining.max_size` (60) nodes, counting each
-    form of the tree once (a call, an operator, a binding, an `if`),
-    which std.json's helpers (`string`, `plain`, `key`, `close`,
-    `literal`, 27 to 50) fit and larger ones in that parser do not;
+  - its body runs at most `inlining.max_size` (60) operations, counted
+    on its LIR by the frame count's walk (`FrameOwner.ops`): each step
+    but a region, each operation (a call, an operator; a keyword
+    argument as its value), each coercion and hold, each branch,
+    choice, and closure. A `match`'s patterns are no operations: Zig
+    tests them in one switch. std.json's helpers (`string`, `plain`,
+    `key`, `close`, `literal`) fit, and larger ones in that parser do not;
   - it is on no cycle of calls, directly or through others, its
     declaration's calls counted for every instance (the yield checks
     tell instances apart, [the scheduler](scheduler.md), "Recursion");
@@ -5326,7 +5338,7 @@ and a query that decides more than that is a recorded fact.
     instance. One no instance the program makes binds is a frame Zig
     never writes, and holds the rule to nothing (`compiled` is false);
     one whose instances made no count is unknown, never none;
-  - its reach (`checkFrames`), with the inlined calls in it, is at most
+  - its reach (`accounts.count`), with the inlined calls in it, is at most
     64 KiB, and no frame owner ([Frame owners](#frame-owners)) gets more
     than that added by the inlined calls in it, each counted at every
     call and every copy Zig writes of the call
@@ -5344,7 +5356,7 @@ and a query that decides more than that is a recorded fact.
     values are the account's marked part, which typecheck counted, so
     `decide` counts them nowhere else;
   - with the inlined calls in it, each counted at every call site, it
-    expands to at most `inlining.max_expanded` (320) nodes, so a chain of
+    expands to at most `inlining.max_expanded` (300) operations, so a chain of
     functions that each call the next twice does not have Zig analyze the
     innermost 2^n times. A function called from one place only, in a
     function with compile-time values, is exempt from this limit: each
@@ -6313,24 +6325,24 @@ Typecheck also records what each call reaches where it resolves it
 (`SemContext.callTargetOf`): a function by its symbol, a method by its
 self's type, or none.
 
-`checkFrames`, `inlining.decide`, and `rig check --facts=frames` iterate
+`accounts.count`, `inlining.decide`, and `rig check --facts=frames` iterate
 this list and read `ownerOf`; none of them finds an owner or attributes
 a call itself. Each owner has one account (`sema.Account`,
 `SemContext.account`):
 
-- **own:** its values, as `checkFrames` counts them, or for a generic
+- **own:** its values, as `accounts.count` counts them, or for a generic
   owner the largest of its instances'; unknown (null) where no count
   knows them, which is unbounded and fails every limit;
 - **marked:** the values and reach the calls of functions marked
   `inline` land in it, each at the instance its call makes and at every
-  copy Zig writes of the call (`checkFrames`, slots tagged `marked`);
+  copy Zig writes of the call (`accounts.count`, slots tagged `marked`);
   for a generic owner, what the largest of its instances' frames adds
   to `own`;
 - **auto:** the frames of the functions the rule inlines into it, each
   at every call and every copy of the call, those it inlines into a
   marked function the owner calls included.
 
-`checkFrames` holds own + marked to `sema.max_frame_bytes` and their
+`accounts.count` holds own + marked to `sema.max_frame_bytes` and their
 reach to `sema.max_frame_reach`. `inlining.decide` fills `auto` and
 keeps it within 64 KiB (`max_inlined_frame_bytes`), own + marked + auto
 within `sema.max_frame_bytes`, and (own reach + marked reach + auto)
@@ -6432,7 +6444,7 @@ larger than the guard that overflows the stack makes its first access
 past it in the guard, and the access faults. That is what holds.
 
 That every frame is smaller than the guard is a measured bound, not a
-proven one. `checkFrames` holds a frame's reach to `sema.max_frame_reach`
+proven one. `accounts.count` holds a frame's reach to `sema.max_frame_reach`
 (512 MiB, half the smallest guard), a function with a large reach is
 never inlined, so no two such frames merge, and a function, a closure's
 body, or a `drop` body large with the calls inlined into it is marked so
