@@ -155,8 +155,8 @@ pub const Module = struct {
         const a = m.answers.get(.{ .key = sema.decisionKeyOf(node) orelse return null, .ask = ask }) orelse return null;
         return switch (@typeInfo(Answer(ask))) {
             .bool => a != 0,
-            .@"enum" => @enumFromInt(a),
-            .optional => |o| if (a == no_answer) @as(Answer(ask), null) else @as(o.child, @enumFromInt(a)),
+            .@"enum" => @fromBackingInt(@intCast(a)),
+            .optional => |o| if (a == no_answer) @as(Answer(ask), null) else @as(o.child, @fromBackingInt(@intCast(a))),
             .@"struct" => @bitCast(a),
             else => comptime unreachable,
         };
@@ -2855,8 +2855,8 @@ const no_answer = 255;
 fn encode(comptime ask: Ask, a: Answer(ask)) u8 {
     return switch (@typeInfo(Answer(ask))) {
         .bool => @intFromBool(a),
-        .@"enum" => @intFromEnum(a),
-        .optional => if (a) |v| @intFromEnum(v) else no_answer,
+        .@"enum" => @backingInt(a),
+        .optional => if (a) |v| @backingInt(v) else no_answer,
         .@"struct" => @bitCast(a),
         else => comptime unreachable,
     };

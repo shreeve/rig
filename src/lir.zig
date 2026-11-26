@@ -140,7 +140,7 @@ pub const OpKind = enum(u8) {
     /// `.variant` and `:symbol`.
     literal,
     /// `v as name`, `f() as a, b`, and the `match` tests of a condition.
-    @"as",
+    as,
     /// Any other operation: its node says what it is.
     other,
 };
