@@ -2265,7 +2265,7 @@ ownership checker accepted (`ModuleGraph.check` runs it only on a
 `.checked` module), records which of a node's tests already passed
 (`SemContext.provenOf`, a `sema.Proven`): a guard or a check that ran made
 the same test on every path to the node, and nothing it named was
-written between. Emit reads it through `Facts.provenOf` and writes the
+written between. Emit reads it as the node fact `provenOf` and writes the
 operation without those tests:
 
 ```text
@@ -3190,7 +3190,7 @@ behind the table as a List's elements are, and `push` is a write call
 on it. Which slots are written is a fact: `Checker.requireAccess`, which
 every write of a place passes, records each table index on the written
 place's path (`Facts.table_writes`), and emit reaches those with `slot` and
-every other slot with `constSlot` or `at` (`Facts.isTableWrite`), so a
+every other slot with `constSlot` or `at` (the node fact `isTableWrite`), so a
 table held as it is written never grows for a read. It is not cloned
 (`deepCloneable`), and it is no field's default
 (`Checker.checkDefaultValue`): a Zig field default is a constant, and a
@@ -4887,7 +4887,7 @@ A new reader takes the steps from `eachSetStep` and the held storage
 from `setOrder`, and decides neither again.
 
 **The fact: `old_nones`** (`SemContext.recordOwnership`, read by emit as
-`Facts.oldIsNone`). An assignment to a field whose old value moves
+the node fact `oldIsNone`). An assignment to a field whose old value moves
 drops it through the slot, unless the ownership checker knows the
 field holds `none` there. Each var's flow keeps the optional fields
 known to hold `none` (`Flow.nones`): `<p.f` adds one (`markNone`), a
@@ -4976,15 +4976,21 @@ value that moves where lowering decides it (its var's `drop`,
 makes no decision with a classifier the checkers also call: a unit test
 of `facts.zig` reads `emit.zig` with Zig's tokenizer and fails if emit
 imports any other file of the compiler, reaches the context behind
-`Facts`, or asks whether a type moves. A method of `Facts` that takes a
-node reads a record: the facts table, or the storage facts. A second unit test reads `facts.zig` the same way and
-fails on such a method that calls a function of `storage` or `sema`
-instead, but for a listed few that combine recorded facts by the node's
-shape without a classifier of their own (`stmtTemps` and `firstStmtTemp`
-list the `dropsTemp` facts in the order the IR makes them; `selfOf`,
-`argParams`, and `selfWrites` read `callParamsOf`; `isNoneLeaf`,
-`stringCall`, and `isTypeCallee` read symbols); the list only shrinks,
-and a query that decides more than that is a recorded fact.
+`Facts`, or asks whether a type moves. Emit asks a node fact as
+`facts.node(.viewOf, e)` and how a type or symbol is held as
+`facts.layout(.viewHeldAsPointer, ty)`, each answered by the
+`SemContext` method, or the `sema` or `storage` function, of that name;
+it may ask only what `Facts.node_facts` and `Facts.layouts` list, which
+a compile error enforces. A node fact, and a method of `Facts` that
+takes a node, reads a record: the facts table, or the storage facts. A
+second unit test reads `facts.zig` the same way and fails on such a
+method that calls a function of `storage` or `sema` instead, or on a
+node fact no `SemContext` method answers, but for a listed few that
+combine recorded facts by the node's shape without a classifier of
+their own (`selfOf`, `argParams`, and `selfWrites` read
+`callParamsOf`; `isNoneLeaf`, `stringCall`, and `isTypeCallee` read
+symbols); the list only shrinks, and a query that decides more than
+that is a recorded fact.
 
 - **Names.** One function decides how a Rig name becomes a Zig name,
   `rig.writeZigIdent`, and every declaration and every use of a name
@@ -5078,7 +5084,7 @@ and a query that decides more than that is a recorded fact.
   bound as it is.
 - **Optionals.** A `T?` is Zig's `?T`, written with `?`, `null`,
   `orelse`, and `if (x) |v|`, unless its representation may differ
-  from that, which `Facts.optionalRouted` decides once per payload
+  from that, which the layout `optionalRouted` decides once per payload
   type (`sema.optionalRouted`): a type parameter's `T?`, whose
   instance decides, every object's and payload enum's, and an optional
   of any of these. Such an
