@@ -2218,7 +2218,11 @@ ladder asks (`lower.classifyCall`), how its callee is written and its
 self taken, what emit opens around it (a maker checked as Rig
 compiles, a `call` region, a run-time result, a joined failure), and
 its flags (a local or dense task, a text-only call, a call whose
-result keeps no loan, a swap). In a self-checking build, emit asserts
+result keeps no loan, a swap). Each lowering records what its reader
+takes: emit's the kind and what is opened around the call, the
+checkers' the flags, both the callee and the self; the checkers'
+lowering classifies the call too in a self-checking build, where
+`rig check` pays for it. In a self-checking build, emit asserts
 at each rung of its ladder, and the ownership checker at each form of
 callee it walks, that the record says what they chose.
 `rig check --facts=lir` prints the root module's LIR, each call with
