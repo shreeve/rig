@@ -1598,7 +1598,7 @@ that is no plain data is usable within its arm only
 reads): the ownership checker gives it
 a loan on a hidden var of the arm (`Var.arm_of`), which ends with the
 arm. Every such subject that makes a header temporary is also rejected
-where it copies (`rejectHeaderCopy`).
+where it copies (`lower.Lowerer.headerCopy`).
 
 A held header is rejected, conservatively, where its value could not
 be held for the construct: when the made value makes a statement
@@ -1628,7 +1628,7 @@ construct takes its subject (`<p`, a `match` that takes it), walks a
 slice, or matches a view a call returns, which is held as the pointer it
 is. Emit reads the fact and fails if its own shape disagrees. A header
 that copies is rejected at the temporary, whatever it binds and of
-whatever type (`rejectHeaderCopy`), with "bind the index (the argument,
+whatever type, as the module is lowered (`lower.Lowerer.headerCopy`), with "bind the index (the argument,
 `e`) to a name first", since a write or a view, a plain-data
 catch-all's included, would reach the copy, except a value
 made there, which no name holds, of which the construct binds plain
@@ -1697,7 +1697,7 @@ instead of re-deriving it by name:
 | `isMemberTest(node)` | whether `x == K.name` or `x == .name` tests which variant or member `x` holds, so emit tests the tag alone and needs no `==` on the payloads |
 | `isFrozenMake(call)`, `isLocalTask(call)` | whether a call is `Frozen(x)` under `*`, which emit writes as `rig.frozen(x)`; and whether the task a call makes is local, pinned to one thread ([What crosses to a task](#what-crosses-to-a-task)) |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
-| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
+| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`lower.Lowerer.headerCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?String]` binds a `?String`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `storage.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary viewed for reading or to write. The ownership checker holds it in a hidden var named by its source, that what reads it views (to write, under `!`: `writeViewTemp`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, or, for a temporary lowering found made before anything its statement does can act (`lower.Module.isFlat`: every part before it only reads, and its value changes nothing they read), `slot = value; flag = true;` ahead of the statement, which reads `slot`; and it drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
@@ -2109,9 +2109,9 @@ records over the whole module), so its drop is armed behind an alive
 flag the move clears. Whether a binding has an alive flag is this fact; how emit
 spells and names the flag is printing. Whether an assignment drops the
 value it replaces is `SetOrder.drops_old`. Two kinds are facts the
-facts table already keeps: `temp` is `dropsTemp` and `header_copy` is `copiesHeader`, which
-typecheck records where it decides them (`Facts.temp_drops`,
-`rejectHeaderCopy`). Bookkeeping that holds no value of the program is
+facts table already keeps: `temp` is `dropsTemp`, which typecheck records where it decides it
+(`Facts.temp_drops`), and `header_copy` is `copiesHeader`, which
+lowering records (`lower.Lowerer.headerCopy`). Bookkeeping that holds no value of the program is
 not storage: alive and `else` flags, a loop's index counter, a guarded
 match's arm number, labels, and renamed parameters.
 
@@ -2184,8 +2184,8 @@ needs no walk of its own. Owned storage of a construct (`held`,
 `taken`, the consuming `for`'s) is the hidden var the construct already
 takes its value into; pointers are loans on what they point at; a
 statement's temporaries are `dropsTemp`'s. Of the copies, a header
-that binds one is rejected where typecheck records it
-(`rejectHeaderCopy`), unless it binds plain data of a value made there;
+that binds one is rejected where lowering records it
+(`lower.Lowerer.headerCopy`), unless it binds plain data of a value made there;
 a read match's
 payload view of a copy lives for its arm (`arm_view`); a `payload` copy only copies
 fields out, and an `error_value` is the failure's own error, which the
@@ -4401,7 +4401,7 @@ L_res: {                         // the loop's block: what its header holds, a `
 | body end | the body's scope pops: its defers and drops run, its loans end | the end of `L_body` |
 | step | walked after the body scope pops (`walkStep`): in the bindings' scope when it reads a binding, else after it pops | a statement after `L_body` in the innermost `if`, or the loop's continue expression, which Zig runs after the `if`s end |
 | back edge | `exitTo` the loop's entry, joined into the head | the end of the Zig loop's body |
-| `continue` | where its `JumpDest` says: `step` from the body, to the step's point (`step_point`) when the step runs after the body, or else to the entry then the step; `head` from the step, to the entry; from the condition, `step`, to the entry through a step that is the continue expression (the type checker rejects one where the step runs after the body, which it would skip, leaving what the step reads unbound) | `break :L_body`; `break :L_step` out of the step's block; `continue :L` |
+| `continue` | where its `JumpDest` says: `step` from the body, to the step's point (`step_point`) when the step runs after the body, or else to the entry then the step; `head` from the step, to the entry; from the condition, `step`, to the entry through a step that is the continue expression (lowering rejects one where the step runs after the body, which it would skip, leaving what the step reads unbound: `lower.Lowerer.stepBindings`) | `break :L_body`; `break :L_step` out of the step's block; `continue :L` |
 | `break`, `break x` | joined after the loop; `x`, a `loop`'s value, consumed like a returned value | `break :L_res x`, or `break :L` when the loop gives no value |
 
 **Where the step runs** is the decision `step_point`

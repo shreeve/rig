@@ -2270,6 +2270,7 @@ pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .member_compares = .{ .key = .raw },
     .embeds = .{ .writer = .modules },
     .old_nones = .{ .writer = .ownership },
+    .header_copies = .{ .writer = .lower },
     .once_captures = .{ .key = .raw },
     .const_ints = .{ .key = .raw },
     .const_floats = .{ .key = .raw },
@@ -5550,6 +5551,12 @@ pub const SemContext = struct {
     pub fn fieldMoves(self: *const SemContext, sym: SymbolId) []const []const u8 {
         const paths = self.field_moves.getPtr(sym) orelse return &.{};
         return paths.items;
+    }
+
+    /// Header `node` binds a copy of its subject, as lowering finds it
+    /// (`lower.Lowerer.headerCopy`).
+    pub fn recordHeaderCopy(self: *SemContext, node: Sexp) std.mem.Allocator.Error!void {
+        try self.putIn(.lower, .header_copies, recordKey(node), {});
     }
 
     pub fn copiesHeader(self: *const SemContext, node: Sexp) bool {

@@ -2403,7 +2403,7 @@ pub fn sliceArgRejected(self: *Checker, e: Sexp, actual: TypeId, expected: TypeI
     const target = liftTarget(self, expected);
     const owns = switch (self.ctx.types.get(target)) {
         .array => |arr| arr.elem == elem,
-        else => CompatCheck.listElementType(self.ctx, target) == elem,
+        else => sema.listElem(self.ctx, target) == elem,
     };
     if (!owns) return false;
     try self.errAt(e, "{s} takes a `{s}`, which owns its elements, and `{s}` only views `{s}`'s", .{ callee, try self.tyName(expected), shown, object });

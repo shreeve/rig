@@ -348,7 +348,7 @@ pub fn checkListConstruction(self: *Checker, call: Sexp, list_ty: TypeId) Error!
     var seen: ?u32 = null;
     const args = ir.Call.args(call);
     if (args.len == 1 and !args[0].isKind(.kwarg)) {
-        _ = try listFromElems(self, args[0], CompatCheck.listElementType(self.ctx, list_ty));
+        _ = try listFromElems(self, args[0], sema.listElem(self.ctx, list_ty));
         return;
     }
     for (args) |a| {

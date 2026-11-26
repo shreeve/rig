@@ -69,7 +69,7 @@ pub fn memberOf(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!TypeId
             return self.t().invalid_id;
         },
         .array, .slice, .string_view, .static, .string => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
-        .parameterized_nominal => if ((CompatCheck.listElementType(self.ctx, peeled) != null or sema.tableElem(self.ctx, peeled) != null or CompatCheck.cellListElement(self.ctx, peeled) != null or sema.isTaskSet(self.ctx, peeled)) and std.mem.eql(u8, field, "len")) return self.t().int_id,
+        .parameterized_nominal => if ((sema.listElem(self.ctx, peeled) != null or sema.tableElem(self.ctx, peeled) != null or CompatCheck.cellListElement(self.ctx, peeled) != null or sema.isTaskSet(self.ctx, peeled)) and std.mem.eql(u8, field, "len")) return self.t().int_id,
         .type_var => {
             try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
             return self.t().invalid_id;
@@ -108,7 +108,7 @@ pub fn memberOf(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!TypeId
         // An element method named without its call.
         const has_elems = switch (self.ctx.types.get(peeled)) {
             .array, .slice, .string_view, .static => true,
-            else => CompatCheck.listElementType(self.ctx, peeled) != null,
+            else => sema.listElem(self.ctx, peeled) != null,
         };
         if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn() and !op.isFloat() and op != .hash and op != .order) {
             const shown = switch (op) {
@@ -948,7 +948,7 @@ pub fn indexInto(self: *Checker, e: Sexp, obj_ty: TypeId) Error!TypeId {
         },
         // A List's element is a place, as a field is: what its context
         // does with it is checked where it is used.
-        .parameterized_nominal => if (CompatCheck.listElementType(self.ctx, peeled)) |elem| {
+        .parameterized_nominal => if (sema.listElem(self.ctx, peeled)) |elem| {
             return elem;
         } else if (CompatCheck.cellListElement(self.ctx, peeled)) |elem| {
             if ((try ViewCheck.cannotCopy(self, elem, self.startOf(object), "reads an element of a Cell's List"))) {
@@ -969,7 +969,7 @@ pub fn integerIndexed(self: *Checker, obj_ty: TypeId) bool {
     const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
     return switch (self.ctx.types.get(peeled)) {
         .array, .slice, .string_view, .static => true,
-        .parameterized_nominal => CompatCheck.listElementType(self.ctx, peeled) != null or CompatCheck.cellListElement(self.ctx, peeled) != null,
+        .parameterized_nominal => sema.listElem(self.ctx, peeled) != null or CompatCheck.cellListElement(self.ctx, peeled) != null,
         else => false,
     };
 }
@@ -1080,7 +1080,7 @@ pub fn tableIndex(self: *Checker, index: Sexp, table: TypeId, elem: TypeId) Erro
 /// The element of List `peeled` (the type of `object`), sliced. Null
 /// after a diagnostic.
 pub fn listSliceElem(self: *Checker, object: Sexp, obj_ty: TypeId, peeled: TypeId) Error!?TypeId {
-    const elem = CompatCheck.listElementType(self.ctx, peeled) orelse {
+    const elem = sema.listElem(self.ctx, peeled) orelse {
         try self.errAt(object, "cannot slice a value of type `{s}`; slice a `?String`, an array, a List, or a `[]T`", .{try self.tyName(obj_ty)});
         return null;
     };
@@ -4355,11 +4355,11 @@ pub fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Se
                 return skipCall(self, args);
             }
         }
-        const has_len = CompatCheck.listElementType(self.ctx, peeled) != null or switch (self.ctx.types.get(peeled)) {
+        const has_len = sema.listElem(self.ctx, peeled) != null or switch (self.ctx.types.get(peeled)) {
             .string_view, .static, .array, .slice => true,
             else => false,
         };
-        if (CompatCheck.listElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
+        if (sema.listElem(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
             try self.err(pos, "a List has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
         } else if (has_len and std.mem.eql(u8, method, "len")) {
             try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try ViewCheck.plainText(self, CompatCheck.stripSigil(obj)) });

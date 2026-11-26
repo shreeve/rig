@@ -502,31 +502,6 @@ pub fn makesTemps(self: *Checker, node: Sexp, base: Sexp) bool {
     return false;
 }
 
-/// Header `node` (a `match`, a `for`, or an `as`) over `subject` that
-/// makes a statement temporary (`sema.firstStmtTemp`) is evaluated by
-/// emit in a block that ends the temporary. The block yields the
-/// address of a place the subject reaches (`storage.headerPoints`),
-/// and the construct binds the place's own, as it would with no
-/// temporary. It yields the value of any other subject, and what the
-/// construct binds is in that copy, which is recorded (the storage
-/// fact `header_copy`) for emit. A header that copies is rejected at
-/// the temporary, whatever it binds: a write, a Cell change, or a
-/// view, a catch-all's of plain data included, would reach the copy.
-/// A value made here, which no name holds, is the construct's own: it
-/// binds plain data of it by copy, which is what the copy holds.
-pub fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, bound: TypeId) Error!void {
-    const temp = sema.firstStmtTemp(self.ctx, subject) orelse return;
-    if (storage.headerPoints(self.ctx, storage.headerSubject(node))) return;
-    try self.ctx.record(.header_copies, node, {});
-    if (self.isPoison(bound)) return;
-    if (ViewCheck.hands(self, subject).kind == .made and sema.holdsNoLoanButText(self.ctx, sema.unwrapViews(self.ctx, bound))) return;
-    if (CompatCheck.inIndex(subject, temp)) {
-        try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first", .{});
-    } else if (CompatCheck.inArgument(subject, temp)) {
-        try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the argument to a name first", .{});
-    } else try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind `{s}` to a name first", .{CallCheck.sourceText(self, temp)});
-}
-
 /// The temporary place `e` reads into, where `e` is a field or
 /// element path, or a view, of one (`mk().e`, `?mk()`).
 pub fn tempBase(self: *Checker, e: Sexp) ?Sexp {
