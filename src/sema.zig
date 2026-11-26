@@ -12779,10 +12779,11 @@ pub const floatToNs = @import("runtime.zig").floatToNs;
 /// How a duration form becomes its value (docs/design/datetime.md
 /// §5.2), decided once by the checker on a positive list: `total`, a form
 /// that cannot fail (a constant it checked, a `Duration`, an `Int` of a
-/// unit below a second, `rig.durationInt`); `clamped`, in a wait,
-/// which waits as long as the scheduler can (`rig.durationIntClamp`);
-/// `folded`, into a call that returns `!`, whose failure the conversion
-/// joins with the callee's own `range` and `invalid` (`rig.durationIntTry`).
+/// unit below a second); `clamped`, in a wait, which waits as long as
+/// the scheduler can; `folded`, into a call that returns `!`, whose
+/// failure the conversion joins with the callee's own `range` and
+/// `invalid`. The runtime's `durationInt`, `durationFloat`, and
+/// `durationSum` take it as their last argument (`rig.durationAs`).
 pub const DurationHow = union(enum) {
     total,
     clamped,
