@@ -112,6 +112,23 @@ pub const Module = struct {
         m.owners[i].func = null;
         m.constants = null;
         _ = m.consts.reset(.free_all);
+        if (enabled) m.readMaps();
+    }
+
+    /// Read every entry of every module map, as a self-checking build
+    /// does once the constants are freed: there their arena takes its
+    /// memory from the page allocator (`lowerModule`), which unmaps it,
+    /// so a map grown in it faults here on every system.
+    fn readMaps(m: *const Module) void {
+        var n: usize = 0;
+        const info = @typeInfo(Module).@"struct";
+        inline for (info.field_names, info.field_types) |name, T| {
+            if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "iterator") and @hasDecl(T, "KV")) {
+                var it = @field(m, name).iterator();
+                while (it.next()) |_| n += 1;
+            }
+        }
+        std.mem.doNotOptimizeAway(n);
     }
 
     /// The hidden var of `kind` made for `node`.
@@ -319,7 +336,9 @@ fn fieldMove(ctx: *SemContext, node: Sexp) !void {
 
 /// Lower every body of module `tree`.
 pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: Options) !Module {
-    var m: Module = .{ .arena = .init(gpa), .consts = .init(gpa) };
+    // A self-checking build gives the constants' arena pages of its own,
+    // unmapped when it is freed (`Module.readMaps`).
+    var m: Module = .{ .arena = .init(gpa), .consts = .init(if (enabled) std.heap.page_allocator else gpa) };
     errdefer m.deinit();
     const a = m.arena.allocator();
     // Each frame owner, then each compile-time function, whose body the
@@ -335,7 +354,7 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
     }
     m.owners = owners.items;
     for (m.owners, 0..) |o, i| try m.roots.put(a, sema.decisionKeyOf(o.root).?, @intCast(i));
-    var l: Lowerer = .{ .a = a, .gpa = gpa, .ctx = ctx, .module = &m, .opts = opts };
+    var l: Lowerer = .{ .a = a, .ma = a, .gpa = gpa, .ctx = ctx, .module = &m, .opts = opts };
     defer l.deinit();
     try l.coercibleNodes();
     for (m.owners, 0..) |o, i| {
@@ -416,7 +435,13 @@ pub fn writeModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, w: *std
 const Error = error{ OutOfMemory, Uncovered };
 
 const Lowerer = struct {
+    /// Holds the current body: the module's constants have an arena of
+    /// their own, freed once the checker has walked them
+    /// (`Module.dropConstants`).
     a: std.mem.Allocator,
+    /// Holds the module's maps, which outlive any one body: never the
+    /// constants' arena.
+    ma: std.mem.Allocator,
     /// Holds the lowerer's own maps, and the list each body's
     /// expressions grow in, which an arena would move each time it
     /// cannot grow it in place (`scratch`, `seal`).
@@ -538,7 +563,7 @@ const Lowerer = struct {
         const moved = try l.addExpr(l.f.exprs.items[e]);
         l.f.exprs.items[e] = .{ .@"var" = .{ .v = v, .node = node } };
         try l.step(in, .{ .bind = .{ .v = v, .value = moved } });
-        if (!l.opts.checked) try l.module.held.put(l.a, sema.decisionKeyOf(node).?, .{ .f = l.f, .at = moved });
+        if (!l.opts.checked) try l.module.held.put(l.ma, sema.decisionKeyOf(node).?, .{ .f = l.f, .at = moved });
     }
 
     /// Lowering the module's compile-time body, which only the checkers
@@ -741,9 +766,9 @@ const Lowerer = struct {
     fn checkTemps(l: *Lowerer, s: Sexp, first: usize) Error!void {
         const have = l.temps.items[first..];
         if (have.len > 0 and !l.inConstants()) {
-            const nodes = try l.a.alloc(Sexp, have.len);
+            const nodes = try l.ma.alloc(Sexp, have.len);
             for (have, nodes) |v, *n| n.* = l.f.vars.items[v].node;
-            try l.module.temps.put(l.a, sema.decisionKeyOf(s).?, nodes);
+            try l.module.temps.put(l.ma, sema.decisionKeyOf(s).?, nodes);
         }
         if (!enabled) return;
         var want: std.ArrayList(Sexp) = .empty;
@@ -839,7 +864,7 @@ const Lowerer = struct {
                     switch (l.f.vars.items[h.v].name) {
                         .hidden => |k| switch (k) {
                             .temp => if (!w.changesAny(h.value, w.read.items[0..before])) {
-                                try l.module.flat.put(l.a, sema.decisionKeyOf(l.f.vars.items[h.v].node).?, {});
+                                try l.module.flat.put(l.ma, sema.decisionKeyOf(l.f.vars.items[h.v].node).?, {});
                                 // Made ahead of the statement, it is no
                                 // longer among the parts before the rest.
                                 w.read.shrinkRetainingCapacity(before);
@@ -1288,7 +1313,7 @@ const Lowerer = struct {
             const inner = try l.addExpr(l.f.exprs.items[id]);
             l.f.exprs.items[id] = .{ .coerce = .{ .node = e, .how = &kept[i], .value = inner } };
         }
-        if (!l.opts.checked) try l.module.places.put(l.a, key, .{ .f = l.f, .at = id });
+        if (!l.opts.checked) try l.module.places.put(l.ma, key, .{ .f = l.f, .at = id });
     }
 
     /// The operation of `e` over its children, then the vars it makes.
@@ -1988,7 +2013,7 @@ const Lowerer = struct {
 
     fn leaf(l: *Lowerer, e: Sexp) Error!void {
         const how = storage.leafStep(l.ctx, e);
-        if (!l.inConstants()) if (sema.decisionKeyOf(e)) |key| try l.module.answers.put(l.a, .{ .key = key, .ask = .leaf_step }, encode(.leaf_step, how));
+        if (!l.inConstants()) if (sema.decisionKeyOf(e)) |key| try l.module.answers.put(l.ma, .{ .key = key, .ask = .leaf_step }, encode(.leaf_step, how));
         switch (how) {
             .place, .part, .view, .jump => {},
             .made => if (!l.ctx.dropsTemp(e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),
