@@ -408,9 +408,10 @@ out=$(emit chain.rig)
 expect_has "$out" 'pub inline fn f0(' "the innermost of a chain"
 expect_has "$out" 'pub fn f' "a function that would expand too far is called"
 
-# Callees are judged before their callers: a small function that calls the
-# top of that chain, declared before it, is inlined, since the chain's
-# upper functions are called and add nothing to its expansion.
+# Callees are judged before their callers: the chain is called at one
+# link, the first that would expand too far, and the links above it are
+# small again; a small function that calls its top, declared before it,
+# is inlined.
 {
     echo 'fun top(n: Int) -> Int'
     echo '  f12(n) + 1'
@@ -428,7 +429,8 @@ expect_has "$out" 'pub fn f' "a function that would expand too far is called"
 } >chaintop.rig
 out=$(emit chaintop.rig)
 expect_has "$out" 'pub inline fn top(' "a small function that calls a chain too large to inline"
-expect_has "$out" 'pub fn f12(' "the top of the chain"
+expect_has "$out" 'pub fn f7(' "the one link of the chain that is called"
+expect_has "$out" 'pub inline fn f12(' "the top of the chain"
 
 # A small entry that calls a large function inlines, and the large one is
 # not inlined back into it: the size rule measures each body as written,
@@ -558,7 +560,7 @@ expect_has "$out" 'pub fn down(' "recursion through an instance"
     for name in once twice plain; do
         echo
         echo "fun $name(n: Int) -> Int"
-        echo '  leaf(n) + leaf(n + 1) + leaf(n + 2) + leaf(n + 3) + leaf(n + 4) + leaf(n + 5) + leaf(n + 6) + leaf(n + 7)'
+        echo '  leaf(n) + leaf(n + 1) + leaf(n + 2) + leaf(n + 3) + leaf(n + 4) + leaf(n + 5) + leaf(n + 6) + leaf(n + 7) + leaf(n + 8)'
     done
     echo
     echo 'fun inst[b: Bool](n: Int) -> Int'
