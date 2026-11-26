@@ -119,43 +119,6 @@ pub fn madeOf(self: *const Checker, lv: lir.VarId) ?state.VarId {
     return if (id == none or id >= self.vars.items.len) null else id;
 }
 
-/// The region of `kind` expression `e` is, under its coercions, holds,
-/// and view sigils, whose node is `e`'s: a header's that ends its
-/// temporaries, or the one a call holds its parts in.
-pub fn regionOf(self: *const Checker, e: Expr, kind: lir.Region.Kind) ?lir.RegionId {
-    const b = self.lir_body orelse return null;
-    var key = sema.decisionKeyOf(e.node) orelse return null;
-    var id = e.id orelse return null;
-    while (true) switch (b.f.exprs.items[id]) {
-        .coerce => |c| id = c.value,
-        .op => |o| {
-            if (o.kind != .view or o.args.len != 1) return null;
-            key = sema.decisionKeyOf(ir.get(o.node, .operand)) orelse return null;
-            id = o.args[0];
-        },
-        .hold => |h| id = h.value,
-        .@"var" => |x| id = hoistedOf(b, x.v) orelse return null,
-        .block => |r| {
-            const reg = &b.f.regions.items[r];
-            if (sema.decisionKeyOf(reg.node) != key) return null;
-            if (reg.kind == kind or (kind == .call and reg.kind == .value)) return r;
-            id = reg.value orelse return null;
-        },
-        else => return null,
-    };
-}
-
-/// The region of statement `e`, which holds its temporaries: its own,
-/// or, for a condition walked as a statement, its header's.
-pub fn stmtRegion(self: *const Checker, e: Expr) ?lir.RegionId {
-    const b = self.lir_body orelse return null;
-    if (e.r) |r| {
-        const reg = &b.f.regions.items[r];
-        if (reg.kind == .stmt and sema.decisionKeyOf(reg.node) == sema.decisionKeyOf(e.node)) return r;
-    }
-    return regionOf(self, e, .header);
-}
-
 /// The checker vars made since var `mark` for the hidden vars region `r`
 /// declares, newest first, that are still held: those a call holds
 /// (`call`), or a statement's. Leaving `r` ends them, so none is made
@@ -190,26 +153,47 @@ fn endsHere(self: *const Checker, b: *const Body, lv: lir.VarId, mark: state.Var
     return id;
 }
 
-/// The checker vars that end where header `e` ends (`endsOf`): its
-/// header region's, or, for a range, each bound's, the last one's first.
-pub fn headerEnds(self: *Checker, e: Expr, mark: state.VarId) Error![]const state.VarId {
-    if (regionOf(self, e, .header)) |r| return endsOf(self, r, mark, false);
+/// The checker vars made since `mark` that end where expression `e`
+/// ends (`endsOf`): those of the region it is, under its coercions,
+/// holds, and a view sigil, of kind `kind` (a header that ends its
+/// temporaries, or the region a call holds its parts in); for a header
+/// that is a range, each bound's, the last one's first.
+pub fn endsAt(self: *Checker, e: Expr, mark: state.VarId, kind: lir.Region.Kind) Error![]const state.VarId {
     const b = self.lir_body orelse return &.{};
-    const o = switch (b.f.exprs.items[e.id orelse return &.{}]) {
-        .op => |o| o,
+    var id = e.id orelse return &.{};
+    while (true) switch (b.f.exprs.items[id]) {
+        .coerce => |c| id = c.value,
+        .hold => |h| id = h.value,
+        .@"var" => |x| id = hoistedOf(b, x.v) orelse return &.{},
+        .block => |r| {
+            const reg = &b.f.regions.items[r];
+            if (reg.kind == kind or (kind == .call and reg.kind == .value)) return endsOf(self, r, mark, kind == .call);
+            id = reg.value orelse return &.{};
+        },
+        .op => |o| if (o.kind == .view and o.args.len == 1) {
+            id = o.args[0];
+        } else if (kind == .header and o.node.isKind(.@"..")) {
+            var out: std.ArrayList(state.VarId) = .empty;
+            var i = o.args.len;
+            while (i > 0) {
+                i -= 1;
+                try out.appendSlice(bodyArena(self, b), try endsAt(self, .{ .node = .nil, .id = o.args[i] }, mark, kind));
+            }
+            return out.items;
+        } else return &.{},
         else => return &.{},
     };
-    if (!o.node.isKind(.@"..")) return &.{};
-    var out: std.ArrayList(state.VarId) = .empty;
-    var i = o.args.len;
-    while (i > 0) {
-        i -= 1;
-        switch (b.f.exprs.items[o.args[i]]) {
-            .block => |r| if (b.f.regions.items[r].kind == .header) try out.appendSlice(bodyArena(self, b), try endsOf(self, r, mark, false)),
-            else => {},
-        }
+}
+
+/// The checker vars made since `mark` that end with statement `e`:
+/// those of its own region, or, for a condition walked as a statement,
+/// its header's.
+pub fn stmtEnds(self: *Checker, e: Expr, mark: state.VarId) Error![]const state.VarId {
+    if (e.r) |r| {
+        const reg = &self.lir_body.?.f.regions.items[r];
+        if (reg.kind == .stmt and sema.decisionKeyOf(reg.node) == sema.decisionKeyOf(e.node)) return endsOf(self, r, mark, false);
     }
-    return out.items;
+    return endsAt(self, e, mark, .header);
 }
 
 /// Node `node`, which the walk reaches with no LIR expression made for
