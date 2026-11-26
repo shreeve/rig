@@ -1,5 +1,5 @@
 #!/bin/sh
-# usage: build.sh native|generic   (builds with 2 jobs, or $CPUQ_CORES)
+# usage: build.sh native|generic   (builds with 2 jobs)
 set -e
 B=$(cd "$(dirname "$0")" && pwd)
 case "$1" in
@@ -7,7 +7,7 @@ case "$1" in
   generic) unset RUSTFLAGS; export CARGO_TARGET_DIR="$B/target-generic" ;;
   *) echo "usage: $0 native|generic" >&2; exit 2 ;;
 esac
-export CARGO_BUILD_JOBS="${CPUQ_CORES:-2}"
+export CARGO_BUILD_JOBS=2
 for c in serde_default serde_fr simdjson sonic; do
-  (cd "$B/$c" && cargo build --release -j "${CPUQ_CORES:-2}")
+  (cd "$B/$c" && cargo build --release -j 2)
 done

@@ -172,7 +172,12 @@ waits only for its own pack. Each job checks one case and lands in
 `done/` or, with its reason in `errors.log`, in `died/`. Swarm runs a
 job per CPU at once (`-w N` chooses another number; more than the CPUs
 is slower, as each job waits on a process of its own), and each job's
-time goes to `.swarm/times`.
+time goes to `.swarm/times`. Under cpuq the suite runs as a driver, which
+holds no CPU of its own: `cpuq run --driver --label rig:test -- swarm
+test/rig.rip -w N`; a build runs as `cpuq run --label rig:build -- zig
+build -j1`. Where cpuq is on `PATH`, each command a case runs is started
+as `cpuq run -- CMD`, so a running case holds one CPU of the pool;
+`RIG_NO_CPUQ=1` starts them plain.
 
 Beside the test files, the runner reads the docs' examples, each
 ```` ```rig ```` block of a Markdown file a case (below), and two
