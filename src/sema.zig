@@ -13360,19 +13360,6 @@ pub fn stmtTemps(ctx: *const SemContext, a: std.mem.Allocator, stmt: Sexp, out: 
     if (ctx.dropsTemp(stmt)) try out.append(a, stmt);
 }
 
-/// The values statement `stmt` erases to API objects that view a copy
-/// (`Erasure.copy`), in its headers and arms too, but not in the blocks or
-/// closures it holds, whose statements are emitted on their own: emit
-/// declares the slot of each before the statement, a local of its block
-/// (`Emitter.emitErasedSlots`).
-pub fn stmtErasedCopies(ctx: *const SemContext, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    if (ctx.facts.erasures.count() == 0) return;
-    if (stmt.isKind(.block) or stmt.isKind(.lambda)) return;
-    if (ctx.erasureOf(stmt)) |e| if (e.copy) try out.append(a, stmt);
-    if (stmt != .list) return;
-    for (stmt.items()) |c| try stmtErasedCopies(ctx, a, c, out);
-}
-
 /// Whether a view of type `ty` is held as a pointer: a write view (but
 /// a `![]T`, a slice), or a read view of a value that is not viewed by
 /// value (`viewByValue`).

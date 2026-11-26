@@ -2738,11 +2738,11 @@ pub const Emitter = struct {
     }
 
     /// Declare a slot for each copy an API object in statement `stmt`
-    /// views (`sema.stmtErasedCopies`), before the statement, so it lives
-    /// to its block's end: `var __rig_erased_3: Point = undefined;`.
+    /// views (`erasedCopies`), before the statement, so it lives to its
+    /// block's end: `var __rig_erased_3: Point = undefined;`.
     fn emitErasedSlots(self: *Emitter, stmt: Sexp) Error!void {
         var nodes: std.ArrayList(Sexp) = .empty;
-        try self.facts.stmtErasedCopies(self.arena.allocator(), stmt, &nodes);
+        try self.erasedCopies(stmt, &nodes);
         for (nodes.items) |n| {
             const key = erasedKey(n) orelse continue;
             if (self.erasedSlot(n) != null) continue;
@@ -2756,11 +2756,21 @@ pub const Emitter = struct {
     }
 
     /// Whether statement `stmt` erases a value to an API object of a copy
-    /// (`sema.stmtErasedCopies`), whose slot a block declares.
+    /// (`erasedCopies`), whose slot a block declares.
     fn hasErasedCopies(self: *Emitter, stmt: Sexp) Error!bool {
         var nodes: std.ArrayList(Sexp) = .empty;
-        try self.facts.stmtErasedCopies(self.arena.allocator(), stmt, &nodes);
+        try self.erasedCopies(stmt, &nodes);
         return nodes.items.len > 0;
+    }
+
+    /// The values of statement `e` that an API object views a copy of,
+    /// each held in an `erased_copy` var (`sema.Erasure.copy`), outside
+    /// the blocks and closures it holds, whose statements are emitted on
+    /// their own.
+    fn erasedCopies(self: *Emitter, e: Sexp, out: *std.ArrayList(Sexp)) Error!void {
+        if (e.isKind(.block) or e.isKind(.lambda)) return;
+        if (self.varOf(e, .erased_copy) != null) try out.append(self.arena.allocator(), e);
+        if (e == .list) for (e.items()) |c| try self.erasedCopies(c, out);
     }
 
     fn erasedSlot(self: *Emitter, n: Sexp) ?[]const u8 {
