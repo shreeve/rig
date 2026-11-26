@@ -2738,41 +2738,41 @@ pub fn classifyCall(ctx: *const SemContext, c: Sexp, stack_closures: *const sema
 pub fn checkedCall(ctx: *const SemContext, c: Sexp) lir.Call {
     const callee = ctx.calleeOf(c);
     var rec = callShape(ctx, c, callee);
-    rec.flags = .{
-        .local = ctx.isLocalTask(c),
-        .dense = c == .list and ctx.decides(.dense_calls, c.list.id),
-        .text_only = ctx.isPrintCall(c) or (ctx.stringCallOf(c) orelse ctx.stringCallOf(callee)) != null,
-        .keeps_no_loan = ctx.isActorCall(c) or ctx.selectArmOf(c) != null,
-        .swap = ctx.swapCallOf(c) != null and ir.Call.args(c).len == 2,
-    };
+    rec.flags.text_only = ctx.isPrintCall(c) or (ctx.stringCallOf(c) orelse ctx.stringCallOf(callee)) != null;
+    rec.flags.swap = ctx.swapCallOf(c) != null and ir.Call.args(c).len == 2;
+    if (!callee.isKind(.member)) rec.flags.keeps_no_loan = keepsNoLoan(ctx, c);
     return rec;
 }
 
-/// How call `c` is written: its callee's form, and how a method takes
-/// its self.
+/// How call `c` is written, as the ownership checker walks it
+/// (`walkCallBody`): its callee's form, and how a method takes its
+/// self. A method call's `keeps_no_loan` is decided here, where its
+/// callee's form needs it.
 fn callShape(ctx: *const SemContext, c: Sexp, callee: Sexp) lir.Call {
-    var rec: lir.Call = .{ .kind = .unclassified, .callee = calleeForm(ctx, c, callee) };
-    if (rec.callee == .member) {
+    var rec: lir.Call = .{ .kind = .unclassified, .callee = .other };
+    if (callee.isKind(.member)) {
         const obj = ir.Member.object(callee);
-        const explicit = obj.isKind(.write) or obj.isKind(.read);
         // A type or a module named before the function is no self:
         // it has no value (`storage.isTypeCallee`).
-        if (!storage.isTypeCallee(ctx, obj)) rec.self = .{ .explicit = explicit, .mode = if (obj.isKind(.write)) .write else selfMode(ctx, if (explicit) ir.get(obj, .operand) else obj, callee) };
+        const type_callee = storage.isTypeCallee(ctx, obj);
+        rec.flags.keeps_no_loan = keepsNoLoan(ctx, c);
+        rec.callee = if (!rec.flags.keeps_no_loan and !type_callee and !storage.hasSelf(ctx, c)) .field_fn else .member;
+        if (!type_callee) {
+            const explicit = obj.isKind(.write) or obj.isKind(.read);
+            rec.self = .{ .explicit = explicit, .mode = if (obj.isKind(.write)) .write else selfMode(ctx, if (explicit) ir.get(obj, .operand) else obj, callee) };
+        }
+    } else if (callee == .src) {
+        rec.callee = .name;
+    } else if (callee.isKind(.lambda)) {
+        rec.callee = .lambda;
     }
     return rec;
 }
 
-/// How call `c`'s callee is written, as the ownership checker walks it
-/// (`walkCallBody`).
-fn calleeForm(ctx: *const SemContext, c: Sexp, callee: Sexp) lir.Call.Callee {
-    if (callee.isKind(.member)) {
-        const keeps_no_loan = ctx.isActorCall(c) or ctx.selectArmOf(c) != null;
-        if (!keeps_no_loan and !storage.isTypeCallee(ctx, ir.Member.object(callee)) and !storage.hasSelf(ctx, c)) return .field_fn;
-        return .member;
-    }
-    if (callee == .src) return .name;
-    if (callee.isKind(.lambda)) return .lambda;
-    return .other;
+/// Whether call `c`'s result keeps no loan: an actor's call or a
+/// select's arm.
+fn keepsNoLoan(ctx: *const SemContext, c: Sexp) bool {
+    return ctx.isActorCall(c) or ctx.selectArmOf(c) != null;
 }
 
 /// How method `callee` takes its self `obj`: by value when the self is
