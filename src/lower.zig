@@ -702,7 +702,7 @@ const Lowerer = struct {
             const l = w.l;
             switch (l.f.exprs.items[id]) {
                 .leaf => {},
-                .@"var" => |v| try w.read.append(l.gpa, v),
+                .@"var" => |u| try w.read.append(l.gpa, u.v),
                 .op => |o| {
                     const kind = o.node.kind();
                     // A `catch`, and a `!` in a function with no slot of
@@ -767,8 +767,8 @@ const Lowerer = struct {
             const f = w.l.f;
             return switch (f.exprs.items[id]) {
                 .leaf => false,
-                .@"var" => |v| switch (f.vars.items[v].name) {
-                    .binding => |sym| w.l.ctx.mayMove(sym) and std.mem.indexOfScalar(VarId, vars, v) != null,
+                .@"var" => |u| switch (f.vars.items[u.v].name) {
+                    .binding => |sym| w.l.ctx.mayMove(sym) and std.mem.indexOfScalar(VarId, vars, u.v) != null,
                     .hidden => false,
                 },
                 .op => |o| blk: {
@@ -790,7 +790,7 @@ const Lowerer = struct {
         fn rootVar(w: *const Flat, id: ExprId) ?VarId {
             const f = w.l.f;
             return switch (f.exprs.items[id]) {
-                .@"var" => |v| v,
+                .@"var" => |u| u.v,
                 .op => |o| if (o.args.len > 0 and (o.node.kind() == .member or o.node.kind() == .index or o.node.kind() == .paren)) w.rootVar(o.args[0]) else null,
                 .coerce => |c| w.rootVar(c.value),
                 else => null,
