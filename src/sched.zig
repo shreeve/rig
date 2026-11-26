@@ -85,7 +85,7 @@ pub const Fiber = struct {
     dense: bool = false,
     /// It is a fork: a task made by `t = f(x)&` that the compiler found
     /// stays in its maker's frame and is waited for there
-    /// (`lower.taskRecordIn`, `tasks.Task(T).frame`). The
+    /// (`storage.taskStaysInFrame`, `tasks.Task(T).frame`). The
     /// preemption monitor leaves it to the slice (`watchSlices`).
     fork: bool = false,
     /// How many tasks it made took a full "run next" slot and moved the
