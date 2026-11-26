@@ -412,8 +412,9 @@ test "on Linux with fault_ahead a push faults in the first 2 MiB 64 KiB at a tim
     try std.testing.expectEqual(2 * ahead_step, try residentForTest(base, 4 * ahead_step));
     while (t.len < head) _ = t.push(@intCast(t.len + 1));
     try std.testing.expectEqual(huge, try residentForTest(base, huge));
-    try std.testing.expectEqual(@as(u64, 1 << 20), t.limit);
+    // The first push past the first 2 MiB ends the steps.
     _ = t.push(@intCast(t.len + 1));
+    try std.testing.expectEqual(@as(u64, 1 << 20), t.limit);
     for (t.items(), 1..) |v, i| try std.testing.expectEqual(@as(u64, i), v);
 }
 
