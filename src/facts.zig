@@ -85,8 +85,6 @@ pub const Header = sema.Header;
 pub const Lowered = lowering.Module;
 pub const Coercion = @import("lir.zig").Coercion;
 pub const liftLevels = @import("lir.zig").liftLevels;
-pub const Ask = lowering.Ask;
-pub const Answer = lowering.Answer;
 pub const Hands = sema.Hands;
 pub const StorageKind = storage.StorageKind;
 pub const StorageBy = storage.StorageBy;
@@ -491,16 +489,12 @@ pub const Facts = struct {
     pub fn hasTextTable(f: Facts, sym: SymbolId) bool {
         return f.c().decides(.text_tables, sym);
     }
-    /// The module's bodies lowered, with emit's questions answered: tree
-    /// `module` is the module's. Sema lowered them for its checks and
-    /// freed them once they finished; emit lowers each module again as
-    /// it writes it.
+    /// The module's bodies lowered, with what lowering decides for emit:
+    /// tree `module` is the module's. Sema lowered them for its checks
+    /// and freed them once they finished; emit lowers each module again
+    /// as it writes it.
     pub fn lower(f: Facts, gpa: std.mem.Allocator, module: Sexp, strict_optionals: bool) !Lowered {
-        const ctx = @constCast(f.c());
-        var m = try lowering.lowerModule(gpa, ctx, module, .{ .strict_optionals = strict_optionals });
-        errdefer m.deinit();
-        try lowering.answerAll(&m, ctx, module);
-        return m;
+        return lowering.lowerModule(gpa, @constCast(f.c()), module, .{ .strict_optionals = strict_optionals });
     }
     /// The value a constant pattern compares with (`sema.patternConst`).
     pub fn patternConst(f: Facts, pattern: Sexp) ?sema.ConstScalar {
@@ -934,16 +928,13 @@ test "Facts reads the leaf walk lowering decided" {
     var reached: usize = 0;
     var made: usize = 0;
     for (nodes.items) |n| {
-        // Decided for every expression.
-        if (n == .src or (n == .list and n.list.id != 0)) {
-            const r = lowered.answer(n, .reaches_leaf) orelse return error.TestUnexpectedResult;
-            if (r) reached += 1;
-        }
-        if (lowered.answer(n, .leaf_step)) |step| if (step == .made) {
+        const d = lowered.answersOf(n) orelse continue;
+        if (d.reaches_leaf) reached += 1;
+        if (d.leaf_step == .made) {
             made += 1;
             // Reached where Zig holds it: its LIR has a var for it.
             try std.testing.expectEqual(StorageBy.owned, (lowered.varOf(n, .zig_temp) orelse return error.TestUnexpectedResult).by);
-        };
+        }
     }
     // `r if k else mkr(5)`, with `mkr(5)` made there.
     try std.testing.expectEqual(1, reached);
@@ -979,17 +970,17 @@ test "Facts reads every match decision the plan made" {
     var matches: usize = 0;
     for (nodes.items) |n| if (n.isKind(.match)) {
         matches += 1;
-        try std.testing.expectEqual(MatchMode.read, lowered.answer(n, .match_mode).?);
+        const answers = lowered.choiceOf(n).?.answers;
+        try std.testing.expectEqual(MatchMode.read, answers.mode);
         // A name's value is matched where it is.
-        try std.testing.expect(lowered.answer(n, .matches_in_place).?);
-        try std.testing.expect(lowered.answer(n, .match_block).?);
-        try std.testing.expect(lowered.answer(n, .match_rereads) != null);
+        try std.testing.expect(answers.in_place);
+        try std.testing.expect(answers.block);
         for (ir.Match.arms(n)) |arm| {
             const pattern = ir.Arm.pattern(arm);
-            if (pattern == .src) try std.testing.expect(lowered.answer(pattern, .catch_all_by_address) != null);
+            if (pattern == .src) try std.testing.expect(lowered.bindingOf(f.node(.symbolOf, pattern).?) != null);
             if (pattern.isKind(.variant_pattern)) for (f.node(.payloadBindings, pattern).?) |b| {
                 // `t` is a view of the String where it is; `n` a copy.
-                const by_addr = lowered.answer(b, .payload_by_address).?;
+                const by_addr = lowered.bindingOf(f.node(.symbolOf, b).?).?.by_address;
                 try std.testing.expectEqual(std.mem.eql(u8, source[b.src.pos..][0..b.src.len], "t"), by_addr);
             };
         }
@@ -1056,7 +1047,7 @@ test "Facts reads where each step runs and where each jump goes" {
     var ns: usize = 0;
     for (nodes.items) |n| {
         if (n.isKind(.@"while")) {
-            try std.testing.expectEqual(steps[ns], lowered.answer(n, .step_point).?);
+            try std.testing.expectEqual(steps[ns], lowered.stepOf(n).?.loop.step_point);
             ns += 1;
         }
         if (n.isKind(.@"break") or n.isKind(.@"continue")) {

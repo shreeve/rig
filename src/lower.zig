@@ -14,8 +14,9 @@
 //! `SemContext.lowered` until its checks finish: the ownership checker
 //! reads from it the storage a call holds. Emit lowers each module again
 //! as it writes it, reads the storage it writes from the vars, regions,
-//! and statement temporaries indexed in `Module`, and asks its questions
-//! of every node as it starts (`answerAll`). A self-checking build asks
+//! and statement temporaries indexed in `Module`, and what lowering
+//! decided of each node, step, arm, and binding (`Module.answersOf`,
+//! `stepOf`, `choiceOf`, `armOf`, `lir.Var`). A self-checking build asks
 //! that each statement's temporaries are those `sema.stmtTemps` lists.
 
 const std = @import("std");
@@ -79,10 +80,6 @@ pub const Module = struct {
     /// can act (`Lowerer.flatten`), by their keys: each is written into
     /// its slot ahead of the statement.
     flat: sema.FastMap(u64, void) = .empty,
-    /// The answer to each question emit asks about a node of the module
-    /// (`Ask`), by the node's key and the question, encoded: asked as
-    /// emit starts on the module (`answerAll`).
-    answers: sema.FastMap(AnswerKey, u8) = .empty,
     /// The record of each call, by the call's key, for the self-checking
     /// build's asserts that it is what emit and the ownership checker
     /// decide (`callOf`).
@@ -91,6 +88,20 @@ pub const Module = struct {
     /// key, and the body that names its root, for the self-checking
     /// build's asserts (`placeOf`).
     place_of: sema.FastMap(u64, PlaceAt) = .empty,
+    /// What lowering decided of each node, by its key (`answersOf`):
+    /// each node a body lowered, as it was lowered, and each other node
+    /// of the module (its constants, its types' declarations) after.
+    /// Kept for emit's lowering alone: on no `lir.Func`, so the checkers'
+    /// lowering carries nothing for it.
+    answers: sema.FastMap(u64, lir.Answers) = .empty,
+    /// Where emit reads what lowering decided of a statement: the step
+    /// of each assignment and binding's declaration (by its `set`), loop,
+    /// and `match`, and the `match` of each value, by the node's key; the
+    /// region of each `match` arm, by the arm's. Kept for emit's lowering
+    /// alone (`assignOf`, `stepOf`, `choiceOf`, `armOf`).
+    steps: sema.FastMap(u64, *const lir.Step) = .empty,
+    choices: sema.FastMap(u64, *const lir.Expr.Choice) = .empty,
+    arms: sema.FastMap(u64, *const lir.Region) = .empty,
 
     pub const PlaceAt = struct { f: *const lir.Func, i: u32 };
 
@@ -166,17 +177,37 @@ pub const Module = struct {
         return m.flat.contains(sema.decisionKeyOf(node) orelse return false);
     }
 
-    /// The answer to `ask` about `node`; null for a node no question of
-    /// its kind is asked about.
-    pub fn answer(m: *const Module, node: Sexp, comptime ask: Ask) ?Answer(ask) {
-        const a = m.answers.get(.{ .key = sema.decisionKeyOf(node) orelse return null, .ask = ask }) orelse return null;
-        return switch (@typeInfo(Answer(ask))) {
-            .bool => a != 0,
-            .@"enum" => @fromBackingInt(@intCast(a)),
-            .optional => |o| if (a == no_answer) @as(Answer(ask), null) else @as(o.child, @fromBackingInt(@intCast(a))),
-            .@"struct" => @bitCast(a),
-            else => comptime unreachable,
+    /// What emit's lowering decided of `node`.
+    pub fn answersOf(m: *const Module, node: Sexp) ?lir.Answers {
+        return m.answers.get(sema.decisionKeyOf(node) orelse return null);
+    }
+
+    /// What emit's lowering decided of assignment or declaration `set`,
+    /// kept on its step; null for one no body lowered.
+    pub fn assignOf(m: *const Module, set: Sexp) ?lir.Assign {
+        return switch ((m.stepOf(set) orelse return null).*) {
+            .store => |x| x.answers,
+            .bind => |x| x.answers,
+            else => null,
         };
+    }
+
+    /// The step of assignment, declaration, loop, or `match` `node`.
+    pub fn stepOf(m: *const Module, node: Sexp) ?*const lir.Step {
+        return m.steps.get(sema.decisionKeyOf(node) orelse return null);
+    }
+
+    /// The `lir.Expr.Choice` of `match` `node`, a statement's or a
+    /// value's.
+    pub fn choiceOf(m: *const Module, node: Sexp) ?*const lir.Expr.Choice {
+        const key = sema.decisionKeyOf(node) orelse return null;
+        if (m.steps.get(key)) |s| return if (s.* == .match) &s.match else null;
+        return m.choices.get(key);
+    }
+
+    /// The region of `match` arm `arm`.
+    pub fn armOf(m: *const Module, arm: Sexp) ?*const lir.Region {
+        return m.arms.get(sema.decisionKeyOf(arm) orelse return null);
     }
 
     /// The coercions of `node` made where it is written: at its place,
@@ -425,6 +456,7 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
             if (after == funcs + 1 and m.owners[i].func != null) m.constants = @intCast(i);
         }
     }
+    if (!opts.checked) try l.decideRest(tree);
     // A closure is lowered with the body around it, or skipped with it.
     for (m.owners) |*o| if (o.func == null and o.skip == null) {
         o.skip = if (o.parent) |p| m.owners[p].skip else null;
@@ -441,7 +473,23 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
             },
             .hidden => |k| if (sema.decisionKeyOf(v.node)) |key| try m.vars.put(a, .{ .node = key, .kind = k }, v),
         };
-        for (f.regions.items) |r| if (r.kind == .call) try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
+        for (f.regions.items) |*r| {
+            if (r.kind == .call) try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
+            if (opts.checked) continue;
+            if (r.kind == .arm) try m.arms.put(a, sema.decisionKeyOf(r.node).?, r);
+            for (r.steps.items) |*s| if (sema.decisionKeyOf(switch (s.*) {
+                .store => |x| x.node,
+                .bind => |x| x.set,
+                .loop => |x| x.node,
+                .each => |x| x.node,
+                .match => |x| x.node,
+                else => .nil,
+            })) |key| try m.steps.put(a, key, s);
+        }
+        if (!opts.checked) for (f.exprs.items) |*e| switch (e.*) {
+            .choice => |*c| try m.choices.put(a, sema.decisionKeyOf(c.node).?, c),
+            else => {},
+        };
         if (enabled) for (f.exprs.items) |e| switch (e) {
             .op => |x| if (x.kind == .call) try m.calls.put(a, sema.decisionKeyOf(x.node).?, &f.calls.items[x.aux]),
             else => {},
@@ -1243,9 +1291,73 @@ const Lowerer = struct {
     // Expressions
     // -------------------------------------------------------------------------
 
-    /// Record that node `n` lowered to `e`.
+    /// Record that node `n` lowered to `e`; emit's lowering records
+    /// where, and what it decides of `n` (`decide`).
     fn note(l: *Lowerer, n: Sexp, e: ExprId) Error!void {
-        if (sema.decisionKeyOf(n)) |k| try l.exprs.put(l.gpa, k, e);
+        const k = sema.decisionKeyOf(n) orelse return;
+        try l.exprs.put(l.gpa, k, e);
+        if (!l.opts.checked) try l.decide(n, k);
+    }
+
+    /// What emit's lowering decides of node `n`, of key `k`, and of the
+    /// operands its form decides of. Out of line, so the checkers'
+    /// lowering pays nothing for it.
+    noinline fn decide(l: *Lowerer, n: Sexp, k: u64) std.mem.Allocator.Error!void {
+        const ctx = l.ctx;
+        try l.module.answers.put(l.ma, k, .{});
+        l.answer(n, .hands, storage.handsKind(ctx, n));
+        l.answer(n, .reaches_leaf, storage.reachesLeaf(ctx, n));
+        if (n != .list) return;
+        switch (n.kind() orelse return) {
+            .@"==", .@"!=" => for ([2]Sexp{ ir.get(n, .left), ir.get(n, .right) }) |operand| {
+                l.answer(operand, .drops_when_tested, storage.dropsWhenTested(ctx, operand));
+            },
+            .call => {
+                l.answer(n, .self_hold, storage.selfHold(ctx, n));
+                l.answer(n, .consumes_self, storage.consumedTemporary(ctx, n) != null);
+                for (ir.Call.args(n)) |a| l.answer(storage.argValue(a), .argument_hold, storage.argumentHold(ctx, storage.argValue(a)));
+                if (ctx.isPrintCall(n) or storage.stringCall(ctx, n) != null) for (ir.Call.args(n)) |a| {
+                    l.answer(a, .prints_by_address, storage.printsByAddress(ctx, a));
+                };
+            },
+            .array => for (ir.Array.elems(n)) |v| l.answer(v, .argument_hold, storage.argumentHold(ctx, v)),
+            .panic => for (ir.Panic.args(n)) |a| l.answer(a, .prints_by_address, storage.printsByAddress(ctx, a)),
+            .template => for (0..rig.Template.slotCount(n)) |i| {
+                const v = rig.Template.value(n, i);
+                l.answer(v, .prints_by_address, storage.printsByAddress(ctx, v));
+            },
+            .box => l.answer(n, .fills_in_place, storage.fillsInPlace(ctx, n)),
+            .@"+", .@"-", .@"*", .neg => l.answer(n, .lane_checked, storage.laneChecked(ctx, n)),
+            .as => {
+                l.answer(ir.As.value(n), .views_optional_value, storage.viewsOptionalValue(ctx, ir.As.value(n)));
+                l.answer(n, .binds_string_bytes, storage.bindsStringBytes(ctx, n));
+                l.answer(n, .through_write, storage.throughWrite(ctx, n));
+            },
+            .results => l.answer(n, .hoists_results, storage.hoistsResults(ctx, n)),
+            else => {},
+        }
+    }
+
+    /// What emit's lowering decides of each node of `e` no body lowered
+    /// (the module's constants, its types' declarations), operands first,
+    /// as emit writes them from the tree.
+    fn decideRest(l: *Lowerer, e: Sexp) std.mem.Allocator.Error!void {
+        switch (e) {
+            .list => {
+                if (l.module.roots.get(sema.decisionKeyOf(e) orelse 0)) |i| if (l.module.owners[i].func != null) return;
+                for (if (e.kind() == null) e.items() else rig.children(e)) |c| try l.decideRest(c);
+            },
+            .src => {},
+            else => return,
+        }
+        const k = sema.decisionKeyOf(e) orelse return;
+        if (!l.module.answers.contains(k)) try l.decide(e, k);
+    }
+
+    /// Keep `value` as what emit's lowering decides of `node`.
+    fn answer(l: *Lowerer, node: Sexp, comptime field: std.meta.FieldEnum(lir.Answers), value: @FieldType(lir.Answers, @tagName(field))) void {
+        const a = l.module.answers.getPtr(sema.decisionKeyOf(node) orelse return) orelse return;
+        @field(a.*, @tagName(field)) = value;
     }
 
     /// Expression `e`: its operands first, in the tree's order, then the
@@ -1855,7 +1967,14 @@ const Lowerer = struct {
             const arm_r = l.region(r.*);
             arm_r.catch_all = storage.catchesAll(l.ctx, a);
             const p = ir.Arm.pattern(a);
-            if (arm_r.catch_all and l.ctx.symbolOf(p) != null) arm_r.catch_all_by_address = storage.catchAllCaptured(l.ctx, p, m);
+            if (arm_r.catch_all) {
+                if (l.bindings.get(ctx.symbolOf(p) orelse continue)) |v| l.f.vars.items[v].by_address = storage.catchAllCaptured(ctx, p, m);
+            } else for (storage.prongsOf(ctx, &p)) |prong| if (prong.isKind(.variant_pattern)) {
+                for (ctx.payloadBindings(prong) orelse continue) |b| if (b != .nil) {
+                    const v = l.bindings.get(ctx.symbolOf(b) orelse continue) orelse continue;
+                    l.f.vars.items[v].by_address = storage.bindsByAddress(ctx, b, m);
+                };
+            };
         }
         if (!value) try l.matchRules(m, scope);
         const answers: lir.MatchAnswers = if (l.opts.checked) .{} else .{
@@ -2425,7 +2544,7 @@ const Lowerer = struct {
 
     fn leaf(l: *Lowerer, e: Sexp) Error!void {
         const how = storage.leafStep(l.ctx, e);
-        if (!l.inConstants()) if (sema.decisionKeyOf(e)) |key| try l.module.answers.put(l.ma, .{ .key = key, .ask = .leaf_step }, encode(.leaf_step, how));
+        if (!l.opts.checked) l.answer(e, .leaf_step, how);
         switch (how) {
             .place, .part, .view, .jump => {},
             .made => if (!l.ctx.dropsTemp(e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),
@@ -2852,214 +2971,4 @@ fn viewMade(ctx: *const SemContext, view: sema.View) bool {
 fn readsThrough(ctx: *const SemContext, e: Sexp) bool {
     if (e == .src or e.isKind(.member) or e.isKind(.index)) return false;
     return ctx.readsThrough(e) and storage.isPtrViewExpr(ctx, e);
-}
-
-// =============================================================================
-// Answers
-// =============================================================================
-
-/// A question about a node whose answer emit reads (`Module.answer`):
-/// each a decider of `src/storage.zig`, asked once, from the typing
-/// facts, of every node of its kind in the module.
-pub const Ask = enum(u8) {
-    leaf_step,
-    reaches_leaf,
-    hands,
-    views_optional_value,
-    drops_when_tested,
-    self_hold,
-    consumes_self,
-    argument_hold,
-    prints_by_address,
-    lane_checked,
-    fills_in_place,
-    set_order,
-    compound_call,
-    bind_hold,
-    step_point,
-    fold,
-    binds_string_bytes,
-    through_write,
-    match_mode,
-    matches_in_place,
-    match_rereads,
-    match_block,
-    match_selects,
-    catch_all,
-    catch_all_by_address,
-    payload_by_address,
-    hoists_results,
-};
-
-pub const AnswerKey = struct { key: u64, ask: Ask };
-
-/// The type of the answer to `ask`.
-pub fn Answer(comptime ask: Ask) type {
-    return switch (ask) {
-        .leaf_step => storage.LeafStep,
-        .hands => sema.Hands.Kind,
-        .self_hold => ?storage.SelfHold,
-        .argument_hold => storage.ArgumentHold,
-        .set_order => storage.SetOrder,
-        .compound_call => ?storage.CompoundCall,
-        .bind_hold => storage.BindHold,
-        .step_point => storage.StepPoint,
-        .fold => ?storage.Fold,
-        .through_write => ?storage.ThroughWrite,
-        .match_mode => storage.MatchMode,
-        else => bool,
-    };
-}
-
-const no_answer = 255;
-
-fn encode(comptime ask: Ask, a: Answer(ask)) u8 {
-    return switch (@typeInfo(Answer(ask))) {
-        .bool => @intFromBool(a),
-        .@"enum" => @backingInt(a),
-        .optional => if (a) |v| @backingInt(v) else no_answer,
-        .@"struct" => @bitCast(a),
-        else => comptime unreachable,
-    };
-}
-
-/// Answer each question of `Ask` about every node of module `e` it is
-/// asked of. A self-checking build asks that the answers emit's lowering
-/// keeps on the steps it made are these (`checkAnswerFields`).
-pub fn answerAll(m: *Module, ctx: *const SemContext, e: Sexp) !void {
-    try answerNode(m, ctx, e);
-    if (enabled) checkAnswerFields(m);
-}
-
-/// That each answer emit's lowering keeps on a step, an arm, or a
-/// `match` of `m` is the one `answerAll` gives of its node.
-fn checkAnswerFields(m: *const Module) void {
-    const C = struct {
-        fn same(comptime what: []const u8, node: Sexp, kept: anytype, asked: anytype) void {
-            if (std.meta.eql(kept, asked)) return;
-            std.debug.panic("internal error: lir: emit's lowering keeps {s} {any} of node {d}, which answerAll answers {any}", .{ what, kept, sema.decisionKeyOf(node) orelse 0, asked });
-        }
-        fn assign(mm: *const Module, set: Sexp, a: lir.Assign, declares: bool) void {
-            same("set_order", set, a.order, mm.answer(set, .set_order).?);
-            same("fills_in_place", set, a.fills_in_place, mm.answer(set, .fills_in_place).?);
-            same("lane_checked", set, a.lane_checked, mm.answer(set, .lane_checked).?);
-            same("compound_call", set, a.compound, mm.answer(set, .compound_call) orelse null);
-            same("bind_hold", set, a.hold, if (declares) mm.answer(set, .bind_hold).? else null);
-        }
-        fn choice(mm: *const Module, f: *const lir.Func, c: lir.Expr.Choice) void {
-            same("match_mode", c.node, c.answers.mode, mm.answer(c.node, .match_mode).?);
-            same("matches_in_place", c.node, c.answers.in_place, mm.answer(c.node, .matches_in_place).?);
-            same("match_rereads", c.node, c.answers.rereads, mm.answer(c.node, .match_rereads).?);
-            same("match_block", c.node, c.answers.block, mm.answer(c.node, .match_block).?);
-            same("match_selects", c.node, c.answers.selects, mm.answer(c.node, .match_selects).?);
-            for (c.arms) |ar| {
-                const r = f.regions.items[ar];
-                same("catch_all", r.node, r.catch_all, mm.answer(r.node, .catch_all).?);
-                same("catch_all_by_address", r.node, r.catch_all_by_address, mm.answer(ir.Arm.pattern(r.node), .catch_all_by_address) orelse false);
-            }
-        }
-    };
-    for (m.owners) |o| {
-        const f = o.func orelse continue;
-        for (f.exprs.items) |e| switch (e) {
-            .choice => |c| C.choice(m, f, c),
-            else => {},
-        };
-        for (f.regions.items) |r| for (r.steps.items) |st| switch (st) {
-            .store => |x| C.assign(m, x.node, x.answers, false),
-            .bind => |x| if (x.set != .nil) C.assign(m, x.set, x.answers, true),
-            .loop => |x| C.same("step_point", x.node, x.step_point, m.answer(x.node, .step_point).?),
-            .each => |x| {
-                C.same("fold", x.node, x.fold, m.answer(x.node, .fold).?);
-                C.same("binds_string_bytes", x.node, x.string_bytes, m.answer(x.node, .binds_string_bytes).?);
-            },
-            .match => |c| C.choice(m, f, c),
-            else => {},
-        };
-    }
-}
-
-fn answerNode(m: *Module, ctx: *const SemContext, e: Sexp) !void {
-    switch (e) {
-        .list => for (if (e.kind() == null) e.items() else rig.children(e)) |c| try answerNode(m, ctx, c),
-        .src => {},
-        else => return,
-    }
-    const A = struct {
-        m: *Module,
-        ctx: *const SemContext,
-        fn put(x: @This(), node: Sexp, comptime ask: Ask, a: Answer(ask)) !void {
-            const key = sema.decisionKeyOf(node) orelse return;
-            try x.m.answers.put(x.m.arena.allocator(), .{ .key = key, .ask = ask }, encode(ask, a));
-        }
-    };
-    const x: A = .{ .m = m, .ctx = ctx };
-    try x.put(e, .reaches_leaf, storage.reachesLeaf(ctx, e));
-    try x.put(e, .hands, storage.handsKind(ctx, e));
-    if (e != .list) return;
-    const subject = storage.headerSubject(e);
-    if (subject != .nil) {
-        if (e.isKind(.as)) try x.put(subject, .views_optional_value, storage.viewsOptionalValue(ctx, subject));
-    }
-    switch (e.kind() orelse return) {
-        .@"==", .@"!=" => for ([2]Sexp{ ir.get(e, .left), ir.get(e, .right) }) |operand| {
-            try x.put(operand, .drops_when_tested, storage.dropsWhenTested(ctx, operand));
-        },
-        .call => {
-            try x.put(e, .self_hold, storage.selfHold(ctx, e));
-            try x.put(e, .consumes_self, storage.consumedTemporary(ctx, e) != null);
-            for (ir.Call.args(e)) |a| try x.put(storage.argValue(a), .argument_hold, storage.argumentHold(ctx, storage.argValue(a)));
-            if (ctx.isPrintCall(e) or storage.stringCall(ctx, e) != null) for (ir.Call.args(e)) |a| {
-                try x.put(a, .prints_by_address, storage.printsByAddress(ctx, a));
-            };
-        },
-        .array => for (ir.Array.elems(e)) |v| try x.put(v, .argument_hold, storage.argumentHold(ctx, v)),
-        .panic => for (ir.Panic.args(e)) |a| try x.put(a, .prints_by_address, storage.printsByAddress(ctx, a)),
-        .template => for (0..rig.Template.slotCount(e)) |i| {
-            const v = rig.Template.value(e, i);
-            try x.put(v, .prints_by_address, storage.printsByAddress(ctx, v));
-        },
-        .set => {
-            try x.put(e, .lane_checked, storage.laneChecked(ctx, e));
-            try x.put(e, .fills_in_place, storage.fillsInPlace(ctx, e));
-            try x.put(e, .set_order, storage.setOrder(ctx, e));
-            const target = ir.Set.target(e);
-            if (rig.bindingKindOf(ir.Set.op(e)).operator() != null) try x.put(e, .compound_call, storage.compoundCall(ctx, e));
-            if (target == .src) if (ctx.symbolOf(target)) |sym| if (ctx.symbols.items[sym].decl_pos == target.src.pos) {
-                try x.put(e, .bind_hold, storage.bindHold(ctx, e));
-            };
-        },
-        .box => try x.put(e, .fills_in_place, storage.fillsInPlace(ctx, e)),
-        .@"+", .@"-", .@"*", .neg => try x.put(e, .lane_checked, storage.laneChecked(ctx, e)),
-        .@"while" => try x.put(e, .step_point, storage.stepPoint(ctx, e)),
-        .@"for" => {
-            try x.put(e, .fold, storage.fold(ctx, e));
-            try x.put(e, .binds_string_bytes, storage.bindsStringBytes(ctx, e));
-        },
-        .as => {
-            try x.put(e, .binds_string_bytes, storage.bindsStringBytes(ctx, e));
-            try x.put(e, .through_write, storage.throughWrite(ctx, e));
-        },
-        .results => try x.put(e, .hoists_results, storage.hoistsResults(ctx, e)),
-        .match => {
-            try x.put(e, .match_mode, storage.matchMode(ctx, e));
-            try x.put(e, .matches_in_place, storage.matchesInPlace(ctx, e));
-            try x.put(e, .match_rereads, storage.matchRereads(ctx, e));
-            try x.put(e, .match_block, storage.matchBlock(ctx, e));
-            try x.put(e, .match_selects, storage.matchSelects(ctx, e));
-            for (ir.Match.arms(e)) |arm| {
-                const pattern = ir.Arm.pattern(arm);
-                const all = storage.catchesAll(ctx, arm);
-                try x.put(arm, .catch_all, all);
-                if (all) {
-                    if (ctx.symbolOf(pattern) != null) try x.put(pattern, .catch_all_by_address, storage.catchAllCaptured(ctx, pattern, e));
-                } else for (storage.prongsOf(ctx, &pattern)) |prong| if (prong.isKind(.variant_pattern)) {
-                    for (ctx.payloadBindings(prong) orelse continue) |b| if (b != .nil) {
-                        try x.put(b, .payload_by_address, storage.bindsByAddress(ctx, b, e));
-                    };
-                };
-            }
-        },
-        else => {},
-    }
 }
