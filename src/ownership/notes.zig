@@ -121,13 +121,16 @@ pub fn resumeBefore(self: *const Checker, next: Sexp, past: u32) u32 {
 /// (a chain's names, a closure's padded parameter) stands at its
 /// home in the source (`Parser.span`), so no scope, statement, or
 /// loop ends past every use. `lo > hi` when it has none.
-pub fn extent(self: *const Checker, s: Sexp) struct { lo: u32, hi: u32 } {
+pub fn extent(self: *const Checker, s: Sexp) Extent {
     switch (s) {
         .src => |leaf| {
             const at = if (leaf.pos < self.source.len) leaf.pos else startOf(self, s);
             return .{ .lo = at, .hi = at };
         },
-        .list => {
+        .list => |l| {
+            const key = @intFromPtr(l.ptr);
+            const slot = &self.extents[(key >> 4) % extent_slots];
+            if (l.len >= 3 and slot.key == key and slot.len == l.len) return slot.ext;
             var lo: u32 = std.math.maxInt(u32);
             var hi: u32 = 0;
             for (s.items()) |c| {
@@ -136,11 +139,19 @@ pub fn extent(self: *const Checker, s: Sexp) struct { lo: u32, hi: u32 } {
                 lo = @min(lo, e.lo);
                 hi = @max(hi, e.hi);
             }
-            return .{ .lo = lo, .hi = hi };
+            const ext: Extent = .{ .lo = lo, .hi = hi };
+            if (l.len >= 3) slot.* = .{ .key = key, .len = l.len, .ext = ext };
+            return ext;
         },
         else => return .{ .lo = std.math.maxInt(u32), .hi = 0 },
     }
 }
+
+pub const Extent = struct { lo: u32, hi: u32 };
+
+/// A list's extent, by its items' address and count (`Checker.extents`).
+pub const ExtentSlot = struct { key: usize = 0, len: u32 = 0, ext: Extent = .{ .lo = 0, .hi = 0 } };
+pub const extent_slots = 1021;
 
 /// The source range of a node: its span from the parser.
 pub fn span(self: *const Checker, node: Sexp) diag.Span {

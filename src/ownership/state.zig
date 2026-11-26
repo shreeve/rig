@@ -27,6 +27,8 @@ const lowered = @import("lowered.zig");
 const Place = transfer.Place;
 
 pub const VarId = u32;
+/// No var: an empty slot of `Checker.syms`.
+const no_var = std.math.maxInt(VarId);
 
 /// Which loans a query looks for: any, or only write loans.
 pub const LoanQuery = enum { any, write };
@@ -323,6 +325,78 @@ pub const Value = struct {
     loans: []const Loan = &.{},
 };
 
+/// Where each parameter's loans were first returned or stored, by its
+/// bit (`FnCtx.sites`).
+pub const ParamSites = struct {
+    returned_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
+    /// The expression each was first returned by, so the diagnostic
+    /// points at the branch that gives the view (`resultPos`).
+    returned_by: [@bitSizeOf(sema.ParamMask)]Sexp = @splat(.nil),
+    stored_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
+    /// The name of the parameter each was first stored in.
+    stored_in: [@bitSizeOf(sema.ParamMask)][]const u8 = @splat(""),
+};
+
+/// The uses of each symbol in the function being checked: an entry per
+/// symbol used, found by symbol id. Entries and their lists are kept for
+/// the next function.
+pub const Uses = struct {
+    /// Each used symbol's entry, plus one, by symbol id; 0 for none.
+    slots: std.ArrayList(u32) = .empty,
+    entries: std.ArrayList(Use) = .empty,
+    /// The entries in use.
+    len: u32 = 0,
+
+    pub const Use = struct { sym: SymbolId, last: u32, at: std.ArrayList(u32) };
+
+    pub fn entry(u: *const Uses, sym: SymbolId) ?*Use {
+        if (sym >= u.slots.items.len) return null;
+        const i = u.slots.items[sym];
+        return if (i == 0) null else &u.entries.items[i - 1];
+    }
+
+    /// The positions `sym` is used at.
+    pub fn get(u: *const Uses, sym: SymbolId) ?std.ArrayList(u32) {
+        return (u.entry(sym) orelse return null).at;
+    }
+
+    /// The last position `sym` is used at.
+    pub fn last(u: *const Uses, sym: SymbolId) ?u32 {
+        return (u.entry(sym) orelse return null).last;
+    }
+
+    pub fn note(u: *Uses, gpa: std.mem.Allocator, sym: SymbolId, pos: u32, symbols: usize) Error!void {
+        if (sym >= u.slots.items.len) try u.slots.appendNTimes(gpa, 0, @max(sym + 1, symbols) - u.slots.items.len);
+        const e = u.entry(sym) orelse made: {
+            if (u.len == u.entries.items.len) try u.entries.append(gpa, .{ .sym = sym, .last = pos, .at = .empty });
+            const e = &u.entries.items[u.len];
+            e.* = .{ .sym = sym, .last = pos, .at = e.at };
+            e.at.clearRetainingCapacity();
+            u.len += 1;
+            u.slots.items[sym] = u.len;
+            break :made e;
+        };
+        if (e.last < pos) e.last = pos;
+        try e.at.append(gpa, pos);
+    }
+
+    /// The entries in use.
+    pub fn all(u: *const Uses) []Use {
+        return u.entries.items[0..u.len];
+    }
+
+    pub fn clear(u: *Uses) void {
+        for (u.all()) |e| u.slots.items[e.sym] = 0;
+        u.len = 0;
+    }
+
+    pub fn deinit(u: *Uses, gpa: std.mem.Allocator) void {
+        for (u.entries.items) |*e| e.at.deinit(gpa);
+        u.entries.deinit(gpa);
+        u.slots.deinit(gpa);
+    }
+};
+
 pub const FnCtx = struct {
     /// The return type can carry views: returned values are checked
     /// for loans on locals.
@@ -343,19 +417,14 @@ pub const FnCtx = struct {
     /// `recordStore`).
     returned: sema.ParamMask = 0,
     stored: sema.ParamMask = 0,
-    /// Where each was first returned or stored, for the diagnostic.
-    returned_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
-    /// The expression each was first returned by, so the diagnostic
-    /// points at the branch that gives the view (`resultPos`).
-    returned_by: [@bitSizeOf(sema.ParamMask)]Sexp = @splat(.nil),
-    stored_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
+    /// Where each was first returned or stored, for the diagnostic,
+    /// made at the first (`Checker.paramSites`).
+    sites: ?*ParamSites = null,
     /// The parameters whose loans reached a value of a type parameter's
     /// type, which carries no loan in a generic body (`taintGeneric`),
     /// and where the body first returns such a value.
     generic: sema.ParamMask = 0,
     generic_returned_at: ?u32 = null,
-    /// The name of the parameter each was first stored in.
-    stored_in: [@bitSizeOf(sema.ParamMask)][]const u8 = @splat(""),
     /// Where the body first stores a value of a type parameter's type in
     /// what each parameter leads to, past the parameter itself
     /// (`noteGenericStore`).
@@ -523,14 +592,16 @@ pub const Checker = struct {
     sema: *const sema.SemContext,
     /// The same context, through which the instance check of a function
     /// value's type (`PlainRequirement.callable`) makes the type at the
-    /// instance's arguments; nothing else is written through it.
+    /// instance's arguments, and the module's compile-time body's LIR is
+    /// freed once walked (`lowered.dropConstants`); nothing else is
+    /// written through it.
     interner: *sema.SemContext,
     diagnostics: std.ArrayList(Diagnostic) = .empty,
 
     vars: std.ArrayList(Var) = .empty,
     /// The innermost var of each binding sema resolved (see
-    /// `Var.shadows`).
-    syms: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
+    /// `Var.shadows`), by symbol id; `no_var` where none is visible.
+    syms: std.ArrayList(VarId) = .empty,
     /// What generic bodies copy: this module's, found while walking them,
     /// then those of other modules' bodies its instances use.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
@@ -542,6 +613,10 @@ pub const Checker = struct {
     /// The paths of the places met so far (`resolvePlace`), shared by
     /// every function the checker walks.
     paths: *Paths,
+    /// The extents `notes.extent` found last, of lists of three items or
+    /// more, by their items' address: a statement's or a scope's is
+    /// asked again at each liveness check in it.
+    extents: *[notes.extent_slots]notes.ExtentSlot,
     /// `mayOwnView`'s answers, by holder and view type.
     reaches: std.AutoHashMapUnmanaged(ReachKey, sema.ViewReach) = .empty,
     /// The struct or enum whose members are being walked: the owner of a
@@ -592,12 +667,11 @@ pub const Checker = struct {
     /// Views end at their last use (see `holderLive`): for the function
     /// being checked, the last position each symbol is used at, and the
     /// symbols used in deferred code, which runs at scope exit.
-    last_use: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
     defer_used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// Every position each symbol is used at (`indexUses`), so a use in
     /// the statement being walked counts only while it is ahead
-    /// (`useAhead`).
-    uses: std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32)) = .empty,
+    /// (`useAhead`), and the last.
+    uses: Uses = .{},
     /// The positions of the uses walked so far in the statements being
     /// walked, each statement's dropped when it ends (`walkStmtValue`).
     walked: std.ArrayList(u32) = .empty,
@@ -606,13 +680,13 @@ pub const Checker = struct {
     /// that evaluates its arguments first, an assignment's value): walked
     /// only once that consumer is done (`walkLate`).
     late: std.ArrayList(u32) = .empty,
-    /// `last_use` describes the code being walked.
+    /// `uses` describes the code being walked.
     nll: bool = false,
     /// The innermost statement being walked.
     cur_stmt: Sexp = .nil,
     /// While a `while` loop's step is walked: where it runs, after the
     /// body (`stepAt`), which stands for the step's statements in
-    /// `last_use` and in the liveness checks.
+    /// `uses` and in the liveness checks.
     step_at: ?u32 = null,
     scopes: std.ArrayList(Scope) = .empty,
     /// What the targets of the assignments whose values are being walked
@@ -660,6 +734,13 @@ pub const Checker = struct {
     /// The lowered body being walked, whose LIR gives each expression's
     /// operands (`lowered.operand`).
     lir_body: ?*lowered.Body = null,
+    /// Which of a module's declarations the walk takes: its compile-time
+    /// body (`values`: constants, and what types declare by value), or
+    /// its code (functions, methods, tests); `all` inside a body.
+    decl_phase: enum { all, values, code } = .all,
+    /// The module's compile-time body's index, freed once that body is
+    /// walked (`lowered.dropConstants`).
+    const_arena_state: std.heap.ArenaAllocator,
 
     func: FnCtx = .{},
     /// The body of the function being walked, at whose end its own scope
@@ -738,12 +819,16 @@ pub const Checker = struct {
     pub fn init(allocator: std.mem.Allocator, source: []const u8, ctx: *sema.SemContext) Error!Checker {
         const paths = try allocator.create(Paths);
         paths.* = .{};
+        const extents = try allocator.create([notes.extent_slots]notes.ExtentSlot);
+        @memset(extents, .{});
         var c = Checker{
             .gpa = allocator,
             .arena_state = std.heap.ArenaAllocator.init(allocator),
             .fn_arena_state = std.heap.ArenaAllocator.init(allocator),
+            .const_arena_state = std.heap.ArenaAllocator.init(allocator),
             .source = source,
             .paths = paths,
+            .extents = extents,
             .sema = ctx,
             .interner = ctx,
         };
@@ -789,7 +874,6 @@ pub const Checker = struct {
         self.loan_counts.deinit(self.gpa);
         self.trail.deinit(self.gpa);
         self.scratch.deinit(self.gpa);
-        self.last_use.deinit(self.gpa);
         self.defer_used.deinit(self.gpa);
         self.uses.deinit(self.gpa);
         self.walked.deinit(self.gpa);
@@ -803,7 +887,9 @@ pub const Checker = struct {
         self.arm_binds.deinit(self.gpa);
         self.paths.deinit(self.gpa);
         self.gpa.destroy(self.paths);
+        self.gpa.destroy(self.extents);
         self.fn_arena_state.deinit();
+        self.const_arena_state.deinit();
         self.arena_state.deinit();
     }
 
@@ -817,6 +903,15 @@ pub const Checker = struct {
 
     pub fn hasErrors(self: *const Checker) bool {
         return diag.hasErrorsIn(self.diagnostics.items);
+    }
+
+    /// The function's `ParamSites`, made at the first ask.
+    pub fn paramSites(self: *Checker) Error!*ParamSites {
+        if (self.func.sites) |at| return at;
+        const at = try self.arena().create(ParamSites);
+        at.* = .{};
+        self.func.sites = at;
+        return at;
     }
 
     pub fn arena(self: *Checker) std.mem.Allocator {
@@ -922,9 +1017,10 @@ pub const Checker = struct {
             }
         };
         if (v.sym) |sym| {
-            const gop = try self.syms.getOrPut(self.gpa, sym);
-            v.shadows = if (gop.found_existing) gop.value_ptr.* else null;
-            gop.value_ptr.* = id;
+            if (sym >= self.syms.items.len) try self.syms.appendNTimes(self.gpa, no_var, @max(sym + 1, self.sema.symbols.items.len) - self.syms.items.len);
+            const slot = &self.syms.items[sym];
+            v.shadows = if (slot.* == no_var) null else slot.*;
+            slot.* = id;
         }
         try self.vars.append(self.gpa, v);
         try self.flows.append(self.gpa, flow);
@@ -942,11 +1038,7 @@ pub const Checker = struct {
             const v = self.vars.items[i];
             self.countLoans(self.flows.items[i].loans, false);
             const sym = v.sym orelse continue;
-            if (v.shadows) |prev| {
-                self.syms.putAssumeCapacity(sym, prev);
-            } else {
-                _ = self.syms.remove(sym);
-            }
+            self.syms.items[sym] = v.shadows orelse no_var;
         }
         self.vars.shrinkRetainingCapacity(start);
         self.flows.shrinkRetainingCapacity(start);
@@ -957,6 +1049,7 @@ pub const Checker = struct {
     /// one its var in the body being walked declares, or the one the var
     /// read there binds, when the body has one; else as sema resolved it.
     pub fn bindingOf(self: *const Checker, node: Sexp) ?SymbolId {
+        if (!self.on_lir) return self.sema.symbolOf(node);
         return lowered.bindingAt(self, node) orelse lowered.symbolOf(self, node) orelse self.sema.symbolOf(node);
     }
 
@@ -969,7 +1062,9 @@ pub const Checker = struct {
     /// function enclosing the current closure body is not visible:
     /// typecheck reports its use.
     pub fn varOf(self: *const Checker, sym: SymbolId) ?VarId {
-        var id = self.syms.get(sym) orelse return null;
+        if (sym >= self.syms.items.len) return null;
+        var id = self.syms.items[sym];
+        if (id == no_var) return null;
         while (self.isHiddenVar(id)) id = self.vars.items[id].shadows orelse return null;
         var crossed = false;
         var si = self.scopes.items.len;

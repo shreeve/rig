@@ -85,13 +85,40 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
     switch (sexp.kind() orelse return) {
         .module => {
             // What no function holds (the module's constants, and what
-            // its types declare by value) is one compile-time body.
+            // its types declare by value) is one compile-time body,
+            // walked first, in the order it was lowered; then the code.
+            // The body is done with before the code is walked, so it
+            // and its index are freed then.
             const saved_lir = self.lir_body;
+            const saved_phase = self.decl_phase;
             defer self.lir_body = saved_lir;
+            defer self.decl_phase = saved_phase;
             self.lir_body = try lowered.enter(self, sexp, sexp);
+            self.decl_phase = .values;
             for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try walkDecl(self, c);
             for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try walkDecl(self, c);
+            self.lir_body = null;
+            lowered.dropConstants(self);
+            self.decl_phase = .code;
+            for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try walkDecl(self, c);
         },
+        .fun, .sub, .drop_decl, .@"test", .api, .api_add => if (self.decl_phase != .values) try walkCode(self, sexp),
+        .@"struct", .@"enum", .errors, .generic_struct => {
+            const saved = self.decl_owner;
+            defer self.decl_owner = saved;
+            self.decl_owner = self.sema.symbolOf(ir.get(sexp, .name));
+            for (ir.rest(sexp, .members)) |c| try walkDecl(self, c);
+        },
+        .@"pub" => try walkDecl(self, ir.Pub.decl(sexp)),
+        .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
+        else => if (self.decl_phase != .code) try walkStmt(self, sexp),
+    }
+}
+
+/// A function, method, drop body, test, or an API's defaults and an
+/// addition's methods.
+fn walkCode(self: *Checker, sexp: Sexp) Error!void {
+    switch (sexp.kind() orelse return) {
         .fun, .sub => {
             // A method of a generic type: what its body requires of a
             // function value is checked at each call of it.
@@ -102,15 +129,7 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
             try walkFun(self, sexp, name, sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body));
         },
         .drop_decl => try walkFun(self, sexp, .nil, .nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
-        .@"struct", .@"enum", .errors, .generic_struct => {
-            const saved = self.decl_owner;
-            defer self.decl_owner = saved;
-            self.decl_owner = self.sema.symbolOf(ir.get(sexp, .name));
-            for (ir.rest(sexp, .members)) |c| try walkDecl(self, c);
-        },
-        .@"pub" => try walkDecl(self, ir.Pub.decl(sexp)),
         .@"test" => try walkFun(self, sexp, .nil, .nil, .nil, .nil, ir.Test.body(sexp)),
-        .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
         // An API's defaults, and an addition's methods (whose origins
         // its conformance holds, `declOrigins`).
         .api, .api_add => {
@@ -121,7 +140,7 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
                 if ((c.isKind(.fun) or c.isKind(.sub)) and ir.get(c, .body) != .nil) try walkDecl(self, c);
             }
         },
-        else => try walkStmt(self, sexp),
+        else => unreachable,
     }
 }
 
@@ -160,9 +179,8 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
     defer self.lir_body = saved_lir;
     self.lir_body = try lowered.enter(self, root, body);
     if (top) {
-        self.last_use.clearRetainingCapacity();
         self.defer_used.clearRetainingCapacity();
-        self.uses.clearRetainingCapacity();
+        self.uses.clear();
         try live.indexUses(self, params, false, null);
         try live.indexUses(self, body, false, null);
         if (self.on_lir) if (self.lir_body) |b| try lowered.reindexUses(self, b.f, if (name != .nil) name else body);
@@ -180,7 +198,7 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
     try origins.bindSelfPaths(self);
     const result = try walkBody(self, body, returns_value);
     try self.popScopeWith(result.loans);
-    if (name != .nil) try origins.checkOrigins(self, try std.fmt.allocPrint(self.arena(), "`{s}`", .{types.text(self, name)}), name, params);
+    if (name != .nil) try origins.checkOrigins(self, name, params);
     try self.rewind(outer);
     // Nothing allocated for a module-level function outlives it.
     if (self.fn_depth == 1) _ = self.fn_arena_state.reset(.{ .retain_with_limit = 1 << 20 });
@@ -459,7 +477,13 @@ pub fn walkPayloadHolder(self: *Checker, node: Sexp, holder: Sexp) Error!Value {
 pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
     const sexp = ex.node;
     switch (kind) {
-        .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => try walkDecl(self, sexp),
+        .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => {
+            // A declaration in a body is walked whole.
+            const saved = self.decl_phase;
+            defer self.decl_phase = saved;
+            self.decl_phase = .all;
+            try walkDecl(self, sexp);
+        },
         .set => try walkSet(self, sexp),
         .destructure => try walkDestructure(self, sexp),
         .drop => try walkDrop(self, sexp),
@@ -3174,7 +3198,7 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
     try bindParams(self, params);
     const result = try walkBody(self, body, returns_value);
     try self.popScopeWith(result.loans);
-    try origins.checkOrigins(self, "this closure", .nil, params);
+    try origins.checkOrigins(self, .nil, params);
     self.func = saved_func;
     self.loop = saved_loop;
     try self.rewind(snap);

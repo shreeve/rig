@@ -933,7 +933,9 @@ pub const ModuleGraph = struct {
         }
         const t0 = timing.start(self.timing);
         var own = try ownership.Checker.init(self.allocator, m.source, m.sema);
-        defer own.deinit();
+        // Freed before proofs run: the module's peak.
+        var own_live = true;
+        defer if (own_live) own.deinit();
         try own.check(m.ir);
         timing.stop(self.timing, .ownership, t0);
         try ownership.shadow(self.allocator, m.sema, m.source, m.ir, &own);
@@ -963,6 +965,8 @@ pub const ModuleGraph = struct {
         const old_nones = try own.oldNones(self.allocator);
         defer self.allocator.free(old_nones);
         try m.sema.recordOwnership(own.ownPlainReqs(), old_nones);
+        own.deinit();
+        own_live = false;
 
         m.state = if (m.sema.hasErrors()) .failed else .checked;
         // Which tests are known to pass rests on the ownership checker's

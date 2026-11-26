@@ -46,6 +46,11 @@ pub const enabled = @import("build_options").self_check;
 /// A module's bodies, lowered.
 pub const Module = struct {
     arena: std.heap.ArenaAllocator,
+    /// The module's compile-time body (`Options.checked`), and its owner's
+    /// index while it may be freed alone (`dropConstants`): when no
+    /// closure in it was lowered with it.
+    consts: std.heap.ArenaAllocator,
+    constants: ?u32 = null,
     /// Each frame owner of the module (`SemContext.frame_owners`), by its
     /// index there, then each compile-time function. Lowered for the
     /// checkers (`Options.checked`), then the closures of compile-time
@@ -100,7 +105,16 @@ pub const Module = struct {
     pub const Skip = struct { node: Sexp, family: []const u8 };
 
     pub fn deinit(m: *Module) void {
+        m.consts.deinit();
         m.arena.deinit();
+    }
+
+    /// The checkers have walked the module's compile-time body: free it.
+    pub fn dropConstants(m: *Module) void {
+        const i = m.constants orelse return;
+        m.owners[i].func = null;
+        m.constants = null;
+        _ = m.consts.reset(.free_all);
     }
 
     /// The hidden var of `kind` made for `node`.
@@ -273,7 +287,7 @@ fn fieldMove(ctx: *SemContext, node: Sexp) !void {
 
 /// Lower every body of module `tree`.
 pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: Options) !Module {
-    var m: Module = .{ .arena = .init(gpa) };
+    var m: Module = .{ .arena = .init(gpa), .consts = .init(gpa) };
     errdefer m.deinit();
     const a = m.arena.allocator();
     // Each frame owner, then each compile-time function, whose body the
@@ -294,10 +308,25 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
     try l.coercibleNodes();
     for (m.owners, 0..) |o, i| {
         if (o.root.isKind(.lambda)) continue;
+        // The module's compile-time body goes in an arena of its own,
+        // freed once the checker has walked it (`dropConstants`), unless
+        // a closure in it was lowered with it.
+        const constant = o.root.isKind(.module);
+        var funcs: usize = 0;
+        if (constant) {
+            for (m.owners) |x| funcs += @intFromBool(x.func != null);
+            l.a = m.consts.allocator();
+        }
+        defer l.a = a;
         l.lowerBody(@intCast(i)) catch |err| switch (err) {
             error.Uncovered => m.owners[i].skip = l.skip,
             else => |e| return e,
         };
+        if (constant) {
+            var after: usize = 0;
+            for (m.owners) |x| after += @intFromBool(x.func != null);
+            if (after == funcs + 1 and m.owners[i].func != null) m.constants = @intCast(i);
+        }
     }
     // A closure is lowered with the body around it, or skipped with it.
     for (m.owners) |*o| if (o.func == null and o.skip == null) {
@@ -478,12 +507,20 @@ const Lowerer = struct {
         const moved = try l.addExpr(l.f.exprs.items[e]);
         l.f.exprs.items[e] = .{ .@"var" = .{ .v = v, .node = node } };
         try l.step(in, .{ .bind = .{ .v = v, .value = moved } });
+        if (l.inConstants()) return;
         const gop = try l.module.coerced.getOrPut(l.a, sema.decisionKeyOf(node).?);
         if (!gop.found_existing) gop.value_ptr.* = .{};
         const c = gop.value_ptr;
         c.held = c.use[kept..];
         c.use = c.use[0..kept];
         c.hoisted = true;
+    }
+
+    /// Lowering the module's compile-time body, which only the checkers
+    /// read, and whose arena is freed alone: the module's maps for emit
+    /// (`temps`, `coerced`, `answers`) hold nothing of it.
+    fn inConstants(l: *const Lowerer) bool {
+        return l.f.root.isKind(.module);
     }
 
     fn exprOf(l: *Lowerer, node: Sexp) ?ExprId {
@@ -676,7 +713,7 @@ const Lowerer = struct {
     /// `sema.stmtTemps` lists, in its order.
     fn checkTemps(l: *Lowerer, s: Sexp, first: usize) Error!void {
         const have = l.temps.items[first..];
-        if (have.len > 0) {
+        if (have.len > 0 and !l.inConstants()) {
             const nodes = try l.a.alloc(Sexp, have.len);
             for (have, nodes) |v, *n| n.* = l.f.vars.items[v].node;
             try l.module.temps.put(l.a, sema.decisionKeyOf(s).?, nodes);
@@ -1086,7 +1123,7 @@ const Lowerer = struct {
             const inner = try l.addExpr(l.f.exprs.items[id]);
             l.f.exprs.items[id] = .{ .coerce = .{ .node = e, .how = &kept[i], .value = inner } };
         }
-        try l.module.coerced.put(l.a, key, .{ .use = kept });
+        if (!l.inConstants()) try l.module.coerced.put(l.a, key, .{ .use = kept });
     }
 
     /// The operation of `e` over its children, then the vars it makes.
@@ -1707,7 +1744,7 @@ const Lowerer = struct {
 
     fn leaf(l: *Lowerer, e: Sexp) Error!void {
         const how = storage.leafStep(l.ctx, e);
-        if (sema.decisionKeyOf(e)) |key| try l.module.answers.put(l.a, .{ .key = key, .ask = .leaf_step }, encode(.leaf_step, how));
+        if (!l.inConstants()) if (sema.decisionKeyOf(e)) |key| try l.module.answers.put(l.a, .{ .key = key, .ask = .leaf_step }, encode(.leaf_step, how));
         switch (how) {
             .place, .part, .view, .jump => {},
             .made => if (!l.ctx.dropsTemp(e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),
