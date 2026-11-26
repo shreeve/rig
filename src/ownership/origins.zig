@@ -13,6 +13,7 @@ const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
 const live = @import("live.zig");
 const transfer = @import("transfer.zig");
+const lowered = @import("lowered.zig");
 const rules = @import("rules.zig");
 const generic = @import("generic.zig");
 const types = @import("types.zig");
@@ -161,9 +162,10 @@ pub fn throughReadView(self: *const Checker, e: Sexp) bool {
 /// `t = c.items` then `?t[0]`): it keeps what the view keeps, which
 /// the place's var holds, and no loan on the var (Core sentence 7).
 /// The var is held while the place's indexes run, as for any view.
-pub fn walkThroughView(self: *Checker, e: Sexp) Error!Value {
-    const place = transfer.resolvePlace(self, e) orelse return transfer.walkViewedPath(self, e);
-    try transfer.walkIndicesHeld(self, e, place.root, place.path);
+pub fn walkThroughView(self: *Checker, ex: lowered.Expr) Error!Value {
+    const e = ex.node;
+    const place = transfer.resolvePlace(self, e) orelse return transfer.walkViewedPath(self, ex);
+    try transfer.walkIndicesHeld(self, ex, place.root, place.path);
     try rules.checkReadable(self, place.root, e, notes.startOf(self, e));
     return tagSelf(self, live.varValue(self, place.root), place.root, place.path);
 }

@@ -727,10 +727,6 @@ pub const Checker = struct {
     reachable: bool = true,
     /// Non-zero while computing a loop fixpoint: diagnostics suppressed.
     quiet: u32 = 0,
-    /// The walk reads each body's statements, bindings, temporaries, and
-    /// uses from its LIR too (`lowered.zig`): the shadow walk of a
-    /// self-checking build.
-    on_lir: bool = false,
     /// The lowered body being walked, whose LIR gives each expression's
     /// operands (`lowered.operand`).
     lir_body: ?*lowered.Body = null,
@@ -1045,12 +1041,9 @@ pub const Checker = struct {
         self.loan_counts.shrinkRetainingCapacity(start);
     }
 
-    /// The binding name `node` declares or reads: on the walk of LIR, the
-    /// one its var in the body being walked declares, or the one the var
-    /// read there binds, when the body has one; else as sema resolved it.
+    /// The binding name `node` declares or reads, as sema resolved it.
     pub fn bindingOf(self: *const Checker, node: Sexp) ?SymbolId {
-        if (!self.on_lir) return self.sema.symbolOf(node);
-        return lowered.bindingAt(self, node) orelse lowered.symbolOf(self, node) orelse self.sema.symbolOf(node);
+        return self.sema.symbolOf(node);
     }
 
     /// The innermost visible var of the binding leaf `node` names.
