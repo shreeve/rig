@@ -32,7 +32,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const root = @import("root");
 const rt = @import("runtime.zig");
 
 /// The Zig type of `Slot[n]`: the fewest of 8, 16, 32, and 64 bits that
@@ -57,7 +56,7 @@ pub fn slotOf(comptime n: u64, i: anytype) rt.Opt(Slot(n)) {
 const lazy_pages = @sizeOf(usize) == 8 and switch (builtin.os.tag) {
     .linux, .macos, .ios, .freebsd, .netbsd, .openbsd, .dragonfly => true,
     else => false,
-} and !(@hasDecl(root, "__rig_table_fallback") and root.__rig_table_fallback);
+} and !rt.config.table_fallback;
 
 /// Whether `T()` is all zero bytes and `T` owns nothing: the mirror of
 /// `sema.tableFill`'s `.zeros` for a Zig type. An object says so itself

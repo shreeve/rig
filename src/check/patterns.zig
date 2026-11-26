@@ -679,7 +679,7 @@ pub fn coversAll(self: *Checker, cov: *Checker.MatchCoverage, scrutinee: TypeId)
     switch (self.ctx.types.get(ty)) {
         .bool => return cov.bools[0] and cov.bools[1],
         .int, .int_literal => {
-            const bounds = CompatCheck.intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
+            const bounds = sema.intRange(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
             var next = bounds.min;
             const max = bounds.max;
             for (cov.ints.items) |iv| {
@@ -725,7 +725,7 @@ pub fn notExhaustive(self: *Checker, cov: *const Checker.MatchCoverage, scrutine
         .int, .int_literal => {
             // The least value missed that is not negative, else the
             // greatest negative one.
-            const bounds = CompatCheck.intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
+            const bounds = sema.intRange(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
             var next: Wide = @max(bounds.min, 0);
             for (cov.ints.items) |iv| {
                 if (iv[0] > next) break;
@@ -921,7 +921,7 @@ pub fn checkRangePattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: 
         return coverInts(self, cov, lo.?, hi.?, pos);
     }
     if (st == .int) {
-        const b = CompatCheck.intBounds(st.int);
+        const b = sema.intRange(st.int);
         if (hi.? > b.max + 1 or hi.? <= b.min) {
             try self.errAt(hi_node, "the end of range `{d}..{d}` does not fit `{s}`; it may be at most {d}, one past the largest value", .{ lo.?, hi.?, try self.tyName(scrutinee), b.max + 1 });
             return;
@@ -1336,18 +1336,30 @@ pub fn reportMissingVariant(self: *Checker, enum_ty: TypeId, vname: []const u8, 
     const sym = decl.symbol();
     if (sym.fields == null) return;
     try self.err(pos, "no variant `{s}` on enum `{s}`{s}", .{ vname, try self.tyName(sema.unwrapViews(self.ctx, enum_ty)), sema.stdRenamed(decl.ctx, sym.name, vname) orelse "" });
-    try noteDeclared(self, sym, decl.module_id == null);
+    try noteDeclaredAt(self, decl);
 }
 
 /// Point at where type `sym` is declared, when that is in this
-/// module's source (`local`), or where the generic type a proxy
-/// stands for is.
+/// module's source (`local`).
 pub fn noteDeclared(self: *Checker, sym: sema.Symbol, local: bool) Error!void {
-    if (sema.isProxy(sym)) {
-        const origin = sema.proxyOrigin(self.ctx, sym) orelse return;
-        return self.ctx.noteIn(origin.module_id, origin.pos, "`{s}` declared here", .{sym.name});
-    }
     if (local and sym.decl_pos < sema.imported_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+}
+
+/// `noteDeclared` of `decl`: another module's generic type is pointed at
+/// there, named as this module spells it.
+pub fn noteDeclaredAt(self: *Checker, decl: sema.NominalDecl) Error!void {
+    const sym = decl.symbol();
+    const module = decl.module_id orelse return noteDeclared(self, sym, true);
+    if (sym.kind != .generic_type) return;
+    const name = try sema.formatTypeValue(self.ctx, self.ctx.arena.allocator(), .{ .nominal = .{ .module_id = module, .sym = decl.sym } });
+    try self.ctx.noteIn(module, sym.decl_pos, "`{s}` declared here", .{name});
+}
+
+/// `noteDeclared` of named type `nt`, another module's generic type there.
+pub fn noteDeclaredNamed(self: *Checker, nt: Checker.NamedType) Error!void {
+    const fo = nt.foreign orelse return noteDeclared(self, nt.sym, true);
+    if (nt.sym.kind != .generic_type) return;
+    try self.ctx.noteIn(fo.module_id, nt.sym.decl_pos, "`{s}` declared here", .{nt.sym.name});
 }
 
 pub fn synthExpr(self: *Checker, e: Sexp) Error!TypeId {

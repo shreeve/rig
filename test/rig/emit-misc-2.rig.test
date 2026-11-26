@@ -1865,3 +1865,75 @@ test "a field of a moved or cloned temporary", "5 6 7 1"
   c = (+User(age: 7)).age
   d = (<[1, 2])[0]
   print(a, b, c, d)
+
+code "a temporary made first goes into its slot ahead of its statement", "__rig_tmp_2 = rig.rt(mk(rig.String.of(.{ \"hi \", n }))); __rig_tmp_2_live = true; rig.rt(show(n, (__rig_tmp_2).value.bytes()));"
+  obj P
+    value: String
+
+  fun mk(s: String) -> P
+    P(value: <s)
+
+  sub show(a: Int, s: ?String)
+    print(a, s)
+
+  n = 3
+  show(n, mk(`hi {n}`).value)
+
+code "a temporary made after a call is kept where it is made", "rig.rt(show(rig.rt(tick(n)), (rig.keep(&__rig_tmp_2, &__rig_tmp_2_live, rig.rt(mk("
+  obj P
+    value: String
+
+  fun mk(s: String) -> P
+    P(value: <s)
+
+  fun tick(n: Int) -> Int
+    n
+
+  sub show(a: Int, s: ?String)
+    print(a, s)
+
+  n = 3
+  show(tick(n), mk(`hi {n}`).value)
+
+test "a temporary made first runs after nothing that acts", '''
+tick
+mk
+3 hi 3
+mk
+3 hi 3
+'''
+  obj P
+    value: String
+
+  fun mk(s: String) -> P
+    print("mk")
+    P(value: <s)
+
+  fun tick(n: Int) -> Int
+    print("tick")
+    n
+
+  sub show(a: Int, s: ?String)
+    print(a, s)
+
+  n = 3
+  show(tick(n), mk(`hi {n}`).value)
+  show(n, mk(`hi {n}`).value)
+
+test "a temporary that writes a name read before it stays where it is made", '''
+0 1
+1
+'''
+  obj P
+    value: String
+
+  fun grow(xs: !List[Int]) -> P
+    !xs.push(9)
+    P(value: `{xs.len}`)
+
+  sub show(a: Int, s: ?String)
+    print(a, s)
+
+  xs: List[Int] = List()
+  show(xs.len, grow(!xs).value)
+  print(xs.len)

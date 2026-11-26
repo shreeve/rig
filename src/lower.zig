@@ -71,6 +71,10 @@ pub const Module = struct {
     temps: sema.FastMap(u64, []const Sexp) = .empty,
     /// The coercions of each node that has any, by its key.
     coerced: sema.FastMap(u64, Coerced) = .empty,
+    /// The owning temporaries made before anything their statement does
+    /// can act (`Lowerer.flatten`), by their keys: each is written into
+    /// its slot ahead of the statement.
+    flat: sema.FastMap(u64, void) = .empty,
     /// The answer to each question emit asks about a node of the module
     /// (`Ask`), by the node's key and the question, encoded: asked as
     /// emit starts on the module (`answerAll`).
@@ -135,6 +139,13 @@ pub const Module = struct {
         return m.temps.get(sema.decisionKeyOf(node) orelse return &.{}) orelse &.{};
     }
 
+    /// Whether owning temporary `node` is made before anything its
+    /// statement does can act, so its slot can take it ahead of the
+    /// statement.
+    pub fn isFlat(m: *const Module, node: Sexp) bool {
+        return m.flat.contains(sema.decisionKeyOf(node) orelse return false);
+    }
+
     /// The answer to `ask` about `node`; null for a node no question of
     /// its kind is asked about.
     pub fn answer(m: *const Module, node: Sexp, comptime ask: Ask) ?Answer(ask) {
@@ -193,7 +204,7 @@ fn markUsed(ctx: *SemContext) !void {
     ctx.used.deinit(ctx.allocator);
     ctx.used = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
     var names = ctx.facts.names.iterator();
-    while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.* and !ctx.facts.rebinds.contains(e.key_ptr.*)) ctx.used.set(e.value_ptr.*);
+    while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_leaf != e.key_ptr.* and !ctx.facts.rebinds.contains(@intCast(e.key_ptr.*))) ctx.used.set(e.value_ptr.*);
     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < ctx.used.bit_length) ctx.used.set(s.origin);
 }
 
@@ -687,6 +698,7 @@ const Lowerer = struct {
         const value_1 = try l.expr(s);
         l.region(o.region).value = value_1;
         try l.checkTemps(s, o.temps);
+        if (l.temps.items.len > o.temps) try l.flatten(o.region);
         l.stmt_region = o.stmt;
         l.temps.shrinkRetainingCapacity(o.temps);
         return l.addExpr(.{ .block = o.region });
@@ -703,6 +715,7 @@ const Lowerer = struct {
 
     fn closeStmt(l: *Lowerer, s: Sexp, o: Open, into: RegionId) Error!void {
         try l.checkTemps(s, o.temps);
+        if (l.temps.items.len > o.temps) try l.flatten(o.region);
         l.stmt_region = o.stmt;
         l.temps.shrinkRetainingCapacity(o.temps);
         try l.step(into, .{ .region = o.region });
@@ -732,6 +745,143 @@ const Lowerer = struct {
             std.debug.panic("{s}:{d}:{d}: internal error: lir: a statement's temporaries are not those sema lists ({d} made, {d} listed, the first a `{s}` at {d}:{d})", .{ l.ctx.name, at.line, at.col, have.len, want.items.len, @tagName(first_want.kind() orelse .module), w_at.line, w_at.col });
         }
     }
+
+    /// Record which temporaries of statement or header region `r` are
+    /// made before anything the statement does can act (`Module.flat`).
+    /// Its parts are walked in the order they run while each part so far
+    /// only reads (`Flat.walk`). A temporary reached so, whose value
+    /// changes no var read before it (`Flat.changesAny`), is made the
+    /// same whether its slot takes it in place or ahead of the
+    /// statement. A statement that stores to anything but a name, or
+    /// whose steps are not plain values, keeps every temporary in place.
+    fn flatten(l: *Lowerer, r: RegionId) Error!void {
+        const steps = l.region(r).steps.items;
+        for (steps) |s| switch (s) {
+            .eval, .bind, .jump => {},
+            .store => |st| if (l.f.exprs.items[st.target] != .@"var" or rig.bindingKindOf(ir.Set.op(st.node)).operator() != null) return,
+            else => return,
+        };
+        var w: Flat = .{ .l = l };
+        defer w.read.deinit(l.gpa);
+        for (steps) |s| switch (s) {
+            .eval => |e| try w.walk(e),
+            .bind => |b| try w.walk(b.value),
+            .jump => |j| if (j.value) |v| try w.walk(v),
+            .store => |st| try w.walk(st.value),
+            else => unreachable,
+        };
+        if (l.region(r).value) |v| try w.walk(v);
+    }
+
+    /// The walk `flatten` makes of a statement's parts.
+    const Flat = struct {
+        l: *Lowerer,
+        /// Every part walked so far only reads: a literal, a constant, a
+        /// var, a field of one, a view of one, or a value made of those.
+        clean: bool = true,
+        /// The vars those parts read.
+        read: std.ArrayList(VarId) = .empty,
+
+        fn walk(w: *Flat, id: ExprId) Error!void {
+            if (!w.clean) return;
+            const l = w.l;
+            switch (l.f.exprs.items[id]) {
+                .leaf => {},
+                .@"var" => |u| try w.read.append(l.gpa, u.v),
+                .op => |o| {
+                    const kind = o.node.kind();
+                    // A `catch`, and a `!` in a function with no slot of
+                    // its own, give their value the slot its failure's
+                    // fields go in, which emit declares around it.
+                    if (kind == .@"catch" or kind == .propagate) {
+                        w.clean = false;
+                        return;
+                    }
+                    for (o.args, 0..) |a, i| {
+                        // `a and b`, `a or b`, and `a ?? b` run `b` only
+                        // on a condition.
+                        if (i > 0 and (kind == .@"and" or kind == .@"or" or kind == .@"??")) {
+                            w.clean = false;
+                            return;
+                        }
+                        try w.walk(a);
+                    }
+                    const reads = if (kind) |k| switch (k) {
+                        .member, .read, .write, .kwarg, .enum_lit, .symbol, .paren, .array, .tuple => true,
+                        else => false,
+                    } else true;
+                    if (!reads) w.clean = false;
+                },
+                .coerce => |c| {
+                    try w.walk(c.value);
+                    switch (c.how.*) {
+                        .view, .deref, .lift, .widen, .splat => {},
+                        .duration, .erase, .fail => w.clean = false,
+                    }
+                },
+                .hold => |h| {
+                    const before = w.read.items.len;
+                    try w.walk(h.value);
+                    switch (l.f.vars.items[h.v].name) {
+                        .hidden => |k| switch (k) {
+                            .temp => if (!w.changesAny(h.value, w.read.items[0..before])) {
+                                try l.module.flat.put(l.a, sema.decisionKeyOf(l.f.vars.items[h.v].node).?, {});
+                                // Made ahead of the statement, it is no
+                                // longer among the parts before the rest.
+                                w.read.shrinkRetainingCapacity(before);
+                                w.clean = true;
+                            } else {
+                                w.clean = false;
+                            },
+                            .new_value, .zig_temp, .leaf, .viewed => {},
+                            else => w.clean = false,
+                        },
+                        .binding => w.clean = false,
+                    }
+                },
+                .block, .branch, .choice, .closure => w.clean = false,
+            }
+        }
+
+        /// Whether expression `id` may change what any of `vars` holds:
+        /// a write view or a move of a place one of them roots, a read
+        /// of a binding a use may move, or a construct with statements
+        /// of its own.
+        fn changesAny(w: *const Flat, id: ExprId, vars: []const VarId) bool {
+            if (vars.len == 0) return false;
+            const f = w.l.f;
+            return switch (f.exprs.items[id]) {
+                .leaf => false,
+                .@"var" => |u| switch (f.vars.items[u.v].name) {
+                    .binding => |sym| w.l.ctx.mayMove(sym) and std.mem.indexOfScalar(VarId, vars, u.v) != null,
+                    .hidden => false,
+                },
+                .op => |o| blk: {
+                    if (o.node.kind() == .write or o.node.kind() == .move) {
+                        const root = w.rootVar(o.args[0]) orelse break :blk true;
+                        if (std.mem.indexOfScalar(VarId, vars, root) != null) break :blk true;
+                    }
+                    for (o.args) |a| if (w.changesAny(a, vars)) break :blk true;
+                    break :blk false;
+                },
+                .coerce => |c| w.changesAny(c.value, vars),
+                .hold => |h| w.changesAny(h.value, vars),
+                .block, .branch, .choice, .closure => true,
+            };
+        }
+
+        /// The var at the root of place `id`, or null for a place not
+        /// rooted at a var.
+        fn rootVar(w: *const Flat, id: ExprId) ?VarId {
+            const f = w.l.f;
+            return switch (f.exprs.items[id]) {
+                .@"var" => |u| u.v,
+                .op => |o| if (o.args.len > 0 and (o.node.kind() == .member or o.node.kind() == .index or o.node.kind() == .paren)) w.rootVar(o.args[0]) else null,
+                .coerce => |c| w.rootVar(c.value),
+                else => null,
+            };
+        }
+    };
 
     fn stmtBody(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
         const head = s.kind() orelse return l.step(r, .{ .eval = try l.expr(s) });
@@ -1058,6 +1208,7 @@ const Lowerer = struct {
         const value_5 = try l.expr(e);
         l.region(h).value = value_5;
         try l.checkTemps(e, o.temps);
+        if (l.temps.items.len > o.temps) try l.flatten(h);
         l.stmt_region = o.stmt;
         l.temps.shrinkRetainingCapacity(o.temps);
         return l.addExpr(.{ .block = h });

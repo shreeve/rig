@@ -44,9 +44,9 @@ for p in ahead asked none; do
     "$RIG" emit $p.rig >$p.zig 2>/dev/null || fail "rig emit $p.rig"
     "$RIG" build --release -o $p $p.rig >build.txt 2>&1 || fail "build $p.rig: $(cat build.txt)"
 done
-expect_has "$(cat ahead.zig)" "pub const __rig_start_early = true;" "a program that makes a task and names no task.workers"
-grep -q "__rig_start_early" asked.zig && fail "a program that names task.workers starts its workers at its first task"
-grep -q "__rig_start_early" none.zig && fail "a program that makes no task starts no workers"
+expect_has "$(cat ahead.zig)" ".start_early = true" "a program that makes a task and names no task.workers"
+grep -q "\.start_early = " asked.zig && fail "a program that names task.workers starts its workers at its first task"
+grep -q "\.start_early = " none.zig && fail "a program that makes no task starts no workers"
 
 # How many workers' lines a run prints.
 started() { RIG_SCHED_STATS=1 "$@" 2>&1 >/dev/null | grep -c '^rig: worker [0-9]*: ran'; }

@@ -14,6 +14,7 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const TypeId = sema.TypeId;
 const Type = sema.Type;
 const Field = sema.Field;
@@ -1090,8 +1091,8 @@ pub fn isEmbedCall(self: *Checker, bytes: Sexp) bool {
 pub fn meetsOwnerBounds(self: *Checker, m: Field, owner: sema.Symbol, module: ?u32, args: []const TypeId, pos: u32, self_arg: bool) Error!bool {
     if (m.owner_bounds.len == 0) return true;
     const a = self.ctx.arena.allocator();
-    const home: *const SemContext = if (module) |id| self.ctx.foreign_semas.get(id) orelse self.ctx else if (sema.isProxy(owner)) self.ctx.foreign_semas.get(owner.from.module_id) orelse self.ctx else self.ctx;
-    const home_sym = if (sema.isProxy(owner) and home != self.ctx) home.symbols.items[owner.from.sym] else owner;
+    const home: *const SemContext = if (module) |id| self.ctx.foreign_semas.get(id) orelse self.ctx else self.ctx;
+    const home_sym = owner;
     const tparams = home_sym.type_params orelse &.{};
     if (args.len < tparams.len) {
         try self.err(pos, "internal error: `{s}.{s}` is declared under bounds on its type's parameters, and the call has no type arguments to check", .{ owner.name, m.name });
@@ -1340,11 +1341,11 @@ pub fn numberType(self: *Checker, obj: Sexp) Error!?TypeId {
 /// The instance of generic `sym_id` at `args`, checked like a spelled
 /// one: the built-in generics' element rules, and every generic's
 /// requirements (through its instantiation site).
-pub fn instantiate(self: *Checker, sym_id: SymbolId, args: []const TypeId, pos: u32) Error!TypeId {
-    if (self.ctx.ref(sym_id) == self.ctx.builtins.simd) return resolve.simdInstance(self.ctx, args, pos);
-    if (self.ctx.ref(sym_id) == self.ctx.builtins.slot) return resolve.slotInstance(self.ctx, args, pos);
-    if (try resolve.builtinElementError(self.ctx, sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
-    const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.ref(sym_id), .args = try self.ctx.dupeIds(args) } });
+pub fn instantiate(self: *Checker, gref: SymbolRef, args: []const TypeId, pos: u32) Error!TypeId {
+    if (gref == self.ctx.builtins.simd) return resolve.simdInstance(self.ctx, args, pos);
+    if (gref == self.ctx.builtins.slot) return resolve.slotInstance(self.ctx, args, pos);
+    if (self.ctx.owns(gref)) if (try resolve.builtinElementError(self.ctx, gref.sym, args)) |msg| try self.err(pos, "{s}", .{msg});
+    const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = gref, .args = try self.ctx.dupeIds(args) } });
     if (!sema.containsTypeVar(self.ctx, ty)) {
         const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
         if (!gop.found_existing) {
@@ -1394,7 +1395,7 @@ pub fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, p
         .nominal_type => if (ct == null) return CallCheck.construct(self, found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return CallCheck.badCall(self, args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),
         .generic_type => {
             const nt = try CallCheck.foreignGeneric(self, found);
-            return StdFormCheck.constructGeneric(self, self.expect.callee_node orelse Sexp.nil, nt.id, args, qualified, pos);
+            return StdFormCheck.constructGeneric(self, self.expect.callee_node orelse Sexp.nil, nt.ref(self.ctx), args, qualified, pos);
         },
         else => return CallCheck.badCall(self, args, pos, "`{s}` cannot be called", .{qualified}),
     }
@@ -1759,7 +1760,7 @@ pub fn checkActual(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Er
             if (try PatternCheck.payloadViewTaken(self, e, "move")) return;
             // A bounded `T` copies only where its bounds name `Copy`.
             switch (self.ctx.types.get(inner)) {
-                .type_var => |param| if (sema.checkedByBounds(self.ctx.symbols.items[self.ctx.localSym(param)]))
+                .type_var => |param| if (sema.checkedByBounds(sema.symbolAt(self.ctx, param).*))
                     return GenericCheck.reportUnbounded(self.ctx, self.startOf(e), self.ctx.localSym(param), .Copy, "a copy"),
                 else => {},
             }
@@ -2138,8 +2139,8 @@ pub fn erasable(self: *Checker, e: Sexp, viewed: Sexp, actual: TypeId, reached: 
     const witness = (try sema.witnessFor(self.ctx, reached, object.api)) orelse {
         if (self.ctx.types.get(reached) == .type_var) {
             const param = self.ctx.types.get(reached).type_var;
-            const pname = self.ctx.symbols.items[self.ctx.localSym(param)].name;
-            if (self.ctx.symbols.items[self.ctx.localSym(param)].user_apis.len == 0) {
+            const pname = sema.symbolAt(self.ctx, param).name;
+            if (sema.symbolAt(self.ctx, param).user_apis.len == 0) {
                 try self.errAt(e, "`{s}` is a `{s}` with no bound, so it is no `{s}`: write `[{s}: {s}]`", .{ CallCheck.sourceText(self, viewed), pname, shown_view, pname, api_name });
             } else try self.errAt(e, "`{s}` is a `{s}`, whose bounds do not name `{s}`, so it is no `{s}`: write `[{s}: {s}]`", .{ CallCheck.sourceText(self, viewed), pname, api_name, shown_view, pname, api_name });
             return null;
@@ -2739,8 +2740,9 @@ pub fn contextualCall(self: *Checker, e: Sexp, expected: TypeId, target: TypeId)
     } else if (self.ctx.ref(id) == self.ctx.builtins.table) {
         try StdFormCheck.checkTableConstruction(self, e);
     } else {
-        const sym = self.ctx.symbols.items[id];
-        _ = try CallCheck.construct(self, id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
+        const r = self.ctx.ref(id);
+        const foreign: ?Checker.ForeignFields = if (self.ctx.owns(r)) null else .{ .ctx = self.ctx.foreign_semas.get(r.module_id).?, .module_id = r.module_id };
+        _ = try CallCheck.construct(self, r.sym, ir.Call.args(e), callee.src.pos, .{ .params = sema.paramRefs(self.ctx, r), .args = tt.parameterized_nominal.args }, foreign);
     }
     return target;
 }
@@ -3510,7 +3512,7 @@ pub fn recordLiteralType(self: *Checker, e: Sexp, target: TypeId) Error!void {
             try recordLiteralType(self, ir.get(e, .left), target);
             if (self.ctx.types.get(target) != .int) return;
             const amount = ir.get(e, .right);
-            const bits = CompatCheck.intBounds(self.ctx.types.get(target).int).bits;
+            const bits = self.ctx.types.get(target).int.width();
             if (ExprCheck.constInt(self, amount)) |v| if (v >= bits) {
                 try self.errAt(amount, "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(target), bits - 1 });
             };

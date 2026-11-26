@@ -5598,7 +5598,7 @@ inline fn programCounter() usize {
 /// Whether waits are watched: in a program that makes actors, which
 /// every cycle of waits passes through, since the tasks a task waits on
 /// are its own.
-const watched = @hasDecl(@import("root"), "__rig_actors");
+const watched = rt.config.actors;
 
 /// A method of an actor, as a deadlock names it: `Bank.pay`.
 pub const Label = struct {

@@ -355,33 +355,88 @@ const Env = struct {
         return !std.mem.eql(u8, value, "0");
     }
 
-    /// The declarations that ask the runtime for leak traces, the
-    /// sanitizer, or the assertions of proven tests, written into the root
-    /// module (`runtime.zig`); those that run a program's tasks on the
-    /// scheduler, with the guard below each task's stack (`tasks`,
-    /// `taskGuardOf`); the one that marks a program that makes actors,
-    /// whose waits a deadlock's walk follows (`actors`); those that ask
-    /// the runtime for what only some programs read (`reads`); and, in a
-    /// package `rig run` or `rig test` builds (`hook`), the variable
-    /// naming the file the program creates as it starts (`buildCommand`).
-    fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: ?u64, actors: bool, reads: Reads) !void {
-        if (tasks) |guard| try w.print("pub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\npub const __rig_dense_stride: usize = {d};\n", .{ guard, sema.denseStride(builtin.os.tag) });
-        // A program that makes tasks and never sets how many workers run
-        // starts them as `main` starts (`sched.runMain`). A batch's root
-        // declares none of this: its one runtime serves programs that
-        // make no task too.
-        if (tasks != null and !reads.workers) try w.writeAll("pub const __rig_start_early = true;\n");
-        if (actors) try w.writeAll("pub const __rig_actors = true;\n");
-        if (reads.since_start) try w.writeAll("pub const __rig_since_start = true;\n");
-        if (reads.memory) try w.writeAll("pub const __rig_memory = true;\n");
-        if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
-        if (env.heapProfile()) try w.writeAll("pub const __rig_heap_profile = true;\n");
-        if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
-        if (env.mapTrace()) try w.writeAll("pub const __rig_map_trace = true;\n");
-        if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
-        if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
-        if (env.tableFallback()) try w.writeAll("pub const __rig_table_fallback = true;\n");
-        if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
+    /// The settings a root module gives the runtime (`RootConfig`): those
+    /// that ask for leak traces, the sanitizer, or the assertions of
+    /// proven tests, from the environment; those that run a program's
+    /// tasks on the scheduler, with the guard below each task's stack
+    /// (`tasks`, `taskGuardOf`); the one that marks a program that makes
+    /// actors, whose waits a deadlock's walk follows (`actors`); those
+    /// that ask the runtime for what only some programs read (`reads`);
+    /// and, in a package `rig run` or `rig test` builds (`hook`), the
+    /// variable naming the file the program creates as it starts
+    /// (`buildCommand`).
+    fn rootConfig(env: Env, hook: bool, tasks: ?u64, actors: bool, reads: Reads) RootConfig {
+        return .{
+            .tasks = tasks != null,
+            .task_guard = tasks,
+            .dense_stride = if (tasks != null) sema.denseStride(builtin.os.tag) else null,
+            // A program that makes tasks and never sets how many workers
+            // run starts them as `main` starts (`sched.runMain`). A batch's
+            // root names none of this: its one runtime serves programs
+            // that make no task too.
+            .start_early = tasks != null and !reads.workers,
+            .actors = actors,
+            .since_start = reads.since_start,
+            .memory = reads.memory,
+            .leak_trace = env.leakTrace(),
+            .heap_profile = env.heapProfile(),
+            .heap_sites = env.heapSites(),
+            .map_trace = env.mapTrace(),
+            .sanitize = env.sanitize(),
+            .verify_proofs = env.verifyProofs(),
+            .table_fallback = env.tableFallback(),
+            .run_started = if (hook) program_started_var else null,
+        };
+    }
+};
+
+/// The `rig.Config` a root module declares as `__rig_config`
+/// (runtime.zig), written with each field that differs from its default;
+/// a root whose every field has its default declares none. Each field is
+/// one of `rig.Config`'s, by name.
+const RootConfig = struct {
+    tasks: bool = false,
+    task_guard: ?u64 = null,
+    dense_stride: ?u64 = null,
+    start_early: bool = false,
+    preempt: bool = false,
+    actors: bool = false,
+    since_start: bool = false,
+    memory: bool = false,
+    leak_trace: bool = false,
+    sanitize: bool = false,
+    heap_profile: bool = false,
+    heap_sites: bool = false,
+    map_trace: bool = false,
+    verify_proofs: bool = false,
+    table_fallback: bool = false,
+    pgo: bool = false,
+    interrupt: bool = false,
+    run_started: ?[]const u8 = null,
+    /// The file of the program's error glue (`emit.writeErrorGlue`).
+    error_glue: ?[]const u8 = null,
+
+    fn write(c: RootConfig, w: *std.Io.Writer) !void {
+        var first = true;
+        const info = @typeInfo(RootConfig).@"struct";
+        inline for (info.field_names, info.field_types) |name, T| {
+            comptime std.debug.assert(@hasField(@import("runtime.zig").Config, name));
+            const v = @field(c, name);
+            const set = if (T == bool) v else v != null;
+            if (set) {
+                try w.writeAll(if (first) "\npub const __rig_config: rig.Config = .{ ." else ", .");
+                first = false;
+                try w.print("{s} = ", .{name});
+                if (T == bool) {
+                    try w.writeAll("true");
+                } else if (T == ?u64) {
+                    try w.print("{d}", .{v.?});
+                } else if (comptime std.mem.eql(u8, name, "error_glue")) {
+                    try w.print("@import(\"{s}\").Glue", .{v.?});
+                } else try w.print("\"{s}\"", .{v.?});
+            }
+        }
+        if (!first) try w.writeAll(" };\n");
     }
 };
 
@@ -1433,7 +1488,6 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\pub const std_options = rig.std_options;
         \\
     , .{emit.runtime_module});
-    try env.writeRootFlags(&root.writer, true, null, false, .{});
     try root.writer.writeAll("\nconst programs = .{\n");
     var site_programs: std.Io.Writer.Allocating = .init(allocator);
     var links_libc = false;
@@ -1494,11 +1548,14 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     // The programs whose sites a failure's trace reads (`rig.siteTables`).
     try root.writer.print("\npub const __rig_site_programs = .{{{s} }};\n", .{site_programs.written()});
     // One runtime serves the batch: it runs tasks if any program makes them.
-    if (makes_tasks) try root.writer.print("\npub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\n", .{sema.taskGuard(largest_frame)});
-    if (makes_tasks and preempt) try root.writer.writeAll("pub const __rig_preempt = true;\n");
-    if (makes_actors) try root.writer.writeAll("pub const __rig_actors = true;\n");
-    if (reads.since_start) try root.writer.writeAll("pub const __rig_since_start = true;\n");
-    if (reads.memory) try root.writer.writeAll("pub const __rig_memory = true;\n");
+    var config = env.rootConfig(true, null, false, .{});
+    config.tasks = makes_tasks;
+    if (makes_tasks) config.task_guard = sema.taskGuard(largest_frame);
+    config.preempt = makes_tasks and preempt;
+    config.actors = makes_actors;
+    config.since_start = reads.since_start;
+    config.memory = reads.memory;
+    try config.write(&root.writer);
     try root.writer.print(
         \\
         \\// The first argument names the program; it sees the others, after
@@ -1839,9 +1896,10 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
         \\pub const std_options = rig.std_options;
         \\
     , .{emit.runtime_filename});
-    try env.writeRootFlags(w, true, taskGuardOf(graph), makesActors(graph), readsOf(graph));
     // The driver is the root, so it names the program's error glue.
-    if (declaresErrorFields(graph)) try w.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
+    var config = env.rootConfig(true, taskGuardOf(graph), makesActors(graph), readsOf(graph));
+    if (declaresErrorFields(graph)) config.error_glue = emit.errors_filename;
+    try config.write(w);
     try w.writeAll(
         \\
         \\fn testsOf(comptime module: type) []const rig.Test {
@@ -2154,10 +2212,6 @@ const Reads = struct {
     memory: bool = false,
     workers: bool = false,
 
-    fn any(r: Reads) bool {
-        return r.since_start or r.memory;
-    }
-
     fn with(r: Reads, o: Reads) Reads {
         return .{ .since_start = r.since_start or o.since_start, .memory = r.memory or o.memory, .workers = r.workers or o.workers };
     }
@@ -2231,14 +2285,16 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try em.emit(m.ir);
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or kind.pgo or tasks or reads.any())) {
-            try file_buffer.writer.writeAll("\n");
-            try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph), reads);
-            if (preempting) try file_buffer.writer.writeAll("pub const __rig_preempt = true;\n");
-            if (kind.pgo) try file_buffer.writer.writeAll("pub const __rig_pgo = true;\n");
+        // The root module's settings; a batch's root has its own.
+        if (i == 0 and !kind.batch) {
+            var config = env.rootConfig(hook, task_guard, makesActors(graph), reads);
+            config.preempt = preempting;
+            config.pgo = kind.pgo;
+            config.interrupt = em.interrupt;
+            // A program with error fields reads them through its glue.
+            if (glue) config.error_glue = emit.errors_filename;
+            try config.write(&file_buffer.writer);
         }
-        // A program with error fields reads them through its glue.
-        if (i == 0 and glue) try file_buffer.writer.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
         // Zig addresses a file with u32 offsets (`std.zig.Ast.ByteOffset`).
         if (file_buffer.written().len > std.math.maxInt(u32)) fatal("error: cannot emit `{s}`: its Zig is 4 GiB or larger, more than Zig reads in one file; split it into modules", .{m.display});
         // The root names the program's other modules, whose sites a

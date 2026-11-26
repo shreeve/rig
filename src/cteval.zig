@@ -40,6 +40,7 @@ const ir = parser.ir;
 const Tag = rig.Tag;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const TypeId = sema.TypeId;
 const Wide = sema.Wide;
 const IntInfo = sema.IntInfo;
@@ -94,9 +95,7 @@ pub const Scalar = struct {
 
     /// Whether `x`, a scalar's integer form, fits.
     fn fits(self: Scalar, x: Wide) bool {
-        const bits: u16 = @as(u16, self.width) * 8;
-        if (self.kind != .int) return x >= 0 and x < (@as(Wide, 1) << @intCast(bits));
-        return sema.intInfoFits(.{ .bits = @intCast(bits), .signed = self.signed }, x);
+        return sema.intInfoFits(.{ .bits = self.width * 8, .signed = self.signed }, x);
     }
 
     fn encode(self: Scalar, v: CtVal, dst: []u8) void {
@@ -718,10 +717,8 @@ fn namesCtFunction(ctx: *SemContext, obj: Sexp, scope: sema.ScopeId) bool {
     if (!obj.isKind(.member) or ir.Member.object(obj) != .src) return false;
     const m = ir.Member.object(obj);
     const module = ctx.lookupBefore(scope, identAt(ctx.source, m) orelse return false, m.src.pos) orelse return false;
-    if (ctx.symbols.items[module].kind != .module) return false;
-    const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return false) orelse return false;
-    const fid = foreign.moduleMember(identAt(ctx.source, ir.Member.name(obj)) orelse return false) orelse return false;
-    return isCtFunction(foreign, fid);
+    const f = ctx.foreignMember(module, identAt(ctx.source, ir.Member.name(obj)) orelse return false) orelse return false;
+    return isCtFunction(f.ctx, f.id);
 }
 
 /// The compile-time function a call names: its module's context, its
@@ -737,13 +734,9 @@ pub fn targetOf(ctx: *SemContext, obj: Sexp, names: anytype) ?Target {
         return .{ .ctx = ctx, .sym = id, .module_id = ctx.module_id };
     }
     if (!obj.isKind(.member) or ir.Member.object(obj) != .src) return null;
-    const module = names.symbol(ir.Member.object(obj)) orelse return null;
-    if (ctx.symbols.items[module].kind != .module) return null;
-    const module_id = ctx.module_refs.get(module) orelse return null;
-    const foreign = ctx.foreign_semas.get(module_id) orelse return null;
-    const fid = foreign.moduleMember(identAt(ctx.source, ir.Member.name(obj)) orelse return null) orelse return null;
-    if (!isCtFunction(foreign, fid) or !foreign.symbols.items[fid].flags.is_public) return null;
-    return .{ .ctx = foreign, .sym = fid, .module_id = module_id };
+    const f = ctx.foreignMember(names.symbol(ir.Member.object(obj)) orelse return null, identAt(ctx.source, ir.Member.name(obj)) orelse return null) orelse return null;
+    if (!isCtFunction(f.ctx, f.id) or !f.ctx.symbols.items[f.id].flags.is_public) return null;
+    return .{ .ctx = f.ctx, .sym = f.id, .module_id = f.module_id };
 }
 
 /// The function type of `t`, once its signature is resolved; null when
@@ -765,12 +758,12 @@ pub const Called = struct { value: CtVal, ty: TypeId };
 /// The result type of a call of `t` (of signature `f`) with `args`, in
 /// the declaring module: its integer parameters replaced by their values.
 fn resultIn(t: Target, f: sema.FunctionType, args: []const CtVal) Error!TypeId {
-    var params: std.ArrayList(SymbolId) = .empty;
+    var params: std.ArrayList(SymbolRef) = .empty;
     var vals: std.ArrayList(TypeId) = .empty;
     const a = t.ctx.arena.allocator();
     for (f.ct_params, 0..) |pty, i| {
         if (t.ctx.types.get(pty) != .int or i >= f.ct_syms.len or args[i] != .int) continue;
-        try params.append(a, t.ctx.localSym(f.ct_syms[i]));
+        try params.append(a, f.ct_syms[i]);
         try vals.append(a, try sema.ctInt(t.ctx, args[i].int));
     }
     if (params.items.len == 0) return f.returns;
@@ -1210,11 +1203,8 @@ pub const CheckedNames = struct {
     pub fn member(self: CheckedNames, e: Sexp) ?TypedInt {
         const obj = ir.Member.object(e);
         if (obj != .src) return null;
-        const id = self.symbol(obj) orelse return null;
-        if (self.ctx.symbols.items[id].kind != .module) return null;
-        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
-        const fid = foreign.moduleMember(identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
-        const c = foreign.const_ints.get(fid) orelse return null;
+        const f = self.ctx.foreignMember(self.symbol(obj) orelse return null, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+        const c = f.ctx.const_ints.get(f.id) orelse return null;
         return .{ .v = c.value };
     }
 
@@ -1265,12 +1255,9 @@ fn intTypeBy(ctx: *const SemContext, e: Sexp, names: anytype) ?IntInfo {
         .src => return if (names.symbol(e)) |id| sema.aliasIntType(ctx, id) else sema.intTypeNamed(identAt(ctx.source, e) orelse return null),
         .list => {
             if (!e.isKind(.member) or ir.Member.object(e) != .src) return null;
-            const module = names.symbol(ir.Member.object(e)) orelse return null;
-            if (ctx.symbols.items[module].kind != .module) return null;
-            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
-            const alias = foreign.moduleMember(identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
-            if (!foreign.symbols.items[alias].flags.is_public) return null;
-            return sema.aliasIntType(foreign, alias);
+            const f = ctx.foreignMember(names.symbol(ir.Member.object(e)) orelse return null, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+            if (!f.ctx.symbols.items[f.id].flags.is_public) return null;
+            return sema.aliasIntType(f.ctx, f.id);
         },
         else => return null,
     }
@@ -1553,11 +1540,9 @@ fn spelledType(ctx: *SemContext, e: Sexp, names: anytype, depth: u32) Error!?Typ
     switch (sym.kind) {
         // `lib.K`, a constant of another module, typed there; `lib.Dir.east`.
         .module => if (obj == .src) {
-            const module_id = ctx.module_refs.get(id) orelse return null;
-            const foreign = ctx.foreign_semas.get(module_id) orelse return null;
-            const fid = foreign.moduleMember(identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
-            if (!sema.isModuleConst(foreign, fid)) return null;
-            return try sema.importType(ctx, foreign, foreign.symbols.items[fid].ty, module_id);
+            const f = ctx.foreignMember(id, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+            if (!sema.isModuleConst(f.ctx, f.id)) return null;
+            return try sema.importType(ctx, f.ctx, f.ctx.symbols.items[f.id].ty, f.module_id);
         },
         .nominal_type, .type_alias => if (obj != .src) return null,
         else => return null,
@@ -2151,7 +2136,7 @@ pub const Eval = struct {
     /// A compile-time call in a body: its arguments' values, each checked
     /// against its parameter's type, then the call.
     fn ctCall(self: *Eval, e: Sexp) EvalError!CtVal {
-        const t = targetOf(self.ctx, calleeOf(e), BodyNames{ .ctx = self.ctx }) orelse return self.failAt(e, "calls no compile-time function", .{});
+        const t = targetOf(self.ctx, calleeOf(e), CheckedNames{ .ctx = self.ctx }) orelse return self.failAt(e, "calls no compile-time function", .{});
         const fn_ty = t.ctx.types.get(t.ctx.symbols.items[t.sym].ty).function;
         const given = argsOf(e);
         const args = try self.a().alloc(CtVal, given.len);
@@ -2655,15 +2640,6 @@ fn lastLine(body: Sexp) Sexp {
     const list = ir.Block.stmts(body);
     return if (list.len == 0) body else list[list.len - 1];
 }
-
-/// What a body's names are, from the facts its check recorded.
-const BodyNames = struct {
-    ctx: *const SemContext,
-
-    pub fn symbol(self: BodyNames, e: Sexp) ?SymbolId {
-        return self.ctx.symbolOf(e) orelse self.ctx.lookupInScopeOnly(sema.module_scope, identAt(self.ctx.source, e) orelse return null);
-    }
-};
 
 fn eqlVal(x: CtVal, y: CtVal) bool {
     return switch (x) {

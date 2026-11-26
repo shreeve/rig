@@ -1864,18 +1864,14 @@ fn calledFn(ctx: *const SemContext, call: Sexp) ?Callee {
     if (callee == .src) {
         const id = ctx.symbolOf(callee) orelse return null;
         const s = ctx.symbols.items[id];
-        if (s.kind != .function or sema.isProxy(s)) return null;
+        if (s.kind != .function) return null;
         return .{ .ctx = ctx, .pos = s.decl_pos };
     }
     if (!callee.isKind(.member)) return null;
-    const id = ctx.symbolOf(ir.Member.object(callee)) orelse return null;
-    if (ctx.symbols.items[id].kind != .module) return null;
-    const foreign = ctx.foreign_semas.get(ctx.module_refs.get(id) orelse return null) orelse return null;
-    const name = sema.identAt(ctx.source, ir.Member.name(callee)) orelse return null;
-    const fid = foreign.moduleMember(name) orelse return null;
-    const s = foreign.symbols.items[fid];
-    if (s.kind != .function or sema.isProxy(s)) return null;
-    return .{ .ctx = foreign, .pos = s.decl_pos };
+    const f = ctx.foreignMember(ctx.symbolOf(ir.Member.object(callee)) orelse return null, sema.identAt(ctx.source, ir.Member.name(callee)) orelse return null) orelse return null;
+    const s = f.ctx.symbols.items[f.id];
+    if (s.kind != .function) return null;
+    return .{ .ctx = f.ctx, .pos = s.decl_pos };
 }
 
 /// What the function `call` calls bounds of its result, once its module's

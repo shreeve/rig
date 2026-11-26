@@ -7,6 +7,7 @@ const rig = @import("../rig.zig");
 const sema = @import("../sema.zig");
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const TypeId = sema.TypeId;
 const Field = sema.Field;
 const SelfMode = sema.SelfMode;
@@ -25,7 +26,7 @@ const CompatCheck = @import("compat.zig");
 /// in the program, written in the type's module or the API's.
 pub fn checkApis(ctx: *SemContext) Error!void {
     for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind == .api and !sema.isProxy(sym)) try checkApiDecl(ctx, @intCast(i));
+        if (sym.kind == .api) try checkApiDecl(ctx, @intCast(i));
     }
     for (ctx.conformances.items, 0..) |_, i| try checkConformance(ctx, i);
 }
@@ -48,7 +49,7 @@ pub fn checkApiDecl(ctx: *SemContext, id: SymbolId) Error!void {
     const params = sym.type_params orelse &.{};
     if (params.len > 1) for (params[1..]) |p| {
         const named = for (own) |m| {
-            if (m.is_method and !m.is_default and sema.usesParams(ctx, m.ty, &.{p})) break true;
+            if (m.is_method and !m.is_default and sema.usesParams(ctx, m.ty, &.{ctx.ref(p)})) break true;
         } else false;
         if (!named) try ctx.err(ctx.symbols.items[p].decl_pos, "`{s}` declares `type {s}`, which none of its required methods names: a provider's `{s}` is what its methods give in their place", .{ sym.name, ctx.symbols.items[p].name, ctx.symbols.items[p].name });
     };
@@ -369,8 +370,8 @@ pub fn genericSym(ctx: *const SemContext, ty: TypeId) ?sema.SymbolRef {
 /// there a header says the rest. False after a diagnostic.
 pub fn checkAddHome(ctx: *SemContext, conf: sema.Conformance, tname: []const u8, api_name: []const u8) Error!bool {
     const own_type = switch (ctx.types.get(conf.ty)) {
-        .nominal => |s| ctx.owns(s) and !sema.isProxy(ctx.symbols.items[s.sym]) and ctx.symbols.items[s.sym].decl_pos != sema.builtin_decl_pos,
-        .parameterized_nominal => |pn| !sema.isProxy(sema.symbolAt(ctx, pn.sym).*) and sema.symbolAt(ctx, pn.sym).decl_pos != sema.builtin_decl_pos,
+        .nominal => |s| ctx.owns(s) and ctx.symbols.items[s.sym].decl_pos != sema.builtin_decl_pos,
+        .parameterized_nominal => |pn| ctx.owns(pn.sym) and sema.symbolAt(ctx, pn.sym).decl_pos != sema.builtin_decl_pos,
         else => false,
     };
     if (own_type) {
@@ -658,15 +659,14 @@ pub fn apiMethodType(ctx: *SemContext, w: ApiMethod, conf: sema.Conformance, hav
     };
     const api_sym = sema.apiSymbol(ctx, w.api) orelse return null;
     const home_self = (api_sym.type_params orelse return null)[0];
-    const self_param = if (w.home == @as(*const SemContext, ctx)) home_self else try sema.proxyOf(ctx, .{ .module_id = w.api.module_id, .sym = home_self });
-    var params: std.ArrayList(SymbolId) = .empty;
+    var params: std.ArrayList(SymbolRef) = .empty;
     var args: std.ArrayList(TypeId) = .empty;
     const a = ctx.arena.allocator();
-    try params.append(a, self_param);
+    try params.append(a, w.home.ref(home_self));
     try args.append(a, conf.ty);
     if (f.ct_syms.len == got.ct_syms.len) for (f.ct_syms, got.ct_syms, 0..) |p, g, i| {
         if (p.sym == sema.symbol_invalid or g.sym == sema.symbol_invalid) continue;
-        try params.append(a, ctx.localSym(p));
+        try params.append(a, p);
         const is_type = ctx.types.get(got.ct_params[i]) == .type_var;
         try args.append(a, try ctx.intern(if (is_type) .{ .type_var = g } else .{ .ct_param = g }));
     };
@@ -724,7 +724,7 @@ pub fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .float => ctx.types.get(ty) == .float,
         .fits => |v| sema.isNumeric(ctx, ty) and CompatCheck.holdsInt(ctx, ty, v),
         .shift => |v| switch (ctx.types.get(ty)) {
-            .int => |info| v < CompatCheck.intBounds(info).bits,
+            .int => |info| v < info.width(),
             else => false,
         },
         .copies => sema.copies(ctx, ty) != .no,

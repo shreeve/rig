@@ -37,7 +37,7 @@ pub fn checkLiteralFits(self: *Checker, e: Sexp, target: TypeId) Error!void {
     switch (sema.cteval.constInt(self.ctx, e)) {
         .value => |v| if (!CompatCheck.holdsInt(self.ctx, target, v)) switch (tt) {
             .slot => |n| try self.errAt(e, "integer value `{d}` does not fit in `{s}` (0..{d}): a slot names one of {d} slots", .{ v, try self.tyName(target), sema.slotCount(self.ctx, n).? - 1, sema.slotCount(self.ctx, n).? }),
-            .int => |info| try self.errAt(e, "integer value `{d}` does not fit in `{s}` ({d}..{d})", .{ v, try self.tyName(target), CompatCheck.intBounds(info).min, CompatCheck.intBounds(info).max }),
+            .int => |info| try self.errAt(e, "integer value `{d}` does not fit in `{s}` ({d}..{d})", .{ v, try self.tyName(target), sema.intRange(info).min, sema.intRange(info).max }),
             else => try self.errAt(e, "integer value `{d}` does not fit exactly in `{s}`", .{ v, try self.tyName(target) }),
         },
         .overflow => if (e == .src) {
@@ -338,8 +338,8 @@ pub fn checkPayloadVariant(self: *Checker, call: Sexp, expected: TypeId) Error!v
         try CallCheck.synthArgs(self, args);
         return;
     }
-    const decl_pos = if (resolved.nominal_sym == sema.symbol_invalid) sema.builtin_decl_pos else resolved.field.decl_pos;
-    const module_id = if (resolved.nominal_sym == sema.symbol_invalid) 0 else self.ctx.symbols.items[resolved.nominal_sym].from.module_id;
+    const decl_pos = if (resolved.nominal_sym == sema.symbol_invalid and resolved.module == null) sema.builtin_decl_pos else resolved.field.decl_pos;
+    const module_id = resolved.module orelse 0;
     try CallCheck.checkFieldArgs(self, args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .module_id = module_id, .pos = pos, .kind = .variant, .call = call });
 }
 

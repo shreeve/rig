@@ -6,8 +6,8 @@ How Rig runs tasks fast: the engine under `f(x)&` (docs/design/concurrency.md,
 per core, or as many as the program asks for with `task.workers(n)`
 before its first task, or else `RIG_WORKERS` of them when that is set;
 a program that makes none starts no workers. The workers start as
-`main` starts (`rt.start`, `startAhead`; the program's root declares
-`__rig_start_early`, from typecheck's note that it makes a task and
+`main` starts (`rt.start`, `startAhead`; the program's root sets
+`Config.start_early`, from typecheck's note that it makes a task and
 never names `task.workers`); else at the first task: in a program that
 names `task.workers`, which may set their number again before its
 first task, or make none (Trig asks for its workers as it reads its
@@ -558,7 +558,7 @@ reach, which `test/cli/frame_reach.sh` checks against the frames Zig
 really reserves), so `bin/rig` sizes the guard of each program's tasks
 from its largest frame: at least twice it, and at least 16 MiB, room
 for sixteen frames under `sema.noinline_reach` merged into one by Zig's
-inlining (`sema.taskGuard`, `__rig_task_guard`). Most programs take
+inlining (`sema.taskGuard`, `Config.task_guard`). Most programs take
 16 MiB, and one with frames as large as the compiler accepts takes
 1 GiB. The runtime's and the Zig library's frames, which the compiler
 does not count, stay under half the smallest guard
@@ -846,8 +846,8 @@ Everywhere else the yield checks run: on other targets, in a debug
 build for Linux (Zig's own backend, which preemption does not support),
 in a program that makes local tasks (`firstLocalTask`), whose tasks take
 turns on one thread at the checks, in `rig test`'s seeded runs, and in
-the test runner's packs of seeded cases, whose root declares no
-`__rig_preempt`, so a seed chooses among the same yields as `rig test`
+the test runner's packs of seeded cases, whose root's `Config` sets no
+`preempt`, so a seed chooses among the same yields as `rig test`
 does. The runner's other packs are preempted, as each program would be
 built alone (`rig batch build --preempt`, docs/internals/tests.md). How the
 design was measured, and what it costs on Trig, is in
