@@ -1934,19 +1934,31 @@ const Lowerer = struct {
     // Calls
     // -------------------------------------------------------------------------
 
-    /// The record of call `c`: its kind (`classifyCall`), how its callee
-    /// is written and its self taken, and what emit opens around it.
+    /// The record of call `c`: how its callee is written and its self
+    /// taken; for the checkers, its flags; and for emit, its kind
+    /// (`classifyCall`) and what is opened around it, which the checkers'
+    /// lowering records only in a self-checking build.
     fn callRecord(l: *Lowerer, c: Sexp) lir.Call {
         const ctx = l.ctx;
         const callee = ctx.calleeOf(c);
-        var rec: lir.Call = .{ .kind = classifyCall(ctx, c, &l.stack_closures), .callee = calleeForm(ctx, c, callee) };
+        var rec: lir.Call = .{ .kind = .unclassified, .callee = calleeForm(ctx, c, callee) };
         if (rec.callee == .member) {
             const obj = ir.Member.object(callee);
             const explicit = obj.isKind(.write) or obj.isKind(.read);
             rec.self = .{ .explicit = explicit, .mode = if (obj.isKind(.write)) .write else selfMode(ctx, if (explicit) ir.get(obj, .operand) else obj, callee) };
         }
+        if (l.opts.checked) {
+            rec.flags = .{
+                .local = ctx.isLocalTask(c),
+                .dense = c == .list and ctx.decides(.dense_calls, c.list.id),
+                .text_only = ctx.isPrintCall(c) or (ctx.stringCallOf(c) orelse ctx.stringCallOf(callee)) != null,
+                .keeps_no_loan = ctx.isActorCall(c) or ctx.selectArmOf(c) != null,
+                .swap = ctx.swapCallOf(c) != null and ir.Call.args(c).len == 2,
+            };
+            if (!enabled) return rec;
+        }
+        rec.kind = classifyCall(ctx, c, &l.stack_closures);
         rec.wrap.const_maker = ctx.isConstMaker(c);
-        rec.wrap.held = ctx.elemCallOf(callee) == null and storage.hoistsArgs(ctx, c);
         if (c == .list and ctx.decides(.inlined_calls, c.list.id)) {
             const ty = storage.typeOf(ctx, c);
             const form = if (ty) |t| ctx.types.get(t) else .unknown;
@@ -1957,13 +1969,6 @@ const Lowerer = struct {
             }
         }
         rec.wrap.folds = callFolds(ctx, c);
-        rec.flags = .{
-            .local = ctx.isLocalTask(c),
-            .dense = c == .list and ctx.decides(.dense_calls, c.list.id),
-            .text_only = ctx.isPrintCall(c) or (ctx.stringCallOf(c) orelse ctx.stringCallOf(callee)) != null,
-            .keeps_no_loan = ctx.isActorCall(c) or ctx.selectArmOf(c) != null,
-            .swap = ctx.swapCallOf(c) != null and ir.Call.args(c).len == 2,
-        };
         return rec;
     }
 
@@ -1985,6 +1990,9 @@ const Lowerer = struct {
         const ctx = l.ctx;
         const callee = ctx.calleeOf(c);
         const hoists = ctx.elemCallOf(callee) == null and storage.hoistsArgs(ctx, c);
+        // Its record is the last made: its operands' calls were lowered
+        // before it.
+        l.f.calls.items[l.f.calls.items.len - 1].wrap.held = hoists;
         // A temporary array viewed as a slice by a call that evaluates its
         // arguments where they stand is viewed where Zig holds it.
         if (!hoists) for (ir.Call.args(c)) |a| if (ctx.viewsTempArray(storage.argValue(a))) try l.holdVar(storage.argValue(a), .zig_temp, .owned, .statement, null, l.stmt_region);

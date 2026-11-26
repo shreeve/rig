@@ -221,10 +221,14 @@ pub const CallKind = enum(u8) {
     wait,
     /// Any other call: a function, a method, or a function value.
     plain,
+    /// Not classified: a call of the checkers' lowering, in a build that
+    /// does not check itself. Only emit reads the kind.
+    unclassified,
 };
 
 /// A call: what it is, how its callee is written, how it takes its
-/// self, and what is opened around it.
+/// self, and what is opened around it. Emit's lowering records its kind
+/// and wrap, the checkers' its flags; each records the callee and self.
 pub const Call = struct {
     kind: CallKind,
     callee: Callee,
