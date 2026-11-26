@@ -54,7 +54,7 @@ entry=$(find "$store" -mindepth 1 -maxdepth 1 -type d ! -name '.*')
 # list of modules and the table of its sites.
 diff -r -x __rig_main.zig one/emitted "$entry/package" >/dev/null || fail "the entry's package differs from what emit writes"
 root=$(<"$entry/package/__rig_main.zig")
-hook=$'\npub const __rig_run_started = "RIG_PROGRAM_STARTED";\n'
+hook=$'\npub const __rig_config: rig.Config = .{ .run_started = "RIG_PROGRAM_STARTED" };\n'
 expect_eq "${root/"$hook"/}" "$(<one/emitted/__rig_main.zig)" "the entry's root module"
 
 # The same package from another directory, with a store path relative to

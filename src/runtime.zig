@@ -166,8 +166,56 @@ pub fn blockingStop(comptime f: anytype, args: anytype, back: ?*@TypeOf(args)) S
 pub const Stop = tasks.Stop;
 pub const checkStop = tasks.checkStop;
 
+/// What a program tells the runtime about itself: the one record its
+/// root module declares as `__rig_config`, which `bin/rig` writes with
+/// each field that differs from its default here. A program built
+/// without one, and the runtime's own tests, take the defaults.
+pub const Config = struct {
+    /// The program makes tasks, which run on the scheduler.
+    tasks: bool = false,
+    /// The guard below each task's stack, at least twice the largest
+    /// frame the program's code may take (`sema.taskGuard`); else the
+    /// largest guard.
+    task_guard: ?usize = null,
+    /// How far apart dense stacks lie (`sema.denseStride`).
+    dense_stride: usize = 1 << 20,
+    /// It makes tasks and never names `task.workers`: its workers start
+    /// as `main` starts.
+    start_early: bool = false,
+    /// Its tasks are preempted by signal, where the system has it.
+    preempt: bool = false,
+    /// It makes actors, whose waits a deadlock's walk follows.
+    actors: bool = false,
+    /// It names `time.since_start`.
+    since_start: bool = false,
+    /// It names `os.memory`.
+    memory: bool = false,
+    /// `RIG_LEAK_TRACE`, `RIG_SANITIZE`, `RIG_HEAP_PROFILE` (`sites`),
+    /// `RIG_MAP_TRACE`, `RIG_VERIFY_PROOFS`, and `RIG_TABLE_FALLBACK`
+    /// were set as it was built.
+    leak_trace: bool = false,
+    sanitize: bool = false,
+    heap_profile: bool = false,
+    heap_sites: bool = false,
+    map_trace: bool = false,
+    verify_proofs: bool = false,
+    table_fallback: bool = false,
+    /// `rig build --pgo` built it: it writes its profile as it ends.
+    pgo: bool = false,
+    /// Its `main` can fail: an interrupt or SIGTERM cancels it.
+    interrupt: bool = false,
+    /// The environment variable naming the file it creates as it starts,
+    /// in a program `rig run` or `rig test` builds.
+    run_started: ?[]const u8 = null,
+    /// Its error glue, when a member with fields reaches `error`.
+    error_glue: ?type = null,
+};
+
+/// The program's `Config`.
+pub const config: Config = if (@hasDecl(root, "__rig_config")) root.__rig_config else .{};
+
 // Errors with data. A program in which a member with fields reaches
-// `error` declares `__rig_error_glue` in its root module: the size and
+// `error` names its error glue in its root's `Config`: the size and
 // alignment of the program's largest member's fields, and functions that
 // drop and print a member's fields given its code. A failure is its Zig
 // error code and an `ErrData`, the bytes of its fields, which the code
@@ -178,7 +226,7 @@ pub const checkStop = tasks.checkStop;
 // runtime's own tests use `TestErrorGlue`, which counts what it drops.
 
 /// The program's error glue, if a member with fields reaches `error`.
-pub const error_glue: ?type = if (builtin.is_test) TestErrorGlue else if (@hasDecl(root, "__rig_error_glue")) root.__rig_error_glue else null;
+pub const error_glue: ?type = if (builtin.is_test) TestErrorGlue else config.error_glue;
 
 /// The bytes of a failure's fields: room for the program's largest
 /// member's, or none.
@@ -5070,7 +5118,7 @@ pub const Proven = enum { lower, upper, both };
 
 /// Proven tests are asserted in every debug build, and in an optimized
 /// build whose root module asks for it (`RIG_VERIFY_PROOFS=1`).
-pub const verify_proofs = builtin.optimize == .debug or (@hasDecl(root, "__rig_verify_proofs") and root.__rig_verify_proofs);
+pub const verify_proofs = builtin.optimize == .debug or config.verify_proofs;
 
 pub fn proofPanic() noreturn {
     @branchHint(.cold);
@@ -6546,12 +6594,12 @@ pub fn oom() noreturn {
 // `LeakChecker`, which records each live block's address and size (no
 // stack traces, so it costs a hash-map update per allocation). At exit a
 // leak is reported with its count and size, and a double or mismatched
-// free panics. Built with `RIG_LEAK_TRACE=1`, the emitted root module
-// declares `__rig_leak_trace`, and the checker sits on Zig's
+// free panics. Built with `RIG_LEAK_TRACE=1` (`Config.leak_trace`), the
+// checker sits on Zig's
 // `SafeAllocator`, which prints the stack trace of every leaked
 // allocation (and of double frees) at the cost of capturing one per
-// allocation. Built with `RIG_SANITIZE=1`, the root module declares
-// `__rig_sanitize`, and the checker sits on `Sanitizer`, which makes any
+// allocation. Built with `RIG_SANITIZE=1` (`Config.sanitize`), the
+// checker sits on `Sanitizer`, which makes any
 // use of freed memory crash where it happens (it takes precedence over
 // `RIG_LEAK_TRACE`). Release builds allocate from Rig's own allocator
 // (`alloc.zig`): a heap per thread, with no lock.
@@ -6559,47 +6607,46 @@ pub fn oom() noreturn {
 const builtin = @import("builtin");
 const root = @import("root");
 const leak_checked = builtin.optimize == .debug;
-const leak_trace = leak_checked and @hasDecl(root, "__rig_leak_trace") and root.__rig_leak_trace;
-pub const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
-/// Built with `RIG_HEAP_PROFILE=1`, the root module declares
-/// `__rig_heap_profile`, and every allocation goes through `HeapProfile`,
-/// which reports at exit what owned the program's memory at its peak.
-const heap_profile = @hasDecl(root, "__rig_heap_profile") and root.__rig_heap_profile;
+const leak_trace = leak_checked and config.leak_trace;
+pub const sanitize = leak_checked and Sanitizer.supported and config.sanitize;
+/// Built with `RIG_HEAP_PROFILE=1`, every allocation goes through
+/// `HeapProfile`, which reports at exit what owned the program's memory
+/// at its peak.
+const heap_profile = config.heap_profile;
 /// `RIG_HEAP_PROFILE=sites` also counts each block under the calls that
 /// made it (`HeapProfile.siteOf`), a stack walk per allocation.
-const heap_sites = heap_profile and @hasDecl(root, "__rig_heap_sites") and root.__rig_heap_sites;
-/// Built with `RIG_MAP_TRACE=1`, the root module declares
-/// `__rig_map_trace`, and every operation on a built-in Map or Set writes
-/// a record of it (`mapTraceOp`).
-pub const map_trace = @hasDecl(root, "__rig_map_trace") and root.__rig_map_trace;
+const heap_sites = heap_profile and config.heap_sites;
+/// Built with `RIG_MAP_TRACE=1`, every operation on a built-in Map or Set
+/// writes a record of it (`mapTraceOp`).
+pub const map_trace = config.map_trace;
 
-// Tasks. A program that makes tasks (`f(x)&`) declares `__rig_tasks` in
-// its root module, and runs them on the scheduler (`sched.zig`): fibers
+// Tasks. A program that makes tasks (`f(x)&`, `Config.tasks`) runs them
+// on the scheduler (`sched.zig`): fibers
 // on a worker thread per core. The runtime then keeps what belongs to one
 // task in its fiber's `TaskState`, and takes a lock around output and the
 // leak checker. Any other program compiles as if there were one thread,
 // at no cost. The runtime's own unit tests take the concurrent paths, so
 // they are tested.
 
-const makes_tasks = @hasDecl(root, "__rig_tasks") and root.__rig_tasks;
+const makes_tasks = config.tasks;
 const concurrent = builtin.is_test or makes_tasks;
 /// A program that makes tasks runs them on the scheduler (`sched.zig`).
 pub const scheduled = makes_tasks;
-/// A program that makes tasks and never names `task.workers` declares
-/// `__rig_start_early` in its root: its workers start as `main` starts
+/// A program that makes tasks and never names `task.workers`
+/// (`Config.start_early`): its workers start as `main` starts
 /// (`start`, `sched.startAhead`), so its first tasks find them running. One that
 /// names `task.workers` starts them at its first task, as a batch's
 /// programs do.
-pub const start_early = scheduled and @hasDecl(root, "__rig_start_early") and root.__rig_start_early;
+pub const start_early = scheduled and config.start_early;
 
-/// Built to be preempted, a program that makes tasks declares
-/// `__rig_preempt` in its root: where the system has the preemption it
+/// Built to be preempted (`Config.preempt`), a program that makes tasks,
+/// where the system has the preemption it
 /// needs (`sched.preempt_built`), a task that runs a slice without
 /// waiting is stopped by a signal (`sched.zig`, "Preemption"), and its
 /// loops and recursive calls check nothing (`turn`, `tickCall`). Each
 /// function of the program's own code is in `preempt_section`, the only
 /// code a signal stops a task in.
-pub const preempt = scheduled and sched.preempt_built and @hasDecl(root, "__rig_preempt") and root.__rig_preempt;
+pub const preempt = scheduled and sched.preempt_built and config.preempt;
 pub const preempt_section = sched.preempt_section;
 
 /// On the Mac, a word of the program's section aligned to 16 KiB, a page
@@ -7126,8 +7173,8 @@ var profile_lock_var: std.Io.Mutex = .init;
 const profile_lock = split.cell(&profile_lock_var, "runtime.profile_lock");
 
 // The trace of the built-in Map and Set (`RIG_MAP_TRACE=1` at build
-// time, docs/internals/INTERNALS.md, "The Map trace"). The root module
-// declares `__rig_map_trace`, the compiler gives each Map and Set a
+// time, docs/internals/INTERNALS.md, "The Map trace"). The root's `Config`
+// sets `map_trace`, the compiler gives each Map and Set a
 // field `__rig_trace`, the id the trace knows it by (0 before its
 // first write), and wraps each of their operations in a call to
 // `mapTraceOp`, which writes one record of 48 bytes, little-endian, to
@@ -7772,7 +7819,7 @@ fn usage() Usage {
 /// lock; a release build, each block's size, as `alloc.zig` counts it.
 /// Only a program that names `os.memory` counts (`fast_alloc.counts`).
 pub fn memoryTotals() fast_alloc.Totals {
-    if (!fast_alloc.counts) @compileError("os.memory in a program whose root does not declare __rig_memory");
+    if (!fast_alloc.counts) @compileError("os.memory in a program whose Config does not name memory");
     if (!leak_checked) return fast_alloc.totals();
     LeakChecker.lock();
     defer LeakChecker.unlock();
@@ -7973,7 +8020,7 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
 /// task it waits for, may run inline there (`tasks.roomInline`,
 /// `sched.roomFor`). Its guard is at
 /// least twice the largest frame the program's code may take, which
-/// `bin/rig` measures and writes into the root (`__rig_task_guard`,
+/// `bin/rig` measures and writes into the root (`Config.task_guard`,
 /// `sema.taskGuard`): 16 MiB for most programs, so a million tasks fit
 /// in the address space, and up to `main`'s smaller guard for a program
 /// with frames as large as the compiler accepts. A program built without
@@ -7985,12 +8032,12 @@ pub const task_stack_extra: usize = 1 << 20;
 /// this much room left on its caller's stack unless the compiler proves
 /// it needs less (`tasks.roomInline`).
 pub const task_stack_promise = stack_size;
-pub const task_guard: usize = if (@hasDecl(root, "__rig_task_guard")) root.__rig_task_guard else guard_sizes[guard_sizes.len - 1];
+pub const task_guard: usize = config.task_guard orelse guard_sizes[guard_sizes.len - 1];
 
 /// How far apart dense stacks lie (`sched.takeDense`), guard included, as
 /// `bin/rig` chose for the target (`sema.denseStride`). A page table covers
 /// 32 MiB on arm64 and 2 MiB on x86-64, so stacks this close share them.
-pub const dense_stride: usize = if (@hasDecl(root, "__rig_dense_stride")) root.__rig_dense_stride else 1 << 20;
+pub const dense_stride: usize = config.dense_stride;
 
 /// The guard below a dense stack, in bytes, which `bin/rig` writes into
 /// the executable after the link from the largest frame the executable
@@ -8387,16 +8434,16 @@ fn dieOf(sig: std.posix.SIG) noreturn {
 }
 
 /// Whether `start` reads the clock: only in a program that names
-/// `time.since_start`, whose root declares `__rig_since_start` (and in
-/// the runtime's tests), so no other program pays for the reading.
-const reads_start = builtin.is_test or (@hasDecl(root, "__rig_since_start") and root.__rig_since_start);
+/// `time.since_start` (`Config.since_start`, and in the runtime's tests),
+/// so no other program pays for the reading.
+const reads_start = builtin.is_test or config.since_start;
 
 /// Whether the program writes a profile as it ends: only one `rig build
-/// --pgo` builds (src/pgo.zig), whose root declares `__rig_pgo`. Both of
+/// --pgo` builds (src/pgo.zig, `Config.pgo`). Both of
 /// its links define `__rig_pgo_dump`: its instrumented build the writer
 /// of LLVM's counts, its optimized build a function that does nothing.
 /// No other program has the call.
-const pgo = @hasDecl(root, "__rig_pgo") and root.__rig_pgo;
+const pgo = config.pgo;
 
 /// Write the profile of LLVM's counters, in a `--pgo` program's
 /// instrumented build, at each way the process ends but a panic: the
@@ -8413,7 +8460,7 @@ const started_ns = split.cell(&started_ns_var, "runtime.started_ns");
 /// `time.since_start()`: nanoseconds on the monotonic clock since the
 /// program started, within a reading's range (`tasks.readingNs`).
 pub fn sinceStartNs() i64 {
-    if (!reads_start) @compileError("time.since_start in a program whose root does not declare __rig_since_start");
+    if (!reads_start) @compileError("time.since_start in a program whose Config does not name since_start");
     return tasks.readingNs(sched.nowNs() - started_ns.*);
 }
 
@@ -8472,12 +8519,12 @@ pub fn start(init: std.process.Init.Minimal) void {
             if (std.mem.eql(u8, v, "1")) noCrashReport();
         }
     }
-    // Only a program `rig run` or `rig test` builds declares
-    // `__rig_run_started`, the environment variable that names a file to
+    // Only a program `rig run` or `rig test` builds names
+    // `Config.run_started`, the environment variable that names a file to
     // create as it starts: their evidence that the exit status is the
     // program's. A program `rig build` makes has no such hook.
-    if (@hasDecl(root, "__rig_run_started")) {
-        if (init.environ.getPosix(root.__rig_run_started)) |path| {
+    if (config.run_started) |name| {
+        if (init.environ.getPosix(name)) |path| {
             if (std.Io.Dir.cwd().createFile(io(), path, .{})) |file| file.close(io()) else |_| {}
         }
     }
@@ -9005,8 +9052,8 @@ pub fn failMainReported(err: anyerror) noreturn {
     std.process.exit(1);
 }
 
-// Interrupts. A `main` that can fail declares `__rig_interrupt` in the
-// root module, and an interrupt (SIGINT) or a request to end (SIGTERM)
+// Interrupts. A `main` that can fail sets `interrupt` in the root's
+// `Config`, and an interrupt (SIGINT) or a request to end (SIGTERM)
 // cancels it: it fails with `task.Stop.canceled` at its next fallible
 // waiting point, its drops and defers run, the tasks it owns are canceled
 // as they drop, and the program ends as the signal would have ended it
@@ -9014,7 +9061,7 @@ pub fn failMainReported(err: anyerror) noreturn {
 // while the first is still unwinding ends the program at once. A `main`
 // that cannot fail is never canceled, and the signals keep their default.
 
-const cancels_on_interrupt = @hasDecl(root, "__rig_interrupt") and root.__rig_interrupt;
+const cancels_on_interrupt = config.interrupt;
 const interrupt_signals = [_]std.posix.SIG{ .INT, .TERM };
 
 /// What an interrupt cancels: `main`'s, as a task's `Control` is its

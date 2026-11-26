@@ -35,7 +35,7 @@
 //! profile of an older build fits the functions that have not changed,
 //! and the build says how many it fit.
 //!
-//! The root module of a `--pgo` package declares `__rig_pgo`, which
+//! The root module of a `--pgo` package sets `Config.pgo`, which
 //! makes the runtime call `__rig_pgo_dump` as the program ends: the
 //! writer in the instrumented build, a function that does nothing in the
 //! optimized one. A build without `--pgo` declares nothing and is

@@ -51,10 +51,10 @@ sub main()
   print(read() >= time.duration(0), os.memory().allocs >= 0)
 EOF
 "$RIG" emit clock.rig >clock.zig 2>/dev/null || fail "rig emit clock.rig"
-grep -qE "__rig_since_start|__rig_memory" clock.zig && fail "a program naming neither asks for them: $(grep __rig_ clock.zig)"
+grep -qE "\.since_start = |\.memory = " clock.zig && fail "a program naming neither asks for them: $(grep __rig_config clock.zig)"
 "$RIG" emit reads.rig >reads.zig 2>/dev/null || fail "rig emit reads.rig"
-expect_has "$(cat reads.zig)" "pub const __rig_since_start = true;" "a program naming time.since_start"
-expect_has "$(cat reads.zig)" "pub const __rig_memory = true;" "a program naming os.memory"
+expect_has "$(cat reads.zig)" ".since_start = true" "a program naming time.since_start"
+expect_has "$(cat reads.zig)" ".memory = true" "a program naming os.memory"
 expect_eq "$("$RIG" run --release reads.rig 2>&1)" "true true" "since_start and memory in a release build"
 
 cat >bad.rig <<'EOF'
