@@ -13323,7 +13323,7 @@ pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
 /// or a `while` loop's step is a statement of its own; every other part
 /// of a statement, a branch, a `??` fallback, and a `catch` handler
 /// included, makes its temporaries for the statement.
-fn sharesStmtTemps(stmt: Sexp, child: Sexp) bool {
+pub fn sharesStmtTemps(stmt: Sexp, child: Sexp) bool {
     if (child != .list or child.isKind(.block) or child.isKind(.lambda)) return false;
     return !isHeaderOf(stmt, child) and !isWhileStep(stmt, child) and !isArmBody(stmt, child);
 }
