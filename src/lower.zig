@@ -80,9 +80,9 @@ pub const Module = struct {
     /// can act (`Lowerer.flatten`), by their keys: each is written into
     /// its slot ahead of the statement.
     flat: sema.FastMap(u64, void) = .empty,
-    /// The record of each call, by the call's key, for the self-checking
-    /// build's asserts that it is what emit and the ownership checker
-    /// decide (`callOf`).
+    /// The record of each call, by the call's key (`callOf`): what emit
+    /// writes it as, and in a self-checking build what the ownership
+    /// checker asserts it decides.
     calls: sema.FastMap(u64, *const lir.Call) = .empty,
     /// The place of each `member` and `index` that reaches one, by its
     /// key, and the body that names its root, for the self-checking
@@ -239,10 +239,9 @@ pub const Module = struct {
         }
     };
 
-    /// The record of call `node`; null in a build that does not check
-    /// itself, or for a call no body lowered.
+    /// The record of call `node`: in emit's lowering, of every call; in
+    /// the checkers', only in a self-checking build.
     pub fn callOf(m: *const Module, node: Sexp) ?*const lir.Call {
-        if (!enabled) return null;
         return m.calls.get(sema.decisionKeyOf(node) orelse return null);
     }
 
@@ -490,7 +489,7 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
             .choice => |*c| try m.choices.put(a, sema.decisionKeyOf(c.node).?, c),
             else => {},
         };
-        if (enabled) for (f.exprs.items) |e| switch (e) {
+        if (enabled or !opts.checked) for (f.exprs.items) |e| switch (e) {
             .op => |x| if (x.kind == .call) try m.calls.put(a, sema.decisionKeyOf(x.node).?, &f.calls.items[x.aux]),
             else => {},
         };
@@ -1352,6 +1351,11 @@ const Lowerer = struct {
         }
         const k = sema.decisionKeyOf(e) orelse return;
         if (!l.module.answers.contains(k)) try l.decide(e, k);
+        if (e.isKind(.call)) {
+            const rec = try l.ma.create(lir.Call);
+            rec.* = l.callRecord(e);
+            try l.module.calls.put(l.ma, k, rec);
+        }
     }
 
     /// Keep `value` as what emit's lowering decides of `node`.
