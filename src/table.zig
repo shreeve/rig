@@ -32,7 +32,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const root = @import("root");
 const rt = @import("runtime.zig");
 
 /// The Zig type of `Slot[n]`: the fewest of 8, 16, 32, and 64 bits that
@@ -57,18 +56,17 @@ pub fn slotOf(comptime n: u64, i: anytype) rt.Opt(Slot(n)) {
 const lazy_pages = @sizeOf(usize) == 8 and switch (builtin.os.tag) {
     .linux, .macos, .ios, .freebsd, .netbsd, .openbsd, .dragonfly => true,
     else => false,
-} and !(@hasDecl(root, "__rig_table_fallback") and root.__rig_table_fallback);
+} and !rt.config.table_fallback;
 
 /// Whether `T()` is all zero bytes and `T` owns nothing: the mirror of
 /// `sema.tableFill`'s `.zeros` for a Zig type. An object says so itself
-/// (`__rig_zeros`, which emit writes from `sema.tableFill`); of the rest,
+/// (`Repr.zeros`, which emit writes from `sema.tableFill`); of the rest,
 /// only integers (numbers, slots) and `Bool`. A float may be `-0.0`, and
 /// an optional's none is not zero bytes.
 pub fn fillsWithZeros(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .int, .bool => true,
-        .@"struct", .@"enum", .@"union" => @hasDecl(T, "__rig_zeros") and T.__rig_zeros,
-        else => false,
+        else => if (rt.reprOf(T)) |r| r.zeros else false,
     };
 }
 

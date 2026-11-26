@@ -41,9 +41,9 @@ RIG_BUILD_STORE=$PWD/bstore "$RIG" build -o built ok.rig >/dev/null 2>&1 || fail
 grep -q RIG_RUN_STARTED built && fail "a built program names RIG_RUN_STARTED"
 expect_eq "$(RIG_RUN_STARTED=$PWD/s5 ./built)" "ran" "the built program"
 [[ -e s5 ]] && fail "a built program created the RIG_RUN_STARTED file"
-grep -rq -e RIG_RUN_STARTED -e "pub const __rig_run_started" bstore && fail "rig build's package in the store has the hook"
+grep -rq -e RIG_RUN_STARTED -e "\.run_started = " bstore && fail "rig build's package in the store has the hook"
 RIG_OUT_DIR=$PWD/emitted "$RIG" emit ok.rig >/dev/null 2>&1 || fail "emit ok.rig"
-grep -rq -e RIG_RUN_STARTED -e "pub const __rig_run_started" emitted && fail "rig emit's package has the hook"
+grep -rq -e RIG_RUN_STARTED -e "\.run_started = " emitted && fail "rig emit's package has the hook"
 
 # The matrix fails a program that never ran.
 bad=$PWD/afile/store

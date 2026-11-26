@@ -145,7 +145,7 @@ pub const GlueModule = struct { facts: Facts, path: []const u8 };
 /// error with fields is read through (`rig.error_glue`): the size and
 /// alignment of the largest member's fields, and drop, clone, `==`, and
 /// print of member `code`'s fields, each a switch on the code. The root
-/// module re-exports it as `__rig_error_glue`.
+/// module names it in its `Config` (`error_glue`).
 pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule, runtime_path: []const u8) !void {
     try w.print("const std = @import(\"std\");\nconst rig = @import(\"{s}\");\n", .{runtime_path});
     const Member = struct { module: usize, set: []const u8, name: []const u8, facts: Facts, compares: facts.MemberCompares };
@@ -279,6 +279,18 @@ const Yield = enum { value, leaf_ptr };
 const TempSlot = struct {
     node: parser.NodeId,
     name: []const u8,
+    /// Lowering flattened it (`lower.Module.isFlat`): its value is
+    /// written into it ahead of its statement, through `pre`.
+    flat: bool = false,
+    pre: ?*Writer = null,
+};
+
+/// The text of a statement whose flattened temporaries are written
+/// into their slots ahead of it (`Emitter.openFlat`): the writer it
+/// replaced, then the assignments and the statement.
+const Flat = struct {
+    saved: *Writer,
+    bufs: ?*[2]Writer.Allocating = null,
 };
 
 /// The slot of the copy an API object views (`sema.Erasure.copy`),
@@ -300,7 +312,7 @@ fn erasedKey(n: Sexp) ?u64 {
 
 /// A header being emitted (`openHeader`): the label of the block that
 /// holds its temporaries' slots, if it makes any, and the slots before.
-const Header = struct { label: []const u8 = "", first: usize };
+const Header = struct { label: []const u8 = "", first: usize, flat: ?Flat = null };
 
 /// A label of the Zig a loop or labeled block is lowered to, written
 /// before its construct only when a jump was written to it
@@ -546,6 +558,8 @@ pub const Emitter = struct {
     uses_symbols: bool = false,
     /// The module declares an `extern "c"`, so the program links libc.
     links_libc: bool = false,
+    /// Its `main` can fail, so an interrupt cancels it (`Config.interrupt`).
+    interrupt: bool = false,
     /// Fill each hidden storage location with `0xAA` when its scope ends
     /// (`rig.poison`), so a view that outlives it reads garbage: set for
     /// the sanitizer (`RIG_SANITIZE`).
@@ -978,7 +992,6 @@ pub const Emitter = struct {
             // `exact`: its fields in declaration order, its bytes theirs.
             try self.w.print("pub const {f} = extern struct {{\n", .{ident(name)});
         } else try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
-        if (self.facts.wordBitsOfSym(sym) != null) try self.w.writeAll("    pub const __rig_word_sized = {};\n");
         if (self.facts.isCellObject(sym)) try self.w.writeAll("    pub const __rig_synced = {};\n");
         try self.emitFields(1);
         try self.emitRigName(1);
@@ -1833,12 +1846,35 @@ pub const Emitter = struct {
         try self.w.print("pub const __rig_name = .{{ .module = \"{s}\", .name = ", .{nameModule(self.facts)});
         try self.writeSpelling(spelling, .parts, null);
         try self.w.writeAll(" };\n");
-        // A table of the type reserves its slots, which the system gives
-        // as zeros (`sema.tableFill`, `rig.Table`).
-        if (self.facts.declFill(sym) == .zeros) {
-            try self.writeIndent(depth);
-            try self.w.writeAll("pub const __rig_zeros = true;\n");
+        try self.emitRepr(depth);
+    }
+
+    /// `pub const __rig_repr: rig.Repr = .{ ... };`: how the checkers
+    /// classify the type being emitted, which the runtime's mirrors read
+    /// (`rig.Repr`): whether it drops (`sema.typeHasDropGlue`), whether a
+    /// read view copies it (`sema.viewByValue`), whether a table of it is
+    /// reserved as zeros (`sema.tableFill`, `rig.Table`), and whether it is
+    /// word-sized (`sema.wordBits`). A generic type's instances differ in
+    /// the first two, which it leaves to the runtime.
+    fn emitRepr(self: *Emitter, depth: u32) Error!void {
+        const sym = self.nominal.?.sym;
+        const ty: ?TypeId = if (self.facts.symbols.items[sym].type_params == null) self.facts.types.find(.{ .nominal = self.facts.refOf(sym) }) else null;
+        const zeros = self.facts.declFill(sym) == .zeros;
+        const word = self.facts.wordBitsOfSym(sym) != null;
+        if (ty == null and !zeros and !word) return;
+        try self.writeIndent(depth);
+        try self.w.writeAll("pub const __rig_repr: " ++ rt(.Repr) ++ " = .{");
+        var sep: []const u8 = " ";
+        if (ty) |t| {
+            try self.w.print(" .drops = {}, .copied = {}", .{ self.facts.hasDropGlue(t), self.facts.viewByValue(t) });
+            sep = ", ";
         }
+        if (zeros) {
+            try self.w.print("{s}.zeros = true", .{sep});
+            sep = ", ";
+        }
+        if (word) try self.w.print("{s}.word_sized = true", .{sep});
+        try self.w.writeAll(" };\n");
     }
 
     fn emitFields(self: *Emitter, depth: u32) Error!void {
@@ -1961,8 +1997,9 @@ pub const Emitter = struct {
         // stack to it (`rig.AltStack`).
         if (is_main) try self.w.writeAll("pub const panic = " ++ rt(.panic) ++ ";\npub const std_options = " ++ rt(.std_options) ++ ";\n\n");
         // A `main` that can fail is canceled by an interrupt or SIGTERM
-        // (`rig.cancelOnInterrupt`); one that cannot keeps their default.
-        if (main_fails) try self.w.writeAll("pub const __rig_interrupt = true;\n\n");
+        // (`rig.cancelOnInterrupt`, `Config.interrupt`); one that cannot
+        // keeps their default.
+        if (main_fails) self.interrupt = true;
         // `main` is the body of a Zig `main` that runs it on the stack the
         // runtime maps (`rig.onOwnStack`), then reports a failure as Rig
         // shows errors (`rig.failMain`) or sets the exit status
@@ -2635,9 +2672,11 @@ pub const Emitter = struct {
             try self.emitFlag(stmts[last]);
             try self.emitErasedSlots(stmts[last]);
             try self.emitTempSlots(stmts[last]);
+            const flat = try self.openFlat(first);
             try self.w.writeAll("return ");
             try self.emitReturnValue(stmts[last]);
             try self.w.writeAll(";");
+            try self.closeFlat(flat);
         } else {
             try self.emitStmt(stmts[last]);
         }
@@ -2656,7 +2695,9 @@ pub const Emitter = struct {
         const first = self.temp_slots.items.len;
         try self.emitTempSlots(sexp);
         defer self.temp_slots.shrinkRetainingCapacity(first);
+        const flat = try self.openFlat(first);
         try self.emitStmtOnly(sexp);
+        try self.closeFlat(flat);
         if (isTerminatingStmt(sexp)) return;
         // The last made is dropped first, as the `defer`s would.
         var i = self.temp_slots.items.len;
@@ -2664,6 +2705,34 @@ pub const Emitter = struct {
             i -= 1;
             try self.writeTempDrop(self.temp_slots.items[i].name);
         }
+    }
+
+    /// Start the text of the statement whose slots begin at `first` in
+    /// `temp_slots`. When lowering flattened any of its temporaries, the
+    /// text is held while each such temporary's value is written into
+    /// its slot apart (`emitValue`), and `closeFlat` writes those
+    /// assignments ahead of the text: `__rig_tmp_1 = v;
+    /// __rig_tmp_1_live = true; f(__rig_tmp_1);`.
+    fn openFlat(self: *Emitter, first: usize) Error!?Flat {
+        const slots = self.temp_slots.items[first..];
+        for (slots) |t| {
+            if (t.flat) break;
+        } else return null;
+        const bufs = try self.arena.allocator().create([2]Writer.Allocating);
+        bufs.* = .{ .init(self.arena.allocator()), .init(self.arena.allocator()) };
+        for (slots) |*t| if (t.flat) {
+            t.pre = &bufs[0].writer;
+        };
+        const f: Flat = .{ .saved = self.w, .bufs = bufs };
+        self.w = &bufs[1].writer;
+        return f;
+    }
+
+    fn closeFlat(self: *Emitter, flat: ?Flat) Error!void {
+        const f = flat orelse return;
+        self.w = f.saved;
+        try self.w.writeAll(f.bufs.?[0].written());
+        try self.w.writeAll(f.bufs.?[1].written());
     }
 
     fn writeTempDrop(self: *Emitter, name: []const u8) Error!void {
@@ -2718,7 +2787,7 @@ pub const Emitter = struct {
             try self.w.print(" = undefined; var {s}_live = false; ", .{name});
             if (self.poison) try self.w.print("defer " ++ rt(.poison) ++ "(&{s}); ", .{name});
             try self.w.print("defer if ({s}_live) " ++ rt(.drop) ++ "(&{s}); ", .{ name, name });
-            try self.temp_slots.append(self.allocator, .{ .node = temp.list.id, .name = name });
+            try self.temp_slots.append(self.allocator, .{ .node = temp.list.id, .name = name, .flat = self.lowered.?.isFlat(temp) });
         }
     }
 
@@ -2758,11 +2827,13 @@ pub const Emitter = struct {
         const label = try self.hiddenStorage(e, .header_value, by, .next);
         try self.w.print("({s}: {{ ", .{label});
         try self.emitTempSlots(e);
+        const flat = try self.openFlat(first);
         try self.w.print("break :{s} ", .{label});
-        return .{ .label = label, .first = first };
+        return .{ .label = label, .first = first, .flat = flat };
     }
 
     fn closeHeader(self: *Emitter, h: Header) Error!void {
+        if (h.flat) |f| try self.closeFlat(f);
         if (h.label.len > 0) try self.w.writeAll("; })");
         self.temp_slots.shrinkRetainingCapacity(h.first);
     }
@@ -6092,6 +6163,23 @@ pub const Emitter = struct {
             // The slot holds the value: a view of it, the pointer a write
             // view wants, is taken from the slot (`rig.keep`'s result).
             self.ptr_tail = false;
+            // A flattened temporary's value goes into its slot ahead of
+            // the statement, which reads the slot.
+            if (slot.pre) |pre| {
+                // The value is written apart first: a flattened temporary
+                // inside it goes ahead of it.
+                var value: Writer.Allocating = .init(self.arena.allocator());
+                const saved_w = self.w;
+                self.w = &value.writer;
+                const buffer = self.varOf(sexp, .temp).?.by == .buffer;
+                if (buffer) try self.emitPrintArgs(&.{sexp}, .{}) else {
+                    self.bare = true;
+                    try self.emitValue(sexp, tail);
+                }
+                self.w = saved_w;
+                try pre.print("{s}{s}{s}{s}; {s}_live = true; ", .{ slot.name, if (buffer) ".fill(" else " = ", value.written(), if (buffer) ")" else "", slot.name });
+                return self.w.writeAll(slot.name);
+            }
             // A template's text is written into its slot's buffer.
             if (self.varOf(sexp, .temp).?.by == .buffer) {
                 try self.w.print(rt(.TextBuf) ++ ".keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });

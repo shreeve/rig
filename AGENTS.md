@@ -61,6 +61,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `src/storage.zig` | the hidden storage emit makes, decided once for emit and the ownership checker |
 | `src/ownership.zig`, `src/ownership/` | the ownership checker: moves, loans, drops, one file per part of the Core |
 | `src/proofs.zig` | the index, byte, and add checks known to pass, which emit omits |
+| `src/accounts.zig` | each frame's account, its values, reach, and operations, counted on its LIR |
 | `src/inlining.zig`, `returns.zig`, `symbols.zig` | program-wide inlining decisions; which functions never return (Zig's `noreturn`); the program's `:name` symbols |
 | `src/facts.zig` | emit's read-only view of a checked module: the checkers' recorded decisions, and how each type is held in Zig |
 | `src/emit.zig` | Zig code generation, one file per module |

@@ -34,7 +34,7 @@ pub const Name = enum {
     okNonneg, onOwnStack, Opt, Order, orderOf, outPlace, pack, packOut, panic,
     parEachInto, parMapInto, parPushInto, parWorkersInto, Payload, poison,
     preempt_section, prefetch, print, Printer, printErased, readInt,
-    readIntProven, ReadView, readView, recvArm, reduceInto, rem, reportFailure,
+    readIntProven, ReadView, readView, Repr, recvArm, reduceInto, rem, reportFailure,
     rt, Select, selectInto, selectValue, selfArg, sendArm, Shared, shared,
     shiftAmount, showSlot, simdRead, simdReadProven, simdWrite, simdWriteProven,
     SiteTable, slice, sliceMut, SlotOf, slotOf, some, someOut, somePtr,

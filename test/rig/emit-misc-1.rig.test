@@ -3520,3 +3520,7 @@ code "a function that always panics is cold", /fn die\([^\n]*\n    @branchHint\(
       die("big")
     if n > 9
       print(either(n))
+
+code "a root names what the program is in one config record", "pub const __rig_config: rig.Config = .{ .interrupt = true };"
+  sub main()!
+    print(1)

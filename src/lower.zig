@@ -46,8 +46,16 @@ pub const enabled = @import("build_options").self_check;
 /// A module's bodies, lowered.
 pub const Module = struct {
     arena: std.heap.ArenaAllocator,
+    /// The module's compile-time body (`Options.checked`), and its owner's
+    /// index while it may be freed alone (`dropConstants`): when no
+    /// closure in it was lowered with it.
+    consts: std.heap.ArenaAllocator,
+    constants: ?u32 = null,
     /// Each frame owner of the module (`SemContext.frame_owners`), by its
-    /// index there, then each compile-time function.
+    /// index there, then each compile-time function. Lowered for the
+    /// checkers (`Options.checked`), then the closures of compile-time
+    /// functions, and last the module itself, whose body is its
+    /// constants and what its types declare by value.
     owners: []Owner = &.{},
     /// The index of each owner, by its root's key.
     roots: sema.FastMap(u64, u32) = .empty,
@@ -63,6 +71,10 @@ pub const Module = struct {
     temps: sema.FastMap(u64, []const Sexp) = .empty,
     /// The coercions of each node that has any, by its key.
     coerced: sema.FastMap(u64, Coerced) = .empty,
+    /// The owning temporaries made before anything their statement does
+    /// can act (`Lowerer.flatten`), by their keys: each is written into
+    /// its slot ahead of the statement.
+    flat: sema.FastMap(u64, void) = .empty,
     /// The answer to each question emit asks about a node of the module
     /// (`Ask`), by the node's key and the question, encoded: asked as
     /// emit starts on the module (`answerAll`).
@@ -97,7 +109,16 @@ pub const Module = struct {
     pub const Skip = struct { node: Sexp, family: []const u8 };
 
     pub fn deinit(m: *Module) void {
+        m.consts.deinit();
         m.arena.deinit();
+    }
+
+    /// The checkers have walked the module's compile-time body: free it.
+    pub fn dropConstants(m: *Module) void {
+        const i = m.constants orelse return;
+        m.owners[i].func = null;
+        m.constants = null;
+        _ = m.consts.reset(.free_all);
     }
 
     /// The hidden var of `kind` made for `node`.
@@ -116,6 +137,13 @@ pub const Module = struct {
     /// it holds, which are their own.
     pub fn tempsOf(m: *const Module, node: Sexp) []const Sexp {
         return m.temps.get(sema.decisionKeyOf(node) orelse return &.{}) orelse &.{};
+    }
+
+    /// Whether owning temporary `node` is made before anything its
+    /// statement does can act, so its slot can take it ahead of the
+    /// statement.
+    pub fn isFlat(m: *const Module, node: Sexp) bool {
+        return m.flat.contains(sema.decisionKeyOf(node) orelse return false);
     }
 
     /// The answer to `ask` about `node`; null for a node no question of
@@ -147,6 +175,12 @@ pub const Options = struct {
     /// Every object's optional is held as a tagged struct, so each lift
     /// into one is made (`RIG_STRICT_OPTIONALS`, `sema.optionalRouted`).
     strict_optionals: bool = false,
+    /// Lowered for the checkers, which walk every body: the module's
+    /// constants are a compile-time body of their own, the closures of
+    /// compile-time functions are owners, and the constructs emit's
+    /// lowering does not cover (`Lowerer.uncovered`) are lowered all the
+    /// same, since emit never reads this lowering.
+    checked: bool = false,
 };
 
 /// Lower module `tree`, which sema checked, into `ctx.lowered`: first
@@ -160,7 +194,7 @@ pub fn lowerChecked(ctx: *SemContext, tree: Sexp) !void {
     ctx.moved = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
     try markMoved(ctx, tree);
     for (ctx.diagnostics.items) |d| if (d.severity == .@"error" and !d.lint) return;
-    ctx.lowered = try lowerModule(ctx.allocator, ctx, tree, .{});
+    ctx.lowered = try lowerModule(ctx.allocator, ctx, tree, .{ .checked = true });
 }
 
 /// Record the symbols a name reads after its declaration (a later
@@ -264,38 +298,56 @@ fn fieldMove(ctx: *SemContext, node: Sexp) !void {
 
 /// Lower every body of module `tree`.
 pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: Options) !Module {
-    var m: Module = .{ .arena = .init(gpa) };
+    var m: Module = .{ .arena = .init(gpa), .consts = .init(gpa) };
     errdefer m.deinit();
     const a = m.arena.allocator();
     // Each frame owner, then each compile-time function, whose body the
     // ownership checker walks though it never runs.
     const decls: []const Sexp = if (tree.isKind(.module)) ir.Module.decls(tree) else &.{};
-    var cts: usize = 0;
-    for (decls) |d| cts += @intFromBool(rig.isCtFun(d));
-    m.owners = try a.alloc(Module.Owner, ctx.frame_owners.items.len + cts);
-    for (ctx.frame_owners.items, m.owners[0..ctx.frame_owners.items.len]) |fo, *o| o.* = .{ .root = fo.root, .parent = fo.parent };
-    var next = ctx.frame_owners.items.len;
-    for (decls) |d| if (rig.isCtFun(d)) {
-        m.owners[next] = .{ .root = rig.unpub(d), .parent = null, .ct = true };
-        next += 1;
-    };
+    var owners: std.ArrayList(Module.Owner) = .empty;
+    for (ctx.frame_owners.items) |fo| try owners.append(a, .{ .root = fo.root, .parent = fo.parent });
+    for (decls) |d| if (rig.isCtFun(d)) try owners.append(a, .{ .root = rig.unpub(d), .parent = null, .ct = true });
+    if (opts.checked) {
+        const n = owners.items.len;
+        for (0..n) |i| if (owners.items[i].ct) try ctClosures(a, &owners, ir.get(owners.items[i].root, .body), @intCast(i));
+        if (tree.isKind(.module)) try owners.append(a, .{ .root = tree, .parent = null, .ct = true });
+    }
+    m.owners = owners.items;
     for (m.owners, 0..) |o, i| try m.roots.put(a, sema.decisionKeyOf(o.root).?, @intCast(i));
     var l: Lowerer = .{ .a = a, .gpa = gpa, .ctx = ctx, .module = &m, .opts = opts };
     defer l.deinit();
     try l.coercibleNodes();
     for (m.owners, 0..) |o, i| {
         if (o.root.isKind(.lambda)) continue;
+        // The module's compile-time body goes in an arena of its own,
+        // freed once the checker has walked it (`dropConstants`), unless
+        // a closure in it was lowered with it.
+        const constant = o.root.isKind(.module);
+        var funcs: usize = 0;
+        if (constant) {
+            for (m.owners) |x| funcs += @intFromBool(x.func != null);
+            l.a = m.consts.allocator();
+        }
+        defer l.a = a;
         l.lowerBody(@intCast(i)) catch |err| switch (err) {
             error.Uncovered => m.owners[i].skip = l.skip,
             else => |e| return e,
         };
+        if (constant) {
+            var after: usize = 0;
+            for (m.owners) |x| after += @intFromBool(x.func != null);
+            if (after == funcs + 1 and m.owners[i].func != null) m.constants = @intCast(i);
+        }
     }
     // A closure is lowered with the body around it, or skipped with it.
     for (m.owners) |*o| if (o.func == null and o.skip == null) {
         o.skip = if (o.parent) |p| m.owners[p].skip else null;
     };
     // A binding's flag is set by any use in the module that may move it.
+    // The module's constants are the checkers' alone: what emit reads
+    // stays as emit's lowering makes it.
     for (m.owners) |o| if (o.func) |f| {
+        if (o.root.isKind(.module)) continue;
         for (f.vars.items) |*v| switch (v.name) {
             .binding => |s| {
                 v.flag = ctx.mayMove(s);
@@ -306,6 +358,19 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
         for (f.regions.items) |r| if (r.kind == .call) try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
     };
     return m;
+}
+
+/// Each closure in `e`, the body of compile-time owner `parent` or a
+/// closure in it, as an owner of `owners`: no frame owner, since it
+/// never runs when the program does, but a body the checkers walk.
+fn ctClosures(a: std.mem.Allocator, owners: *std.ArrayList(Module.Owner), e: Sexp, parent: u32) !void {
+    if (e != .list) return;
+    var p = parent;
+    if (e.isKind(.lambda)) {
+        try owners.append(a, .{ .root = e, .parent = parent, .ct = true });
+        p = @intCast(owners.items.len - 1);
+    }
+    for (e.items()) |c| try ctClosures(a, owners, c, p);
 }
 
 /// Write module `tree`'s LIR (`rig check --facts=lir`), lowered again:
@@ -453,12 +518,20 @@ const Lowerer = struct {
         const moved = try l.addExpr(l.f.exprs.items[e]);
         l.f.exprs.items[e] = .{ .@"var" = .{ .v = v, .node = node } };
         try l.step(in, .{ .bind = .{ .v = v, .value = moved } });
+        if (l.inConstants()) return;
         const gop = try l.module.coerced.getOrPut(l.a, sema.decisionKeyOf(node).?);
         if (!gop.found_existing) gop.value_ptr.* = .{};
         const c = gop.value_ptr;
         c.held = c.use[kept..];
         c.use = c.use[0..kept];
         c.hoisted = true;
+    }
+
+    /// Lowering the module's compile-time body, which only the checkers
+    /// read, and whose arena is freed alone: the module's maps for emit
+    /// (`temps`, `coerced`, `answers`) hold nothing of it.
+    fn inConstants(l: *const Lowerer) bool {
+        return l.f.root.isKind(.module);
     }
 
     fn exprOf(l: *Lowerer, node: Sexp) ?ExprId {
@@ -496,6 +569,12 @@ const Lowerer = struct {
         l.block = f.body;
         l.stmt_region = f.body;
         l.results = null;
+        if (decl.isKind(.module)) {
+            try l.constants(decl, f.body);
+            try l.seal(f);
+            l.module.owners[oi].func = f;
+            return;
+        }
         if (decl.isKind(.fun) or decl.isKind(.sub)) {
             if (storage.fnType(l.ctx, storage.typeOf(l.ctx, ir.get(decl, .name)))) |ft| l.results = sema.resultsOf(l.ctx, ft.returns);
         }
@@ -508,7 +587,7 @@ const Lowerer = struct {
                 // one is not lowered.
                 const before = f.vars.items.len;
                 _ = try l.expr(ir.get(par, .value));
-                if (f.vars.items.len != before) return l.uncovered(par, "default values");
+                if (f.vars.items.len != before and !l.opts.checked) return l.uncovered(par, "default values");
             }
         };
         const body = ir.get(decl, .body);
@@ -517,6 +596,23 @@ const Lowerer = struct {
         try l.heldHeaders(decl, body);
         try l.seal(f);
         l.module.owners[oi].func = f;
+    }
+
+    /// The statements of module `decl` that no function holds, into
+    /// region `r`, each its own: its constants, and what its types
+    /// declare by value, as the ownership checker walks them
+    /// (`walkDecl`).
+    fn constants(l: *Lowerer, decl: Sexp, r: RegionId) Error!void {
+        switch (decl.kind() orelse return) {
+            .module => {
+                for (ir.Module.decls(decl)) |d| if (rig.isModuleConst(d)) try l.constants(d, r);
+                for (ir.Module.decls(decl)) |d| if (!rig.isModuleConst(d)) try l.constants(d, r);
+            },
+            .@"struct", .@"enum", .errors, .generic_struct => for (ir.rest(decl, .members)) |c| try l.constants(c, r),
+            .@"pub" => try l.constants(ir.Pub.decl(decl), r),
+            .fun, .sub, .drop_decl, .@"test", .api, .api_add, .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
+            else => try l.stmt(decl, r),
+        }
     }
 
     /// Copy body `f`'s expressions to the arena at their final size, and
@@ -602,6 +698,7 @@ const Lowerer = struct {
         const value_1 = try l.expr(s);
         l.region(o.region).value = value_1;
         try l.checkTemps(s, o.temps);
+        if (l.temps.items.len > o.temps) try l.flatten(o.region);
         l.stmt_region = o.stmt;
         l.temps.shrinkRetainingCapacity(o.temps);
         return l.addExpr(.{ .block = o.region });
@@ -618,6 +715,7 @@ const Lowerer = struct {
 
     fn closeStmt(l: *Lowerer, s: Sexp, o: Open, into: RegionId) Error!void {
         try l.checkTemps(s, o.temps);
+        if (l.temps.items.len > o.temps) try l.flatten(o.region);
         l.stmt_region = o.stmt;
         l.temps.shrinkRetainingCapacity(o.temps);
         try l.step(into, .{ .region = o.region });
@@ -628,7 +726,7 @@ const Lowerer = struct {
     /// `sema.stmtTemps` lists, in its order.
     fn checkTemps(l: *Lowerer, s: Sexp, first: usize) Error!void {
         const have = l.temps.items[first..];
-        if (have.len > 0) {
+        if (have.len > 0 and !l.inConstants()) {
             const nodes = try l.a.alloc(Sexp, have.len);
             for (have, nodes) |v, *n| n.* = l.f.vars.items[v].node;
             try l.module.temps.put(l.a, sema.decisionKeyOf(s).?, nodes);
@@ -647,6 +745,143 @@ const Lowerer = struct {
             std.debug.panic("{s}:{d}:{d}: internal error: lir: a statement's temporaries are not those sema lists ({d} made, {d} listed, the first a `{s}` at {d}:{d})", .{ l.ctx.name, at.line, at.col, have.len, want.items.len, @tagName(first_want.kind() orelse .module), w_at.line, w_at.col });
         }
     }
+
+    /// Record which temporaries of statement or header region `r` are
+    /// made before anything the statement does can act (`Module.flat`).
+    /// Its parts are walked in the order they run while each part so far
+    /// only reads (`Flat.walk`). A temporary reached so, whose value
+    /// changes no var read before it (`Flat.changesAny`), is made the
+    /// same whether its slot takes it in place or ahead of the
+    /// statement. A statement that stores to anything but a name, or
+    /// whose steps are not plain values, keeps every temporary in place.
+    fn flatten(l: *Lowerer, r: RegionId) Error!void {
+        const steps = l.region(r).steps.items;
+        for (steps) |s| switch (s) {
+            .eval, .bind, .jump => {},
+            .store => |st| if (l.f.exprs.items[st.target] != .@"var" or rig.bindingKindOf(ir.Set.op(st.node)).operator() != null) return,
+            else => return,
+        };
+        var w: Flat = .{ .l = l };
+        defer w.read.deinit(l.gpa);
+        for (steps) |s| switch (s) {
+            .eval => |e| try w.walk(e),
+            .bind => |b| try w.walk(b.value),
+            .jump => |j| if (j.value) |v| try w.walk(v),
+            .store => |st| try w.walk(st.value),
+            else => unreachable,
+        };
+        if (l.region(r).value) |v| try w.walk(v);
+    }
+
+    /// The walk `flatten` makes of a statement's parts.
+    const Flat = struct {
+        l: *Lowerer,
+        /// Every part walked so far only reads: a literal, a constant, a
+        /// var, a field of one, a view of one, or a value made of those.
+        clean: bool = true,
+        /// The vars those parts read.
+        read: std.ArrayList(VarId) = .empty,
+
+        fn walk(w: *Flat, id: ExprId) Error!void {
+            if (!w.clean) return;
+            const l = w.l;
+            switch (l.f.exprs.items[id]) {
+                .leaf => {},
+                .@"var" => |u| try w.read.append(l.gpa, u.v),
+                .op => |o| {
+                    const kind = o.node.kind();
+                    // A `catch`, and a `!` in a function with no slot of
+                    // its own, give their value the slot its failure's
+                    // fields go in, which emit declares around it.
+                    if (kind == .@"catch" or kind == .propagate) {
+                        w.clean = false;
+                        return;
+                    }
+                    for (o.args, 0..) |a, i| {
+                        // `a and b`, `a or b`, and `a ?? b` run `b` only
+                        // on a condition.
+                        if (i > 0 and (kind == .@"and" or kind == .@"or" or kind == .@"??")) {
+                            w.clean = false;
+                            return;
+                        }
+                        try w.walk(a);
+                    }
+                    const reads = if (kind) |k| switch (k) {
+                        .member, .read, .write, .kwarg, .enum_lit, .symbol, .paren, .array, .tuple => true,
+                        else => false,
+                    } else true;
+                    if (!reads) w.clean = false;
+                },
+                .coerce => |c| {
+                    try w.walk(c.value);
+                    switch (c.how.*) {
+                        .view, .deref, .lift, .widen, .splat => {},
+                        .duration, .erase, .fail => w.clean = false,
+                    }
+                },
+                .hold => |h| {
+                    const before = w.read.items.len;
+                    try w.walk(h.value);
+                    switch (l.f.vars.items[h.v].name) {
+                        .hidden => |k| switch (k) {
+                            .temp => if (!w.changesAny(h.value, w.read.items[0..before])) {
+                                try l.module.flat.put(l.a, sema.decisionKeyOf(l.f.vars.items[h.v].node).?, {});
+                                // Made ahead of the statement, it is no
+                                // longer among the parts before the rest.
+                                w.read.shrinkRetainingCapacity(before);
+                                w.clean = true;
+                            } else {
+                                w.clean = false;
+                            },
+                            .new_value, .zig_temp, .leaf, .viewed => {},
+                            else => w.clean = false,
+                        },
+                        .binding => w.clean = false,
+                    }
+                },
+                .block, .branch, .choice, .closure => w.clean = false,
+            }
+        }
+
+        /// Whether expression `id` may change what any of `vars` holds:
+        /// a write view or a move of a place one of them roots, a read
+        /// of a binding a use may move, or a construct with statements
+        /// of its own.
+        fn changesAny(w: *const Flat, id: ExprId, vars: []const VarId) bool {
+            if (vars.len == 0) return false;
+            const f = w.l.f;
+            return switch (f.exprs.items[id]) {
+                .leaf => false,
+                .@"var" => |u| switch (f.vars.items[u.v].name) {
+                    .binding => |sym| w.l.ctx.mayMove(sym) and std.mem.indexOfScalar(VarId, vars, u.v) != null,
+                    .hidden => false,
+                },
+                .op => |o| blk: {
+                    if (o.node.kind() == .write or o.node.kind() == .move) {
+                        const root = w.rootVar(o.args[0]) orelse break :blk true;
+                        if (std.mem.indexOfScalar(VarId, vars, root) != null) break :blk true;
+                    }
+                    for (o.args) |a| if (w.changesAny(a, vars)) break :blk true;
+                    break :blk false;
+                },
+                .coerce => |c| w.changesAny(c.value, vars),
+                .hold => |h| w.changesAny(h.value, vars),
+                .block, .branch, .choice, .closure => true,
+            };
+        }
+
+        /// The var at the root of place `id`, or null for a place not
+        /// rooted at a var.
+        fn rootVar(w: *const Flat, id: ExprId) ?VarId {
+            const f = w.l.f;
+            return switch (f.exprs.items[id]) {
+                .@"var" => |u| u.v,
+                .op => |o| if (o.args.len > 0 and (o.node.kind() == .member or o.node.kind() == .index or o.node.kind() == .paren)) w.rootVar(o.args[0]) else null,
+                .coerce => |c| w.rootVar(c.value),
+                else => null,
+            };
+        }
+    };
 
     fn stmtBody(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
         const head = s.kind() orelse return l.step(r, .{ .eval = try l.expr(s) });
@@ -918,7 +1153,7 @@ const Lowerer = struct {
                 l.as_match_scope = l.guarded;
                 return l.op(e);
             },
-            .matches => return l.uncovered(e, "match"),
+            .matches => return if (l.opts.checked) l.op(e) else l.uncovered(e, "match"),
             .lambda => return l.closure(e),
             .block => {
                 const b = try l.f.addRegion(l.a, e, .block);
@@ -973,6 +1208,7 @@ const Lowerer = struct {
         const value_5 = try l.expr(e);
         l.region(h).value = value_5;
         try l.checkTemps(e, o.temps);
+        if (l.temps.items.len > o.temps) try l.flatten(h);
         l.stmt_region = o.stmt;
         l.temps.shrinkRetainingCapacity(o.temps);
         return l.addExpr(.{ .block = h });
@@ -1038,7 +1274,7 @@ const Lowerer = struct {
             const inner = try l.addExpr(l.f.exprs.items[id]);
             l.f.exprs.items[id] = .{ .coerce = .{ .node = e, .how = &kept[i], .value = inner } };
         }
-        try l.module.coerced.put(l.a, key, .{ .use = kept });
+        if (!l.inConstants()) try l.module.coerced.put(l.a, key, .{ .use = kept });
     }
 
     /// The operation of `e` over its children, then the vars it makes.
@@ -1659,7 +1895,7 @@ const Lowerer = struct {
 
     fn leaf(l: *Lowerer, e: Sexp) Error!void {
         const how = storage.leafStep(l.ctx, e);
-        if (sema.decisionKeyOf(e)) |key| try l.module.answers.put(l.a, .{ .key = key, .ask = .leaf_step }, encode(.leaf_step, how));
+        if (!l.inConstants()) if (sema.decisionKeyOf(e)) |key| try l.module.answers.put(l.a, .{ .key = key, .ask = .leaf_step }, encode(.leaf_step, how));
         switch (how) {
             .place, .part, .view, .jump => {},
             .made => if (!l.ctx.dropsTemp(e)) try l.holdVar(e, .zig_temp, .owned, .statement, null, l.stmt_region),

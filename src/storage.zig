@@ -131,7 +131,7 @@ pub const StorageKind = enum {
     /// fork. Emit makes it in this slot, `var __rig_task_N =
     /// rig.Task(T).frame.spawn(f, .{ x })`, and starts it there,
     /// `t = __rig_task_N.start()`; it counts in the frame
-    /// (`typecheck.checkFrames`).
+    /// (`accounts.count`).
     task_record,
     /// A value made here whose address emit takes where Zig holds it, in
     /// no slot: a leaf no statement slot keeps (`storage.leafStep` is
@@ -261,11 +261,8 @@ pub fn isTypeCallee(ctx: *const SemContext, obj: Sexp) bool {
 /// The symbol `module.name` names in that module; null when `obj` is
 /// not a module's member.
 pub fn moduleMemberSym(ctx: *const SemContext, obj: Sexp) ?sema.Symbol {
-    const id = ctx.symbolOf(ir.Member.object(obj)) orelse return null;
-    if (ctx.symbols.items[id].kind != .module) return null;
-    const foreign = ctx.foreign_semas.get(ctx.module_refs.get(id) orelse return null) orelse return null;
-    const fid = foreign.moduleMember(srcText(ctx, ir.Member.name(obj))) orelse return null;
-    return foreign.symbols.items[fid];
+    const f = ctx.foreignMember(ctx.symbolOf(ir.Member.object(obj)) orelse return null, srcText(ctx, ir.Member.name(obj))) orelse return null;
+    return f.ctx.symbols.items[f.id];
 }
 
 /// An object, enum, or generic type: calling it constructs a value.
@@ -1636,7 +1633,7 @@ pub const task_header_bytes = 512;
 /// in a slot of `block`'s frame (`task_record`): a `frameTaskSite` whose
 /// task never leaves its binding (`task_stays`), with a record of at most
 /// `max_frame_task_bytes`. Asked by the plan (`Planner.frameTasks`) and by
-/// the frame count, where the record counts (`typecheck.checkFrames`).
+/// the frame count, where the record counts (`accounts.count`).
 pub fn taskRecordIn(ctx: *SemContext, stmt: Sexp, block: Sexp) !?Sexp {
     const task = frameTaskSite(ctx, stmt) orelse return null;
     if (!taskStays(ctx, stmt, block)) return null;

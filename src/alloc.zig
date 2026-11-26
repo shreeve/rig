@@ -88,7 +88,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const root = @import("root");
 const split = @import("split.zig");
 const sched = @import("sched.zig");
 
@@ -133,10 +132,10 @@ comptime {
 }
 
 /// Whether the heaps count what they hand out: only in a program that
-/// names `os.memory`, whose root declares `__rig_memory` (and in this
-/// file's tests). Any other program's allocator is the same code without
-/// the counting, so the counts cost it nothing.
-pub const counts = builtin.is_test or (@hasDecl(root, "__rig_memory") and root.__rig_memory);
+/// names `os.memory` (`Config.memory`, and in this file's tests). Any
+/// other program's allocator is the same code without the counting, so
+/// the counts cost it nothing.
+pub const counts = builtin.is_test or @import("runtime.zig").config.memory;
 
 /// A segment: `segment_size` bytes, aligned to their size, so a block's
 /// segment is its address rounded down. Its first page holds its header.
@@ -2461,7 +2460,7 @@ pub const Totals = struct { live: i64, peak: i64, allocs: i64 };
 /// The program's totals (`os.memory`), after adding the running thread's
 /// own count, so a program on one thread reads them exactly.
 pub fn totals() Totals {
-    if (!counts) @compileError("os.memory in a program whose root does not declare __rig_memory");
+    if (!counts) @compileError("os.memory in a program whose Config does not name memory");
     if (heap()) |h| h.flush();
     return .{
         .live = @intCast(total_live.load(.monotonic)),

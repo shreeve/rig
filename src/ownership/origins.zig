@@ -13,6 +13,7 @@ const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
 const live = @import("live.zig");
 const transfer = @import("transfer.zig");
+const lowered = @import("lowered.zig");
 const rules = @import("rules.zig");
 const generic = @import("generic.zig");
 const types = @import("types.zig");
@@ -161,9 +162,10 @@ pub fn throughReadView(self: *const Checker, e: Sexp) bool {
 /// `t = c.items` then `?t[0]`): it keeps what the view keeps, which
 /// the place's var holds, and no loan on the var (Core sentence 7).
 /// The var is held while the place's indexes run, as for any view.
-pub fn walkThroughView(self: *Checker, e: Sexp) Error!Value {
-    const place = transfer.resolvePlace(self, e) orelse return transfer.walkViewedPath(self, e);
-    try transfer.walkIndicesHeld(self, e, place.root, place.path);
+pub fn walkThroughView(self: *Checker, ex: lowered.Expr) Error!Value {
+    const e = ex.node;
+    const place = transfer.resolvePlace(self, e) orelse return transfer.walkViewedPath(self, ex);
+    try transfer.walkIndicesHeld(self, ex, place.root, place.path);
     try rules.checkReadable(self, place.root, e, notes.startOf(self, e));
     return tagSelf(self, live.varValue(self, place.root), place.root, place.path);
 }
@@ -609,8 +611,9 @@ pub fn recordResult(self: *Checker, v: Value, expr: Sexp) void {
         if (self.func.self_escape == null and isSelfVar(self, l.root) and !withinSelfPaths(self, l.path)) self.func.self_escape = .{ .path = l.path, .at = resultPos(self, expr, "@") orelse notes.startOf(self, expr) };
         const bit = sema.paramBit(i);
         if (self.func.returned & bit == 0) {
-            self.func.returned_at[i] = notes.startOf(self, expr);
-            self.func.returned_by[i] = expr;
+            const at = self.paramSites() catch return;
+            at.returned_at[i] = notes.startOf(self, expr);
+            at.returned_by[i] = expr;
         }
         self.func.returned |= bit;
     };
@@ -628,8 +631,9 @@ pub fn recordStore(self: *Checker, into: VarId, loans: []const Loan, pos: u32) v
     for (loans) |l| if (l.root != into) if (paramOf(self, l)) |i| {
         const bit = sema.paramBit(i);
         if (self.func.stored & bit == 0) {
-            self.func.stored_at[i] = pos;
-            self.func.stored_in[i] = self.vars.items[into].name;
+            const at = self.paramSites() catch return;
+            at.stored_at[i] = pos;
+            at.stored_in[i] = self.vars.items[into].name;
         }
         self.func.stored |= bit;
     };
@@ -660,8 +664,10 @@ pub fn paramShown(self: *Checker, param: Sexp) Error!struct { shown: []const u8,
 /// A body passes on only the loans its signature shows (Core
 /// sentence 7): what it returns and stores comes from the parameters
 /// its origins name. `params` are its run-time parameters.
-pub fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) Error!void {
-    try checkSelfPaths(self, what, name);
+pub fn checkOrigins(self: *Checker, name: Sexp, params: Sexp) Error!void {
+    try checkSelfPaths(self, name);
+    if (self.func.returned | self.func.stored | self.func.generic == 0) return;
+    const what = try whatOf(self, name);
     const o = self.func.origins;
     const items = params.items();
     // What reached a value of a type parameter's type is returned and
@@ -671,13 +677,14 @@ pub fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) 
         if (self.func.generic & bit == 0) continue;
         if (self.func.generic_returned_at) |at| if (self.func.returned & bit == 0) {
             self.func.returned |= bit;
-            self.func.returned_at[i] = at;
+            (try self.paramSites()).returned_at[i] = at;
         };
         if (self.func.stored & bit != 0) continue;
         for (self.func.generic_stores[0..self.func.generic_store_count]) |s| if (s.param != i) {
             self.func.stored |= bit;
-            self.func.stored_at[i] = s.pos;
-            self.func.stored_in[i] = s.name;
+            const sites = try self.paramSites();
+            sites.stored_at[i] = s.pos;
+            sites.stored_in[i] = s.name;
             break;
         };
     }
@@ -689,7 +696,7 @@ pub fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) 
         if (self.func.returned & bit != 0 and o.result & bit == 0) {
             if (o.declared) {
                 const only = try paramList(self, items, o.result, true, name);
-                const at = resultPos(self, self.func.returned_by[i], if (sema.paramNameNode(items[i])) |pn| types.text(self, pn) else pname) orelse self.func.returned_at[i];
+                const at = resultPos(self, (try self.paramSites()).returned_by[i], if (sema.paramNameNode(items[i])) |pn| types.text(self, pn) else pname) orelse (try self.paramSites()).returned_at[i];
                 if (only.len == 0) {
                     try notes.err(self, at, "{s} returns a view of `{s}`, but its signature says it views only what lives for the whole program", .{ what, pname });
                 } else try notes.err(self, at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
@@ -701,15 +708,15 @@ pub fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) 
                 }
                 return;
             }
-            try notes.err(self, self.func.returned_at[i], "{s} returns a view of `{s}`, but a call of it does not count as a view of `{s}`: its type cannot hold what the result views", .{ what, pname, pname });
+            try notes.err(self, (try self.paramSites()).returned_at[i], "{s} returns a view of `{s}`, but a call of it does not count as a view of `{s}`: its type cannot hold what the result views", .{ what, pname, pname });
         }
         if (self.func.stored & bit != 0 and o.stores & bit == 0) {
             if (o.viewed & bit != 0) {
                 // A view parameter is kept only where `keeps` names it.
-                const into = self.func.stored_in[i];
+                const into = (try self.paramSites()).stored_in[i];
                 const kept = try paramList(self, items, (o.stores & o.viewed) | (self.func.stored & o.viewed), false, .nil);
-                try notes.err(self, self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, named.clause, kept });
-            } else try notes.err(self, self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no view of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
+                try notes.err(self, (try self.paramSites()).stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, named.clause, kept });
+            } else try notes.err(self, (try self.paramSites()).stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no view of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
         }
     }
 }
@@ -719,7 +726,14 @@ pub fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) 
 /// of all of it, that the body returns, directly or through a value
 /// of a type parameter's type it returns (a call through a bound
 /// views its self, `taintGeneric`), is reported.
-pub fn checkSelfPaths(self: *Checker, what: []const u8, name: Sexp) Error!void {
+/// How a diagnostic names the function `name` declares: its name, or
+/// "this closure" for none.
+fn whatOf(self: *Checker, name: Sexp) Error![]const u8 {
+    if (name == .nil) return "this closure";
+    return std.fmt.allocPrint(self.arena(), "`{s}`", .{types.text(self, name)});
+}
+
+pub fn checkSelfPaths(self: *Checker, name: Sexp) Error!void {
     if (self.func.self_var == null) return;
     const e = self.func.self_escape orelse
         (if (self.func.generic_returned_at != null) self.func.generic_self_path else null) orelse return;
@@ -741,6 +755,7 @@ pub fn checkSelfPaths(self: *Checker, what: []const u8, name: Sexp) Error!void {
         try fix.print(self.arena(), "{s}, ", .{notes.spanText(self, n)});
     }
     try fix.appendSlice(self.arena(), got);
+    const what = try whatOf(self, name);
     try notes.err(self, e.at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, got, only.items });
     try notes.note(self, notes.startOf(self, d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ notes.spanText(self, d.returns), fix.items });
 }
