@@ -63,6 +63,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
+const arith = @import("arith.zig");
 const storage = @import("storage.zig");
 const diag = @import("diag.zig");
 const lir = @import("lir.zig");
@@ -77,9 +78,8 @@ const Proven = sema.Proven;
 const RegionId = lir.RegionId;
 const ExprId = lir.ExprId;
 
-/// The longest length a length read gives (`rig.lenOf`): no List grows
-/// past it, and no target holds more.
-pub const max_len: u64 = (1 << 62) - 1;
+/// The longest length a length read gives (`arith.max_len`).
+pub const max_len = arith.max_len;
 /// The largest constant a fact or a use names, so every sum the pass
 /// reasons about fits in an `Int`.
 pub const max_k: u64 = 1 << 62;

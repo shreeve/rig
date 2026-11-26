@@ -1,11 +1,44 @@
-//! The runtime's face: every declaration of the runtime
-//! (`src/runtime.zig`) that emitted code names, as one closed list. Emit
-//! writes a runtime name only through `rt`, so a name the list lacks is a
-//! compile error in the compiler, and the check below makes the build
-//! fail if the runtime stops declaring a name on the list.
+//! The names the compiler writes and the runtime reads, each spelled
+//! once here: how a Rig name is spelled in Zig, the declarations emitted
+//! code makes for the runtime to find by name, and the runtime's face,
+//! every declaration of the runtime that emitted code names, as one
+//! closed list. `bin/rig` writes this file verbatim beside the runtime
+//! as `rig/names.zig`, which the runtime imports; the compiler imports it
+//! as source. Only the compiler uses the closed list, so only it reads
+//! `runtime.zig` from here; the file imports nothing that is not written
+//! beside the runtime, since Zig loads every file a file imports.
 
 const std = @import("std");
 const runtime = @import("runtime.zig");
+
+/// The mark the Zig spelling of a Rig name the emitted Zig cannot keep
+/// (`std`, `rig`, `debug`) ends with: `@"rig'"` (`rig.writeZigIdent` in
+/// the compiler, which a test in main.zig holds to it). No Rig name
+/// contains it.
+pub const renamed_mark = "'";
+
+/// The Rig name of a Zig name the emitter wrote: the name without its
+/// `renamed_mark`.
+pub fn rigName(zig: []const u8) []const u8 {
+    return if (zig.len > 1 and zig[zig.len - 1] == renamed_mark[0]) zig[0 .. zig.len - 1] else zig;
+}
+
+/// The declarations emitted code makes that the runtime finds by name,
+/// with `@hasDecl` or `@hasField`: in the root module (`config`,
+/// `program`, `site_programs`, `sites_of`, `unit`), in a module
+/// (`sites`), and in a type, its markers and glue. Both sides spell them
+/// through `decl`, so a test for one cannot miss the other's spelling.
+pub const Decl = enum {
+    config, drop, name, none_field, own_eq, own_hash, own_order,
+    own_print, program, repr, site_programs, sites, sites_of,
+    strict_optional, symbol, synced, trace, unit,
+};
+
+/// The spelling of declaration `d`: `__rig_NAME`. Inline, so a spelling
+/// joined to the text around it is one constant, as `rt`'s is.
+pub inline fn decl(comptime d: Decl) *const [6 + @tagName(d).len:0]u8 {
+    return "__rig_" ++ @tagName(d);
+}
 
 /// The runtime declarations emitted code may name, each spelled as the
 /// runtime declares it.
@@ -51,12 +84,14 @@ pub const Name = enum {
 /// inline so that its value is known at compile time, as `++` needs: a
 /// spelling joined to the text around it (`rt(.at) ++ "("`) is then one
 /// constant.
+/// A name the runtime does not declare is a compile error in the
+/// compiler where it is written, and the test below fails for any name on
+/// the list the runtime lacks.
 pub inline fn rt(comptime n: Name) *const [4 + @tagName(n).len:0]u8 {
+    comptime if (!@hasDecl(runtime, @tagName(n))) @compileError("names.zig: the runtime declares no `" ++ @tagName(n) ++ "`");
     return "rig." ++ @tagName(n);
 }
 
-comptime {
-    for (std.enums.values(Name)) |n| {
-        if (!@hasDecl(runtime, @tagName(n))) @compileError("names.zig: the runtime declares no `" ++ @tagName(n) ++ "`");
-    }
+test "the runtime declares every name on the closed list" {
+    inline for (comptime std.enums.values(Name)) |n| try std.testing.expect(@hasDecl(runtime, @tagName(n)));
 }

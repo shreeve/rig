@@ -48,7 +48,8 @@ symbols          src/symbols.zig   the program's symbols, numbered
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime.zig   written next to them as rig/runtime.zig,
                                    with sched, tasks, alloc, net, table,
-                                   ordered, unordered, and split
+                                   ordered, unordered, split, arith,
+                                   and names
   ▼
 zig run / zig build-exe            debug (leak-checked), safe, or fast;
   or zig build-obj per unit, linked  a split build (Split builds)
@@ -246,6 +247,8 @@ failed; after a panic it is non-zero, with no count.
 | `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
+| `src/arith.zig` | the rules of arithmetic the compiler and the runtime both apply: `max_len`, a shift amount's range and its message, `%` by -1, a `Duration`'s range, and a `Float`'s conversion to nanoseconds; written beside the runtime as `rig/arith.zig`, and read as source by cteval, proofs, and the checker |
+| `src/names.zig` | the names the compiler writes and the runtime reads: a renamed Rig name's mark (`rigName`), the `__rig_*` declarations the runtime finds by name (`Decl`), and the closed list of runtime declarations emit names (`rt`); written beside the runtime as `rig/names.zig` |
 | `src/sched.zig` | the scheduler: fibers, workers, rings and stealing, the wait protocol, pollers and timers, the blocking pool, the deterministic mode; written beside the runtime as `rig/sched.zig` ([scheduler.md](scheduler.md)) |
 | `src/tasks.zig` | the task runtime: `Task`, `Tasks`, cancellation and deadlines, `par`, `task.isolate`, actors, `Chan` and `select`, over the scheduler |
 | `src/net.zig` | sockets and the HTTP server for `std.net` and `std.http`, registered with the workers' pollers |
