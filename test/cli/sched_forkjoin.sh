@@ -4,6 +4,7 @@
 # outermost loop's, and a task left in a busy worker's run-next slot is
 # taken by an idle worker (docs/internals/scheduler.md).
 # timeout: 300
+# cpus: 4
 source "$ROOT/test/cli/_lib.sh"
 
 cat >nest.rig <<'EOF'
