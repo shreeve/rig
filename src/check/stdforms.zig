@@ -7,6 +7,7 @@ const std = @import("std");
 const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const sema = @import("../sema.zig");
+const arith = @import("../arith.zig");
 const storage = @import("../storage.zig");
 const Wide = sema.Wide;
 const resolve = @import("../resolve.zig");
@@ -1800,7 +1801,7 @@ pub fn checkDurationArg(self: *Checker, arg: Sexp, param: TypeId, unit: ?i64, in
     if (!float) {
         if (ExprCheck.constInt(self, arg)) |v| {
             const wide = v * unit_ns;
-            if (!durationHolds(wide)) {
+            if (!arith.durationHolds(wide)) {
                 try self.errAt(arg, "`{s}` {s} is beyond a `Duration`'s range, about 292 billion years either way", .{ shown, unit_name });
                 return null;
             }
@@ -1812,8 +1813,8 @@ pub fn checkDurationArg(self: *Checker, arg: Sexp, param: TypeId, unit: ?i64, in
         }
     } else switch (sema.cteval.foldFloat(f64, self.ctx, arg, true)) {
         .value => |v| {
-            const ns = sema.floatToNs(v, unit_ns).?;
-            if (!durationHolds(ns)) {
+            const ns = arith.floatToNs(v, unit_ns).?;
+            if (!arith.durationHolds(ns)) {
                 try self.errAt(arg, "`{s}` {s} is beyond a `Duration`'s range, about 292 billion years either way", .{ shown, unit_name });
                 return null;
             }
@@ -1892,14 +1893,6 @@ pub fn formFolds(self: *Checker, call: Sexp, args: []const Sexp) bool {
     return false;
 }
 
-/// Whether `ns` nanoseconds is within a `Duration`'s range: whole
-/// seconds within ±(2^63 - 1), symmetric (docs/design/datetime.md
-/// §5.1).
-pub fn durationHolds(ns: Wide) bool {
-    const limit: Wide = @as(Wide, std.math.maxInt(i64)) * 1_000_000_000 + 999_999_999;
-    return ns >= -limit and ns <= limit;
-}
-
 /// The error set a duration form that can fail joins in a call of a
 /// function returning `returns` (docs/design/datetime.md §5.2): the
 /// callee's own set when it has members `range` and `invalid`; for
@@ -1934,7 +1927,7 @@ pub fn durationFold(self: *Checker, returns: TypeId, datetime: bool) ?sema.FoldI
 /// callee waits it, not negative. Said at `at`, the first part, of
 /// every unit the call's `keyword` arguments give.
 pub fn checkDurationSum(self: *Checker, at: Sexp, keyword: []const Sexp, ns: i128, info: Checker.ParamInfo) Error!void {
-    if (!durationHolds(ns))
+    if (!arith.durationHolds(ns))
         return self.errAt(at, "`{s}` is beyond a `Duration`'s range, about 292 billion years either way", .{try unitsText(self, keyword)});
     if (ns < 0 and info.waits) try negativeWait(self, at, try unitsText(self, keyword), try friendlyNs(self.ctx.arena.allocator(), @intCast(ns)));
 }

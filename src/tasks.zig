@@ -9,6 +9,7 @@
 
 const std = @import("std");
 const rt = @import("runtime.zig");
+const decl = @import("names.zig").decl;
 const split = rt.split;
 
 // Unit 0 of a split build defines every cell of this file
@@ -2851,7 +2852,7 @@ const default_mailbox = 64;
 /// What a deadlock calls an actor of `T`: its name in Rig, without the
 /// module or the type's arguments.
 fn actorName(comptime T: type) []const u8 {
-    if (@hasDecl(T, "__rig_name")) {
+    if (@hasDecl(T, decl(.name))) {
         const first = T.__rig_name.name[0];
         if (@TypeOf(first) == []const u8 or @typeInfo(@TypeOf(first)) == .pointer) return first;
     }

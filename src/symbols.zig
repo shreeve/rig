@@ -64,7 +64,7 @@ pub fn write(a: std.mem.Allocator, w: *std.Io.Writer, names: []const []const u8,
     try w.print("const rig = @import(\"{s}\");\n\n", .{runtime_path});
     try w.writeAll("pub const Symbol = enum(u32) {\n");
     for (names, 0..) |name, i| try w.print("    @\"{f}\" = {d},\n", .{ std.zig.fmtString(name), i });
-    try w.writeAll("    _,\n\n    pub const __rig_symbol = true;\n\n");
+    try w.writeAll("    _,\n\n    pub const " ++ @import("names.zig").decl(.symbol) ++ " = true;\n\n");
     // With no symbols, no `Symbol` value is ever made: `fromText` finds
     // none.
     if (names.len == 0) {
