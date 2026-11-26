@@ -5358,9 +5358,10 @@ that is a recorded fact.
 
   - its body runs at most `inlining.max_size` (60) operations, counted
     on its LIR by the frame count's walk (`FrameOwner.ops`): each step
-    but a region, each operation (a call, an operator; a keyword
-    argument as its value), each coercion and hold, each branch,
-    choice, and closure. A `match`'s patterns are no operations: Zig
+    but a region and a statement that is an expression (its operations
+    count, so `f(x)` alone is one), each operation (a call, an
+    operator; a keyword argument as its value), each coercion and hold,
+    each branch, choice, and closure. A `match`'s patterns are no operations: Zig
     tests them in one switch. std.json's helpers (`string`, `plain`,
     `key`, `close`, `literal`) fit, and larger ones in that parser do not;
   - it is on no cycle of calls, directly or through others, its
