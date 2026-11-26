@@ -1087,6 +1087,7 @@ const Lowerer = struct {
         const t1 = l.temps.items.len;
         var value_e = try l.expr(value);
         std.mem.rotate(VarId, l.temps.items[t0..], t1 - t0);
+        l.declareInOrder(l.temps.items[t0..]);
         const order = storage.setOrder(ctx, set);
         if (kind.operator() != null) {
             try l.openAssign(set, order, r);
@@ -1109,6 +1110,20 @@ const Lowerer = struct {
             value_e = l.exprOf(value) orelse value_e;
         }
         try l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
+    }
+
+    /// Declare `temps`, temporaries of the current statement, in their
+    /// region in the order given, the order emit drops them in: each
+    /// takes the place of one of them among the region's decls.
+    fn declareInOrder(l: *Lowerer, temps: []const VarId) void {
+        if (temps.len < 2) return;
+        var next: usize = 0;
+        for (l.region(l.stmt_region).decls.items) |*d| {
+            if (std.mem.indexOfScalar(VarId, temps, d.*) == null) continue;
+            d.* = temps[next];
+            next += 1;
+            if (next == temps.len) return;
+        }
     }
 
     /// An assignment to a field or element.
@@ -1360,7 +1375,11 @@ const Lowerer = struct {
     fn op(l: *Lowerer, e: Sexp) Error!ExprId {
         const kids = if (e.kind() == null) e.items() else rig.children(e);
         const args = try l.a.alloc(ExprId, kids.len);
-        for (kids, args) |c, *x| x.* = try l.expr(c);
+        const written: Sexp = if (e.isKind(.call)) ir.Call.callee(e) else .nil;
+        for (kids, args) |c, *x| {
+            x.* = try l.expr(c);
+            if (written == .list and c == .list and c.list.ptr == written.list.ptr) try l.selfTemps(e);
+        }
         var o: lir.Expr.Op = .{ .node = e, .args = args, .kind = opKind(e) };
         if (o.kind == .call) {
             o.aux = @intCast(l.f.calls.items.len);
@@ -1492,7 +1511,7 @@ const Lowerer = struct {
                 // A `match`'s headers are its own.
                 if (c.isKind(.as_match)) return;
                 const h = if (c.isKind(.as) or c.isKind(.as_results)) ir.get(c, .value) else c;
-                if (sema.firstStmtTemp(p.l.ctx, h) != null) try p.l.headers.put(p.l.gpa, sema.decisionKeyOf(h).?, null);
+                if (p.l.makesTemps(h)) try p.l.headers.put(p.l.gpa, sema.decisionKeyOf(h).?, null);
             }
         };
         try rig.eachGuardPart(cond, Parts{ .l = l });
@@ -1697,7 +1716,7 @@ const Lowerer = struct {
             } else try l.headerCopy(loop, source, null);
         }
         for ([_]Sexp{ if (range) ir.@"..".left(source) else source, if (range) ir.@"..".right(source) else .nil }) |h| {
-            if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.gpa, sema.decisionKeyOf(h).?, null);
+            if (h != .nil and l.makesTemps(h)) try l.headers.put(l.gpa, sema.decisionKeyOf(h).?, null);
         }
         _ = try l.expr(ir.get(loop, .mode));
         for ([_]Sexp{ ir.For.@"var"(loop), ir.get(loop, .index) }) |n| {
@@ -1758,7 +1777,7 @@ const Lowerer = struct {
         } else if (storage.matchRereads(ctx, m)) reread = true;
         const whole = !selects and !(temp_subject or (reread and mode != .consume));
         for ([_]Sexp{ if (whole) subject else .nil, if (held != null and !whole) held.? else .nil }) |h| {
-            if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.gpa, sema.decisionKeyOf(h).?, null);
+            if (h != .nil and l.makesTemps(h)) try l.headers.put(l.gpa, sema.decisionKeyOf(h).?, null);
         }
         const subject_e = try l.expr(raw);
         const arms = ir.Match.arms(m);
@@ -1783,7 +1802,7 @@ const Lowerer = struct {
         defer l.as_match_scope = saved_scope;
         l.as_match_scope = null;
         const cond = ir.Arm.guard(a);
-        if (cond != .nil and sema.firstStmtTemp(l.ctx, cond) != null) try l.headers.put(l.gpa, sema.decisionKeyOf(cond).?, null);
+        if (cond != .nil and l.makesTemps(cond)) try l.headers.put(l.gpa, sema.decisionKeyOf(cond).?, null);
         const g: ?ExprId = if (cond != .nil) try l.expr(cond) else null;
         const body = ir.Arm.body(a);
         const b = try l.f.addRegion(l.a, body, .block);
@@ -1958,6 +1977,114 @@ const Lowerer = struct {
     // -------------------------------------------------------------------------
     // Calls
     // -------------------------------------------------------------------------
+
+    /// The made values call `c`'s self reaches that Zig holds in no
+    /// slot, each a `zig_temp` of the statement, which the method's view
+    /// of its self reaches: a self that is no place, viewed where it
+    /// stands (`b.add(1).get()`), through each leaf of a value that
+    /// branches. Declared for the checkers, as their walk meets them
+    /// (`walkCallBody`, `selfLeaves`): after the callee, before the
+    /// arguments.
+    fn selfTemps(l: *Lowerer, c: Sexp) Error!void {
+        if (!l.opts.checked) return;
+        _ = try l.selfLeafTemps(l.selfViewed(c) orelse return, true);
+    }
+
+    /// The self of call `c` that `selfTemps` reaches the leaves of: one
+    /// the method views, that is no place, a type, or a built-in's, and
+    /// that no storage of the call holds; null for any other call.
+    fn selfViewed(l: *Lowerer, c: Sexp) ?Sexp {
+        const ctx = l.ctx;
+        const callee = ctx.calleeOf(c);
+        if (!callee.isKind(.member)) return null;
+        // An actor's call and a select's arm keep no view of self.
+        if (ctx.isActorCall(c) or ctx.selectArmOf(c) != null) return null;
+        const written = ir.Member.object(callee);
+        // A function a field holds is called without a self.
+        if (!storage.isTypeCallee(ctx, written) and !storage.hasSelf(ctx, c)) return null;
+        const obj = if (written.isKind(.write) or written.isKind(.read)) ir.get(written, .operand) else written;
+        const mode: sema.SelfMode = if (written.isKind(.write)) .write else selfMode(ctx, obj, callee);
+        if (mode == .value or l.isPlace(obj)) return null;
+        if (namesType(ctx, callee) or builtinName(ctx, storage.typeOf(ctx, obj))) return null;
+        // A self the call holds in storage of its own that lives while it
+        // runs is viewed there.
+        if (ctx.elemCallOf(callee) == null and !ctx.isSelect(c) and storage.hoistsArgs(ctx, c)) if (storage.selfHold(ctx, c)) |hold| {
+            const first: storage.HeldFirst = if (hold == .consumed) .{ .node = storage.consumedTemporary(ctx, c).?, .kind = .self } else storage.heldFirst(ctx, c).?;
+            const place = storage.viewedPlace(obj);
+            if (first.kind == .self and first.node == .list and place == .list and first.node.list.ptr == place.list.ptr and hold.by(storage.hasStorage(ctx, first.node)) != .pointer) return null;
+        };
+        return obj;
+    }
+
+    /// Whether header `h` makes temporaries its region ends: an owning
+    /// one (`sema.firstStmtTemp`), or, for the checkers, a Zig temporary
+    /// a self view reaches (`selfTemps`), which they end with the header.
+    fn makesTemps(l: *Lowerer, h: Sexp) bool {
+        if (sema.firstStmtTemp(l.ctx, h) != null) return true;
+        return l.opts.checked and l.makesSelfTemp(h);
+    }
+
+    /// Whether statement part `e` holds a call whose self `selfTemps`
+    /// views as a Zig temporary.
+    fn makesSelfTemp(l: *Lowerer, e: Sexp) bool {
+        if (e != .list or e.isKind(.block) or e.isKind(.lambda)) return false;
+        if (e.isKind(.call)) if (l.selfViewed(e)) |obj| if (l.selfLeafTemps(obj, false) catch true) return true;
+        for (rig.children(e)) |c| {
+            if (sema.sharesStmtTemps(e, c) and l.makesSelfTemp(c)) return true;
+        }
+        return false;
+    }
+
+    /// `selfTemps` of self value `e`: its base, through fields and
+    /// elements of a value that is no place, then each leaf of that. Only
+    /// finds whether there is one, unless `making`.
+    fn selfLeafTemps(l: *Lowerer, e: Sexp, comptime making: bool) Error!bool {
+        const ctx = l.ctx;
+        var base = e;
+        while (l.isPartOfNoPlace(base)) base = ir.get(base, .object);
+        // A temporary its statement drops is viewed in its slot.
+        if (ctx.dropsTemp(base)) return false;
+        var found: std.ArrayList(Sexp) = .empty;
+        defer found.deinit(l.gpa);
+        try sema.valueLeaves(l.gpa, base, &found);
+        var any = false;
+        for (found.items) |part| {
+            if (l.isPlace(part)) continue;
+            if (l.isPartOfNoPlace(part)) {
+                if (try l.selfLeafTemps(part, making)) any = true;
+                if (any and !making) return true;
+                continue;
+            }
+            if (part == .src) continue;
+            if (!making) return true;
+            // A temporary of the statement made where the leaf starts is
+            // the one viewed.
+            const pos = ctx.startOf(part);
+            const held = for (l.temps.items) |t| {
+                if (ctx.startOf(l.f.vars.items[t].node) == pos) break true;
+            } else false;
+            if (!held) try l.holdVar(part, .zig_temp, .owned, .statement, null, l.stmt_region);
+            any = true;
+        }
+        return any;
+    }
+
+    /// Whether `e` is a place of the body: a name with a var, or a field
+    /// or element of one that is handed over as a place.
+    fn isPlace(l: *Lowerer, e: Sexp) bool {
+        if (sema.handsOver(l.ctx, e).kind != .place) return false;
+        return switch (e) {
+            .src => if (l.ctx.symbolOf(e)) |sym| l.bindings.contains(sym) else false,
+            .list => (e.isKind(.member) or e.isKind(.index)) and l.isPlace(ir.get(e, .object)),
+            else => false,
+        };
+    }
+
+    /// Whether `e` is a field or element of a value that is no place.
+    fn isPartOfNoPlace(l: *Lowerer, e: Sexp) bool {
+        if (!e.isKind(.member) and !e.isKind(.index)) return false;
+        return !l.isPlace(e) and !rig.isRangeIndex(e);
+    }
 
     /// The record of call `c`: how its callee is written and its self
     /// taken; for the checkers, its flags; and for emit, its kind
@@ -2282,6 +2409,37 @@ fn selfMode(ctx: *const SemContext, obj: Sexp, callee: Sexp) sema.SelfMode {
         .write_view => .write,
         .nominal, .parameterized_nominal => .value,
         else => .read,
+    };
+}
+
+/// Whether `e` names a type (`Shape`, `lib.Shape`, `Opt[Int]`) rather
+/// than a value.
+fn namesType(ctx: *const SemContext, e: Sexp) bool {
+    if (ctx.instanceOf(e)) |inst| return inst == .type;
+    const leaf = if (e.isKind(.member)) ir.Member.name(e) else e;
+    if (leaf != .src) return false;
+    if (e.isKind(.member)) {
+        const m = ir.Member.object(e);
+        if (m != .src) return false;
+        const id = ctx.symbolOf(m) orelse return false;
+        return ctx.symbols.items[id].kind == .module;
+    }
+    const id = ctx.symbolOf(e) orelse return false;
+    return switch (ctx.symbols.items[id].kind) {
+        .nominal_type, .generic_type, .type_alias => true,
+        else => false,
+    };
+}
+
+/// Whether `ty`, through views and shared handles, is a Cell, a Signal,
+/// a List, or a channel: a built-in whose methods hand out values,
+/// never views of self.
+fn builtinName(ctx: *const SemContext, ty: ?TypeId) bool {
+    var t = ty orelse return false;
+    while (true) switch (ctx.types.get(t)) {
+        .read_view, .write_view, .shared => |i| t = i,
+        .parameterized_nominal => |pn| return pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal or pn.sym == ctx.builtins.list or pn.sym == ctx.builtins.chan,
+        else => return false,
     };
 }
 
