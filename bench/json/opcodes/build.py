@@ -80,7 +80,7 @@ def main():
     mode = "-Ofast" if "--fast" in sys.argv else "-Osafe"
     out, files, variants = os.path.abspath(args[0]), args[1].split(","), args[2].split(",")
     os.makedirs(out, exist_ok=True)
-    jobs = os.environ.get("CPUQ_CORES", "2")
+    jobs = "2"
     zig = os.environ.get("ZIG", "zig")
     bj = bench_json()
     for f in files:

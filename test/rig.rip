@@ -457,9 +457,9 @@ put = (path, text) ->
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
 
-# A zig build's -j: inside a cpuq lease, the cores it granted (zig build
+# A zig build's -j: inside a cpuq task, one (it holds one CPU, and zig build
 # would otherwise start a thread for every CPU); elsewhere, Zig's own.
-zigJobs = -> if process.env.CPUQ_CORES then ["-j#{process.env.CPUQ_CORES.split('-')[0]}"] else []
+zigJobs = -> if process.env.CPUQ_CPU then ["-j1"] else []
 
 # This runner's hash: what it writes changes with it.
 runner = Bun.CryptoHasher.new('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
@@ -759,9 +759,14 @@ setup = ->
 
 # ---- Checking a case -------------------------------------------------------
 
+# Where cpuq is installed (and RIG_NO_CPUQ is not set), each command runs as
+# `cpuq run -- CMD`, so a running case holds one CPU of the pool.
+cpuq = if process.env.RIG_NO_CPUQ then null else Bun.which('cpuq')
+
 # Run a command; its status (null when the time limit ended it), stdout,
 # and stderr.
 run = (cmd, env, seconds, cwd = root) ->
+  cmd = [cpuq, 'run', '--', ...cmd] if cpuq
   r = Bun.spawnSync({ cmd, cwd, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe', timeout: seconds * 1000 })
   { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() }
 
@@ -1227,8 +1232,7 @@ leftBehind = ->
   process.stdout.write("\x1b[31mthe run left #{extra.length} file(s) in the checkout:\x1b[0m\n" + extra.slice(0, 20).map((l) -> "  #{l}\n").join(''))
   process.exit(1)
 
-# Inside a cpuq lease, as many workers as it granted cores; elsewhere,
-# Swarm's own default, one per CPU (`-w N` chooses either way).
-await swarm { setup, perform, workers: (if process.env.CPUQ_CORES then Number(process.env.CPUQ_CORES.split('-')[0]) else undefined) }
+# Swarm's own default workers, one per CPU (`-w N` chooses another number).
+await swarm { setup, perform }
 verdict()
 leftBehind()

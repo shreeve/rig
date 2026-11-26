@@ -4021,8 +4021,8 @@ CAP_MODE = "watchdog" if not CPUQ else "cap %s %s" % (cap_protocol(), "cgroup" i
 
 def run_capped(cmd, env, cap=True):
     """Run `cmd` with its output in files, stopping it as RUN_* say: by
-    `cpuq cap` where cpuq is installed (inside a cpuq job on Linux the
-    kernel enforces the memory limit, and nothing polls), else by the
+    `cpuq cap` where cpuq is installed (inside a `cpuq run --driver` runner on
+    Linux the kernel enforces the memory limit, and nothing polls), else by the
     watchdog below (CI, and machines without cpuq)."""
     if CPUQ and cap:
         return run_capped_cpuq(cmd, env)

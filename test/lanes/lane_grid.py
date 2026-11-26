@@ -75,7 +75,7 @@ def main():
     ap.add_argument("--types", default=",".join(TYPES))
     ap.add_argument("--lanes", default=",".join(map(str, LANES)))
     ap.add_argument("--seeds", type=int, default=4)
-    ap.add_argument("--jobs", type=int, default=int(os.environ.get("CPUQ_CORES", "2").split("-")[0] or 2))
+    ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--zig", default="zig")
     ap.add_argument("--keep", help="build here and keep the builds, built again only when an input changes")
     a = ap.parse_args()

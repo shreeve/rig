@@ -10,8 +10,7 @@
 # timeout: 1800
 source "$ROOT/test/cli/_lib.sh"
 
-jobs=${CPUQ_CORES:-2}
-jobs=${jobs%%-*}
+jobs=2
 
 # Each grid builds in a folder of its own beside this script's output,
 # kept between runs, and builds a program again only when something its
