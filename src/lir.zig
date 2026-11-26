@@ -279,10 +279,6 @@ pub const Call = struct {
     };
 
     pub const Flags = packed struct(u8) {
-        /// A task that stays on its maker's thread (`isLocalTask`), or
-        /// that may take a dense stack (`isDenseCall`).
-        local: bool = false,
-        dense: bool = false,
         /// It only reads its arguments and keeps none of them: `print`
         /// and the `String` forms.
         text_only: bool = false,
@@ -290,7 +286,7 @@ pub const Call = struct {
         keeps_no_loan: bool = false,
         /// `swap(a, b)` of two places or two values.
         swap: bool = false,
-        _: u3 = 0,
+        _: u5 = 0,
     };
 };
 
