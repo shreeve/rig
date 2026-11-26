@@ -1782,22 +1782,30 @@ pub fn shadowEnds(self: *Checker, node: Sexp, r: ?lir.RegionId, mark: VarId, dro
     const new = try lowered.endsOf(self, r, mark, call);
     if (std.mem.eql(VarId, old.items, new)) return;
     const at = diag.lineCol(self.source, notes.startOf(self, node));
-    const rk = if (r) |x| @tagName(self.lir_body.?.f.regions.items[x].kind) else "none";
-    const same_set = blk: {
-        if (old.items.len != new.len) break :blk false;
-        for (old.items) |o| if (std.mem.findScalar(VarId, new, o) == null) break :blk false;
-        break :blk true;
-    };
-    std.debug.print("TRACE shadow {s} {s} r={s} new={d} old={d}{s} at {d}:{d}\n", .{ if (call) "call" else "stmt", if (node == .list) @tagName(node.kind() orelse .module) else "leaf", rk, new.len, old.items.len, if (same_set) " order" else "", at.line, at.col });
-    {
-        std.debug.print("  in {s}\n", .{self.sema.name});
-        for (old.items) |o| std.debug.print("  old {d} `{s}` decl {d}\n", .{ o, self.vars.items[o].name, self.vars.items[o].decl });
-        if (r) |x| for (self.lir_body.?.f.regions.items[x].decls.items) |lv| {
-            const lvar = self.lir_body.?.f.vars.items[lv];
-            const m = if (self.lir_body.?.made.len > 0) self.lir_body.?.made[lv] else 0;
-            std.debug.print("  decl %{d} {s} node@{d} made {d}\n", .{ lv, if (lvar.name == .hidden) @tagName(lvar.name.hidden) else "binding", notes.startOf(self, lvar.node), m });
+    const b = self.lir_body.?;
+    const site = if (node == .list) @tagName(node.kind() orelse .module) else "leaf";
+    const what = if (call) "call" else "stmt";
+    const rk = if (r) |x| @tagName(b.f.regions.items[x].kind) else "none";
+    var same_set = old.items.len == new.len;
+    for (old.items) |o| if (std.mem.findScalar(VarId, new, o) == null) {
+        same_set = false;
+        // The LIR vars made for the node the old var holds, and the region that declares each.
+        const pos = self.vars.items[o].decl;
+        var kinds: std.ArrayList(u8) = .empty;
+        for (b.f.vars.items, 0..) |lv, li| if (lv.name == .hidden and notes.startOf(self, lv.node) == pos) {
+            var where: []const u8 = "?";
+            for (b.f.regions.items, 0..) |reg, ri| if (std.mem.findScalar(lir.VarId, reg.decls.items, @intCast(li)) != null) {
+                where = if (r != null and ri == r.?) "here" else @tagName(reg.kind);
+            };
+            try kinds.print(self.arena(), "{s}/{s}/{s},", .{ @tagName(lv.name.hidden), @tagName(lv.life), where });
         };
-    }
+        std.debug.print("TRACE shadow-miss {s} site={s} r={s} var={s} lir={s} at {d}:{d}\n", .{ what, site, rk, if (self.vars.items[o].temp_value) "temp" else if (self.vars.items[o].call_held) "call" else "other", if (kinds.items.len == 0) "none" else kinds.items, at.line, at.col });
+    };
+    for (new) |n| if (std.mem.findScalar(VarId, old.items, n) == null) {
+        same_set = false;
+        std.debug.print("TRACE shadow-extra {s} site={s} r={s} var=`{s}` at {d}:{d}\n", .{ what, site, rk, self.vars.items[n].name, at.line, at.col });
+    };
+    if (same_set) std.debug.print("TRACE shadow-order {s} site={s} r={s} n={d} at {d}:{d}\n", .{ what, site, rk, new.len, at.line, at.col });
 }
 
 /// A `holder`'s loans on hidden var `id` end, as `id` does: a
