@@ -263,13 +263,13 @@ pub const Call = struct {
 
     /// What emit opens around the call, outermost first.
     pub const Wrap = packed struct(u8) {
-        /// A std maker checked as Rig compiles (`facts.isConstMaker`).
+        /// A std maker checked as Rig compiles (`SemContext.isConstMaker`).
         const_maker: bool = false,
         /// Its parts are held first, in a `call` region.
         held: bool = false,
         /// It may reach an inlined function, whose optional, fallible,
         /// or other result is made a run-time value
-        /// (`facts.callsInlined`).
+        /// (`program.inlined_calls`).
         rt_optional: bool = false,
         rt_fallible: bool = false,
         rt_plain: bool = false,

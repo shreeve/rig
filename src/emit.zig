@@ -532,7 +532,7 @@ pub const Emitter = struct {
     /// breaks out of it with the callee's error (`emitCallPlain`).
     fold_label: ?[]const u8 = null,
     /// Arguments and selves of the calls being emitted that were
-    /// evaluated into temporaries first (`emitHoistedCall`), innermost
+    /// evaluated into temporaries first (`emitCallHeld`), innermost
     /// call last.
     hoisted: std.ArrayList(Hoisted) = .empty,
     /// The owning temporaries of the statements being emitted, each held
@@ -3014,7 +3014,7 @@ pub const Emitter = struct {
             if (self.taskInFrame(expr)) {
                 const slot = try self.hiddenStorage(expr, .task_record, .owned, .next);
                 try self.w.print("var {s} = ", .{slot});
-                try self.emitTask(expr);
+                try self.emitTask(expr, (try self.callRecord(expr)).kind);
                 try self.w.writeAll(";\n");
                 try self.writeIndent(self.indent);
                 const saved = self.task_slot;
@@ -7128,7 +7128,7 @@ pub const Emitter = struct {
                 try self.emitExpr(ir.Weak.operand(sexp));
                 try self.w.writeAll(".weakRef()");
             },
-            .call => if (self.facts.node(.isConstMaker, sexp)) try self.emitConstMaker(sexp) else try self.emitCall(sexp),
+            .call => try self.emitCall(sexp),
             // Compile-time arguments are emitted by the call or type that
             // takes them; sema rejects a bracket list as a value.
             .inst => return self.unsupported(sexp, "a bracket list of compile-time arguments as a value"),
@@ -9327,9 +9327,45 @@ pub const Emitter = struct {
         try self.emitBare(place);
     }
 
-    /// A call, by the form lowering recorded (`lir.CallKind`).
+    /// A call, inside what its record opens around it, outermost first
+    /// (`lir.Call.Wrap`). A std maker's call checked as Rig compiles
+    /// (`const_maker`) has its callee's `T!` unwrapped, a failure the
+    /// checker ruled out reported as a bug in Rig (`rig.makerPanic`),
+    /// never Zig's `unreachable`. The callee takes a slot for a failure's
+    /// fields, which the call is given in a block of its own, as a
+    /// `catch` gives one (`openCatchSlot`).
     fn emitCall(self: *Emitter, sexp: Sexp) Error!void {
-        switch ((try self.callRecord(sexp)).kind) {
+        const c = try self.callRecord(sexp);
+        if (!c.wrap.const_maker) return self.emitCallHeld(sexp, c);
+        const id = self.nextId();
+        const name = try self.fmt("__rig_fail_{d}", .{id});
+        const label = try self.fmt("__rig_fb_{d}", .{id});
+        const saved = self.fail_slot;
+        defer self.fail_slot = saved;
+        try self.w.print("({s}: {{ var {s}: " ++ rt(.ErrData) ++ " = undefined; break :{s} ", .{ label, name, label });
+        self.fail_slot = .{ .call = sexp, .expr = try self.fmt(rt(.failSlot) ++ "(&{s})", .{name}) };
+        try self.emitCallHeld(sexp, c);
+        try self.w.print(" catch |{s}_e| " ++ rt(.makerPanic) ++ "({s}_e); }})", .{ name, name });
+    }
+
+    /// A call whose parts are held first (`held`): every argument that is
+    /// not pure goes into a typed temporary, in source order, after self
+    /// (see `hoistSelf`), and the call itself runs last. An owned
+    /// temporary, including a self the method consumes, is dropped if a
+    /// later argument leaves, and handed to the callee (its flag cleared)
+    /// only when the call runs. `pair(mk(1)!, mk(2)!)`, with `mk`
+    /// returning a `List[Int]`:
+    ///
+    ///     __rig_call_N: {
+    ///         var __rig_arg_N_0: rig.List(i64) = try mk(1);
+    ///         var __rig_live_N_0 = true;
+    ///         defer if (__rig_live_N_0) rig.drop(&__rig_arg_N_0);
+    ///         var __rig_arg_N_1: rig.List(i64) = try mk(2);
+    ///         ...
+    ///         break :__rig_call_N pair(rig.take(&__rig_live_N_0, __rig_arg_N_0), ...);
+    ///     }
+    fn emitCallHeld(self: *Emitter, sexp: Sexp, c: *const facts.lir.Call) Error!void {
+        switch (c.kind) {
             .elem => return self.emitElemCall(sexp, self.facts.node(.elemCallOf, self.facts.node(.calleeOf, sexp)).?),
             // `Simd[T, n](a)`: the vector of an array's elements.
             .simd_conversion => {
@@ -9339,29 +9375,29 @@ pub const Emitter = struct {
             },
             else => {},
         }
-        if (self.lowered.?.holdsParts(sexp)) return self.emitHoistedCall(sexp);
-        try self.emitCallDirect(sexp);
-    }
-
-    /// A std maker's call checked as Rig compiles
-    /// (`facts.isConstMaker`): its callee's `T!` unwrapped, a failure the
-    /// checker ruled out reported as a bug in Rig (`rig.makerPanic`),
-    /// never Zig's `unreachable`. The callee takes a slot for a failure's
-    /// fields, which the call is given in a block of its own, as a
-    /// `catch` gives one (`openCatchSlot`).
-    fn emitConstMaker(self: *Emitter, call: Sexp) Error!void {
+        if (!c.wrap.held) return self.emitCallDirect(sexp, c);
         const id = self.nextId();
-        const name = try self.fmt("__rig_fail_{d}", .{id});
-        const label = try self.fmt("__rig_fb_{d}", .{id});
-        const saved = self.fail_slot;
-        defer self.fail_slot = saved;
-        try self.w.print("({s}: {{ var {s}: " ++ rt(.ErrData) ++ " = undefined; break :{s} ", .{ label, name, label });
-        self.fail_slot = .{ .call = call, .expr = try self.fmt(rt(.failSlot) ++ "(&{s})", .{name}) };
-        try self.emitCall(call);
-        try self.w.print(" catch |{s}_e| " ++ rt(.makerPanic) ++ "({s}_e); }})", .{ name, name });
+        try self.w.print("__rig_call_{d}: ", .{id});
+        try self.openBrace();
+        const first = self.hoisted.items.len;
+        {
+            // A duration form that joins the call's failure, held first,
+            // leaves the call's block with the callee's error.
+            const saved = self.fold_label;
+            defer self.fold_label = saved;
+            self.fold_label = if (c.wrap.folds) try self.fmt("__rig_call_{d}", .{id}) else null;
+            try self.hoistParts(sexp, id);
+        }
+        try self.writeIndent(self.indent);
+        try self.w.print("break :__rig_call_{d} ", .{id});
+        try self.emitCallDirect(sexp, c);
+        self.hoisted.shrinkRetainingCapacity(first);
+        try self.w.writeAll(";\n");
+        try self.closeBrace();
     }
 
-    /// A call. One that may reach an inlined function is read through
+    /// A call. One that may reach an inlined function (`rt_plain`,
+    /// `rt_optional`, `rt_fallible`) is read through
     /// `rig.rt`: Zig analyzes that body at the call, where a result that
     /// does not depend on the arguments is known at compile time, as is a
     /// `const` bound to it, so arithmetic on it would be folded where Rig
@@ -9379,27 +9415,18 @@ pub const Emitter = struct {
     /// forwarded from the two stores and waits for both to reach the
     /// cache. An inline `rig.rt` would do the same, at four times the
     /// compile time of a large program (records: perf-stage/table-reads.md).
-    fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {
-        if (ir.Call.task(sexp) != .nil) return self.emitTask(sexp);
-        if (!self.facts.callsInlined(sexp)) return self.emitCallPlain(sexp);
-        if (self.typeOf(sexp)) |ty| switch (self.facts.types.get(ty)) {
-            .optional => {
-                const id = self.nextId();
-                try self.w.print("(__rig_rt_{d}: {{ var __rig_v_{d} = ", .{ id, id });
-                try self.emitCallPlain(sexp);
-                return self.w.print("; _ = &__rig_v_{d}; break :__rig_rt_{d} __rig_v_{d}; }})", .{ id, id, id });
-            },
-            .fallible => {
-                const id = self.nextId();
-                try self.w.print("(__rig_rt_{d}: {{ const __rig_c_{d} = ", .{ id, id });
-                try self.emitCallPlain(sexp);
-                return self.w.print("; var __rig_v_{d} = __rig_c_{d}; _ = &__rig_v_{d}; break :__rig_rt_{d} __rig_v_{d}; }})", .{ id, id, id, id, id });
-            },
-            else => {},
-        };
-        try self.w.writeAll(rt(.rt) ++ "(");
-        try self.emitCallPlain(sexp);
-        try self.w.writeAll(")");
+    fn emitCallDirect(self: *Emitter, sexp: Sexp, c: *const facts.lir.Call) Error!void {
+        if (c.kind == .task or c.kind == .actor_spawn) return self.emitTask(sexp, c.kind);
+        if (c.wrap.rt_optional or c.wrap.rt_fallible) {
+            const id = self.nextId();
+            try self.w.print("(__rig_rt_{d}: {{ {s} __rig_{s}_{d} = ", .{ id, if (c.wrap.rt_optional) "var" else "const", if (c.wrap.rt_optional) "v" else "c", id });
+            try self.emitCallPlain(sexp, c);
+            if (c.wrap.rt_fallible) try self.w.print("; var __rig_v_{d} = __rig_c_{d}", .{ id, id });
+            return self.w.print("; _ = &__rig_v_{d}; break :__rig_rt_{d} __rig_v_{d}; }})", .{ id, id, id });
+        }
+        if (c.wrap.rt_plain) try self.w.writeAll(rt(.rt) ++ "(");
+        try self.emitCallPlain(sexp, c);
+        if (c.wrap.rt_plain) try self.w.writeAll(")");
     }
 
     /// `f(x)&`: the call started as a task, its arguments evaluated here
@@ -9408,12 +9435,12 @@ pub const Emitter = struct {
     /// its binding (`emitSet`). A method's self goes by its address,
     /// which the runtime passes on, or reads when the method takes its
     /// self by value (`spawnMethod`).
-    fn emitTask(self: *Emitter, sexp: Sexp) Error!void {
+    fn emitTask(self: *Emitter, sexp: Sexp, kind: facts.lir.CallKind) Error!void {
         // A fork whose record its binding statement made in its slot.
         if (self.task_slot) |ts| if (sameNode(ts.call, sexp)) return self.w.print("{s}.start()", .{ts.name});
         const callee = self.facts.node(.calleeOf, sexp);
         // `c.m(x)&` through an actor's handle (`rig.actorSpawn`).
-        if ((try self.callRecord(sexp)).kind == .actor_spawn) {
+        if (kind == .actor_spawn) {
             const obj = ir.Member.object(callee);
             try self.w.writeAll(rt(.actorSpawn) ++ "(");
             try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
@@ -9492,31 +9519,23 @@ pub const Emitter = struct {
         try self.w.writeAll(" })");
     }
 
-    fn emitCallPlain(self: *Emitter, sexp: Sexp) Error!void {
-        // A call whose duration form joins its failure is a block the
-        // conversion's failure breaks out of, with the callee's error,
-        // as the call's own failure: `i.add(ms: t)!`.
-        if (self.callFolds(sexp)) {
-            const label = try self.fmt("__rig_fd_{d}", .{self.nextId()});
-            const saved = self.fold_label;
-            defer self.fold_label = saved;
-            self.fold_label = label;
-            try self.w.print("({s}: {{ break :{s} ", .{ label, label });
-            try self.emitCallArgs(sexp);
-            return self.w.writeAll("; })");
-        }
+    /// A call whose duration form joins its failure (`folds`) is a block
+    /// the conversion's failure breaks out of, with the callee's error,
+    /// as the call's own failure: `i.add(ms: t)!`.
+    fn emitCallPlain(self: *Emitter, sexp: Sexp, c: *const facts.lir.Call) Error!void {
         const saved = self.fold_label;
         defer self.fold_label = saved;
-        self.fold_label = null;
-        return self.emitCallArgs(sexp);
+        self.fold_label = if (c.wrap.folds) try self.fmt("__rig_fd_{d}", .{self.nextId()}) else null;
+        if (self.fold_label) |label| try self.w.print("({s}: {{ break :{s} ", .{ label, label });
+        try self.emitCallArgs(sexp, c.kind);
+        if (c.wrap.folds) try self.w.writeAll("; })");
     }
 
     /// `emitCallPlain`, the call itself, by the form lowering recorded
     /// (`lir.CallKind`).
-    fn emitCallArgs(self: *Emitter, sexp: Sexp) Error!void {
+    fn emitCallArgs(self: *Emitter, sexp: Sexp, kind: facts.lir.CallKind) Error!void {
         const callee = self.facts.node(.calleeOf, sexp);
         const args = ir.Call.args(sexp);
-        const kind = (try self.callRecord(sexp)).kind;
         switch (kind) {
             .print => return self.emitPrint(args),
             .warn => return self.emitWarn(args),
@@ -10045,19 +10064,6 @@ pub const Emitter = struct {
         try self.w.print(" catch |__rig_fe| break :{s} __rig_fe)", .{label});
     }
 
-    /// Whether a duration form of `call` joins its failure
-    /// (`sema.DurationHow.folded`), a part of a sum among them.
-    fn callFolds(self: *Emitter, call: Sexp) bool {
-        for (ir.Call.args(call)) |a| {
-            if (self.facts.node(.durationOf, argValue(a))) |d| if (d.how == .folded) return true;
-        }
-        if (self.facts.node(.callSlotsOf, call)) |slots| for (slots) |sl| switch (sl) {
-            .parts => |p| if (p.how == .folded) return true,
-            else => {},
-        };
-        return false;
-    }
-
     /// Whether `call`'s callee takes the slot a failure's fields go in:
     /// a Rig function (`callTargetOf`), or a function value, whose type
     /// takes it (`emitCallableTy`). A built-in type's method, and a call
@@ -10430,42 +10436,6 @@ pub const Emitter = struct {
             try self.w.writeAll(";\n");
         }
         try self.hoisted.append(self.allocator, .{ .node = recv, .name = name });
-    }
-
-    /// Every argument that is not pure goes into a typed temporary, in
-    /// source order, after self (see `hoistSelf`), and the
-    /// call itself runs last. An owned temporary, including a self
-    /// the method consumes, is dropped if a later argument leaves, and
-    /// handed to the callee (its flag cleared) only when the call runs.
-    /// `pair(mk(1)!, mk(2)!)`, with `mk` returning a `List[Int]`:
-    ///
-    ///     __rig_call_N: {
-    ///         var __rig_arg_N_0: rig.List(i64) = try mk(1);
-    ///         var __rig_live_N_0 = true;
-    ///         defer if (__rig_live_N_0) rig.drop(&__rig_arg_N_0);
-    ///         var __rig_arg_N_1: rig.List(i64) = try mk(2);
-    ///         ...
-    ///         break :__rig_call_N pair(rig.take(&__rig_live_N_0, __rig_arg_N_0), ...);
-    ///     }
-    fn emitHoistedCall(self: *Emitter, call: Sexp) Error!void {
-        const id = self.nextId();
-        try self.w.print("__rig_call_{d}: ", .{id});
-        try self.openBrace();
-        const first = self.hoisted.items.len;
-        {
-            // A duration form that joins the call's failure, held first,
-            // leaves the call's block with the callee's error.
-            const saved = self.fold_label;
-            defer self.fold_label = saved;
-            self.fold_label = if (self.callFolds(call)) try self.fmt("__rig_call_{d}", .{id}) else null;
-            try self.hoistParts(call, id);
-        }
-        try self.writeIndent(self.indent);
-        try self.w.print("break :__rig_call_{d} ", .{id});
-        try self.emitCallDirect(call);
-        self.hoisted.shrinkRetainingCapacity(first);
-        try self.w.writeAll(";\n");
-        try self.closeBrace();
     }
 
     /// The self and the arguments of `call`, a call whose arguments are

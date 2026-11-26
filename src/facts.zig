@@ -169,24 +169,24 @@ pub const Facts = struct {
     }
 
     pub const node_facts = [_][]const u8{
-        "symbolOf",        "typeOf",            "startOf",        "calleeOf",
-        "callTargetOf",    "ctArgsOf",          "callSlotsOf",    "instanceOf",
-        "genericCallOf",   "elemCallOf",        "builtinOf",      "builtinCallOf",
-        "isConstMaker",    "durationOf",        "provenOf",       "provenIfOf",
-        "flagOf",          "callableOf",        "viewOf",         "viewsTempArray",
-        "readsThrough",    "copiesPayload",     "readsInPlace",   "taskJoinOf",
-        "isActorMake",     "isFrozenMake",      "isActorCall",    "isTypeParamCall",
-        "dispatchOf",      "ownerWitnessesOf",  "erasureOf",      "isChanMake",
-        "isSelect",        "isActorSupervised", "isOnceClosure",  "isLocalTask",
-        "testCheckOf",     "writesTemp",        "useOf",          "liftOf",
-        "takes",           "oldIsNone",         "upgradeOf",      "writesThrough",
-        "copiesElem",      "isTypedLiteral",    "isFailingLeaf",  "isMemberTest",
-        "isErrorMember",   "namesErrorMember",  "isTableWrite",   "isEnumText",
-        "headerOf",        "heldBaseOf",        "payloadFieldOf", "payloadBindings",
-        "altsBind",        "payloadTests",      "copiesHeader",   "stringCall",
-        "stringNumOf",     "isPrintCall",       "isNoneLeaf",     "isTypeCallee",
-        "moduleMemberSym", "selfOf",            "heldFirst",      "selfWrites",
-        "argParams",       "lambdaYields",      "matchedType",
+        "symbolOf",          "typeOf",         "startOf",         "calleeOf",
+        "callTargetOf",      "ctArgsOf",       "callSlotsOf",     "instanceOf",
+        "genericCallOf",     "elemCallOf",     "builtinOf",       "builtinCallOf",
+        "durationOf",        "provenOf",       "provenIfOf",      "flagOf",
+        "callableOf",        "viewOf",         "viewsTempArray",  "readsThrough",
+        "copiesPayload",     "readsInPlace",   "taskJoinOf",      "isActorMake",
+        "isFrozenMake",      "isActorCall",    "isTypeParamCall", "dispatchOf",
+        "ownerWitnessesOf",  "erasureOf",      "isChanMake",      "isSelect",
+        "isActorSupervised", "isOnceClosure",  "isLocalTask",     "testCheckOf",
+        "writesTemp",        "useOf",          "liftOf",          "takes",
+        "oldIsNone",         "upgradeOf",      "writesThrough",   "copiesElem",
+        "isTypedLiteral",    "isFailingLeaf",  "isMemberTest",    "isErrorMember",
+        "namesErrorMember",  "isTableWrite",   "isEnumText",      "headerOf",
+        "heldBaseOf",        "payloadFieldOf", "payloadBindings", "altsBind",
+        "payloadTests",      "copiesHeader",   "stringCall",      "stringNumOf",
+        "isPrintCall",       "isNoneLeaf",     "isTypeCallee",    "moduleMemberSym",
+        "selfOf",            "heldFirst",      "selfWrites",      "argParams",
+        "lambdaYields",      "matchedType",
     };
 
     /// How a type or a symbol is spelled and held in Zig: one answer per
@@ -352,11 +352,6 @@ pub const Facts = struct {
     /// own (`sema.FrameOwner`), has a large frame, emitted `noinline`.
     pub fn isLargeOwner(f: Facts, n: Sexp) bool {
         return f.c().large_frames.contains(f.c().startOf(n));
-    }
-    /// Whether the call may reach a function emitted `inline`, whose
-    /// result Zig could know at compile time.
-    pub fn callsInlined(f: Facts, call: Sexp) bool {
-        return call == .list and f.c().decides(.inlined_calls, call.list.id);
     }
     /// Whether `call` calls a Rig function or method: a function of this
     /// module or another, or a method a module declares on its type, not
