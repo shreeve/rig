@@ -85,10 +85,12 @@ pub const max_inlined_frame_bytes: u128 = 64 << 10;
 /// otherwise a chain of functions that each call the next twice would make
 /// Zig analyze a body 2^n times. A function with one call, in a function
 /// with compile-time values, is exempt: its expansion is counted in each
-/// instance of the caller. Set with `max_size` so the functions inlined
-/// over Trig and std.json are those the tree's node counts chose, as near
-/// as operations allow.
-pub const max_expanded = 300;
+/// instance of the caller. A body runs about as many operations as its
+/// tree has nodes, so the bound the node counts chose holds: std.json, the
+/// program that set `max_size`, has a hot helper (`key`) that expands to
+/// 287, and Trig's constructors, chains of small inlined functions, to
+/// 301 to 317.
+pub const max_expanded = 320;
 
 /// A function or method, the one frame owner the rule may inline.
 const Fn = struct {
@@ -732,12 +734,13 @@ const Pass = struct {
         return auto <= max_inlined_frame_bytes and own.bytes + marked.bytes + auto <= sema.max_frame_bytes and (own.reach + marked.reach + auto) * sema.reach_factor <= sema.max_frame_reach;
     }
 
-    /// Stop inlining until every owner's account fits (`fits`), no
-    /// function the rule inlines has a frame of more than
-    /// `max_inlined_frame_bytes` with the inlined calls in it, and none
-    /// expands to more than `max_expanded` nodes: in order, at the first
-    /// owner that breaks a rule, stop inlining it or the largest of the
-    /// functions the rule inlines into it, and look again.
+    /// Stop inlining until no function the rule inlines expands to more
+    /// than `max_expanded` operations (`trim`), every owner's account
+    /// fits (`fits`), and no function the rule inlines has a frame of
+    /// more than `max_inlined_frame_bytes` with the inlined calls in it:
+    /// in order, at the first owner that breaks a rule, stop inlining it
+    /// or the largest of the functions the rule inlines into it, and look
+    /// again.
     ///
     /// Each step only shrinks frames and expansions, so no owner before the
     /// one that broke a rule breaks one after it: the search goes on from
@@ -748,12 +751,12 @@ const Pass = struct {
     /// its values land in each caller is typecheck's to check
     /// (`accounts.count`); what the rule inlines into it, here, in each.
     fn fit(self: *Pass) !void {
+        try self.trim();
         var i: usize = 0;
         while (i < self.owners.items.len) {
             const o: u32 = @intCast(i);
             if (self.owners.items[i].fun) |v| {
-                const f = &self.fns.items[v];
-                if (self.byRule(v) and (try self.frame(v) > max_inlined_frame_bytes or (try self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
+                if (self.byRule(v) and try self.frame(v) > max_inlined_frame_bytes) {
                     try self.uninline(v);
                     continue;
                 }
@@ -768,6 +771,39 @@ const Pass = struct {
             const biggest = (try self.largestIn(o)) orelse
                 std.debug.panic("internal error: {s} does not fit its frame, and the rule inlines nothing into it", .{self.ownerName(o)});
             try self.uninline(biggest);
+        }
+    }
+
+    /// Stop inlining each function the rule inlines that expands to more
+    /// than `max_expanded` operations, unless it is called once in a
+    /// function with compile-time values (`oncePerInstance`), its callees
+    /// before it: a function is judged with only the calls that stay
+    /// inlined counted in it, never one stopped later for its own
+    /// expansion. No cycle of calls is inlined (`isCyclic`), so the order
+    /// exists, and the later steps of `fit` only shrink an expansion.
+    fn trim(self: *Pass) Error!void {
+        const seen = try self.a.alloc(bool, self.fns.items.len + self.groups.items.len);
+        @memset(seen, false);
+        var stack: std.ArrayList(Pending) = .empty;
+        defer stack.deinit(self.a);
+        for (0..self.fns.items.len) |root| {
+            if (seen[root]) continue;
+            seen[root] = true;
+            try stack.append(self.a, .{ .t = @intCast(root) });
+            while (stack.items.len > 0) {
+                const top = &stack.items[stack.items.len - 1];
+                if (self.countedAt(top.t, top.next)) |to| {
+                    top.next += 1;
+                    const k = if (to & group_bit != 0) self.fns.items.len + (to & ~group_bit) else to;
+                    if (seen[k] or !self.leadsTo(top.t, to)) continue;
+                    seen[k] = true;
+                    try stack.append(self.a, .{ .t = to });
+                    continue;
+                }
+                const t = stack.pop().?.t;
+                if (t & group_bit != 0 or !self.byRule(t)) continue;
+                if (try self.expanded(t) > max_expanded and !self.oncePerInstance(&self.fns.items[t])) try self.uninline(t);
+            }
         }
     }
 

@@ -344,7 +344,7 @@ if bad:
     sys.exit(1)
 PY
 
-# A body of more than inlining.max_size nodes (60) is called.
+# A body of more than inlining.max_size operations (60) is called.
 {
     echo 'fun long(n: Int) -> Int'
     echo '  total = n'
@@ -391,7 +391,7 @@ expect_has "$out" 'pub fn small(' "calls that would add 96 KiB to a frame"
 
 # A chain of functions that each call the next twice would have Zig analyze
 # the innermost 2^n times: a function that expands to more than
-# inlining.max_expanded (320) nodes is called.
+# inlining.max_expanded (320) operations is called.
 {
     echo 'fun f0(n: Int) -> Int'
     echo '  n + 1'
@@ -407,6 +407,30 @@ expect_has "$out" 'pub fn small(' "calls that would add 96 KiB to a frame"
 out=$(emit chain.rig)
 expect_has "$out" 'pub inline fn f0(' "the innermost of a chain"
 expect_has "$out" 'pub fn f' "a function that would expand too far is called"
+
+# Callees are judged before their callers: the chain is called at one
+# link, the first that would expand too far, and the links above it are
+# small again; a small function that calls its top, declared before it,
+# is inlined.
+{
+    echo 'fun top(n: Int) -> Int'
+    echo '  f12(n) + 1'
+    echo
+    echo 'fun f0(n: Int) -> Int'
+    echo '  n + 1'
+    for i in $(seq 1 12); do
+        echo
+        echo "fun f$i(n: Int) -> Int"
+        echo "  f$((i - 1))(n) + f$((i - 1))(n + 1)"
+    done
+    echo
+    echo 'sub main()'
+    echo '  print(top(1))'
+} >chaintop.rig
+out=$(emit chaintop.rig)
+expect_has "$out" 'pub inline fn top(' "a small function that calls a chain too large to inline"
+expect_has "$out" 'pub fn f7(' "the one link of the chain that is called"
+expect_has "$out" 'pub inline fn f12(' "the top of the chain"
 
 # A small entry that calls a large function inlines, and the large one is
 # not inlined back into it: the size rule measures each body as written,
@@ -526,7 +550,7 @@ expect_has "$out" 'pub fn down(' "recursion through an instance"
 
 # A function that is called from one place only, in a function with
 # compile-time values, is exempt from inlining.max_expanded (each instance
-# of the caller holds a copy): `once` here expands to over 320 nodes. The
+# of the caller holds a copy): `once` here expands to over 320 operations. The
 # same body called from an ordinary function, or from two places, is called.
 {
     echo 'fun leaf(n: Int) -> Int'
@@ -536,7 +560,7 @@ expect_has "$out" 'pub fn down(' "recursion through an instance"
     for name in once twice plain; do
         echo
         echo "fun $name(n: Int) -> Int"
-        echo '  leaf(n) + leaf(n + 1) + leaf(n + 2) + leaf(n + 3) + leaf(n + 4) + leaf(n + 5) + leaf(n + 6) + leaf(n + 7)'
+        echo '  leaf(n) + leaf(n + 1) + leaf(n + 2) + leaf(n + 3) + leaf(n + 4) + leaf(n + 5) + leaf(n + 6) + leaf(n + 7) + leaf(n + 8)'
     done
     echo
     echo 'fun inst[b: Bool](n: Int) -> Int'
