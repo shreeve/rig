@@ -279,6 +279,18 @@ const Yield = enum { value, leaf_ptr };
 const TempSlot = struct {
     node: parser.NodeId,
     name: []const u8,
+    /// Lowering flattened it (`lower.Module.isFlat`): its value is
+    /// written into it ahead of its statement, through `pre`.
+    flat: bool = false,
+    pre: ?*Writer = null,
+};
+
+/// The text of a statement whose flattened temporaries are written
+/// into their slots ahead of it (`Emitter.openFlat`): the writer it
+/// replaced, then the assignments and the statement.
+const Flat = struct {
+    saved: *Writer,
+    bufs: ?*[2]Writer.Allocating = null,
 };
 
 /// The slot of the copy an API object views (`sema.Erasure.copy`),
@@ -300,7 +312,7 @@ fn erasedKey(n: Sexp) ?u64 {
 
 /// A header being emitted (`openHeader`): the label of the block that
 /// holds its temporaries' slots, if it makes any, and the slots before.
-const Header = struct { label: []const u8 = "", first: usize };
+const Header = struct { label: []const u8 = "", first: usize, flat: ?Flat = null };
 
 /// A label of the Zig a loop or labeled block is lowered to, written
 /// before its construct only when a jump was written to it
@@ -2635,9 +2647,11 @@ pub const Emitter = struct {
             try self.emitFlag(stmts[last]);
             try self.emitErasedSlots(stmts[last]);
             try self.emitTempSlots(stmts[last]);
+            const flat = try self.openFlat(first);
             try self.w.writeAll("return ");
             try self.emitReturnValue(stmts[last]);
             try self.w.writeAll(";");
+            try self.closeFlat(flat);
         } else {
             try self.emitStmt(stmts[last]);
         }
@@ -2656,7 +2670,9 @@ pub const Emitter = struct {
         const first = self.temp_slots.items.len;
         try self.emitTempSlots(sexp);
         defer self.temp_slots.shrinkRetainingCapacity(first);
+        const flat = try self.openFlat(first);
         try self.emitStmtOnly(sexp);
+        try self.closeFlat(flat);
         if (isTerminatingStmt(sexp)) return;
         // The last made is dropped first, as the `defer`s would.
         var i = self.temp_slots.items.len;
@@ -2664,6 +2680,34 @@ pub const Emitter = struct {
             i -= 1;
             try self.writeTempDrop(self.temp_slots.items[i].name);
         }
+    }
+
+    /// Start the text of the statement whose slots begin at `first` in
+    /// `temp_slots`. When lowering flattened any of its temporaries, the
+    /// text is held while each such temporary's value is written into
+    /// its slot apart (`emitValue`), and `closeFlat` writes those
+    /// assignments ahead of the text: `__rig_tmp_1 = v;
+    /// __rig_tmp_1_live = true; f(__rig_tmp_1);`.
+    fn openFlat(self: *Emitter, first: usize) Error!?Flat {
+        const slots = self.temp_slots.items[first..];
+        for (slots) |t| {
+            if (t.flat) break;
+        } else return null;
+        const bufs = try self.arena.allocator().create([2]Writer.Allocating);
+        bufs.* = .{ .init(self.arena.allocator()), .init(self.arena.allocator()) };
+        for (slots) |*t| if (t.flat) {
+            t.pre = &bufs[0].writer;
+        };
+        const f: Flat = .{ .saved = self.w, .bufs = bufs };
+        self.w = &bufs[1].writer;
+        return f;
+    }
+
+    fn closeFlat(self: *Emitter, flat: ?Flat) Error!void {
+        const f = flat orelse return;
+        self.w = f.saved;
+        try self.w.writeAll(f.bufs.?[0].written());
+        try self.w.writeAll(f.bufs.?[1].written());
     }
 
     fn writeTempDrop(self: *Emitter, name: []const u8) Error!void {
@@ -2718,7 +2762,7 @@ pub const Emitter = struct {
             try self.w.print(" = undefined; var {s}_live = false; ", .{name});
             if (self.poison) try self.w.print("defer " ++ rt(.poison) ++ "(&{s}); ", .{name});
             try self.w.print("defer if ({s}_live) " ++ rt(.drop) ++ "(&{s}); ", .{ name, name });
-            try self.temp_slots.append(self.allocator, .{ .node = temp.list.id, .name = name });
+            try self.temp_slots.append(self.allocator, .{ .node = temp.list.id, .name = name, .flat = self.lowered.?.isFlat(temp) });
         }
     }
 
@@ -2758,11 +2802,13 @@ pub const Emitter = struct {
         const label = try self.hiddenStorage(e, .header_value, by, .next);
         try self.w.print("({s}: {{ ", .{label});
         try self.emitTempSlots(e);
+        const flat = try self.openFlat(first);
         try self.w.print("break :{s} ", .{label});
-        return .{ .label = label, .first = first };
+        return .{ .label = label, .first = first, .flat = flat };
     }
 
     fn closeHeader(self: *Emitter, h: Header) Error!void {
+        if (h.flat) |f| try self.closeFlat(f);
         if (h.label.len > 0) try self.w.writeAll("; })");
         self.temp_slots.shrinkRetainingCapacity(h.first);
     }
@@ -6092,6 +6138,23 @@ pub const Emitter = struct {
             // The slot holds the value: a view of it, the pointer a write
             // view wants, is taken from the slot (`rig.keep`'s result).
             self.ptr_tail = false;
+            // A flattened temporary's value goes into its slot ahead of
+            // the statement, which reads the slot.
+            if (slot.pre) |pre| {
+                // The value is written apart first: a flattened temporary
+                // inside it goes ahead of it.
+                var value: Writer.Allocating = .init(self.arena.allocator());
+                const saved_w = self.w;
+                self.w = &value.writer;
+                const buffer = self.varOf(sexp, .temp).?.by == .buffer;
+                if (buffer) try self.emitPrintArgs(&.{sexp}, .{}) else {
+                    self.bare = true;
+                    try self.emitValue(sexp, tail);
+                }
+                self.w = saved_w;
+                try pre.print("{s}{s}{s}{s}; {s}_live = true; ", .{ slot.name, if (buffer) ".fill(" else " = ", value.written(), if (buffer) ")" else "", slot.name });
+                return self.w.writeAll(slot.name);
+            }
             // A template's text is written into its slot's buffer.
             if (self.varOf(sexp, .temp).?.by == .buffer) {
                 try self.w.print(rt(.TextBuf) ++ ".keep(&{s}, &{s}_live, ", .{ slot.name, slot.name });
