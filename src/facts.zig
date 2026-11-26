@@ -159,13 +159,95 @@ pub const Facts = struct {
         return @ptrCast(@alignCast(f.sema_context));
     }
 
+    /// What a checker recorded about a node, read from the module's
+    /// record: a method of `SemContext`, or a helper of sema or storage
+    /// over recorded symbols, types, and constants (the test below lists
+    /// those), asked with the node and what else it takes:
+    /// `f.node(.viewOf, e)`, `f.node(.callSlotsOf, .{ call })`. Emit
+    /// may ask only what `node_facts` lists.
+    pub fn node(f: Facts, comptime fact: @EnumLiteral(), args: anytype) Result(@tagName(fact)) {
+        comptime listed(&node_facts, @tagName(fact));
+        return f.ask(@tagName(fact), args);
+    }
+
+    pub const node_facts = [_][]const u8{
+        "symbolOf",         "typeOf",           "startOf",           "calleeOf",
+        "callTargetOf",     "ctArgsOf",         "callSlotsOf",       "instanceOf",
+        "genericCallOf",    "elemCallOf",       "builtinOf",         "builtinCallOf",
+        "isConstMaker",     "durationOf",       "provenOf",          "provenIfOf",
+        "flagOf",           "callableOf",       "viewOf",            "viewsTempArray",
+        "readsThrough",     "copiesPayload",    "readsInPlace",      "taskJoinOf",
+        "isActorMake",      "isFrozenMake",     "isActorCall",       "isTypeParamCall",
+        "dispatchOf",       "ownerWitnessesOf", "erasureOf",         "isChanMake",
+        "isSelect",         "selectArmOf",      "isActorSupervised", "isSuperviseCall",
+        "isHttpServe",      "isReduceCall",     "isIoCopy",          "isOnceClosure",
+        "isLocalTask",      "isIsolateCall",    "parCallOf",         "testCheckOf",
+        "writesTemp",       "useOf",            "liftOf",            "takes",
+        "oldIsNone",        "upgradeOf",        "writesThrough",     "copiesElem",
+        "isTypedLiteral",   "isFailingLeaf",    "isMemberTest",      "isErrorMember",
+        "namesErrorMember", "isTableWrite",     "isEnumText",        "headerOf",
+        "heldBaseOf",       "payloadFieldOf",   "payloadBindings",   "altsBind",
+        "payloadTests",     "copiesHeader",     "stringCall",        "stringNumOf",
+        "isPrintCall",      "isNoneLeaf",       "isTypeCallee",      "moduleMemberSym",
+        "selfOf",           "heldFirst",        "selfWrites",        "argParams",
+        "lambdaYields",     "matchedType",
+    };
+
+    /// How a type or a symbol is spelled and held in Zig: one answer per
+    /// type, read the same way by every pass, asked as `node` asks, of
+    /// what `layouts` lists.
+    pub fn layout(f: Facts, comptime q: @EnumLiteral(), args: anytype) Result(@tagName(q)) {
+        comptime listed(&layouts, @tagName(q));
+        return f.ask(@tagName(q), args);
+    }
+
+    pub const layouts = [_][]const u8{
+        "owns",              "isUsed",           "needsPlainBit",           "witnessName",
+        "witnessParamName",  "conformanceArgs",  "apiSymbol",               "isOnceCapture",
+        "memberCompares",    "fieldMoves",       "isTypeSym",               "payloadViewed",
+        "unwrapViews",       "writtenThrough",   "unwrapReadAccess",        "unwrapAccess",
+        "loopWalks",         "boxedType",        "boxedNominal",            "callableFn",
+        "callableFnTy",      "ownedClosureFn",   "fnType",                  "writeSliceElem",
+        "isReadOrWriteView", "isErrorSet",       "isErrorValue",            "isSetParam",
+        "resultsOf",         "isNumeric",        "declFill",                "tableElem",
+        "frozenValue",       "isPlainEnum",      "containsTypeVar",         "lookupDataFieldConst",
+        "methodSelfMode",    "variantPayload",   "ownApiOf",                "isErrorValueForm",
+        "formatTypeValue",   "formatTypeMarked", "formatGenericSelfMarked", "formatInlineListMarked",
+        "viewHeldAsPointer", "viewByValue",      "viewsStringBytes",        "genericReadView",
+        "namedNoneOf",       "wordBitsOfSym",    "optionalRouted",          "isCompoundSym",
+        "cloneable",         "enumVariantCount", "typeHasDropGlue",         "cellObjectSym",
+    };
+
+    fn listed(comptime list: []const []const u8, comptime name: []const u8) void {
+        for (list) |n| if (std.mem.eql(u8, n, name)) return;
+        @compileError("emit asks a question of facts that no list names: " ++ name);
+    }
+
+    /// The function that answers `name`: a method of `SemContext`, else
+    /// a function of sema or storage that takes the context first.
+    fn answerer(comptime name: []const u8) @TypeOf(@field(Answerer(name), name)) {
+        return @field(Answerer(name), name);
+    }
+
+    fn Answerer(comptime name: []const u8) type {
+        if (@hasDecl(SemContext, name)) return SemContext;
+        if (@hasDecl(sema, name)) return sema;
+        return storage;
+    }
+
+    fn Result(comptime name: []const u8) type {
+        return @typeInfo(@TypeOf(answerer(name))).@"fn".return_type.?;
+    }
+
+    fn ask(f: Facts, comptime name: []const u8, args: anytype) Result(name) {
+        const A = @TypeOf(args);
+        const tuple = if (@typeInfo(A) == .@"struct" and @typeInfo(A).@"struct".is_tuple) args else .{args};
+        return @call(.auto, answerer(name), .{f.c()} ++ tuple);
+    }
+
     /// The program-wide name of this module's symbol `sym` (`SemContext.ref`).
     pub fn refOf(f: Facts, sym: SymbolId) sema.SymbolRef {
         return f.c().ref(sym);
-    }
-    /// Whether `r` names a symbol of this module's table (`SemContext.owns`).
-    pub fn owns(f: Facts, r: sema.SymbolRef) bool {
-        return f.c().owns(r);
     }
 
     /// Whether `ty` is a bare API object, `{Shape}`, which only a type
@@ -230,17 +312,6 @@ pub const Facts = struct {
     // Node facts
     // -------------------------------------------------------------------
 
-    pub fn symbolOf(f: Facts, node: Sexp) ?SymbolId {
-        return f.c().symbolOf(node);
-    }
-    /// Whether `sym` is read after its declaration, or captured
-    /// (`SemContext.used`, which lowering records).
-    pub fn isUsed(f: Facts, sym: SymbolId) bool {
-        return f.c().isUsed(sym);
-    }
-    pub fn typeOf(f: Facts, node: Sexp) ?TypeId {
-        return f.c().typeOf(node);
-    }
     /// The element type of the range `a..b` a `for` walks: the bounds'
     /// type, which the checker records on the range (`checkFor`).
     pub fn rangeElem(f: Facts, range: Sexp) ?TypeId {
@@ -249,9 +320,6 @@ pub const Facts = struct {
             .range => |e| e,
             else => null,
         };
-    }
-    pub fn startOf(f: Facts, node: Sexp) u32 {
-        return f.c().startOf(node);
     }
     /// Where the package holds the file `$embed` call `call` reads
     /// (`sema.EmbedSite`), once the module graph found it.
@@ -286,20 +354,13 @@ pub const Facts = struct {
     }
     /// Whether the closure or `drop` body `node`, a frame owner of its
     /// own (`sema.FrameOwner`), has a large frame, emitted `noinline`.
-    pub fn isLargeOwner(f: Facts, node: Sexp) bool {
-        return f.c().large_frames.contains(f.c().startOf(node));
+    pub fn isLargeOwner(f: Facts, n: Sexp) bool {
+        return f.c().large_frames.contains(f.c().startOf(n));
     }
     /// Whether the call may reach a function emitted `inline`, whose
     /// result Zig could know at compile time.
     pub fn callsInlined(f: Facts, call: Sexp) bool {
         return call == .list and f.c().decides(.inlined_calls, call.list.id);
-    }
-    pub fn calleeOf(f: Facts, call: Sexp) Sexp {
-        return f.c().calleeOf(call);
-    }
-    /// What a call reaches, as typecheck resolved it (`SemContext.callTargetOf`).
-    pub fn callTargetOf(f: Facts, call: Sexp) ?CallTarget {
-        return f.c().callTargetOf(call);
     }
     /// Whether `call` calls a Rig function or method: a function of this
     /// module or another, or a method a module declares on its type, not
@@ -331,19 +392,10 @@ pub const Facts = struct {
         }
         return false;
     }
-    pub fn ctArgsOf(f: Facts, call: Sexp) []const Sexp {
-        return f.c().ctArgsOf(call);
-    }
-    pub fn callSlotsOf(f: Facts, call: Sexp) ?[]const ArgSlot {
-        return f.c().callSlotsOf(call);
-    }
-    pub fn instanceOf(f: Facts, node: Sexp) ?Instance {
-        return f.c().instanceOf(node);
-    }
     /// The value of a compile-time call (`cap[8]`), which the checker
     /// computed, and the hidden constant that holds an array one.
-    pub fn ctValueOf(f: Facts, node: Sexp) ?CtResult {
-        return sema.cteval.recorded(f.c(), node);
+    pub fn ctValueOf(f: Facts, n: Sexp) ?CtResult {
+        return sema.cteval.recorded(f.c(), n);
     }
     /// The hidden constants of the module's compile-time values, in order:
     /// the one at `i` is `__rig_ct_<i>`.
@@ -354,100 +406,16 @@ pub const Facts = struct {
     pub fn variantName(f: Facts, ty: TypeId, i: u32) []const u8 {
         return sema.cteval.variantName(f.c(), ty, i);
     }
-    pub fn genericCallOf(f: Facts, node: Sexp) ?GenericCall {
-        return f.c().genericCallOf(node);
-    }
-    pub fn elemCallOf(f: Facts, callee: Sexp) ?ElemCall {
-        return f.c().elemCallOf(callee);
-    }
-    /// The built-in function `call` names (`SemContext.builtinOf`);
-    /// null for any other call.
-    pub fn builtinOf(f: Facts, call: Sexp) ?Builtin {
-        return f.c().builtinOf(call);
-    }
-    /// The built-in type's method a call's callee names, which emit
-    /// lowers on its own (`sema.BuiltinCall`).
-    pub fn builtinCallOf(f: Facts, callee: Sexp) ?BuiltinCall {
-        return f.c().builtinCallOf(callee);
-    }
-    /// Whether `call`, of a std maker, was checked as Rig compiles and
-    /// gives the plain `T` of its callee's `T!` (`sema.ConstMaker`).
-    pub fn isConstMaker(f: Facts, call: Sexp) bool {
-        return f.c().isConstMaker(call);
-    }
-    /// The unit an argument filling a duration parameter counts.
-    pub fn durationOf(f: Facts, node: Sexp) ?sema.Duration {
-        return f.c().durationOf(node);
-    }
-    /// Which of the node's tests are known to pass (`src/proofs.zig`):
-    /// emit omits those, and a debug build makes them as assertions.
-    pub fn provenOf(f: Facts, node: Sexp) Proven {
-        return f.c().provenOf(node);
-    }
-    pub fn provenIfOf(f: Facts, node: Sexp) ?ProvenIf {
-        return f.c().provenIfOf(node);
-    }
-    pub fn flagOf(f: Facts, stmt: Sexp) ?[]const FlagTest {
-        return f.c().flagOf(stmt);
-    }
-    pub fn callableOf(f: Facts, node: Sexp) ?TypeId {
-        return f.c().callableOf(node);
-    }
-    pub fn viewOf(f: Facts, node: Sexp) ?View {
-        return f.c().viewOf(node);
-    }
-    pub fn viewsTempArray(f: Facts, node: Sexp) bool {
-        return f.c().viewsTempArray(node);
-    }
-    pub fn readsThrough(f: Facts, node: Sexp) bool {
-        return f.c().readsThrough(node);
-    }
-    pub fn copiesPayload(f: Facts, node: Sexp) bool {
-        return f.c().copiesPayload(node);
-    }
-    pub fn readsInPlace(f: Facts, node: Sexp) bool {
-        return f.c().readsInPlace(node);
-    }
-    pub fn taskJoinOf(f: Facts, call: Sexp) ?bool {
-        return f.c().taskJoinOf(call);
-    }
-    pub fn isActorMake(f: Facts, call: Sexp) bool {
-        return f.c().isActorMake(call);
-    }
-
-    pub fn isFrozenMake(f: Facts, call: Sexp) bool {
-        return f.c().isFrozenMake(call);
-    }
-    pub fn isActorCall(f: Facts, call: Sexp) bool {
-        return f.c().isActorCall(call);
-    }
-    pub fn isTypeParamCall(f: Facts, call: Sexp) bool {
-        return f.c().isTypeParamCall(call);
-    }
 
     // -------------------------------------------------------------------
     // APIs of a program's own (docs/design/apis.md, Stage 3)
     // -------------------------------------------------------------------
 
-    /// How a method call reaches its method (`sema.Dispatch`).
-    pub fn dispatchOf(f: Facts, call: Sexp) ?Dispatch {
-        return f.c().dispatchOf(call);
-    }
-    /// The witnesses a call of a method under bounds on its type's
-    /// parameters passes (`sema.OwnerWitnesses`); null for any other call.
-    pub fn ownerWitnessesOf(f: Facts, call: Sexp) ?OwnerWitnesses {
-        return f.c().ownerWitnessesOf(call);
-    }
     /// The witnesses an instance of a generic type takes among its
     /// arguments (`sema.recordTypeWitnesses`); null for a type that takes
     /// none, or one no check recorded.
     pub fn typeWitnesses(f: Facts, ty: TypeId) ?[]const ArgWitness {
         return f.c().type_witnesses.get(ty);
-    }
-    /// Whether type parameter `sym`, or an associated type, takes its
-    /// instance's `$plain` as a compile-time Bool (`sema.needsPlainBit`).
-    pub fn needsPlainBit(f: Facts, sym: SymbolId) bool {
-        return sema.needsPlainBit(f.c(), sym);
     }
     /// The bits an instance of a generic type passes after its arguments
     /// (`sema.recordPlainFacts`); empty for one that passes none.
@@ -471,35 +439,11 @@ pub const Facts = struct {
     pub fn conformances(f: Facts) []const Conformance {
         return f.c().conformances.items;
     }
-    /// The name of the witness of conformance `index` of module
-    /// `module_id` (`sema.witnessName`).
-    pub fn witnessName(f: Facts, a: std.mem.Allocator, module_id: u32, index: u32) ![]const u8 {
-        return sema.witnessName(f.c(), a, module_id, index);
-    }
-    /// `W_T_Shape`: type parameter `sym`'s witness parameter for `api`
-    /// (`sema.witnessParamName`).
-    pub fn witnessParamName(f: Facts, a: std.mem.Allocator, sym: SymbolId, api: ApiRef) ![]const u8 {
-        return sema.witnessParamName(f.c(), a, sym, api);
-    }
-    /// The compile-time arguments of `ty` a conformance's own parameters
-    /// fill (`sema.conformanceArgs`).
-    pub fn conformanceArgs(f: Facts, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error![]const TypeId {
-        return sema.conformanceArgs(f.c(), a, ty);
-    }
     /// The conformance `index` of module `module_id`, with that module's
     /// facts.
     pub fn conformanceAt(f: Facts, module_id: u32, index: u32) ?struct { facts: Facts, conf: Conformance } {
         const home = if (module_id == f.c().module_id) f else f.foreign(module_id) orelse return null;
         return .{ .facts = home, .conf = home.c().conformances.items[index] };
-    }
-    /// The API `ref` names, as declared.
-    pub fn apiSymbol(f: Facts, ref: ApiRef) ?Symbol {
-        return sema.apiSymbol(f.c(), ref);
-    }
-    /// How `node` was erased to an API object (`sema.Erasure`); null for
-    /// any other node.
-    pub fn erasureOf(f: Facts, node: Sexp) ?Erasure {
-        return f.c().erasureOf(node);
     }
     /// The API object view `ty` is, `?{Shape}` or `!{Shape}`
     /// (`sema.objectView`).
@@ -522,36 +466,6 @@ pub const Facts = struct {
     pub fn moduleId(f: Facts) u32 {
         return f.c().module_id;
     }
-    pub fn isChanMake(f: Facts, call: Sexp) bool {
-        return f.c().isChanMake(call);
-    }
-    pub fn isSelect(f: Facts, call: Sexp) bool {
-        return f.c().isSelect(call);
-    }
-    pub fn selectArmOf(f: Facts, call: Sexp) ?sema.SelectArm {
-        return f.c().selectArmOf(call);
-    }
-    pub fn isActorSupervised(f: Facts, call: Sexp) bool {
-        return f.c().isActorSupervised(call);
-    }
-    pub fn isSuperviseCall(f: Facts, call: Sexp) bool {
-        return f.c().isSuperviseCall(call);
-    }
-    pub fn isHttpServe(f: Facts, call: Sexp) bool {
-        return f.c().isHttpServe(call);
-    }
-    pub fn isReduceCall(f: Facts, call: Sexp) bool {
-        return f.c().isReduceCall(call);
-    }
-    pub fn isIoCopy(f: Facts, call: Sexp) bool {
-        return f.c().isIoCopy(call);
-    }
-    pub fn isOnceClosure(f: Facts, lambda: Sexp) bool {
-        return f.c().isOnceClosure(lambda);
-    }
-    pub fn isOnceCapture(f: Facts, sym: SymbolId) bool {
-        return f.c().isOnceCapture(sym);
-    }
     /// Whether a task that makes this call first may take a dense stack
     /// (`program.Table.dense_calls`).
     pub fn isDenseCall(f: Facts, call: Sexp) bool {
@@ -566,106 +480,10 @@ pub const Facts = struct {
         return f.c().decisionOf(.dense_calls, call.list.id);
     }
 
-    pub fn isLocalTask(f: Facts, call: Sexp) bool {
-        return f.c().isLocalTask(call);
-    }
-    pub fn isIsolateCall(f: Facts, call: Sexp) bool {
-        return f.c().isIsolateCall(call);
-    }
-    pub fn parCallOf(f: Facts, call: Sexp) ?sema.ParCall {
-        return f.c().parCallOf(call);
-    }
-    pub fn testCheckOf(f: Facts, node: Sexp) ?[]const u8 {
-        return f.c().testCheckOf(node);
-    }
-    pub fn writesTemp(f: Facts, node: Sexp) bool {
-        return f.c().writesTemp(node);
-    }
-    pub fn useOf(f: Facts, node: Sexp) ?Use {
-        return f.c().useOf(node);
-    }
-    /// The optional `node`'s value becomes where it goes: `none`, or a
-    /// `T` where a `T?` goes (`SemContext.recordLift`).
-    pub fn liftOf(f: Facts, node: Sexp) ?Lift {
-        return f.c().liftOf(node);
-    }
-    pub fn takes(f: Facts, node: Sexp) bool {
-        return f.c().takes(node);
-    }
-    /// Whether assignment `set` stores into a field that holds `none`
-    /// there, so it drops no old value (`SemContext.oldIsNone`).
-    pub fn oldIsNone(f: Facts, set: Sexp) bool {
-        return f.c().oldIsNone(set);
-    }
-    pub fn upgradeOf(f: Facts, node: Sexp) ?Upgrade {
-        return f.c().upgradeOf(node);
-    }
-    pub fn writesThrough(f: Facts, node: Sexp) bool {
-        return f.c().writesThrough(node);
-    }
-    pub fn copiesElem(f: Facts, node: Sexp) bool {
-        return f.c().copiesElem(node);
-    }
-    pub fn memberCompares(f: Facts, member: sema.Field) sema.MemberCompares {
-        return f.c().memberCompares(member);
-    }
-    pub fn isTypedLiteral(f: Facts, node: Sexp) bool {
-        return f.c().isTypedLiteral(node);
-    }
-    pub fn isFailingLeaf(f: Facts, node: Sexp) bool {
-        return f.c().isFailingLeaf(node);
-    }
-    pub fn isMemberTest(f: Facts, node: Sexp) bool {
-        return f.c().isMemberTest(node);
-    }
-    pub fn isErrorMember(f: Facts, node: Sexp) bool {
-        return f.c().isErrorMember(node);
-    }
-    pub fn namesErrorMember(f: Facts, node: Sexp) bool {
-        return f.c().namesErrorMember(node);
-    }
-    /// Whether a table's slot `t[s]` is written, so reached to write
-    /// (`slot`), not read-only (`constSlot`).
-    pub fn isTableWrite(f: Facts, node: Sexp) bool {
-        return f.c().isTableWrite(node);
-    }
-    pub fn isEnumText(f: Facts, node: Sexp) bool {
-        return f.c().isEnumText(node);
-    }
     /// Whether the program calls `from_text` on plain enum `sym` of this
     /// module, which then emits its table of names.
     pub fn hasTextTable(f: Facts, sym: SymbolId) bool {
         return f.c().decides(.text_tables, sym);
-    }
-    pub fn headerOf(f: Facts, node: Sexp) ?Header {
-        return f.c().headerOf(node);
-    }
-    pub fn heldBaseOf(f: Facts, node: Sexp) ?Sexp {
-        return f.c().heldBaseOf(node);
-    }
-    /// The type of the field payload binding `b` binds, at the matched
-    /// instance.
-    pub fn payloadFieldOf(f: Facts, b: Sexp) ?TypeId {
-        return f.c().payloadFieldOf(b);
-    }
-    /// The bindings of a variant pattern, by field (a by-name pattern's
-    /// in the order of the payload's fields).
-    pub fn payloadBindings(f: Facts, pattern: Sexp) ?[]const Sexp {
-        return f.c().payloadBindings(pattern);
-    }
-    /// `sema.SemContext.altsBind`.
-    pub fn altsBind(f: Facts, pattern: Sexp) bool {
-        return f.c().altsBind(pattern);
-    }
-    /// `sema.SemContext.payloadTests`.
-    pub fn payloadTests(f: Facts, pattern: Sexp) ?[]const sema.PayloadTest {
-        return f.c().payloadTests(pattern);
-    }
-    pub fn copiesHeader(f: Facts, node: Sexp) bool {
-        return f.c().copiesHeader(node);
-    }
-    pub fn fieldMoves(f: Facts, sym: SymbolId) []const []const u8 {
-        return f.c().fieldMoves(sym);
     }
     /// The module's bodies lowered, with emit's questions answered: tree
     /// `module` is the module's. Sema lowered them for its checks and
@@ -699,9 +517,6 @@ pub const Facts = struct {
     pub fn isCtLocal(f: Facts, sym: SymbolId) bool {
         return f.c().ct_locals.contains(sym);
     }
-    pub fn stmtErasedCopies(f: Facts, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-        return sema.stmtErasedCopies(f.c(), a, stmt, out);
-    }
     /// The value of an integer constant expression.
     pub fn constIntOf(f: Facts, e: Sexp) ?Wide {
         return sema.cteval.constIntOf(f.c(), e);
@@ -709,56 +524,6 @@ pub const Facts = struct {
     /// `Int.max` and the like.
     pub fn intLimit(f: Facts, e: Sexp) ?TypedInt {
         return sema.cteval.intLimit(f.c(), e);
-    }
-    /// The built-in String operation `call` is.
-    pub fn stringCall(f: Facts, call: Sexp) ?StringCall {
-        return storage.stringCall(f.c(), call);
-    }
-    /// The integer type of a `t.push[T, e](v)` call.
-    pub fn stringNumOf(f: Facts, callee: Sexp) ?TypeId {
-        return f.c().stringNumOf(callee);
-    }
-    pub fn isPrintCall(f: Facts, call: Sexp) bool {
-        return f.c().isPrintCall(call);
-    }
-    pub fn isNoneLeaf(f: Facts, e: Sexp) bool {
-        return sema.isNoneLeaf(f.c(), e);
-    }
-    /// Whether the object of a call's callee names a type or a module.
-    pub fn isTypeCallee(f: Facts, obj: Sexp) bool {
-        return storage.isTypeCallee(f.c(), obj);
-    }
-    pub fn moduleMemberSym(f: Facts, obj: Sexp) ?Symbol {
-        return storage.moduleMemberSym(f.c(), obj);
-    }
-    pub fn isTypeSym(f: Facts, id: SymbolId) bool {
-        return storage.isTypeSym(f.c(), id);
-    }
-    /// The self of `value.method(...)`, as the call's recorded
-    /// parameters say.
-    pub fn selfOf(f: Facts, call: Sexp) ?Sexp {
-        return storage.selfOf(f.c(), call);
-    }
-    /// The part a call whose arguments are evaluated first holds before
-    /// them, its self or its callee (`storage.heldFirst`).
-    pub fn heldFirst(f: Facts, call: Sexp) ?storage.HeldFirst {
-        return storage.heldFirst(f.c(), call);
-    }
-    /// Whether the method of `value.method(...)` takes `!@`.
-    pub fn selfWrites(f: Facts, call: Sexp) bool {
-        return storage.selfWrites(f.c(), call);
-    }
-    /// The run-time parameters a call's arguments fill.
-    pub fn argParams(f: Facts, call: Sexp) []const TypeId {
-        return storage.argParams(f.c(), call);
-    }
-    /// A closure literal passed as a callable view.
-    pub fn lambdaYields(f: Facts, lambda: Sexp) bool {
-        return storage.lambdaYields(f.c(), lambda);
-    }
-    /// The enum a `match` switches on.
-    pub fn matchedType(f: Facts, match: Sexp) ?TypeId {
-        return storage.matchedType(f.c(), match);
     }
     /// The built-in types the program's names table spells.
     pub fn builtinTypes(f: Facts, a: std.mem.Allocator) ![]const Type {
@@ -769,101 +534,11 @@ pub const Facts = struct {
     // Types
     // -------------------------------------------------------------------
 
-    pub fn payloadViewed(f: Facts, ty: TypeId) ?TypeId {
-        return sema.payloadViewed(f.c(), ty);
-    }
-    pub fn unwrapViews(f: Facts, ty: TypeId) TypeId {
-        return sema.unwrapViews(f.c(), ty);
-    }
-    pub fn writtenThrough(f: Facts, ty: TypeId) TypeId {
-        return sema.writtenThrough(f.c(), ty);
-    }
-    pub fn unwrapReadAccess(f: Facts, ty: TypeId) TypeId {
-        return sema.unwrapReadAccess(f.c(), ty);
-    }
-    pub fn unwrapAccess(f: Facts, ty: TypeId) TypeId {
-        return sema.unwrapAccess(f.c(), ty);
-    }
-    pub fn loopWalks(f: Facts, ty: TypeId) TypeId {
-        return sema.loopWalks(f.c(), ty);
-    }
-    pub fn boxedType(f: Facts, ty: TypeId) ?TypeId {
-        return sema.boxedType(f.c(), ty);
-    }
-    pub fn boxedNominal(f: Facts, ty: TypeId) ?TypeId {
-        return sema.boxedNominal(f.c(), ty);
-    }
-    pub fn callableFn(f: Facts, ty: TypeId) ?FunctionType {
-        return sema.callableFn(f.c(), ty);
-    }
-    pub fn callableFnTy(f: Facts, ty: TypeId) ?TypeId {
-        return sema.callableFnTy(f.c(), ty);
-    }
-    pub fn ownedClosureFn(f: Facts, ty: TypeId) ?FunctionType {
-        return sema.ownedClosureFn(f.c(), ty);
-    }
-    /// The function type of a function, closure, or callable view.
-    pub fn fnType(f: Facts, ty: ?TypeId) ?FunctionType {
-        return storage.fnType(f.c(), ty);
-    }
-    pub fn writeSliceElem(f: Facts, ty: TypeId) ?TypeId {
-        return sema.writeSliceElem(f.c(), ty);
-    }
-    pub fn isReadOrWriteView(f: Facts, ty: TypeId) bool {
-        return sema.isReadOrWriteView(f.c(), ty);
-    }
-    pub fn isErrorSet(f: Facts, ty: TypeId) bool {
-        return sema.isErrorSet(f.c(), ty);
-    }
-    pub fn isErrorValue(f: Facts, ty: TypeId) bool {
-        return sema.isErrorValue(f.c(), ty);
-    }
-    pub fn isSetParam(f: Facts, ty: TypeId) bool {
-        return sema.isSetParam(f.c(), ty);
-    }
-    pub fn resultsOf(f: Facts, ty: TypeId) ?[]const TypeId {
-        return sema.resultsOf(f.c(), ty);
-    }
-    pub fn isNumeric(f: Facts, ty: TypeId) bool {
-        return sema.isNumeric(f.c(), ty);
-    }
-    /// How a table fills its slots with the type `sym` declares
-    /// (`sema.declFill`).
-    pub fn declFill(f: Facts, sym: SymbolId) sema.TableFill {
-        return sema.declFill(f.c(), sym);
-    }
-    /// `T` of a `Table[T, n]`; null for any other type.
-    pub fn tableElem(f: Facts, ty: TypeId) ?TypeId {
-        return sema.tableElem(f.c(), ty);
-    }
-    pub fn frozenValue(f: Facts, ty: TypeId) ?TypeId {
-        return sema.frozenValue(f.c(), ty);
-    }
-    pub fn isPlainEnum(f: Facts, ty: TypeId) bool {
-        return sema.isPlainEnum(f.c(), ty);
-    }
-    pub fn containsTypeVar(f: Facts, ty: TypeId) bool {
-        return sema.containsTypeVar(f.c(), ty);
-    }
     pub fn isBuiltinEnum(f: Facts, sym: SymbolId) bool {
         return sema.isBuiltinEnum(f.c(), f.c().ref(sym));
     }
     pub fn isBuiltinGeneric(f: Facts, sym: SymbolId) bool {
         return sema.isBuiltinGeneric(f.c(), f.c().ref(sym));
-    }
-    pub fn lookupDataFieldConst(f: Facts, self_ty: TypeId, name: []const u8) ?Field {
-        return sema.lookupDataFieldConst(f.c(), self_ty, name);
-    }
-    pub fn methodSelfMode(f: Facts, self_ty: TypeId, name: []const u8) ?SelfMode {
-        return sema.methodSelfMode(f.c(), self_ty, name);
-    }
-    /// How many variants enum type `enum_ty` has (`sema.enumVariantCount`).
-    pub fn variantCount(f: Facts, enum_ty: TypeId) ?usize {
-        return sema.enumVariantCount(f.c(), enum_ty);
-    }
-    /// The payload fields of variant `vname` of an enum type.
-    pub fn variantPayload(f: Facts, enum_ty: TypeId, vname: []const u8) ?[]const Field {
-        return storage.variantPayload(f.c(), enum_ty, vname);
     }
 
     /// The declaration behind a (possibly viewed) nominal type, with the
@@ -877,17 +552,6 @@ pub const Facts = struct {
             return n.facts.symbols.items[n.sym];
         }
     };
-
-    /// The method by which `ty`'s type gives `api` a meaning of its own
-    /// (`sema.ownApiOf`).
-    pub fn ownApiOf(f: Facts, ty: TypeId, api: sema.Api) ?sema.Field {
-        return sema.ownApiOf(f.c(), ty, api);
-    }
-
-    /// Whether a value of `ty` is a `rig.ErrorValue` (`sema.isErrorValueForm`).
-    pub fn isErrorValueForm(f: Facts, ty: TypeId) bool {
-        return sema.isErrorValueForm(f.c(), ty);
-    }
 
     /// A member of a declared error set, with the facts of the module
     /// that declares the set.
@@ -909,8 +573,8 @@ pub const Facts = struct {
 
     /// The members a `g: E =>` pattern covers that no arm before it did
     /// (`SemContext.recordSetPatternMembers`): what its prong lists.
-    pub fn setPatternMembers(f: Facts, node: Sexp, a: std.mem.Allocator) std.mem.Allocator.Error!?[]const ErrorMember {
-        const members = f.c().setPatternMembers(node) orelse return null;
+    pub fn setPatternMembers(f: Facts, n: Sexp, a: std.mem.Allocator) std.mem.Allocator.Error!?[]const ErrorMember {
+        const members = f.c().setPatternMembers(n) orelse return null;
         const out = try a.alloc(ErrorMember, members.len);
         for (members, out) |m, *o| {
             const d = f.nominalDecl(m.set) orelse return null;
@@ -924,48 +588,9 @@ pub const Facts = struct {
         return .{ .facts = of(d.ctx), .sym = d.sym, .module_id = d.module_id };
     }
 
-    pub fn formatTypeValue(f: Facts, a: std.mem.Allocator, ty: Type) std.mem.Allocator.Error![]const u8 {
-        return sema.formatTypeValue(f.c(), a, ty);
-    }
-    pub fn formatTypeMarked(f: Facts, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error![]const u8 {
-        return sema.formatTypeMarked(f.c(), a, ty);
-    }
-    pub fn formatGenericSelfMarked(f: Facts, a: std.mem.Allocator, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
-        return sema.formatGenericSelfMarked(f.c(), a, sym);
-    }
-    pub fn formatInlineListMarked(f: Facts, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
-        return sema.formatInlineListMarked(f.c(), a);
-    }
-
     // How a type is held in Zig: one answer per type, which every pass
     // reads the same way (docs/internals/INTERNALS.md, Emit, "Views").
 
-    /// Whether a view of this type is a Zig pointer (`sema.viewHeldAsPointer`).
-    pub fn viewHeldAsPointer(f: Facts, ty: TypeId) bool {
-        return sema.viewHeldAsPointer(f.c(), ty);
-    }
-    /// Whether dropping a `ty` releases anything (`sema.typeHasDropGlue`).
-    pub fn hasDropGlue(f: Facts, ty: TypeId) bool {
-        return sema.typeHasDropGlue(f.c(), ty);
-    }
-    /// Whether a read view of `inner` is a copy, not an address
-    /// (`sema.viewByValue`).
-    pub fn viewByValue(f: Facts, inner: TypeId) bool {
-        return sema.viewByValue(f.c(), inner);
-    }
-    /// Whether a view of type `view` of a slot of type `slot` is the bytes
-    /// of a String (`sema.viewsStringBytes`).
-    pub fn viewsStringBytes(f: Facts, slot: TypeId, view: TypeId) bool {
-        return sema.viewsStringBytes(f.c(), slot, view);
-    }
-    /// The `T` of a `?T` written `rig.ReadView(T)` (`storage.genericReadView`).
-    pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {
-        return storage.genericReadView(f.c(), ty);
-    }
-    /// The none the object type `ty` names (`sema.namedNoneOf`).
-    pub fn namedNoneOf(f: Facts, ty: TypeId) ?sema.NamedNone {
-        return sema.namedNoneOf(f.c(), ty);
-    }
     /// The none the object `sym` of this module names.
     pub fn namedNoneOfSym(f: Facts, sym: SymbolId) ?sema.NamedNone {
         return f.c().named_nones.get(sym);
@@ -975,20 +600,11 @@ pub const Facts = struct {
     pub fn wordSized(f: Facts, ty: TypeId) bool {
         return sema.wordBits(f.c(), ty) != null;
     }
-    pub fn wordBitsOfSym(f: Facts, sym: SymbolId) ?u8 {
-        return sema.wordBitsOfSym(f.c(), sym);
-    }
     /// The bits of the object `sym` declares here when it is held as one
     /// word, a Zig `packed struct` (`program.decideWords`).
     pub fn wordHeldBitsOfSym(f: Facts, sym: SymbolId) ?u8 {
         if (!f.c().decides(.word_held, sym)) return null;
         return sema.wordBitsOfSym(f.c(), sym);
-    }
-    /// Whether the object `sym` declares here is a word-Cell object
-    /// (`sema.cellObject`), whose handles count atomically: emit marks it
-    /// `__rig_synced` for the runtime's `synchronized`.
-    pub fn isCellObject(f: Facts, sym: SymbolId) bool {
-        return sema.cellObjectSym(f.c(), sym);
     }
     /// Whether the object `sym` declares here is `exact`, laid out in
     /// declaration order: a Zig `extern struct`.
@@ -1010,21 +626,6 @@ pub const Facts = struct {
             .nominal => d.ctx.decides(.word_held, d.sym) and sema.wordBitsOfSym(d.ctx, d.sym) == 64,
             else => false,
         };
-    }
-    /// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, with
-    /// every operation through the optional helpers
-    /// (`sema.optionalRouted`); `strict` under `RIG_STRICT_OPTIONALS`.
-    pub fn optionalRouted(f: Facts, inner: TypeId, strict: bool) bool {
-        return sema.optionalRouted(f.c(), inner, strict);
-    }
-    /// Whether the type `sym` declares is an object or a payload enum
-    /// (`sema.isCompoundSym`).
-    pub fn isCompoundSym(f: Facts, sym: SymbolId) bool {
-        return sema.isCompoundSym(f.c(), sym);
-    }
-    /// What `+x` does to a value of this type (`sema.cloneable`).
-    pub fn cloneable(f: Facts, ty: TypeId) Clone {
-        return sema.cloneable(f.c(), ty);
     }
 };
 
@@ -1167,16 +768,18 @@ test "emit names hidden storage only through hiddenStorage" {
 
 test "a Facts method about a node reads what a checker recorded" {
     const source = @embedFile("facts.zig");
-    // A method of `Facts` that takes a node answers from a record, the
-    // facts table or the storage facts, read through the context. These still find their answer with a
-    // helper of storage, sema, or cteval, each by the node's shape over recorded
+    // A method of `Facts` that takes a node, and a node fact (`node`),
+    // answers from a record, the facts table or the storage facts, read
+    // through the context. These still find their answer with a helper of
+    // storage, sema, or cteval, each by the node's shape over recorded
     // symbols, types, and constants; the list only shrinks.
     const readers = [_][]const u8{
-        "callsRigFunction", "patternConst",    "stmtErasedCopies",
-        "constIntOf",       "intLimit",        "stringCall",
-        "isNoneLeaf",
-        "isTypeCallee",     "moduleMemberSym", "selfOf",
-        "heldFirst",        "selfWrites",      "argParams",
+        "callsRigFunction", "patternConst",
+        "constIntOf",       "intLimit",
+        "stringCall",       "isNoneLeaf",
+        "isTypeCallee",     "moduleMemberSym",
+        "selfOf",           "heldFirst",
+        "selfWrites",       "argParams",
         "lambdaYields",     "matchedType",
     };
     var seen: [readers.len]bool = @splat(false);
@@ -1234,11 +837,21 @@ test "a Facts method about a node reads what a checker recorded" {
             return error.TestUnexpectedResult;
         }
     }
+    // A node fact no method of the context answers is a helper's.
+    inline for (Facts.node_facts) |n| if (!@hasDecl(SemContext, n)) {
+        const i = for (readers, 0..) |r, i| {
+            if (std.mem.eql(u8, r, n)) break i;
+        } else {
+            std.debug.print("the node fact {s} is answered by a helper, not by reading a record\n", .{n});
+            return error.TestUnexpectedResult;
+        };
+        seen[i] = true;
+    };
     for (readers, seen) |r, s| if (!s) {
         std.debug.print("Facts.{s} no longer calls a helper of storage, sema, or cteval: take it off the list\n", .{r});
         return error.TestUnexpectedResult;
     };
-    try std.testing.expect(methods > 50);
+    try std.testing.expect(methods + Facts.node_facts.len > 50);
 }
 
 test "Facts answers as the context it was made from" {
@@ -1274,9 +887,9 @@ test "Facts answers as the context it was made from" {
     defer lowered.deinit();
     var temps: usize = 0;
     for (nodes.items) |n| {
-        try std.testing.expectEqual(ctx.symbolOf(n), f.symbolOf(n));
-        try std.testing.expectEqual(ctx.typeOf(n), f.typeOf(n));
-        try std.testing.expectEqual(ctx.useOf(n), f.useOf(n));
+        try std.testing.expectEqual(ctx.symbolOf(n), f.node(.symbolOf, n));
+        try std.testing.expectEqual(ctx.typeOf(n), f.node(.typeOf, n));
+        try std.testing.expectEqual(ctx.useOf(n), f.node(.useOf, n));
         if (lowered.varOf(n, .temp) != null) temps += 1;
     }
     // `mk(2)` is a temporary its statement drops.
@@ -1368,7 +981,7 @@ test "Facts reads every match decision the plan made" {
         for (ir.Match.arms(n)) |arm| {
             const pattern = ir.Arm.pattern(arm);
             if (pattern == .src) try std.testing.expect(lowered.answer(pattern, .catch_all_by_address) != null);
-            if (pattern.isKind(.variant_pattern)) for (f.payloadBindings(pattern).?) |b| {
+            if (pattern.isKind(.variant_pattern)) for (f.node(.payloadBindings, pattern).?) |b| {
                 // `t` is a view of the String where it is; `n` a copy.
                 const by_addr = lowered.answer(b, .payload_by_address).?;
                 try std.testing.expectEqual(std.mem.eql(u8, source[b.src.pos..][0..b.src.len], "t"), by_addr);
