@@ -343,10 +343,10 @@ fn moduleById(id: u32) ?*const lib.modules.Module {
 /// their iterators), which the oracle checks as it checks a List: by
 /// what their methods' signatures say (`from`, `keeps`, and the types
 /// that say what a call may store), never by their bodies.
-fn rigBuiltin(ctx: *const sema.SemContext, sym_id: SymbolId) bool {
-    const sym = ctx.symbols.items[sym_id];
-    const m = if (sema.isProxy(sym)) moduleById(sym.from.module_id) else for (program_modules) |*m| {
-        if (m.sema == ctx) break m;
+fn rigBuiltin(ctx: *const sema.SemContext, r: sema.SymbolRef) bool {
+    const in = sema.homeOf(ctx, r);
+    const m = for (program_modules) |*m| {
+        if (m.sema == in) break m;
     } else null;
     const home = m orelse return false;
     return std.mem.eql(u8, home.name, "std." ++ lib.rig.builtin_module_name);
@@ -368,7 +368,7 @@ fn fnTypeIn(ctx: *const sema.SemContext, ty: TypeId) ?sema.FunctionType {
 /// stands for (a `use`d function, or a generic type such as `Map`) is
 /// declared there, at its `decl_pos`.
 fn homeOf(ctx: *const sema.SemContext, sym: sema.Symbol) *const sema.SemContext {
-    if (!sema.isProxy(sym)) return ctx;
+    if (!sema.isAlias(sym)) return ctx;
     const m = moduleById(sym.from.module_id) orelse return ctx;
     return m.sema;
 }
@@ -2909,7 +2909,7 @@ const Lowerer = struct {
         var ctx = decl.ctx;
         var sym = decl.symbol();
         // An imported generic type's fields are its home module's.
-        if (sema.isProxy(sym)) {
+        if (sema.isAlias(sym)) {
             if (sym.from.module_id == 0) return .other;
             const foreign = ctx.foreign_semas.get(sym.from.module_id) orelse return .other;
             ctx = foreign;
@@ -4466,7 +4466,7 @@ const Lowerer = struct {
             .fallible => |inner| return self.plainInstance(inner.ok),
             .results => |rs| for (rs) |r| try self.plainInstance(r),
             .parameterized_nominal => |pn| {
-                if (sema.isBuiltinGeneric(self.ctx, pn.sym) or rigBuiltin(self.ctx, self.ctx.localSym(pn.sym))) {
+                if (sema.isBuiltinGeneric(self.ctx, pn.sym) or rigBuiltin(self.ctx, pn.sym)) {
                     for (pn.args) |a| try self.plainInstance(a);
                     return;
                 }
@@ -4474,7 +4474,7 @@ const Lowerer = struct {
                 for (pn.args) |a| {
                     if (try self.ownerArg(a)) owners = true else try self.plainInstanceArg(a);
                 }
-                if (owners and !try self.typeCopiesNoT(self.ctx.localSym(pn.sym))) return abstain("a generic type at an owner whose methods copy a `T`");
+                if (owners and !try self.typeCopiesNoT(pn.sym)) return abstain("a generic type at an owner whose methods copy a `T`");
             },
             else => {},
         }
@@ -4491,13 +4491,9 @@ const Lowerer = struct {
 
     /// Whether no method or `drop` body of a user generic type copies a
     /// value of a type parameter (`copiesNoT`).
-    fn typeCopiesNoT(self: *Lowerer, sym_id: SymbolId) Error!bool {
-        var sym = self.ctx.symbols.items[sym_id];
-        var m = self.module orelse return false;
-        if (sema.isProxy(sym)) {
-            m = moduleById(sym.from.module_id) orelse return false;
-            sym = m.sema.symbols.items[sym.from.sym];
-        }
+    fn typeCopiesNoT(self: *Lowerer, r: sema.SymbolRef) Error!bool {
+        const sym = sema.symbolAt(self.ctx, r).*;
+        const m = if (self.ctx.owns(r)) self.module orelse return false else moduleById(r.module_id) orelse return false;
         if (m.ir == .nil) return false;
         for (ir.Module.decls(m.ir)) |d0| {
             const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
@@ -4673,7 +4669,7 @@ const Lowerer = struct {
             const sym_id = self.ctx.symbolOf(callee) orelse return null;
             const sym = self.ctx.symbols.items[sym_id];
             if (sym.kind != .function) return null;
-            if (sema.isProxy(sym)) {
+            if (sema.isAlias(sym)) {
                 const fm = moduleById(sym.from.module_id) orelse return null;
                 const fsym = fm.sema.symbols.items[sym.from.sym];
                 return findDecl(fm, fsym.name, fsym.decl_pos);
@@ -4762,8 +4758,8 @@ const Lowerer = struct {
             .parameterized_nominal => |pn| pn,
             else => return,
         };
-        if (!rigBuiltin(self.ctx, self.ctx.localSym(pn.sym))) return;
-        const sym = self.ctx.symbols.items[self.ctx.localSym(pn.sym)];
+        if (!rigBuiltin(self.ctx, pn.sym)) return;
+        const sym = sema.symbolAt(self.ctx, pn.sym).*;
         if (!std.mem.eql(u8, sym.name, "Map") and !std.mem.eql(u8, sym.name, "HashMap")) return;
         const name = leafText(ir.Member.name(callee), self.src);
         const views = std.mem.eql(u8, name, "update") or std.mem.eql(u8, name, "retain");
@@ -4771,14 +4767,15 @@ const Lowerer = struct {
         // At a generic body's own parameters, each instance answers.
         for (pn.args) |arg| if (self.ctx.typeInfo(arg).has_type_var) return;
         // The type's parameters as the signature's context names them.
-        const home = if (fp.ctx == self.ctx) sym else if (sema.isProxy(sym)) fp.ctx.symbols.items[sym.from.sym] else return;
-        const tps = home.type_params orelse return;
+        if (fp.ctx != self.ctx and fp.ctx != sema.homeOf(self.ctx, pn.sym)) return;
+        const tps = sema.paramRefs(self.ctx, pn.sym);
+        if (sym.type_params == null) return;
         for (fp.full.params) |pt| {
             const f = fnTypeIn(fp.ctx, pt) orelse continue;
             var reach: kinds.Reach = .{ .a = self.a };
             const keeps = if (views) f.params.len > 1 and try reach.storesAt(fp.ctx, f.params, 0, tps, self.ctx, pn.args) else switch (fp.ctx.types.get(f.returns)) {
                 .type_var => |v| for (tps, 0..) |tp, i| {
-                    if (self.ctx.ref(tp) == v and i < pn.args.len) break (try self.kinds.of(pn.args[i])).holds_views;
+                    if (tp == v and i < pn.args.len) break (try self.kinds.of(pn.args[i])).holds_views;
                 } else false,
                 else => false,
             };

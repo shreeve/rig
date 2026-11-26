@@ -145,7 +145,7 @@ pub const Kinds = struct {
         // A type parameter `$plain` has narrowed is plain data where the
         // code runs (SPEC "Generic bodies").
         if (self.generic) switch (ctx.types.get(ty)) {
-            .type_var => |sym| if (std.mem.findScalar(sema.SymbolId, self.narrowed.items, self.ctx.localSym(sym)) != null) return .{
+            .type_var => |sym| if (self.ctx.owns(sym) and std.mem.findScalar(sema.SymbolId, self.narrowed.items, sym.sym) != null) return .{
                 .kind = .plain,
                 .holds_views = false,
                 .holds_pointers = false,
@@ -157,12 +157,12 @@ pub const Kinds = struct {
         const narrowed = try self.allNarrowed(ty);
         if (self.generic and !narrowed) switch (ctx.types.get(ty)) {
             .type_var => |sym| {
-                const bounds = sema.implied(ctx.symbols.items[ctx.localSym(sym)].apis);
+                const bounds = sema.implied(sema.symbolAt(ctx, sym).apis);
                 if (bounds.count() > 0) {
                     const copy = bounds.contains(.Copy);
                     // An associated type's value views its base only at
                     // an instance whose associated type may (`item`).
-                    const owned = bounds.contains(.Owned) or ctx.symbols.items[ctx.localSym(sym)].assoc_of != null;
+                    const owned = bounds.contains(.Owned) or sema.symbolAt(ctx, sym).assoc_of != null;
                     return .{
                         .kind = if (!copy) .owning else if (owned) .plain else .read_view,
                         .holds_views = !owned,
@@ -220,7 +220,7 @@ pub const Kinds = struct {
 /// which its bounds classify (SPEC "Generic bodies").
 fn boundedVar(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .type_var => |sym| sema.implied(ctx.symbols.items[ctx.localSym(sym)].apis).count() > 0,
+        .type_var => |sym| sema.implied(sema.symbolAt(ctx, sym).apis).count() > 0,
         .optional => |inner| boundedVar(ctx, inner),
         else => false,
     };
@@ -352,7 +352,7 @@ fn objectBlockerIn(ctx: *const SemContext, ty: TypeId, shares: bool, seen: anyty
             if (pn.sym == ctx.builtins.cell or pn.sym == ctx.builtins.signal or pn.sym == ctx.builtins.actor or pn.sym == ctx.builtins.chan or pn.sym == ctx.builtins.tasks) return null;
             for (pn.args) |a| if (try objectBlockerIn(ctx, a, shares, seen, depth + 1)) |b| return b;
             if (sema.isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.builtins.task) return null;
-            return objectFieldsBlock(ctx, ty, ctx.localSym(pn.sym), shares, seen, depth);
+            return objectFieldsBlock(sema.homeOf(ctx, pn.sym), ty, pn.sym.sym, shares, seen, depth);
         },
         .nominal => |r| if (ctx.owns(r)) return objectFieldsBlock(ctx, ty, r.sym, shares, seen, depth) else {
             const decl = sema.nominalDecl(ctx, ty) orelse return null;
@@ -476,7 +476,7 @@ const Scan = struct {
                     if (!self.read_only) self.task = true;
                 }
                 for (pn.args) |arg| try self.walk(ctx, arg, depth + 1, in_generic);
-                if (pn.sym != ctx.builtins.list and pn.sym != ctx.builtins.box) try self.fields(ctx, ctx.localSym(pn.sym), depth, true);
+                if (pn.sym != ctx.builtins.list and pn.sym != ctx.builtins.box) try self.fields(sema.homeOf(ctx, pn.sym), pn.sym.sym, depth, true);
             },
             else => {},
         }
@@ -484,7 +484,7 @@ const Scan = struct {
 
     fn fields(self: *Scan, ctx: *const SemContext, sym_id: sema.SymbolId, depth: u32, in_generic: bool) !void {
         const sym = ctx.symbols.items[sym_id];
-        if (sema.isProxy(sym)) {
+        if (sema.isAlias(sym)) {
             if (sym.from.module_id != 0) if (ctx.foreign_semas.get(sym.from.module_id)) |foreign| {
                 return self.fields(foreign, sym.from.sym, depth, in_generic);
             };
@@ -526,15 +526,15 @@ pub const Reach = struct {
         switch (t) {
             .nominal => |n| if (!ctx.owns(n)) try w.print("N{d}.{d}", .{ n.module_id, n.sym }) else if (n == ctx.builtins.endian) try w.writeAll("Endian") else try w.print("N{d}.{d}", .{ ctx.module_id, n.sym }),
             .parameterized_nominal => |pn| {
-                const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
-                if (sym.decl_pos == sema.builtin_decl_pos) try w.print("{s}[", .{sym.name}) else if (sema.isProxy(sym)) try w.print("G{d}.{d}[", .{ sym.from.module_id, sym.from.sym }) else try w.print("G{d}.{d}[", .{ ctx.module_id, pn.sym.sym });
+                const sym = sema.symbolAt(ctx, pn.sym);
+                if (sym.decl_pos == sema.builtin_decl_pos) try w.print("{s}[", .{sym.name}) else try w.print("G{d}.{d}[", .{ pn.sym.module_id, pn.sym.sym });
                 for (pn.args) |arg| {
                     try spell(w, ctx, arg, subst, depth + 1);
                     try w.writeAll(",");
                 }
                 try w.writeAll("]");
             },
-            .type_var => |sym| if (subst) |s| if (s.lookup(ctx.localSym(sym))) |b| return spell(w, b.ctx, b.ty, null, depth + 1),
+            .type_var => |sym| if (subst) |s| if (s.lookup(sym)) |b| return spell(w, b.ctx, b.ty, null, depth + 1),
             .read_view, .write_view, .optional, .shared, .weak => |inner| {
                 try w.print("{s}(", .{@tagName(t)});
                 try spell(w, ctx, inner, subst, depth + 1);
@@ -572,12 +572,12 @@ pub const Reach = struct {
 
     /// A generic type's parameters bound to an instance's arguments.
     const Subst = struct {
-        params: []const sema.SymbolId,
+        params: []const sema.SymbolRef,
         args: []const TypeId,
         ctx: *const SemContext,
         outer: ?*const Subst,
 
-        fn lookup(self: *const Subst, sym: sema.SymbolId) ?struct { ctx: *const SemContext, ty: TypeId } {
+        fn lookup(self: *const Subst, sym: sema.SymbolRef) ?struct { ctx: *const SemContext, ty: TypeId } {
             for (self.params, 0..) |p, i| if (p == sym and i < self.args.len) return .{ .ctx = self.ctx, .ty = self.args[i] };
             return null;
         }
@@ -612,21 +612,22 @@ pub const Reach = struct {
             .array => |arr| try out.append(self.a, .{ .ctx = ctx, .ty = arr.elem, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view, .elem = true }),
             // Several results, each held by value as a field is.
             .results => |rs| for (rs) |r| try out.append(self.a, .{ .ctx = ctx, .ty = r, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
-            .type_var => |sym| if (n.subst) |s| if (s.lookup(ctx.localSym(sym))) |b| try out.append(self.a, .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = n.past_read, .past_view = n.past_view }),
+            .type_var => |sym| if (n.subst) |s| if (s.lookup(sym)) |b| try out.append(self.a, .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = n.past_read, .past_view = n.past_view }),
             .nominal => |in| if (ctx.owns(in)) try self.fieldsOf(ctx, in.sym, n, null, out) else {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return;
                 try self.fieldsOf(foreign, in.sym, n, null, out);
             },
             .parameterized_nominal => |pn| {
-                const sym = ctx.symbols.items[ctx.localSym(pn.sym)];
+                const home = sema.homeOf(ctx, pn.sym);
+                const sym = home.symbols.items[pn.sym.sym];
                 const s = try self.a.create(Subst);
-                s.* = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .ctx = ctx, .outer = n.subst };
+                s.* = .{ .params = sema.paramRefs(ctx, pn.sym), .args = pn.args, .ctx = ctx, .outer = n.subst };
                 // A built-in generic holds its arguments' values (a
                 // List's buffer, a Box's value, a Cell's).
                 if (sym.decl_pos == sema.builtin_decl_pos) {
                     for (pn.args) |arg| try out.append(self.a, .{ .ctx = ctx, .ty = arg, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view, .elem = true });
                 }
-                try self.fieldsOf(ctx, ctx.localSym(pn.sym), n, s, out);
+                try self.fieldsOf(home, pn.sym.sym, n, s, out);
             },
             else => {},
         }
@@ -648,7 +649,7 @@ pub const Reach = struct {
         while (true) switch (m.ctx.types.get(m.ty)) {
             .type_var => |sym| {
                 const s = m.subst orelse return m;
-                const b = s.lookup(m.ctx.localSym(sym)) orelse return m;
+                const b = s.lookup(sym) orelse return m;
                 m = .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = m.past_read, .past_view = m.past_view, .elem = m.elem, .held = m.held };
             },
             else => return m,
@@ -669,7 +670,7 @@ pub const Reach = struct {
             .function => !n.held,
             .callable, .api_object, .invalid, .unknown => true,
             .parameterized_nominal => |pn| pn.sym == n.ctx.builtins.task or pn.sym == n.ctx.builtins.tasks,
-            .type_var => |sym| if (n.subst) |s| s.lookup(n.ctx.localSym(sym)) == null else true,
+            .type_var => |sym| if (n.subst) |s| s.lookup(sym) == null else true,
             else => false,
         };
     }
@@ -818,7 +819,7 @@ pub const Reach = struct {
     /// `stores`, where the type parameters `tparams` the parameters name
     /// are `args`, types of `args_ctx`: a generic declaration's signature
     /// at one of its instances.
-    pub fn storesAt(self: *Reach, ctx: *const SemContext, params: []const TypeId, i: usize, tparams: []const sema.SymbolId, args_ctx: *const SemContext, args: []const TypeId) std.mem.Allocator.Error!bool {
+    pub fn storesAt(self: *Reach, ctx: *const SemContext, params: []const TypeId, i: usize, tparams: []const sema.SymbolRef, args_ctx: *const SemContext, args: []const TypeId) std.mem.Allocator.Error!bool {
         const at: Subst = .{ .params = tparams, .args = args, .ctx = args_ctx, .outer = null };
         const subst: ?*const Subst = if (tparams.len > 0) &at else null;
         var t: Targets = .{};
