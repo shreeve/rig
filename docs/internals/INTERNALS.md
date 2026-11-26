@@ -5399,15 +5399,19 @@ that is a recorded fact.
     values are the account's marked part, which typecheck counted, so
     `decide` counts them nowhere else;
   - with the inlined calls in it, each counted at every call site, it
-    expands to at most `inlining.max_expanded` (300) operations, so a chain of
+    expands to at most `inlining.max_expanded` (320) operations, so a chain of
     functions that each call the next twice does not have Zig analyze the
     innermost 2^n times. A function called from one place only, in a
     function with compile-time values, is exempt from this limit: each
-    instance of the caller holds a copy that LLVM cannot merge into one;
-  A function that fails a test of the last two is dropped and the tests
-  run again, until none fails; since dropping one only shrinks frames
-  and expansions, they run again from the function that failed, not
-  from the first. A call reaches what typecheck resolved it to
+    instance of the caller holds a copy that LLVM cannot merge into one.
+    This test runs first, callees before callers (`trim`), so a function
+    is judged with only the calls that stay inlined in it: a small
+    function whose callee expands too far keeps its own inlining once
+    that callee stops;
+  A function that fails a test of frames is dropped and the tests run
+  again, until none fails; since dropping one only shrinks frames and
+  expansions, they run again from the function that failed, not from
+  the first. A call reaches what typecheck resolved it to
   (`SemContext.callTargetOf`): a function by its symbol, a method by its
   self's type, so a wrapper `Binder.kind` that calls its tree's
   `kind` is no cycle. A call no check resolved stands for every function
