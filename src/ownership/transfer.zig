@@ -305,10 +305,10 @@ pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value 
     defer self.cur_stmt = saved_stmt;
     const walked = self.walked.items.len;
     defer self.walked.shrinkRetainingCapacity(@min(walked, self.walked.items.len));
-    const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const v = if (sink) |k| try walkConsumedE(self, e, k) else try walkE(self, e);
     self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
-    try dropStmtTemps(self, drops);
+    try endTemps(self, try lowered.endsOf(self, lowered.stmtRegion(self, e), vars_mark, false));
     return v;
 }
 
@@ -1744,25 +1744,27 @@ pub fn keepViewTemps(self: *Checker, temps_start: usize, v: Value) Error!Value {
 /// handler's scope opened (`holdPartTemps`).
 pub fn holdTemp(self: *Checker, node: Sexp, v: Value) Error!Value {
     const pos = notes.startOf(self, node);
-    const id = blk: {
-        if (node == .list) if (self.part_temps.fetchRemove(node.list.id)) |kv| if (isStmtTempVar(self, kv.value, pos)) {
-            try self.setFlow(kv.value, .{ .loans = v.loans });
-            break :blk kv.value;
-        };
-        break :blk try addTempVar(self, node, v.loans);
-    };
+    const lv = tempOf(self, node);
+    const id = if (liveTemp(self, node, lv)) |id| blk: {
+        try self.setFlow(id, .{ .loans = v.loans });
+        break :blk id;
+    } else try addTempVar(self, node, lv, v.loans);
     // The temporary is in use until its consumer is done with it.
     const loan: Loan = .{ .root = id, .kind = .read, .pos = pos };
     try live.addTemp(self, loan);
     return .{ .loans = try self.oneLoan(loan) };
 }
 
+/// The hidden var lowering made for statement temporary `node`.
+fn tempOf(self: *const Checker, node: Sexp) ?lir.VarId {
+    return lowered.hiddenOf(self, node, .temp) orelse lowered.hiddenOf(self, node, .zig_temp);
+}
+
 /// The hidden var of statement temporary `node`, which views `loans`,
-/// dropped with its statement (`dropStmtTemps`).
-fn addTempVar(self: *Checker, node: Sexp, loans: []const Loan) Error!VarId {
-    const pos = notes.startOf(self, node);
-    const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = pos, .ty = types.exprType(self, node), .kind = .hidden, .temp_value = true }, .{ .loans = loans });
-    try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+/// dropped where the region that declares `lv` ends (`endTemps`).
+fn addTempVar(self: *Checker, node: Sexp, lv: ?lir.VarId, loans: []const Loan) Error!VarId {
+    const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = notes.startOf(self, node), .ty = types.exprType(self, node), .kind = .hidden, .temp_value = true }, .{ .loans = loans });
+    try lowered.noteMade(self, lv, id);
     return id;
 }
 
@@ -1770,49 +1772,32 @@ fn addTempVar(self: *Checker, node: Sexp, loans: []const Loan) Error!VarId {
 /// `catch` handler, makes (`sema.stmtTemps`), before the caller opens
 /// the scope it binds the handler's name in: they are the
 /// statement's, as emit declares their slots for the statement, so
-/// they outlive that scope and end with the statement
-/// (`dropStmtTemps`). Each is made before the state a branch starts
-/// from, so a path that makes it and one that does not join.
+/// they outlive that scope and end with the statement. Each is made
+/// before the state a branch starts from, so a path that makes it and
+/// one that does not join.
 pub fn holdPartTemps(self: *Checker, part: Sexp) Error!void {
     const ctx = self.sema;
     var temps: std.ArrayList(Sexp) = .empty;
     try sema.stmtTemps(ctx, self.arena(), part, &temps);
-    for (temps.items) |node| try self.part_temps.put(self.gpa, node.list.id, try addTempVar(self, node, &.{}));
+    for (temps.items) |node| _ = try addTempVar(self, node, tempOf(self, node), &.{});
 }
 
-/// Whether var `id` is still the hidden var of the statement
-/// temporary at `pos`: one whose scope ended is gone, and its id may
-/// name a newer var.
-pub fn isStmtTempVar(self: *const Checker, id: VarId, pos: u32) bool {
-    if (id >= self.vars.items.len) return false;
+/// The hidden var the walk made for statement temporary `node` (LIR
+/// var `lv`) that has not ended yet, if any.
+fn liveTemp(self: *Checker, node: Sexp, lv: ?lir.VarId) ?VarId {
+    const id = lowered.madeOf(self, lv orelse return null) orelse return null;
     const v = self.vars.items[id];
-    return v.kind == .hidden and v.decl == pos;
+    if (v.kind != .hidden or !v.temp_value or v.decl != notes.startOf(self, node)) return null;
+    return id;
 }
 
-/// The hidden var of the live statement temporary at `pos`, if any.
-pub fn stmtTempAt(self: *const Checker, pos: u32) ?VarId {
-    var i = self.stmt_drops.items.len;
-    while (i > 0) {
-        i -= 1;
-        const d = self.stmt_drops.items[i];
-        if (d.pos == pos and isStmtTempVar(self, d.id, pos)) return d.id;
+/// The statement temporaries `ids` end, newest first: a value that
+/// still views one after its region would outlive it.
+pub fn endTemps(self: *Checker, ids: []const VarId) Error!void {
+    for (ids) |id| {
+        try endLoansOn(self, id, .temp);
+        try self.setFlow(id, .{ .status = .dropped, .at = self.vars.items[id].decl });
     }
-    return null;
-}
-
-/// Drop the temporaries statement-held since `start`: a value that
-/// still views one after the statement would outlive it. One whose
-/// scope already ended (a branch's) was released there.
-pub fn dropStmtTemps(self: *Checker, start: usize) Error!void {
-    var i = self.stmt_drops.items.len;
-    while (i > start) {
-        i -= 1;
-        const d = self.stmt_drops.items[i];
-        if (!isStmtTempVar(self, d.id, d.pos)) continue;
-        try endLoansOn(self, d.id, .temp);
-        try self.setFlow(d.id, .{ .status = .dropped, .at = d.pos });
-    }
-    self.stmt_drops.shrinkRetainingCapacity(start);
 }
 
 /// A `holder`'s loans on hidden var `id` end, as `id` does: a
@@ -1844,12 +1829,9 @@ fn endLoansOn(self: *Checker, id: VarId, why: enum { temp, call }) Error!void {
     }
 }
 
-/// A loan in `v` on a temporary held since `stmt_drops` held
-/// `drops`: one a header made, which ends with the header.
-pub fn headerTempLoan(self: *const Checker, drops: usize, v: Value) ?Loan {
-    for (v.loans) |l| for (self.stmt_drops.items[@min(drops, self.stmt_drops.items.len)..]) |d| {
-        if (d.id == l.root) return l;
-    };
+/// A loan in `v` on one of the vars `ids`.
+fn loanOn(v: Value, ids: []const VarId) ?Loan {
+    for (v.loans) |l| if (std.mem.findScalar(VarId, ids, l.root) != null) return l;
     return null;
 }
 
@@ -2306,7 +2288,7 @@ pub fn storeThroughCapture(self: *Checker, v: Var, pos: u32, value: Value) Error
 /// runs (`holdForCall`), so a view of that ends with it.
 pub fn walkCall(self: *Checker, call: lowered.Expr) Error!Value {
     const node = call.node;
-    const mark = self.call_held.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const once_mark = self.once_uses.items.len;
     const used = try rules.onceUses(self, node);
     const late = self.late.items.len;
@@ -2316,7 +2298,7 @@ pub fn walkCall(self: *Checker, call: lowered.Expr) Error!Value {
     self.once_uses.shrinkRetainingCapacity(once_mark);
     // A `once` parameter called, or passed to another, is used up.
     for (used) |u| if (self.flowLive(u.id)) try self.markInvalid(u.id, .moved, u.pos);
-    const out = try endCallHeld(self, node, mark, v);
+    const out = try endCallHeld(self, node, try lowered.endsOf(self, lowered.regionOf(self, call, .call), vars_mark, true), v);
     // Each result keeps only what the call's value still carries.
     if (self.results_of) |r| if (sameNode(r.node, node) and out.loans.len != v.loans.len) {
         const parts = try self.arena().alloc(Value, r.parts.len);
@@ -2358,10 +2340,10 @@ fn holdLateOperands(self: *Checker, e: lowered.Expr, parts: []const Sexp, first:
 /// storage of its own (`storage.Var` of life `call`: a self, or
 /// a copied argument), in a hidden var the call views (`kind`), so
 /// a view of it is a view of that storage.
-pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind) Error!Value {
+pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind, sk: storage.StorageKind) Error!Value {
     const pos = notes.startOf(self, node);
     const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = pos, .ty = types.exprType(self, node), .kind = .hidden, .call_held = true }, .{ .loans = v.loans });
-    try self.call_held.append(self.gpa, id);
+    try lowered.noteMade(self, lowered.hiddenOf(self, node, sk), id);
     return .{ .loans = try self.oneLoan(.{ .root = id, .kind = kind, .pos = pos }) };
 }
 
@@ -2379,15 +2361,12 @@ pub fn heldForCall(self: *const Checker, e: Sexp, kind: storage.StorageKind) ?Se
     return node;
 }
 
-/// The storage of the call `node` held since `mark` ends as it
+/// The storage `ids` the call `node` holds, newest first, ends as it
 /// returns `v`: the result, unless the statement discards it, and
 /// every var the call stored a view of it in, may not keep one.
-pub fn endCallHeld(self: *Checker, node: Sexp, mark: usize, v: Value) Error!Value {
+pub fn endCallHeld(self: *Checker, node: Sexp, ids: []const VarId, v: Value) Error!Value {
     var out = v;
-    var i = self.call_held.items.len;
-    while (i > mark) {
-        i -= 1;
-        const id = self.call_held.items[i];
+    for (ids) |id| {
         if (self.reachable) {
             // Only a value nothing uses (an expression statement's,
             // `sema.discardsValue`) may keep no loan without a report.
@@ -2407,7 +2386,6 @@ pub fn endCallHeld(self: *Checker, node: Sexp, mark: usize, v: Value) Error!Valu
         }
         try self.setFlow(id, .{ .status = .dropped, .at = notes.startOf(self, node) });
     }
-    self.call_held.shrinkRetainingCapacity(mark);
     return out;
 }
 
@@ -2553,7 +2531,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
                 // viewed from there; any other is viewed where its
                 // leaves are.
                 recv_value = if (if (rec.wrap.held) heldForCall(self, obj, .self) else null) |held|
-                    try holdForCall(self, held, recv_value, kind)
+                    try holdForCall(self, held, recv_value, kind, .self)
                 else
                     try self.valueUnion(recv_value, try selfLeaves(self, obj, kind));
             }
@@ -2656,7 +2634,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         // An argument the call copies into storage of its own is viewed
         // from the copy.
         if (rec.wrap.held) if (heldForCall(self, storage.argValue(a), .argument)) |held| {
-            v.* = try holdForCall(self, held, v.*, .read);
+            v.* = try holdForCall(self, held, v.*, .read, .argument);
         };
         // A value handed over that carries a write loan (a write view
         // a method's result keeps of its self) keeps its root under
@@ -2835,7 +2813,7 @@ pub fn callResults(self: *Checker, node: Sexp, temps_start: usize, stored: Value
 /// right, as the binding `x = e` it is (`walkSet` of `(set op x _
 /// (result_part))`), so a target is bound only while no result still
 /// pending views it. A result no target takes (`_`) stays in the var,
-/// which the statement's end drops (`dropStmtTemps`), when its drop
+/// which the statement's end drops (`endTemps`), when its drop
 /// runs a `drop` body; any other reads none of its views. This walks
 /// the desugaring: the results statement temporaries, each taken by
 /// its binding (docs/internals/INTERNALS.md, "Several results").
@@ -2901,7 +2879,7 @@ pub fn walkDestructure(self: *Checker, node: Sexp) Error!void {
             if (self.temps.items[i].sameAs(l)) _ = self.temps.orderedRemove(i) else i += 1;
         }
     };
-    try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+    try lowered.noteMade(self, lowered.hiddenOf(self, node, .results), id);
     const saved_part = self.part_value;
     defer self.part_value = saved_part;
     for (targets, 0..) |t, j| {
@@ -3003,7 +2981,7 @@ pub fn selfLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
     const ctx = self.sema;
     if (ctx.dropsTemp(base)) {
         const pos = notes.startOf(self, base);
-        if (stmtTempAt(self, pos)) |id| return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
+        if (liveTemp(self, base, tempOf(self, base))) |id| return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
     }
     var leaves: std.ArrayList(Sexp) = .empty;
     try sema.valueLeaves(self.arena(), base, &leaves);
@@ -3024,7 +3002,7 @@ pub fn selfLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
         if (leaf == .src) continue;
         // A made value: the temporary its statement holds, made here
         // if the value needs no drop.
-        const held = stmtTempAt(self, pos);
+        const held = liveTemp(self, leaf, tempOf(self, leaf));
         const loan: Loan = .{ .root = held orelse (try holdTemp(self, leaf, .{})).loans[0].root, .kind = .read, .pos = pos };
         out = try self.valueUnion(out, .{ .loans = try self.oneLoan(loan) });
     }
@@ -3670,12 +3648,12 @@ pub fn walkConditionPart(self: *Checker, ce: lowered.Expr, body: Sexp) Error!voi
     const value = lowered.operand(self, ce, 0);
     if (header == .held) try holdBase(self, cond, value);
     const temps_start = self.temps.items.len;
-    const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const bound = if (header != null) try walkView(self, value, .read) else try walkConsumedE(self, value, .binding);
     self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
     try self.pushScopeFor(.block, body);
     try bindNew(self, ir.As.name(cond), false, false, bound);
-    try dropStmtTemps(self, drops);
+    try endTemps(self, try lowered.endsOf(self, lowered.regionOf(self, value, .header), vars_mark, false));
 }
 
 /// Walk `part` of `node`, which runs on some paths through `node`
@@ -3917,10 +3895,9 @@ fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const
         info.shown = notes.spanText(self, node);
     }
     const scrut_temps = self.temps.items.len;
-    const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const value = if (header == .viewed) try walkView(self, scrut_e, .read) else try walkE(self, scrut_e);
-    const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
-    for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
+    const header_temps = try lowered.endsOf(self, lowered.regionOf(self, scrut_e, .header), vars_mark, false);
     // A view the subject yields, which the construct reads where it
     // points (its tag, its payloads) after the header: one that carries
     // a loan on a temporary the header made reads it after its drop.
@@ -3931,7 +3908,7 @@ fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const
             break;
         };
     }
-    try dropStmtTemps(self, drops);
+    try endTemps(self, header_temps);
     self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
     return .{ .info = info, .value = value, .header_temps = header_temps };
 }
@@ -4086,11 +4063,12 @@ pub fn walkResultsBinding(self: *Checker, ce: lowered.Expr, body: Sexp) Error!vo
     const value = ir.AsResults.value(cond);
     const names = ir.AsResults.names(cond).items();
     const temps_start = self.temps.items.len;
-    const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const saved_results = self.results_of;
     defer self.results_of = saved_results;
     self.results_of = null;
-    const whole = try walkConsumedE(self, lowered.operand(self, ce, 0), .binding);
+    const value_e = lowered.operand(self, ce, 0);
+    const whole = try walkConsumedE(self, value_e, .binding);
     const parts: []const Value = blk: {
         if (self.results_of) |r| if (sameNode(r.node, value) and r.parts.len == names.len) break :blk r.parts;
         const all = try self.arena().alloc(Value, names.len);
@@ -4106,7 +4084,7 @@ pub fn walkResultsBinding(self: *Checker, ce: lowered.Expr, body: Sexp) Error!vo
         self.part_value = part;
         try walkSet(self, n);
     }
-    try dropStmtTemps(self, drops);
+    try endTemps(self, try lowered.endsOf(self, lowered.regionOf(self, value_e, .header), vars_mark, false));
 }
 
 /// A statement that gives a value (`sema.yieldsValue`).
@@ -4151,7 +4129,8 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
     if (header == .held) try holdBase(self, node, source_e);
     // The source is a header: its temporaries end with it, before
     // the loop walks what it gives.
-    const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
+    var ends: ?[]const VarId = null;
     // A source the loop consumes (`storage.forConsumes`) is taken,
     // as emit hands its elements over.
     const consumes = storage.forConsumes(self.sema, node);
@@ -4168,11 +4147,12 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
         // place where the recorded fact says its loans name only places
         // (`storage.livesIn`, CORE §9); the loans walked here agree, or
         // the fact is wrong.
-        if (self_check) if (storage.livesIn(self.sema, source).onlyPlaces()) if (headerTempLoan(self, drops, value) != null) {
+        ends = try lowered.headerEnds(self, source_e, vars_mark);
+        if (self_check) if (storage.livesIn(self.sema, source).onlyPlaces()) if (loanOn(value, ends.?) != null) {
             const lc = diag.lineCol(self.source, notes.startOf(self, source));
             std.debug.panic("{d}:{d}: internal error: the loop's source was decided to live only in places (`lives_in`), but its loans name a value made in its header", .{ lc.line, lc.col });
         };
-        if (headerTempLoan(self, drops, value)) |l| try notes.reportTempOutlived(self, l, null);
+        if (loanOn(value, ends.?)) |l| try notes.reportTempOutlived(self, l, null);
         // The elements of a collection the source makes (an array of
         // views, a call's result) carry the views it holds.
         if (resolvePlace(self, source) == null) {
@@ -4206,7 +4186,7 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
             }
         };
     }
-    try dropStmtTemps(self, drops);
+    try endTemps(self, ends orelse try lowered.headerEnds(self, source_e, vars_mark));
     var v = try walkLoop(self, spec);
     // The value the loop held ends with it.
     if (header == .held) v = try self.leaveScope(v);
