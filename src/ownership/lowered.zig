@@ -244,11 +244,13 @@ pub fn baseOf(self: *const Checker, e: Expr, base: Sexp) Expr {
     return at;
 }
 
-/// Construct `inner` of statement `stmt` (what a label names), found
-/// from the statement's region.
-pub fn within(self: *const Checker, stmt: Sexp, inner: Sexp) Expr {
+/// Construct `inner` of labeled construct `e` (what a label names),
+/// found from the statement's region, or, for a value, from the region
+/// its expression runs.
+pub fn within(self: *const Checker, e: Expr, inner: Sexp) Expr {
     const b = self.lir_body orelse return uncovered(self, inner);
-    return .{ .node = inner, .r = b.stmts.get(stmt) };
+    if (b.stmts.get(e.node)) |r| return .{ .node = inner, .r = r };
+    return .{ .node = inner, .id = e.id };
 }
 
 /// The region operand `i` of operation `e` is, where it is one.

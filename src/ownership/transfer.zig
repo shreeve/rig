@@ -497,7 +497,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             .@"if" => walkIf(self, ex),
             .@"while" => walkWhile(self, ex),
             .@"for" => walkFor(self, ex),
-            .labeled => walkLabeled(self, sexp),
+            .labeled => walkLabeled(self, ex),
             .match => walkMatch(self, ex),
             .@"catch" => walkCatch(self, ex),
             .@"??" => walkNullish(self, ex),
@@ -4113,18 +4113,19 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
 
 /// `(labeled name stmt)`: a labeled loop, or a labeled `match`, `raw`
 /// block, or block, which `break $name` leaves.
-pub fn walkLabeled(self: *Checker, node: Sexp) Error!Value {
+pub fn walkLabeled(self: *Checker, e: lowered.Expr) Error!Value {
+    const node = e.node;
     const stmt = ir.Labeled.stmt(node);
     if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
         self.pending_reads = rules.readsValue(self, node);
-        const v = try walkE(self, lowered.within(self, node, stmt));
+        const v = try walkE(self, lowered.within(self, e, stmt));
         self.pending_reads = false;
         return v;
     }
     var ctx: LoopCtx = .{ .node = stmt, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
     self.loop = &ctx;
     defer self.loop = ctx.parent;
-    _ = try walkStmtValueE(self, lowered.within(self, node, stmt), null);
+    _ = try walkStmtValueE(self, lowered.within(self, e, stmt), null);
     try self.joinAt(ctx.point, ctx.breaks.items, notes.resumeAt(self, .nil, node));
     return .{};
 }
