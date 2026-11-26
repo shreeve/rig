@@ -699,22 +699,10 @@ pub const Checker = struct {
     after_value: std.ArrayList(AfterValue) = .empty,
     /// Loans taken by the current statement and not stored in a var.
     temps: std.ArrayList(Loan) = .empty,
-    /// The hidden vars holding the owning temporaries of the statements
-    /// being walked (`sema.dropsTemp`), each with its position: dropped
-    /// when its statement ends.
-    stmt_drops: std.ArrayList(struct { id: VarId, pos: u32 }) = .empty,
-    /// The hidden vars made, before the scope a `catch` handler opens,
-    /// for the statement temporaries it makes (`holdPartTemps`), by node:
-    /// `holdTemp` holds each there.
-    part_temps: std.AutoHashMapUnmanaged(u32, VarId) = .empty,
     /// The views a call kept because its callee's `keeps` names their
     /// parameter, by where each was made: what a conflict's note says
     /// (`noteLoan`).
     kept_views: std.AutoHashMapUnmanaged(u32, KeptView) = .empty,
-    /// The hidden vars holding what the calls being walked keep in
-    /// storage of their own (`holdForCall`): each ends when its call
-    /// returns (`endCallHeld`).
-    call_held: std.ArrayList(VarId) = .empty,
     /// The positions where a `once` parameter is used as it may be: the
     /// callee of a call, or an argument to another `once` parameter.
     once_uses: std.ArrayList(u32) = .empty,
@@ -861,10 +849,7 @@ pub const Checker = struct {
         self.old_nones.deinit(self.gpa);
         self.method_calls.deinit(self.gpa);
         self.items_seen.deinit(self.gpa);
-        self.stmt_drops.deinit(self.gpa);
-        self.part_temps.deinit(self.gpa);
         self.kept_views.deinit(self.gpa);
-        self.call_held.deinit(self.gpa);
         self.once_uses.deinit(self.gpa);
         self.flows.deinit(self.gpa);
         self.loan_counts.deinit(self.gpa);
