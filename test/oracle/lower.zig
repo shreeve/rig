@@ -3367,7 +3367,12 @@ const Lowerer = struct {
             try self.emit(.{ .pos = pos, .what = .view, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .kind = .read } });
             return t;
         }
-        if (p.via == .read or (p.via == .own and pk == .read_view and !p.slice and !pointer)) {
+        // A field declared as a read view, reached through a write view
+        // (`?@ids` in a `!@` method, `?c.ids` of a `c: !Checker`), holds
+        // a view as an owned place's does: `?` copies it, carrying its
+        // loans, not a loan on the holder (Core s7).
+        const held_view = p.via == .write and mode == .read and p.path.len > 0 and self.ctx.types.get(p.ty) == .read_view and !p.slice and !pointer;
+        if (p.via == .read or (p.via == .own and pk == .read_view and !p.slice and !pointer) or held_view) {
             if (mode != .read) return abstain("a write view through a read view");
             const t = try self.viewTemp(ty, kind, pos);
             try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(p.root), .def = t, .access = readAccess(p), .carry = p.carry });
