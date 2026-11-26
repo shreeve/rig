@@ -41,5 +41,5 @@ export claimWait = ->
   bound = Number(process.env.RIG_HEAVY_WAIT ?? 2700) * 1000
   started = Date.now()
   while claimHeld()
-    throw new Error("the Mac stayed held for timing past #{bound / 60000} minutes: #{claimLine().slice(0, 120)}") if Date.now() - started >= bound
+    throw Error.new("the Mac stayed held for timing past #{bound / 60000} minutes: #{claimLine().slice(0, 120)}") if Date.now() - started >= bound
     Bun.sleepSync(Number(process.env.RIG_MAC_CLAIM_POLL_MS ?? 2000))
