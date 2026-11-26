@@ -66,14 +66,20 @@ pub const NodeTable = struct {
 /// A body lowered, and what the walk looks up in it by tree node.
 pub const Body = struct {
     f: *const lir.Func,
+    /// The arena the tables live in, the walk's.
+    a: std.mem.Allocator,
     /// The outermost expression made for each node: each list node's,
-    /// and in the shadow each leaf's too (`leaves`).
+    /// and in the shadow each leaf's too (`leaves`), made the first time
+    /// the walk looks one up (`exprAt`).
     exprs: NodeTable = .{},
+    exprs_done: bool = false,
+    indexing_exprs: bool = false,
     leaves: bool = false,
     /// The region made for each block: the body's by the function's
     /// block, a `defer`'s by its body, a `catch`'s by its handler.
     regions: NodeTable = .{},
-    /// The region of each statement, which holds its temporaries.
+    /// The region of each statement, which holds its temporaries, and of
+    /// each jump the region that ends with it.
     stmts: NodeTable = .{},
     /// The calls and array literals that evaluate parts first, in a
     /// region of kind `call`, by their nodes' keys.
@@ -96,6 +102,9 @@ pub const Body = struct {
 pub const Expr = struct {
     node: Sexp,
     id: ?lir.ExprId = null,
+    /// For a construct that is no expression (an `if` in a branch), the
+    /// region whose steps run it.
+    r: ?lir.RegionId = null,
 };
 
 /// The value hidden var `v` holds, where a region evaluates it first.
@@ -111,7 +120,155 @@ pub fn exprAt(self: *const Checker, node: Sexp) Expr {
     // A leaf's expression has no operands: only the shadow, which reads
     // the var a name's use reads, looks one up.
     if (!b.leaves and node != .list) return .{ .node = node };
+    if (!b.exprs_done) {
+        // Out of memory, the walk reads the tree's operands.
+        indexExprs(b) catch return .{ .node = node };
+    }
     return .{ .node = node, .id = b.exprs.get(node) };
+}
+
+/// Statement `stmt` as the walk reaches it: with the expression its
+/// region evaluates last, for a statement that is an expression, or
+/// with none, for one whose step says what it does (`stepOf`). A
+/// statement with no region of its own is looked up (`exprAt`).
+pub fn stmtExpr(self: *const Checker, stmt: Sexp) Expr {
+    const b = self.lir_body orelse return .{ .node = stmt };
+    // A block is walked by its region, by node.
+    if (stmt.isKind(.block)) return .{ .node = stmt };
+    const r = b.stmts.get(stmt) orelse return exprAt(self, stmt);
+    const reg = &b.f.regions.items[r];
+    const key = sema.decisionKeyOf(stmt);
+    const steps = reg.steps.items;
+    // A statement whose value its body yields is its region's value.
+    const out: Expr = if (reg.value != null and sema.decisionKeyOf(nodeOf(b, reg.value.?)) == key)
+        .{ .node = stmt, .id = reg.value.? }
+    else if (steps.len == 0) .{ .node = stmt } else switch (steps[steps.len - 1]) {
+        .eval => |e| if (sema.decisionKeyOf(nodeOf(b, e)) == key) .{ .node = stmt, .id = e } else .{ .node = stmt },
+        else => .{ .node = stmt },
+    };
+    if (self_check) sameAs(self, out, exprAt(self, stmt));
+    return out;
+}
+
+/// The control step of construct `e` (an `if`, `while`, `for`, or
+/// `match`): where `e` is a value, the branch or choice its expression
+/// is; else the last step of its statement's region, or of the region
+/// that step runs, whose node is `e`'s. Null where neither is found.
+pub fn controlOf(self: *const Checker, e: Expr) ?Control {
+    const b = self.lir_body orelse return null;
+    const key = sema.decisionKeyOf(e.node) orelse return null;
+    if (e.id) |start| {
+        var id = start;
+        while (true) switch (b.f.exprs.items[id]) {
+            .coerce => |c| id = c.value,
+            .hold => |h| id = h.value,
+            .block => |r| id = b.f.regions.items[r].value orelse return null,
+            .branch => |x| return if (sema.decisionKeyOf(x.node) == key) .{ .@"if" = x } else null,
+            .choice => |x| return if (sema.decisionKeyOf(x.node) == key) .{ .match = x } else null,
+            else => return null,
+        };
+    }
+    return controlFrom(b, e.r orelse b.stmts.get(e.node) orelse return null, key);
+}
+
+/// The control step with node key `key` that region `start` ends with,
+/// or the regions it ends with do.
+fn controlFrom(b: *const Body, start: lir.RegionId, key: u64) ?Control {
+    var r = start;
+    while (true) {
+        const steps = b.f.regions.items[r].steps.items;
+        if (steps.len == 0) return null;
+        const c: Control = switch (steps[steps.len - 1]) {
+            .region => |sub| {
+                r = sub;
+                continue;
+            },
+            .@"if" => |x| .{ .@"if" = x },
+            .match => |x| .{ .match = x },
+            .loop => |x| .{ .loop = .{ .node = x.node, .cond = x.cond, .body = x.body, .step = x.step } },
+            .each => |x| .{ .each = .{ .node = x.node, .source = x.source, .body = x.body } },
+            else => return null,
+        };
+        return if (sema.decisionKeyOf(c.node()) == key) c else null;
+    }
+}
+
+pub const Control = union(enum) {
+    @"if": lir.Expr.If,
+    match: lir.Expr.Choice,
+    loop: struct { node: Sexp, cond: lir.ExprId, body: lir.RegionId, step: ?lir.RegionId },
+    each: struct { node: Sexp, source: lir.ExprId, body: lir.RegionId },
+
+    fn node(c: Control) Sexp {
+        return switch (c) {
+            inline else => |x| x.node,
+        };
+    }
+};
+
+/// The region operand `i` of operation `e` is, where it is one.
+pub fn argRegion(self: *const Checker, e: Expr, i: usize) ?lir.RegionId {
+    const o = opOf(self, e) orelse return null;
+    if (i >= o.args.len) return null;
+    return switch (self.lir_body.?.f.exprs.items[o.args[i]]) {
+        .block => |r| r,
+        else => null,
+    };
+}
+
+/// Node `node` as LIR expression `id` holds it, where `id` is made for
+/// it; else as the walk looks it up (`exprAt`).
+pub fn exprFor(self: *const Checker, node: Sexp, id: lir.ExprId) Expr {
+    const b = self.lir_body.?;
+    if (sema.decisionKeyOf(nodeOf(b, id)) != sema.decisionKeyOf(node)) return exprAt(self, node);
+    const out: Expr = .{ .node = node, .id = id };
+    if (self_check) sameAs(self, out, exprAt(self, node));
+    return out;
+}
+
+/// Part `node` of a construct (a branch, an arm's body, a loop's body)
+/// as the walk reaches it from region `r`, which LIR made for it: a
+/// block is walked by its region, by node; an expression is the value
+/// the region yields.
+pub fn partExpr(self: *const Checker, node: Sexp, r: lir.RegionId) Expr {
+    const b = self.lir_body.?;
+    const reg = &b.f.regions.items[r];
+    const key = sema.decisionKeyOf(node);
+    const out: Expr = if (node.isKind(.block))
+        .{ .node = node }
+    else if (reg.value) |v| (if (sema.decisionKeyOf(nodeOf(b, v)) == key) .{ .node = node, .id = v } else return exprAt(self, node)) else blk: {
+        // A construct the region runs, an `else if`'s `if`.
+        if (controlFrom(b, r, key orelse return exprAt(self, node)) != null) break :blk .{ .node = node, .r = r };
+        return exprAt(self, node);
+    };
+    if (self_check) sameAs(self, out, exprAt(self, node));
+    return out;
+}
+
+/// Panic where `e` and `looked` (as `exprAt` finds it) are not
+/// expressions of the same node, under what `opOf` looks through.
+fn sameAs(self: *const Checker, e: Expr, looked: Expr) void {
+    const b = self.lir_body.?;
+    const x = nodeOf(b, core(b, e.id orelse return));
+    const y = nodeOf(b, core(b, looked.id orelse return));
+    if (sema.decisionKeyOf(x) != sema.decisionKeyOf(y)) std.debug.panic("internal error: the ownership checker reaches a `{s}` at another expression than its lookup's", .{@tagName(e.node.kind() orelse .module)});
+}
+
+fn core(b: *const Body, start: lir.ExprId) lir.ExprId {
+    var id = start;
+    while (true) switch (b.f.exprs.items[id]) {
+        .coerce => |c| id = c.value,
+        .hold => |h| id = h.value,
+        .@"var" => |x| id = hoistedOf(b, x.v) orelse return id,
+        .block => |r| {
+            const reg = &b.f.regions.items[r];
+            switch (reg.kind) {
+                .call, .header, .value => id = reg.value orelse return id,
+                else => return id,
+            }
+        },
+        else => return id,
+    };
 }
 
 /// The node LIR expression `id` of body `b` is the value of.
@@ -210,23 +367,13 @@ pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
     // lives until it is walked (`dropConstants`).
     const a = if (root.isKind(.module)) self.const_arena_state.allocator() else self.fn_arena_state.allocator();
     const out = try a.create(Body);
-    out.* = .{ .f = f, .leaves = self.on_lir };
+    out.* = .{ .f = f, .a = a, .leaves = self.on_lir };
     // The ids of the body's list nodes, which the parser numbers in
     // the order it makes them, mostly lie in one stretch: an array over
     // it finds each without hashing.
-    var lists: u32 = 0;
-    var leaves: u32 = 0;
+    var regions: u32 = 0;
     var lo: u32 = std.math.maxInt(u32);
     var hi: u32 = 0;
-    for (f.exprs.items) |e| {
-        const node = nodeOfExpr(e);
-        if (node == .list and node.list.id != 0) {
-            lists += 1;
-            lo = @min(lo, node.list.id);
-            hi = @max(hi, node.list.id);
-        } else if (node == .src) leaves += 1;
-    }
-    var regions: u32 = 0;
     var hoists = false;
     for (f.regions.items) |r| {
         if (r.node == .list and r.node.list.id != 0) {
@@ -246,35 +393,27 @@ pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
             else => {},
         };
     }
-    if (lists + regions > 0 and hi - lo < 4 * (lists + regions) + 256) {
-        // One array for the three tables.
+    if (regions > 0 and hi - lo < 4 * regions + 256) {
         const n = hi - lo + 1;
-        const all = try a.alloc(u32, 3 * n);
+        const all = try a.alloc(u32, 2 * n);
         @memset(all, NodeTable.none);
-        out.exprs.dense, out.stmts.dense, out.regions.dense = .{ all[0..n], all[n .. 2 * n], all[2 * n ..] };
-        out.exprs.lo, out.stmts.lo, out.regions.lo = .{ lo, lo, lo };
-        lists = 0;
+        out.stmts.dense, out.regions.dense = .{ all[0..n], all[n..] };
+        out.stmts.lo, out.regions.lo = .{ lo, lo };
     } else try out.stmts.map.ensureTotalCapacity(a, regions);
-    try out.exprs.map.ensureTotalCapacity(a, lists + if (out.leaves) leaves else 0);
     if (self.on_lir) for (f.vars.items) |v| switch (v.name) {
         .binding => |s| if (sema.decisionKeyOf(v.node)) |key| try out.binds.put(a, key, s),
         .hidden => |k| if (k == .temp) if (sema.decisionKeyOf(v.node)) |key| try out.temps.put(a, key, {}),
     };
     try out.regions.put(a, body, f.body, false);
-    try index(out, a, f.body);
+    // A region is made before the regions it holds, so the regions'
+    // order is the outermost first.
+    for (f.regions.items, 0..) |*reg, i| try indexRegion(out, a, reg, @intCast(i));
+    if (self_check) try checkRegions(out, body);
     return out;
 }
 
-/// The module's compile-time body is walked: free its index, and,
-/// outside a self-checking build (whose shadow walks it again), its LIR.
-pub fn dropConstants(self: *Checker) void {
-    _ = self.const_arena_state.reset(.free_all);
-    if (!self_check) if (self.interner.lowered) |*m| m.dropConstants();
-}
-
-/// Index region `r` and everything in it, outermost first.
-fn index(b: *Body, a: std.mem.Allocator, r: lir.RegionId) Error!void {
-    const reg = &b.f.regions.items[r];
+/// Record region `r` in the tables the walk finds it by.
+fn indexRegion(b: *Body, a: std.mem.Allocator, reg: *const lir.Region, r: lir.RegionId) Error!void {
     if (sema.decisionKeyOf(reg.node)) |key| switch (reg.kind) {
         .block => {
             // A `defer`'s region is its body's, a `catch`'s its handler's.
@@ -289,6 +428,67 @@ fn index(b: *Body, a: std.mem.Allocator, r: lir.RegionId) Error!void {
         .call => try b.calls.put(a, key, {}),
         else => {},
     };
+    // A jump that is no statement of its own (a branch, an arm's body,
+    // the right of `??`) is found by the region that ends with it.
+    const steps = reg.steps.items;
+    if (reg.kind != .stmt and steps.len > 0 and steps[steps.len - 1] == .jump) try b.stmts.put(a, steps[steps.len - 1].jump.node, r, true);
+}
+
+/// Panic where the tables `enter` filled from the regions in order are
+/// not those a walk of the body, outermost first, fills.
+fn checkRegions(b: *const Body, body: Sexp) Error!void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var walked: Body = .{ .f = b.f, .a = a };
+    try walked.regions.put(a, body, b.f.body, false);
+    walked.exprs_done = true;
+    try index(&walked, a, b.f.body);
+    for (b.f.regions.items) |reg| {
+        if (walked.regions.get(reg.node) != b.regions.get(reg.node) or walked.stmts.get(reg.node) != b.stmts.get(reg.node))
+            std.debug.panic("internal error: the ownership checker's tables of a body's regions differ from its walk's at a `{s}`", .{@tagName(reg.kind)});
+    }
+}
+
+/// Build the table of each node's outermost expression, the first time
+/// the walk looks one up.
+fn indexExprs(b: *Body) Error!void {
+    b.exprs_done = true;
+    var lists: u32 = 0;
+    var leaves: u32 = 0;
+    var lo: u32 = std.math.maxInt(u32);
+    var hi: u32 = 0;
+    for (b.f.exprs.items) |e| {
+        const node = nodeOfExpr(e);
+        if (node == .list and node.list.id != 0) {
+            lists += 1;
+            lo = @min(lo, node.list.id);
+            hi = @max(hi, node.list.id);
+        } else if (node == .src) leaves += 1;
+    }
+    if (lists > 0 and hi - lo < 4 * lists + 256) {
+        b.exprs.dense = try b.a.alloc(u32, hi - lo + 1);
+        @memset(b.exprs.dense, NodeTable.none);
+        b.exprs.lo = lo;
+        lists = 0;
+    }
+    try b.exprs.map.ensureTotalCapacity(b.a, lists + if (b.leaves) leaves else 0);
+    b.indexing_exprs = true;
+    defer b.indexing_exprs = false;
+    try index(b, b.a, b.f.body);
+}
+
+/// The module's compile-time body is walked: free its index, and,
+/// outside a self-checking build (whose shadow walks it again), its LIR.
+pub fn dropConstants(self: *Checker) void {
+    _ = self.const_arena_state.reset(.free_all);
+    if (!self_check) if (self.interner.lowered) |*m| m.dropConstants();
+}
+
+/// Index region `r` and everything in it, outermost first.
+fn index(b: *Body, a: std.mem.Allocator, r: lir.RegionId) Error!void {
+    const reg = &b.f.regions.items[r];
+    if (!b.indexing_exprs) try indexRegion(b, a, reg, r);
     for (reg.steps.items) |s| switch (s) {
         .bind => |x| try expr(b, a, x.value),
         .store => |x| {
@@ -339,7 +539,7 @@ fn nodeOfExpr(e: lir.Expr) Sexp {
 fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
     const e = b.f.exprs.items[id];
     const node = nodeOfExpr(e);
-    if (b.leaves or node == .list) try b.exprs.put(a, node, id, true);
+    if (!b.exprs_done or b.indexing_exprs) if (b.leaves or node == .list) try b.exprs.put(a, node, id, true);
     switch (e) {
         .@"var", .leaf, .closure => {},
         .op => |o| for (o.args) |x| try expr(b, a, x),
@@ -642,7 +842,7 @@ pub fn compare(name: []const u8, source: []const u8, tree: []const diag.Diagnost
     const s: ?diag.Diagnostic = if (i < shadow.len) shadow[i] else null;
     const at = diag.lineCol(source, if (t) |d| d.pos else s.?.pos);
     std.debug.panic("{s}:{d}:{d}: internal error: ownership on LIR disagrees with the tree walk ({d} and {d} diagnostics): the tree says \"{s}\", the LIR \"{s}\"", .{
-        name,                                   at.line, at.col, tree.len, shadow.len,
+        name,                                  at.line,                               at.col, tree.len, shadow.len,
         if (t) |d| d.message else "(nothing)", if (s) |d| d.message else "(nothing)",
     });
 }

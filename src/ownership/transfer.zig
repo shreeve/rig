@@ -23,6 +23,7 @@ const generic = @import("generic.zig");
 const types = @import("types.zig");
 const notes = @import("notes.zig");
 const lowered = @import("lowered.zig");
+const lir = @import("../lir.zig");
 const Checker = state.Checker;
 const Loan = state.Loan;
 const LoanKind = state.LoanKind;
@@ -300,6 +301,11 @@ pub fn walkStmt(self: *Checker, stmt: Sexp) Error!void {
 /// Walk one statement; its temporary views end with it. With
 /// `sink`, its value is consumed there (a loop's `as` condition).
 pub fn walkStmtValue(self: *Checker, stmt: Sexp, sink: ?Sink) Error!Value {
+    return walkStmtValueE(self, lowered.stmtExpr(self, stmt), sink);
+}
+
+pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value {
+    const stmt = e.node;
     const p = notes.span(self, stmt);
     if (!p.isEmpty()) self.anchor = p.start;
     if (!self.reachable) return .{};
@@ -312,7 +318,7 @@ pub fn walkStmtValue(self: *Checker, stmt: Sexp, sink: ?Sink) Error!Value {
     const walked = self.walked.items.len;
     defer self.walked.shrinkRetainingCapacity(@min(walked, self.walked.items.len));
     const drops = self.stmt_drops.items.len;
-    const v = if (sink) |k| try walkConsumed(self, stmt, k) else try walk(self, stmt);
+    const v = if (sink) |k| try walkConsumedE(self, e, k) else try walkE(self, e);
     self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
     try dropStmtTemps(self, drops);
     return v;
@@ -465,12 +471,12 @@ pub fn copiedOut(self: *Checker, reached: TypeId, temps_start: usize, v: Value) 
 /// gives the fallback form: what its payload views, copied out where
 /// `node` copies it (`SemContext.copiesPayload`), else the payload as
 /// it is.
-pub fn walkPayloadHolder(self: *Checker, node: Sexp, holder: Sexp) Error!Value {
+pub fn walkPayloadHolder(self: *Checker, node: Sexp, he: lowered.Expr) Error!Value {
     const ctx = self.sema;
-    if (!ctx.copiesPayload(node)) return walk(self, holder);
+    if (!ctx.copiesPayload(node)) return walkE(self, he);
     const temps_start = self.temps.items.len;
-    const v = try walk(self, holder);
-    const viewed = sema.payloadViewed(ctx, ctx.typeOf(holder) orelse return v) orelse return v;
+    const v = try walkE(self, he);
+    const viewed = sema.payloadViewed(ctx, ctx.typeOf(he.node) orelse return v) orelse return v;
     return copiedOut(self, viewed, temps_start, v);
 }
 
@@ -490,32 +496,32 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
         .@"return" => try walkReturn(self, sexp),
         .@"break" => try exits.walkJump(self, sexp, .brk),
         .@"continue" => try exits.walkJump(self, sexp, .cont),
-        .panic => try walkPanic(self, sexp),
+        .panic => try walkPanic(self, ex),
         .@"defer", .@"errdefer" => try exits.walkDefer(self, sexp),
         else => return switch (kind) {
             .block => walkBlock(self, sexp),
-            .move => walkMove(self, ir.Move.operand(sexp)),
+            .move => walkMove(self, lowered.operand(self, ex, 0)),
             // A view the type checker rejected makes no loan.
             .read, .write => if (types.rejected(self, sexp))
-                walkRejectedView(self, ir.get(sexp, .operand))
+                walkRejectedView(self, lowered.operand(self, ex, 0))
             else if (viewsElements(self, sexp))
                 // `?a` viewed as `?a[..]`, `!a` as `!a[..]`, `?t` of a
                 // String as `?t[..]`.
-                walkElems(self, sexp, ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write)
+                walkElems(self, ex, lowered.operand(self, ex, 0), if (sexp.isKind(.read)) .read else .write)
             else
-                walkView(self, ir.get(sexp, .operand), loanOf(self, sexp)),
-            .clone, .weak => walkCloneWeak(self, sexp),
-            .share => walkShare(self, sexp),
+                walkView(self, lowered.operand(self, ex, 0), loanOf(self, sexp)),
+            .clone, .weak => walkCloneWeak(self, ex),
+            .share => walkShare(self, ex),
             .box => walkConsumedE(self, lowered.operand(self, ex, 0), .box),
             .lambda => walkLambda(self, sexp, false),
-            .@"if" => walkIf(self, sexp),
-            .@"while" => walkWhile(self, sexp),
-            .@"for" => walkFor(self, sexp),
+            .@"if" => walkIf(self, ex),
+            .@"while" => walkWhile(self, ex),
+            .@"for" => walkFor(self, ex),
             .labeled => walkLabeled(self, sexp),
-            .match => walkMatch(self, sexp),
-            .@"catch" => walkCatch(self, sexp),
-            .@"??" => walkNullish(self, sexp),
-            .propagate, .propagate_none => walkPropagate(self, sexp),
+            .match => walkMatch(self, ex),
+            .@"catch" => walkCatch(self, ex),
+            .@"??" => walkNullish(self, ex),
+            .propagate, .propagate_none => walkPropagate(self, ex),
             .call => walkCall(self, ex),
             // A destructure's target takes its result's loans.
             .result_part => self.part_value,
@@ -571,9 +577,10 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
 
 /// The operand of a view the type checker rejected: a closure
 /// binding there was reported with it.
-pub fn walkRejectedView(self: *Checker, operand: Sexp) Error!Value {
+pub fn walkRejectedView(self: *Checker, e: lowered.Expr) Error!Value {
+    const operand = e.node;
     if (operand == .src) if (self.find(operand)) |id| if (self.vars.items[id].closure) return .{};
-    return walk(self, operand);
+    return walkE(self, e);
 }
 
 /// Walk an expression in a position that takes ownership of its value.
@@ -585,7 +592,7 @@ pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
     const expr = e.node;
     // A bare value viewed to read where a view is expected is walked as
     // `?expr` (`View.implicit`).
-    if (viewOf(self, expr)) |view| if (view.implicit) return walkImplicitView(self, expr, view);
+    if (viewOf(self, expr)) |view| if (view.implicit) return walkImplicitView(self, e, view);
     if (isLambda(expr)) {
         // A closure literal given to a call as a callable view
         // lives for the call; anywhere else it is reported by
@@ -601,7 +608,7 @@ pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
     // it is a write view of its holder for as long as the result may
     // keep the view.
     // A `![]T` passed where a `[]T` is expected is viewed to read.
-    if (sink == .argument and isWriteViewPlace(self, expr)) return walkView(self, expr, if (types.viewsBy(self, expr, .read_only)) .read else .write);
+    if (sink == .argument and isWriteViewPlace(self, expr)) return walkView(self, e, if (types.viewsBy(self, expr, .read_only)) .read else .write);
     setTail(self, expr, sink);
     return walkE(self, e);
 }
@@ -844,12 +851,12 @@ pub fn extendsPath(self: *const Checker, e: Sexp, at_root: bool, self_root: bool
 }
 
 /// Walk the index expressions inside a place.
-pub fn walkPlaceIndices(self: *Checker, e: Sexp) Error!void {
-    switch (e.kind() orelse return) {
-        .member => try walkPlaceIndices(self, ir.Member.object(e)),
+pub fn walkPlaceIndices(self: *Checker, e: lowered.Expr) Error!void {
+    switch (e.node.kind() orelse return) {
+        .member => try walkPlaceIndices(self, lowered.operand(self, e, 0)),
         .index => {
-            try walkPlaceIndices(self, ir.Index.object(e));
-            _ = try walk(self, ir.Index.index(e));
+            try walkPlaceIndices(self, lowered.operand(self, e, 0));
+            _ = try walkE(self, lowered.operand(self, e, 1));
         },
         else => {},
     }
@@ -862,22 +869,22 @@ pub fn walkPlaceIndices(self: *Checker, e: Sexp) Error!void {
 /// view of it or move it (`!ps[0].a[grow(!ps)]` would write into the
 /// buffer `grow` freed). An assignment finds its target only after its
 /// indices run (`walkFieldAssign`).
-pub fn walkIndicesHeld(self: *Checker, e: Sexp, root: VarId, path: PathId) Error!void {
+pub fn walkIndicesHeld(self: *Checker, e: lowered.Expr, root: VarId, path: PathId) Error!void {
     const mark = self.temps.items.len;
-    try live.addTemp(self, .{ .root = root, .path = path, .kind = .read, .pos = notes.startOf(self, e), .place_hold = true });
+    try live.addTemp(self, .{ .root = root, .path = path, .kind = .read, .pos = notes.startOf(self, e.node), .place_hold = true });
     try walkPlaceIndices(self, e);
     if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
 }
 
 /// The indices of place `e`, read or taken, each walked as
 /// `walkIndexOf` walks it.
-pub fn walkFoundIndices(self: *Checker, e: Sexp) Error!void {
-    switch (e.kind() orelse return) {
-        .member => try walkFoundIndices(self, ir.Member.object(e)),
+pub fn walkFoundIndices(self: *Checker, e: lowered.Expr) Error!void {
+    switch (e.node.kind() orelse return) {
+        .member => try walkFoundIndices(self, lowered.operand(self, e, 0)),
         .index => {
-            const object = ir.Index.object(e);
+            const object = lowered.operand(self, e, 0);
             try walkFoundIndices(self, object);
-            try walkIndexOf(self, object, lowered.exprAt(self, ir.Index.index(e)));
+            try walkIndexOf(self, object.node, lowered.operand(self, e, 1));
         },
         else => {},
     }
@@ -1022,7 +1029,7 @@ pub fn walkReadArg(self: *Checker, a: Sexp) Error!void {
 pub fn walkReadArgE(self: *Checker, e: lowered.Expr) Error!void {
     const a = e.node;
     if (viewOf(self, a)) |view| if (view.implicit) {
-        _ = try walkImplicitView(self, a, view);
+        _ = try walkImplicitView(self, e, view);
         return;
     };
     _ = try walkE(self, e);
@@ -1055,50 +1062,52 @@ pub fn moveSource(self: *const Checker, inner: Sexp) sema.MoveSource {
 /// rejected: `<` would leave it as it was, or move what its owner
 /// still drops. A value made here is taken, and a branching value
 /// leaf by leaf.
-pub fn walkMove(self: *Checker, inner: Sexp) Error!Value {
+pub fn walkMove(self: *Checker, ie: lowered.Expr) Error!Value {
+    const inner = ie.node;
     switch (moveSource(self, inner)) {
         .binding => {
-            const place = resolvePlace(self, inner) orelse return walk(self, inner);
+            const place = resolvePlace(self, inner) orelse return walkE(self, ie);
             return moveVar(self, place.root, notes.startOf(self, inner), .move);
         },
         .capture => {
-            const place = resolvePlace(self, inner) orelse return walk(self, inner);
+            const place = resolvePlace(self, inner) orelse return walkE(self, ie);
             // A capture that owns a resource, or holds a view, is
             // reported as one (`rejectConsumedView`).
             if (self.vars.items[place.root].capture_resource) return moveVar(self, place.root, notes.startOf(self, inner), .move);
-            _ = try walk(self, inner);
+            _ = try walkE(self, ie);
             try notes.errAt(self, inner, "cannot move `{s}`, a copy capture: the closure keeps it for every call; remove the `<` to copy it", .{types.text(self, inner)});
             return .{};
         },
-        .optional_part => return walkTake(self, inner),
+        .optional_part => return walkTake(self, ie),
         .part => {
-            if (resolvePlace(self, inner)) |place| return movePart(self, inner, place, null, false);
+            if (resolvePlace(self, inner)) |place| return movePart(self, ie, place, null, false);
             // A path that starts from no var reaches its value through
             // a view or a handle when one of the values on it is one,
             // by its type: `(!s).items`, `(?s if c else ?t).items`,
             // `wrap(!s).items`.
-            if (viewOnPath(self, inner)) |via| return movePart(self, inner, .{ .root = 0, .whole = false, .through_view = !via.shared, .through_shared = via.shared }, via.value, false);
+            if (viewOnPath(self, inner)) |via| return movePart(self, ie, .{ .root = 0, .whole = false, .through_view = !via.shared, .through_shared = via.shared }, via.value, false);
             // A root no var holds here (an outer name a closure did not
             // capture): walking reports it.
-            return walk(self, inner);
+            return walkE(self, ie);
         },
-        .branch_part => return movePart(self, inner, .{ .root = 0, .whole = false }, sema.pathRoot(inner), true),
+        .branch_part => return movePart(self, ie, .{ .root = 0, .whole = false }, sema.pathRoot(inner), true),
         // The type checker reported it (`rejectMadeParts`), and a
         // module with type errors is not checked here.
-        .made_part => return walk(self, inner),
-        .declared => return moveDeclared(self, inner),
-        .made => return walk(self, inner),
+        .made_part => return walkE(self, ie),
+        .declared => return moveDeclared(self, ie),
+        .made => return walkE(self, ie),
         .branches => {
             if (try notes.reportMoveLeaves(self, inner)) return .{};
-            return walk(self, inner);
+            return walkE(self, ie);
         },
     }
 }
 
 /// `<` of what lives for the whole program
 /// (`sema.MoveSource.declared`): rejected, since nothing could end it.
-pub fn moveDeclared(self: *Checker, inner: Sexp) Error!Value {
-    _ = try walk(self, inner);
+pub fn moveDeclared(self: *Checker, ie: lowered.Expr) Error!Value {
+    const inner = ie.node;
+    _ = try walkE(self, ie);
     const pos = notes.startOf(self, inner);
     const shown = notes.spanText(self, inner);
     const ty = types.exprType(self, inner);
@@ -1138,9 +1147,10 @@ pub fn viewOnPath(self: *const Checker, e: Sexp) ?struct { value: Sexp, shared: 
 /// and `none` left behind, so the place stays whole. The place is
 /// written: no other view of it may be live. What the value
 /// views, the place viewed.
-pub fn walkTake(self: *Checker, inner: Sexp) Error!Value {
-    const place = resolvePlace(self, inner) orelse return walkViewedPath(self, inner);
-    try walkFoundIndices(self, inner);
+pub fn walkTake(self: *Checker, ie: lowered.Expr) Error!Value {
+    const inner = ie.node;
+    const place = resolvePlace(self, inner) orelse return walkViewedPath(self, ie);
+    try walkFoundIndices(self, ie);
     const id = place.root;
     const pos = notes.startOf(self, inner);
     if (!try rules.checkLivePath(self, id, place.path, pos)) return .{};
@@ -1234,8 +1244,9 @@ pub fn movePayload(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!Va
 /// was; one that moves would stay owned by its parent, or by what
 /// `via` reaches it through (`viewOnPath`, `branchesOnPath`),
 /// whatever its syntax.
-pub fn movePart(self: *Checker, inner: Sexp, place: Place, via: ?Sexp, branching: bool) Error!Value {
-    _ = try walk(self, inner);
+pub fn movePart(self: *Checker, ie: lowered.Expr, place: Place, via: ?Sexp, branching: bool) Error!Value {
+    const inner = ie.node;
+    _ = try walkE(self, ie);
     const ty = types.exprType(self, inner);
     const path = try notes.placeText(self, inner);
     const pos = notes.startOf(self, inner);
@@ -1373,10 +1384,11 @@ pub fn fieldPath(self: *Checker, e: Sexp) Error![]const u8 {
 /// and keeps nothing viewed there (Core §6): what its operand read
 /// through is released, so `!m.take(+v.key)` ends `v`'s view of `m`
 /// before the call makes a write view of `m`.
-pub fn walkCloneWeak(self: *Checker, e: Sexp) Error!Value {
+pub fn walkCloneWeak(self: *Checker, ex: lowered.Expr) Error!Value {
+    const e = ex.node;
     const inner = ir.get(e, .operand);
     const temps_start = self.temps.items.len;
-    const v = try walk(self, inner);
+    const v = try walkE(self, lowered.operand(self, ex, 0));
     const p = resolvePlace(self, inner);
     const id: ?VarId = if (p != null and p.?.whole) p.?.root else null;
     const out = try newHandle(self, notes.startOf(self, inner), try notes.placeText(self, inner), types.exprType(self, e), id, v, e.isKind(.weak));
@@ -1480,7 +1492,7 @@ pub fn viewsElements(self: *const Checker, e: Sexp) bool {
 /// `e`, a bare value viewed to read where a view is expected, walked as
 /// the view `?e` would be: of its elements (`?a[..]`, `?t[..]`) when
 /// the view's first row is theirs, of the value otherwise.
-pub fn walkImplicitView(self: *Checker, e: Sexp, view: sema.View) Error!Value {
+pub fn walkImplicitView(self: *Checker, e: lowered.Expr, view: sema.View) Error!Value {
     for (view.steps()) |step| switch (step) {
         .lift => {},
         .elems, .text => return walkElems(self, e, e, .read),
@@ -1489,15 +1501,16 @@ pub fn walkImplicitView(self: *Checker, e: Sexp, view: sema.View) Error!Value {
     return walkView(self, e, .read);
 }
 
-pub fn walkView(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
-    if (rig.isRangeIndex(inner)) return walkElems(self, inner, ir.Index.object(inner), kind);
-    if (kind == .read and origins.throughReadView(self, inner)) return origins.walkThroughView(self, inner);
+pub fn walkView(self: *Checker, ie: lowered.Expr, kind: LoanKind) Error!Value {
+    const inner = ie.node;
+    if (rig.isRangeIndex(inner)) return walkElems(self, ie, lowered.operand(self, ie, 0), kind);
+    if (kind == .read and origins.throughReadView(self, inner)) return origins.walkThroughView(self, ie);
     const place = resolvePlace(self, inner) orelse {
         const start = self.vars.items.len;
-        const v = try walkViewedPath(self, inner);
+        const v = try walkViewedPath(self, ie);
         return if (kind == .write) writeViewTemp(self, v, start) else v;
     };
-    try walkIndicesHeld(self, inner, place.root, place.path);
+    try walkIndicesHeld(self, ie, place.root, place.path);
     const id = place.root;
     const v = self.vars.items[id];
     const pos = notes.startOf(self, inner);
@@ -1528,10 +1541,10 @@ pub fn writeViewTemp(self: *Checker, v: Value, start: usize) Error!Value {
 
 /// A view of a path that starts from no var (`?f(?h).r`): it keeps
 /// what the path's start views, whatever the type of each step.
-pub fn walkViewedPath(self: *Checker, e: Sexp) Error!Value {
-    if (!e.isKind(.member) and !e.isKind(.index)) return walk(self, e);
-    const obj = try walkViewedPath(self, ir.get(e, .object));
-    if (e.isKind(.index)) _ = try walk(self, ir.Index.index(e));
+pub fn walkViewedPath(self: *Checker, e: lowered.Expr) Error!Value {
+    if (!e.node.isKind(.member) and !e.node.isKind(.index)) return walkE(self, e);
+    const obj = try walkViewedPath(self, lowered.operand(self, e, 0));
+    if (e.node.isKind(.index)) _ = try walkE(self, lowered.operand(self, e, 1));
     return obj;
 }
 
@@ -1554,27 +1567,29 @@ pub fn viewVar(self: *Checker, id: VarId, path: PathId, kind: LoanKind, pos: u32
 /// is reached from, which may be a copy (a by-value parameter, a loop
 /// or pattern binding), also holds a frame loan on that var, so it
 /// cannot outlive it.
-pub fn walkElems(self: *Checker, slice: Sexp, object: Sexp, kind: LoanKind) Error!Value {
+pub fn walkElems(self: *Checker, se: lowered.Expr, oe: lowered.Expr, kind: LoanKind) Error!Value {
+    const slice = se.node;
+    const object = oe.node;
     // The place's own indexes, and a slice's bounds.
-    const indices = if (rig.isRangeIndex(slice)) slice else object;
+    const indices = if (rig.isRangeIndex(slice)) se else oe;
     // A slice the type checker rejected views nothing.
     if (types.rejected(self, slice)) {
-        _ = try walk(self, object);
+        _ = try walkE(self, oe);
         try walkPlaceIndices(self, indices);
         return .{};
     }
     // What it views, as the type checker recorded it: the elements
     // or bytes the value holds, through handles and boxes, or a
     // `![]T` passed on. A view's elements are what the view views.
-    const view = self.sema.sliceViewOf(slice) orelse self.sema.viewOf(slice) orelse return walkOperand(self, slice, object);
-    if (!view.has(.elems) and !view.has(.text) and !view.has(.read_only)) return walkOperand(self, slice, object);
-    const ty = types.exprType(self, object) orelse return walkOperand(self, slice, object);
+    const view = self.sema.sliceViewOf(slice) orelse self.sema.viewOf(slice) orelse return walkOperand(self, se, oe);
+    if (!view.has(.elems) and !view.has(.text) and !view.has(.read_only)) return walkOperand(self, se, oe);
+    const ty = types.exprType(self, object) orelse return walkOperand(self, se, oe);
     const peeled = types.pointee(self, ty) orelse ty;
     // An array reached through a read view (an element of a `[]T`)
     // is viewed as that view views it.
     if (origins.throughReadView(self, object)) {
-        const v = try origins.walkThroughView(self, object);
-        if (rig.isRangeIndex(slice)) _ = try walk(self, ir.Index.index(slice));
+        const v = try origins.walkThroughView(self, oe);
+        if (rig.isRangeIndex(slice)) _ = try walkE(self, lowered.operand(self, se, 1));
         return v;
     }
     // A path from no var (a temporary's part, `?mk().v[..]`) keeps
@@ -1582,9 +1597,9 @@ pub fn walkElems(self: *Checker, slice: Sexp, object: Sexp, kind: LoanKind) Erro
     // write view of that temporary.
     const place = resolvePlace(self, object) orelse {
         const start = self.vars.items.len;
-        var v = try walkViewedPath(self, object);
+        var v = try walkViewedPath(self, oe);
         if (kind == .write) v = try writeViewTemp(self, v, start);
-        if (rig.isRangeIndex(slice)) _ = try walk(self, ir.Index.index(slice));
+        if (rig.isRangeIndex(slice)) _ = try walkE(self, lowered.operand(self, se, 1));
         return v;
     };
     try walkIndicesHeld(self, indices, place.root, place.path);
@@ -1596,8 +1611,8 @@ pub fn walkElems(self: *Checker, slice: Sexp, object: Sexp, kind: LoanKind) Erro
 }
 
 /// A slice walked as a plain value, or a whole-array view's operand.
-pub fn walkOperand(self: *Checker, slice: Sexp, object: Sexp) Error!Value {
-    return walk(self, if (rig.isRangeIndex(slice)) slice else object);
+pub fn walkOperand(self: *Checker, se: lowered.Expr, oe: lowered.Expr) Error!Value {
+    return walkE(self, if (rig.isRangeIndex(se.node)) se else oe);
 }
 
 /// Whether the value of place `e` is stored in the var the place
@@ -1807,8 +1822,12 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
     const target = ir.Set.target(node);
     const expr = ir.Set.value(node);
     // The value as the statement's step stores, binds, or discards it.
+    var target_id: ?lir.ExprId = null;
     const value_e: lowered.Expr = if (lowered.stepOf(self, node)) |step| switch (step) {
-        .store => |x| lowered.stepOperand(self, expr, x.value),
+        .store => |x| blk: {
+            target_id = x.target;
+            break :blk lowered.stepOperand(self, expr, x.value);
+        },
         .bind => |x| lowered.stepOperand(self, expr, x.value),
         .eval => |x| lowered.stepOperand(self, expr, x),
         else => lowered.exprAt(self, expr),
@@ -1826,7 +1845,9 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
             base: ?Value = null,
             base_node: Sexp = .nil,
 
-            pub fn step(st: *@This(), s: storage.SetStep) Error!void {
+            const Step = struct { e: lowered.Expr = .{ .node = .nil }, role: storage.SetStep.Role };
+
+            pub fn step(st: *@This(), s: Step) Error!void {
                 switch (s.role) {
                     .value => {
                         const mark = try useAfterValue(st.c, st.set);
@@ -1838,10 +1859,25 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
                     // `wrap(!h).r`) runs here; a place is found at
                     // the store.
                     .base => if (!st.placed) {
-                        st.base = try walk(st.c, s.node);
-                        st.base_node = s.node;
+                        st.base = try walkE(st.c, s.e);
+                        st.base_node = s.e.node;
                     },
-                    .index => _ = try walk(st.c, s.node),
+                    .index => _ = try walkE(st.c, s.e),
+                }
+            }
+
+            /// The steps of the target's path from `e`, as
+            /// `storage.eachTargetStep` lists them.
+            fn path(st: *@This(), e: lowered.Expr) Error!void {
+                switch (e.node.kind() orelse return st.step(.{ .e = e, .role = .base })) {
+                    .member => try st.path(lowered.operand(st.c, e, 0)),
+                    .index => {
+                        try st.path(lowered.operand(st.c, e, 0));
+                        const index = lowered.operand(st.c, e, 1);
+                        if (!index.node.isKind(.@"..")) return st.step(.{ .e = index, .role = .index });
+                        for (0..2) |i| if (rig.children(index.node)[i] != .nil) try st.step(.{ .e = lowered.operand(st.c, index, i), .role = .index });
+                    },
+                    else => try st.step(.{ .e = e, .role = .base }),
                 }
             }
         };
@@ -1850,7 +1886,8 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
         // the store, after the target's base and indexes.
         const late = self.late.items.len;
         if (self.nll and storage.isPureArg(self.sema, expr)) try live.holdLate(self, expr);
-        try storage.eachSetStep(node, &steps);
+        try steps.step(.{ .role = .value });
+        try steps.path(if (target_id) |id| lowered.stepOperand(self, target, id) else lowered.exprAt(self, target));
         try walkFieldAssign(self, node, target, steps.value, steps.base, steps.base_node);
         return live.endLate(self, late);
     }
@@ -3070,7 +3107,8 @@ pub fn heldThroughHandle(self: *const Checker, ty: ?TypeId, id: ?VarId) ?Value {
     return null;
 }
 
-pub fn walkShare(self: *Checker, node: Sexp) Error!Value {
+pub fn walkShare(self: *Checker, ex: lowered.Expr) Error!Value {
+    const node = ex.node;
     const inner = ir.Share.operand(node);
     // `*|...| body`: an owned closure.
     if (isLambda(inner)) {
@@ -3082,10 +3120,11 @@ pub fn walkShare(self: *Checker, node: Sexp) Error!Value {
     // `x`. The new handle reaches what `w` reaches.
     const ctx = self.sema;
     if (ctx.upgradeOf(node)) |how| {
-        const v = if (how == .reads) try walk(self, inner) else try walkConsumed(self, inner, .allocation);
+        const ie = lowered.operand(self, ex, 0);
+        const v = if (how == .reads) try walkE(self, ie) else try walkConsumedE(self, ie, .allocation);
         return if (types.mayCarryLoan(self, types.exprType(self, node))) v else .{};
     }
-    return walkConsumed(self, inner, .allocation);
+    return walkConsumedE(self, lowered.operand(self, ex, 0), .allocation);
 }
 
 /// A closure literal; `owned` for `*|...| body`.
@@ -3280,8 +3319,9 @@ pub fn inCellList(self: *const Checker, target: Sexp) bool {
 // -----------------------------------------------------------------------------
 
 /// `e!` / `e?`: on failure or `none`, control leaves for the caller.
-pub fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
-    const v = try walk(self, ir.get(node, .value));
+pub fn walkPropagate(self: *Checker, ex: lowered.Expr) Error!Value {
+    const node = ex.node;
+    const v = try walkE(self, lowered.operand(self, ex, 0));
     if (self.reachable) _ = try exits.exitTo(self, .{ .exit = .{ .propagate = node.isKind(.propagate) } });
     return v;
 }
@@ -3298,9 +3338,10 @@ pub fn mayFail(self: *const Checker, e: Sexp) bool {
 }
 
 /// `(catch expr name? handler)`: the handler runs when `expr` fails.
-pub fn walkCatch(self: *Checker, node: Sexp) Error!Value {
+pub fn walkCatch(self: *Checker, ex: lowered.Expr) Error!Value {
+    const node = ex.node;
     const t = takeTail(self, node);
-    const v1 = try walkPayloadHolder(self, node, ir.Catch.value(node));
+    const v1 = try walkPayloadHolder(self, node, lowered.operand(self, ex, 0));
     const handler = ir.Catch.handler(node);
     try holdPartTemps(self, handler);
     const base = try self.here();
@@ -3309,7 +3350,7 @@ pub fn walkCatch(self: *Checker, node: Sexp) Error!Value {
     if (name != .nil) {
         _ = try self.addVar(.{ .name = types.text(self, name), .decl = name.src.pos, .sym = self.bindingOf(name), .ty = types.symType(self, name) }, .{});
     }
-    var v2 = try walkTailPart(self, handler, t);
+    var v2 = try walkTailPartE(self, if (lowered.argRegion(self, ex, 1)) |h| lowered.partExpr(self, handler, h) else lowered.exprAt(self, handler), t);
     v2 = try self.leaveScope(v2);
     const s = try self.leave(base, notes.resumeAt(self, .nil, node));
     try self.apply(try self.join(stateAt(base), s));
@@ -3318,10 +3359,11 @@ pub fn walkCatch(self: *Checker, node: Sexp) Error!Value {
 
 /// `a ?? b`: `b` runs only when `a` is `none`. It may be a jump, which
 /// leaves the rest of the code reachable through the other path.
-pub fn walkNullish(self: *Checker, node: Sexp) Error!Value {
+pub fn walkNullish(self: *Checker, ex: lowered.Expr) Error!Value {
+    const node = ex.node;
     const t = takeTail(self, node);
-    const v1 = try walkPayloadHolder(self, node, ir.@"??".left(node));
-    return self.valueUnion(v1, try walkMayRun(self, lowered.exprAt(self, ir.@"??".right(node)), t, node));
+    const v1 = try walkPayloadHolder(self, node, lowered.operand(self, ex, 0));
+    return self.valueUnion(v1, try walkMayRun(self, lowered.operand(self, ex, 1), t, node));
 }
 
 // -----------------------------------------------------------------------------
@@ -3452,24 +3494,34 @@ pub fn moveWriteView(self: *Checker, id: VarId, pos: u32) Error!Value {
 // Branches
 // -----------------------------------------------------------------------------
 
-pub fn walkIf(self: *Checker, node: Sexp) Error!Value {
+pub fn walkIf(self: *Checker, e: lowered.Expr) Error!Value {
+    const node = e.node;
     const t = takeTail(self, node);
     const cond = ir.If.cond(node);
-    if (rig.isAsPart(cond) or rig.isConditionJoin(cond)) return walkIfBinding(self, node, t);
+    const lir_if: ?lir.Expr.If = if (lowered.controlOf(self, e)) |c| (if (c == .@"if") c.@"if" else null) else null;
+    if (rig.isAsPart(cond) or rig.isConditionJoin(cond)) return walkIfBinding(self, node, lir_if, t);
     const then_b = ir.If.then(node);
     const else_b = ir.If.@"else"(node);
     // The condition is a header, its own statement.
     const mark = try useBranchesAfter(self, node, cond);
-    try walkStmt(self, cond);
+    _ = try walkStmtValueE(self, if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.stmtExpr(self, cond), null);
     self.after_value.shrinkRetainingCapacity(@min(mark, self.after_value.items.len));
     const base = try self.here();
     const past = notes.resumeAt(self, .nil, node);
-    const v1 = try walkTailPart(self, then_b, t);
+    const v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
     const s1 = try self.leave(base, past);
-    const v2 = if (else_b != .nil) try walkTailPart(self, else_b, t) else Value{};
+    const v2 = if (else_b == .nil) Value{} else try walkTailPartE(self, branchOf(self, else_b, lir_if, false), t);
     const s2 = try self.leave(base, past);
     try self.apply(try self.join(s1, s2));
     return self.valueUnion(v1, v2);
+}
+
+/// Branch `b` of an `if` (`then` or else), from the region LIR made
+/// for it.
+fn branchOf(self: *const Checker, b: Sexp, lir_if: ?lir.Expr.If, then: bool) lowered.Expr {
+    const i = lir_if orelse return lowered.exprAt(self, b);
+    const r = if (then) i.then else i.@"else" orelse return lowered.exprAt(self, b);
+    return lowered.partExpr(self, b, r);
 }
 
 /// A branch before its condition in the source (`stmt if cond`, `a if
@@ -3495,19 +3547,21 @@ pub fn useBranchesAfter(self: *Checker, node: Sexp, cond: Sexp) Error!usize {
 /// binding in a scope over the rest and the then-branch. The `else`
 /// runs when a part fails, so it starts from the join of the states
 /// after each part, with their bindings gone.
-pub fn walkIfBinding(self: *Checker, node: Sexp, t: ?Tail) Error!Value {
+pub fn walkIfBinding(self: *Checker, node: Sexp, lir_if: ?lir.Expr.If, t: ?Tail) Error!Value {
     const then_b = ir.If.then(node);
     const else_b = ir.If.@"else"(node);
     const base = try self.here();
     const depth = self.scopes.items.len;
     // A failing part goes on to the `else`, or past the `if`.
-    const fails = try walkConditionParts(self, ir.If.cond(node), then_b, .{ .to = base, .resume_at = notes.resumeAt(self, else_b, node) }, self.loop);
-    var v1 = try walkTailPart(self, then_b, t);
+    const cond = ir.If.cond(node);
+    const cond_e = if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.exprAt(self, cond);
+    const fails = try walkConditionParts(self, cond_e, then_b, .{ .to = base, .resume_at = notes.resumeAt(self, else_b, node) }, self.loop);
+    var v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
     while (self.scopes.items.len > depth) v1 = try self.leaveScope(v1);
     const past = notes.resumeAt(self, .nil, node);
     const s1 = try self.leave(base, past);
     try self.apply(try joinAll(self, fails));
-    const v2 = if (else_b != .nil) try walkTailPart(self, else_b, t) else Value{};
+    const v2 = if (else_b != .nil) try walkTailPartE(self, branchOf(self, else_b, lir_if, false), t) else Value{};
     const s2 = try self.leave(base, past);
     try self.apply(try self.join(s1, s2));
     return self.valueUnion(v1, v2);
@@ -3522,15 +3576,21 @@ pub fn walkIfBinding(self: *Checker, node: Sexp, t: ?Tail) Error!Value {
 /// parts before it and its own, and none of the later ones': the
 /// states it leaves with, one per part, which the caller joins
 /// (`joinAll`) once back at `fail.to`.
-pub fn walkConditionParts(self: *Checker, cond: Sexp, body: Sexp, fail: ExitTo, loop: ?*LoopCtx) Error![]const State {
+pub fn walkConditionParts(self: *Checker, cond: lowered.Expr, body: Sexp, fail: ExitTo, loop: ?*LoopCtx) Error![]const State {
     const Parts = struct {
         c: *Checker,
         body: Sexp,
         fail: ExitTo,
         loop: ?*LoopCtx,
         fails: *std.ArrayList(State),
-        pub fn part(v: @This(), p: Sexp) Error!void {
-            try walkConditionPart(v.c, p, v.body);
+        /// The parts of `e`, as `rig.eachGuardPart` lists them.
+        fn each(v: @This(), e: lowered.Expr) Error!void {
+            if (rig.isConditionJoin(e.node)) {
+                try v.each(lowered.operand(v.c, e, 0));
+                try v.each(lowered.operand(v.c, e, 1));
+                return;
+            }
+            try walkConditionPart(v.c, e, v.body);
             const saved = v.c.loop;
             defer v.c.loop = saved;
             v.c.loop = v.loop;
@@ -3538,7 +3598,7 @@ pub fn walkConditionParts(self: *Checker, cond: Sexp, body: Sexp, fail: ExitTo, 
         }
     };
     var fails: std.ArrayList(State) = .empty;
-    try rig.eachGuardPart(cond, Parts{ .c = self, .body = body, .fail = fail, .loop = loop, .fails = &fails });
+    try (Parts{ .c = self, .body = body, .fail = fail, .loop = loop, .fails = &fails }).each(cond);
     return fails.items;
 }
 
@@ -3550,12 +3610,16 @@ pub fn joinAll(self: *Checker, states: []const State) Error!State {
 }
 
 /// One part of a condition (`rig.eachGuardPart`).
-pub fn walkConditionPart(self: *Checker, cond: Sexp, body: Sexp) Error!void {
+pub fn walkConditionPart(self: *Checker, ce: lowered.Expr, body: Sexp) Error!void {
+    const cond = ce.node;
     // Each part is a header, its own statement: its temporaries end
     // with it, after the binding takes what it binds.
     if (cond.isKind(.as_results)) return walkResultsBinding(self, cond, body);
     if (cond.isKind(.as_match)) return walkAsMatch(self, cond, body);
-    if (!cond.isKind(.as)) return walkStmt(self, cond);
+    if (!cond.isKind(.as)) {
+        _ = try walkStmtValueE(self, ce, null);
+        return;
+    }
     // A bare place is bound as `if ?p as x` binds it, and a part of a
     // made value in a hidden var the `if` holds, in a scope the
     // caller ends with the body's (docs/internals/INTERNALS.md, "Header
@@ -3566,7 +3630,8 @@ pub fn walkConditionPart(self: *Checker, cond: Sexp, body: Sexp) Error!void {
     if (header == .held) try holdBase(self, cond);
     const temps_start = self.temps.items.len;
     const drops = self.stmt_drops.items.len;
-    const bound = if (header != null) try walkView(self, ir.As.value(cond), .read) else try walkConsumed(self, ir.As.value(cond), .binding);
+    const value = lowered.operand(self, ce, 0);
+    const bound = if (header != null) try walkView(self, value, .read) else try walkConsumedE(self, value, .binding);
     self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
     try self.pushScopeFor(.block, body);
     try bindNew(self, ir.As.name(cond), false, false, bound);
@@ -3645,7 +3710,8 @@ pub fn readsInPlace(self: *const Checker, e: Sexp) bool {
     };
 }
 
-pub fn walkMatch(self: *Checker, match: Sexp) Error!Value {
+pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
+    const match = me.node;
     const tail_ctx = takeTail(self, match);
     const scrut = ir.Match.subject(match);
     const saved_arm = .{ self.arm_var, self.arm_subject, self.arm_take };
@@ -3692,7 +3758,8 @@ pub fn walkMatch(self: *Checker, match: Sexp) Error!Value {
     const scrut_temps = self.temps.items.len;
     // The subject is a header: its temporaries end with it.
     const drops = self.stmt_drops.items.len;
-    const scrut_value = if (header == .viewed) try walkView(self, scrut, .read) else try walk(self, scrut);
+    const scrut_e = if (lowered.controlOf(self, me)) |c| (if (c == .match) lowered.exprFor(self, scrut, c.match.subject) else lowered.exprAt(self, scrut)) else lowered.exprAt(self, scrut);
+    const scrut_value = if (header == .viewed) try walkView(self, scrut_e, .read) else try walkE(self, scrut_e);
     const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
     for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
     // A view the subject yields, which the match reads where it points
@@ -3831,7 +3898,8 @@ pub fn walkAsMatch(self: *Checker, part: Sexp, body: Sexp) Error!void {
     const scrut_temps = self.temps.items.len;
     // The subject is a header: its temporaries end with it.
     const drops = self.stmt_drops.items.len;
-    const scrut_value = if (header == .viewed) try walkView(self, scrut, .read) else try walk(self, scrut);
+    const scrut_e = lowered.exprAt(self, scrut);
+    const scrut_value = if (header == .viewed) try walkView(self, scrut_e, .read) else try walkE(self, scrut_e);
     const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
     for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
     const ctx = self.sema;
@@ -3971,6 +4039,8 @@ pub fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Val
 pub const LoopSpec = struct {
     /// The `while` or `for` node.
     node: Sexp,
+    /// Its step in the LIR, where found.
+    lir: ?lowered.Control = null,
     cond: ?Sexp = null,
     cond_always_true: bool = false,
     /// `while a as x` or `while a as x and ...`: a condition of parts
@@ -4036,11 +4106,13 @@ pub fn isValue(self: *const Checker, e: Sexp) bool {
     return sema.yieldsValue(self.source, e);
 }
 
-pub fn walkWhile(self: *Checker, node: Sexp) Error!Value {
+pub fn walkWhile(self: *Checker, e: lowered.Expr) Error!Value {
+    const node = e.node;
     const cond = ir.While.cond(node);
     const step = ir.While.step(node);
     return walkLoop(self, .{
         .node = node,
+        .lir = lowered.controlOf(self, e),
         .cond = cond,
         .cond_binds = rig.isAsPart(cond) or rig.isConditionJoin(cond),
         .cond_always_true = cond == .src and std.mem.eql(u8, types.text(self, cond), "true"),
@@ -4049,11 +4121,15 @@ pub fn walkWhile(self: *Checker, node: Sexp) Error!Value {
     });
 }
 
-pub fn walkFor(self: *Checker, node: Sexp) Error!Value {
+pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
+    const node = e.node;
     const mode = ir.For.mode(node).tag;
     const source = ir.For.source(node);
+    const ctrl = lowered.controlOf(self, e);
+    const source_e = if (ctrl) |c| (if (c == .each) lowered.exprFor(self, source, c.each.source) else lowered.exprAt(self, source)) else lowered.exprAt(self, source);
     var spec: LoopSpec = .{
         .node = node,
+        .lir = ctrl,
         .body = ir.For.body(node),
         .elem1 = ir.For.@"var"(node),
         .elem2 = ir.For.index(node),
@@ -4072,14 +4148,14 @@ pub fn walkFor(self: *Checker, node: Sexp) Error!Value {
     // as emit hands its elements over.
     const consumes = storage.forConsumes(self.sema, node);
     if (mode == .move) {
-        spec.moved = (try walkMove(self, source)).loans;
+        spec.moved = (try walkMove(self, source_e)).loans;
     } else if (header == .taken or consumes) {
-        spec.moved = (try walkConsumed(self, source, .binding)).loans;
+        spec.moved = (try walkConsumedE(self, source_e, .binding)).loans;
     } else {
         spec.elem_view = true;
         const found = self.errors_found;
         const temps_start = self.temps.items.len;
-        const value = try walk(self, source);
+        const value = try walkE(self, source_e);
         // The type checker let the loop read a source a call gives in
         // place where the recorded fact says its loans name only places
         // (`storage.livesIn`, CORE §9); the loans walked here agree, or
@@ -4206,10 +4282,12 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     // A failing part leaves the loop.
     const fail: ExitTo = .{ .to = ctx.point, .resume_at = notes.resumeAt(self, .nil, spec.node) };
     var exit: []const State = &.{};
+    const lir_cond: ?lir.ExprId = if (spec.lir) |c| (if (c == .loop) c.loop.cond else null) else null;
     if (spec.cond_binds) {
-        exit = try walkConditionParts(self, spec.cond.?, spec.body, fail, ctx.parent);
+        const c = spec.cond.?;
+        exit = try walkConditionParts(self, if (lir_cond) |id| lowered.exprFor(self, c, id) else lowered.exprAt(self, c), spec.body, fail, ctx.parent);
     } else {
-        if (spec.cond) |c| try walkStmt(self, c);
+        if (spec.cond) |c| _ = try walkStmtValueE(self, if (lir_cond) |id| lowered.exprFor(self, c, id) else lowered.stmtExpr(self, c), null);
         if (!spec.cond_always_true) exit = try self.arena().dupe(State, &.{try exits.exitTo(self, fail)});
     }
     // The loop is `loop { x = a or break; body: { body }; step }`
@@ -4225,7 +4303,12 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     }
     try self.pushScopeFor(.block, spec.body);
     try bindLoopElems(self, spec);
-    try walkStmt(self, spec.body);
+    const lir_body: ?lir.RegionId = if (spec.lir) |c| switch (c) {
+        .loop => |x| x.body,
+        .each => |x| x.body,
+        else => null,
+    } else null;
+    _ = try walkStmtValueE(self, if (lir_body) |r| lowered.partExpr(self, spec.body, r) else lowered.stmtExpr(self, spec.body), null);
     if (step_inside) {
         while (self.scopes.items.len > ctx.step_depth) try self.popScope();
         if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, notes.stepAt(self, spec.node));
@@ -4291,9 +4374,10 @@ pub fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
 /// `panic(a, b)`: its values are read as `print` reads them, and the
 /// program ends there. No scope is left: no drop or `defer` runs, so
 /// nothing after it is reached.
-pub fn walkPanic(self: *Checker, node: Sexp) Error!void {
+pub fn walkPanic(self: *Checker, ex: lowered.Expr) Error!void {
+    const node = ex.node;
     const temps_start = self.temps.items.len;
-    try walkReadArgs(self, lowered.exprAt(self, node), ir.Panic.args(node), 0);
+    try walkReadArgs(self, ex, ir.Panic.args(node), 0);
     self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
     self.reachable = false;
 }
