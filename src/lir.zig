@@ -18,6 +18,7 @@ const storage = @import("storage.zig");
 const sema = @import("sema.zig");
 const diag = @import("diag.zig");
 const rig = @import("rig.zig");
+const self_check = @import("build_options").self_check;
 
 const Sexp = parser.Sexp;
 
@@ -478,6 +479,11 @@ pub const Region = struct {
     };
 };
 
+/// A list a self-checking build keeps, and no other: there it is empty.
+fn Checked(comptime T: type) type {
+    return if (self_check) std.ArrayList(T) else struct {};
+}
+
 /// A function, a closure, a test, or a `drop` body, lowered.
 pub const Func = struct {
     /// The `fun`, `sub`, `lambda`, `test`, or `drop_decl` node.
@@ -490,10 +496,10 @@ pub const Func = struct {
     /// The role of each expression as an operand, by its id; filled in
     /// a self-checking build, and shorter than `exprs` where the rest
     /// take the default.
-    roles: std.ArrayList(Operand) = .empty,
+    roles: Checked(Operand) = if (self_check) .empty else .{},
     /// The places `member` and `index` operations reach, each named by
     /// its op (`Op.aux - 1`); filled in a self-checking build.
-    places: std.ArrayList(Place) = .empty,
+    places: Checked(Place) = if (self_check) .empty else .{},
     body: RegionId = 0,
 
     pub fn addVar(f: *Func, a: std.mem.Allocator, v: Var) !VarId {
@@ -513,6 +519,7 @@ pub const Func = struct {
 
     /// The role of expression `e` as an operand.
     pub fn roleOf(f: *const Func, e: ExprId) Operand {
+        if (!self_check) return .{};
         return if (e < f.roles.items.len) f.roles.items[e] else .{};
     }
 
