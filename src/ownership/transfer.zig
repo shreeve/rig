@@ -352,10 +352,6 @@ pub fn walkTailStmt(self: *Checker, stmt: Sexp, t: ?Tail) Error!Value {
 // Expressions: what each form hands over
 // -----------------------------------------------------------------------------
 
-pub fn walk(self: *Checker, sexp: Sexp) Error!Value {
-    return walkE(self, lowered.exprAt(self, sexp));
-}
-
 /// Walk expression `e`, whose operands, in a lowered body, are its
 /// LIR operation's.
 pub fn walkE(self: *Checker, ex: lowered.Expr) Error!Value {
@@ -500,7 +496,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             .clone, .weak => walkCloneWeak(self, ex),
             .share => walkShare(self, ex),
             .box => walkConsumedE(self, lowered.operand(self, ex, 0), .box),
-            .lambda => walkLambda(self, sexp, false),
+            .lambda => walkLambda(self, ex, false),
             .@"if" => walkIf(self, ex),
             .@"while" => walkWhile(self, ex),
             .@"for" => walkFor(self, ex),
@@ -528,7 +524,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             // String holds their text, not them.
             .template => blk: {
                 const temps_start = self.temps.items.len;
-                try walkTemplateSlots(self, sexp);
+                try walkTemplateSlots(self, ex);
                 self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
                 break :blk .{};
             },
@@ -990,18 +986,20 @@ pub fn walkReadArgs(self: *Checker, owner: lowered.Expr, args: []const Sexp, fir
     for (args, 0..) |a, i| {
         // A template's slots are the call's arguments where it
         // stands, read at the call as the others are.
-        if (a.isKind(.template)) {
-            try walkTemplateSlots(self, a);
-            continue;
-        }
-        try walkReadArgE(self, lowered.operand(self, owner, first + i));
+        const e = lowered.operand(self, owner, first + i);
+        if (a.isKind(.template)) try walkTemplateSlots(self, e) else try walkReadArgE(self, e);
     }
 }
 
 /// The slots of template `t`, in order, each read as an argument of
 /// `print` is (`walkReadArgs`).
-pub fn walkTemplateSlots(self: *Checker, t: Sexp) Error!void {
-    for (0..rig.Template.slotCount(t)) |i| try walkReadArgE(self, lowered.exprAt(self, rig.Template.value(t, i)));
+pub fn walkTemplateSlots(self: *Checker, t: lowered.Expr) Error!void {
+    for (0..rig.Template.slotCount(t.node)) |i| {
+        // A slot is operand `2i + 1`, after its text; a show slot's
+        // value is its operand 1, after its `=`.
+        const slot = lowered.operand(self, t, 2 * i + 1);
+        try walkReadArgE(self, if (slot.node.isKind(.show)) lowered.operand(self, slot, 1) else slot);
+    }
 }
 
 pub fn walkReadArgE(self: *Checker, e: lowered.Expr) Error!void {
@@ -3068,7 +3066,7 @@ pub fn walkShare(self: *Checker, ex: lowered.Expr) Error!Value {
     // `*|...| body`: an owned closure.
     if (isLambda(inner)) {
         self.lambda_ok = true;
-        return walkLambda(self, inner, true);
+        return walkLambda(self, lowered.operand(self, ex, 0), true);
     }
     // `*w` upgrading a weak handle it reads reads it, as a `?@`
     // method reads its self; one it takes is moved, as `*<x` moves
@@ -3083,7 +3081,8 @@ pub fn walkShare(self: *Checker, ex: lowered.Expr) Error!Value {
 }
 
 /// A closure literal; `owned` for `*|...| body`.
-pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
+pub fn walkLambda(self: *Checker, le: lowered.Expr, owned: bool) Error!Value {
+    const node = le.node;
     const params = ir.Lambda.params(node);
     const body = ir.Lambda.body(node);
     if (!self.lambda_ok) {
@@ -3095,8 +3094,8 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
     var value: Value = .{};
     var cap_values: std.ArrayList(Value) = .empty;
     const caps = sema.captureList(ir.Lambda.captures(node));
-    for (caps) |cap| {
-        const cv = try applyCapture(self, cap);
+    for (caps, 0..) |cap, ci| {
+        const cv = try applyCapture(self, cap, lowered.captureOf(self, le, ci, sema.captureValue(cap)));
         try cap_values.append(self.arena(), cv);
         if (owned) try generic.requireNoView(self, sema.captureNameNode(cap).?.src.pos, types.symType(self, sema.captureNameNode(cap).?), .closure);
         // An API object may hold a loan its type does not show: an
@@ -3199,10 +3198,10 @@ pub fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
     return if (owned) .{} else value;
 }
 
-pub fn applyCapture(self: *Checker, cap: Sexp) Error!Value {
+pub fn applyCapture(self: *Checker, cap: Sexp, value: lowered.Expr) Error!Value {
     // A field path is viewed, copied, taken, or held weakly as its
     // sigil does it in an expression.
-    if (sema.captureValue(cap) != .nil) return walk(self, sema.captureValue(cap));
+    if (sema.captureValue(cap) != .nil) return walkE(self, value);
     const mode = sema.captureModeOf(cap).?;
     const node = sema.captureNameNode(cap).?;
     const pos = node.src.pos;
@@ -3670,7 +3669,8 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
     // subjects").
     const saved_held = self.held;
     defer self.held = saved_held;
-    const scrut_e = if (lowered.controlOf(self, me)) |c| (if (c == .match) lowered.exprFor(self, scrut, c.match.subject) else lowered.exprAt(self, scrut)) else lowered.exprAt(self, scrut);
+    const ctrl = lowered.controlOf(self, me);
+    const scrut_e = if (ctrl) |c| (if (c == .match) lowered.exprFor(self, scrut, c.match.subject) else lowered.exprAt(self, scrut)) else lowered.exprAt(self, scrut);
     const subject = try walkSubject(self, match, scrut_e, "match");
     const info, const scrut_value, const header_temps = .{ subject.info, subject.value, subject.header_temps };
     var outlived = false;
@@ -3716,8 +3716,8 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
         };
         var failed: ?State = null;
         if (guard != .nil) {
-            // A header, its own statement.
-            try walkStmt(self, guard);
+            // A header, its own statement, which its arm's region tests.
+            _ = try walkStmtValueE(self, lowered.guardOf(self, ctrl, i, guard), null);
             // A failing guard goes on to the next arm, or past the match.
             failed = try exits.exitTo(self, .{ .to = base, .resume_at = notes.resumeBefore(self, if (i + 1 < arms.len) arms[i + 1] else .nil, past) });
         }
@@ -4120,14 +4120,14 @@ pub fn walkLabeled(self: *Checker, node: Sexp) Error!Value {
     const stmt = ir.Labeled.stmt(node);
     if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
         self.pending_reads = rules.readsValue(self, node);
-        const v = try walk(self, stmt);
+        const v = try walkE(self, lowered.within(self, node, stmt));
         self.pending_reads = false;
         return v;
     }
     var ctx: LoopCtx = .{ .node = stmt, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
     self.loop = &ctx;
     defer self.loop = ctx.parent;
-    try walkStmt(self, stmt);
+    _ = try walkStmtValueE(self, lowered.within(self, node, stmt), null);
     try self.joinAt(ctx.point, ctx.breaks.items, notes.resumeAt(self, .nil, node));
     return .{};
 }
