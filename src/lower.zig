@@ -122,6 +122,23 @@ pub const Module = struct {
         m.owners[i].func = null;
         m.constants = null;
         _ = m.consts.reset(.free_all);
+        if (enabled) m.readMaps();
+    }
+
+    /// Read every entry of every module map, as a self-checking build
+    /// does once the constants are freed: there their arena takes its
+    /// memory from the page allocator (`lowerModule`), which unmaps it,
+    /// so a map grown in it faults here on every system.
+    fn readMaps(m: *const Module) void {
+        var n: usize = 0;
+        const info = @typeInfo(Module).@"struct";
+        inline for (info.field_names, info.field_types) |name, T| {
+            if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "iterator") and @hasDecl(T, "KV")) {
+                var it = @field(m, name).iterator();
+                while (it.next()) |_| n += 1;
+            }
+        }
+        std.mem.doNotOptimizeAway(n);
     }
 
     /// The hidden var of `kind` made for `node`.
@@ -365,7 +382,9 @@ fn fieldMove(ctx: *SemContext, node: Sexp) !void {
 
 /// Lower every body of module `tree`.
 pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: Options) !Module {
-    var m: Module = .{ .arena = .init(gpa), .consts = .init(gpa) };
+    // A self-checking build gives the constants' arena pages of its own,
+    // unmapped when it is freed (`Module.readMaps`).
+    var m: Module = .{ .arena = .init(gpa), .consts = .init(if (enabled) std.heap.page_allocator else gpa) };
     errdefer m.deinit();
     const a = m.arena.allocator();
     // Each frame owner, then each compile-time function, whose body the
