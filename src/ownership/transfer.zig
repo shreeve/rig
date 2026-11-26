@@ -312,7 +312,7 @@ pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value 
     const vars_mark: VarId = @intCast(self.vars.items.len);
     const v = if (sink) |k| try walkConsumedE(self, e, k) else try walkE(self, e);
     self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
-    try endTemps(self, try lowered.endsOf(self, lowered.stmtRegion(self, e), vars_mark, false));
+    try endTemps(self, try lowered.stmtEnds(self, e, vars_mark));
     return v;
 }
 
@@ -2308,7 +2308,7 @@ pub fn walkCall(self: *Checker, call: lowered.Expr) Error!Value {
     self.once_uses.shrinkRetainingCapacity(once_mark);
     // A `once` parameter called, or passed to another, is used up.
     for (used) |u| if (self.flowLive(u.id)) try self.markInvalid(u.id, .moved, u.pos);
-    const out = try endCallHeld(self, node, try lowered.endsOf(self, lowered.regionOf(self, call, .call), vars_mark, true), v);
+    const out = try endCallHeld(self, node, try lowered.endsAt(self, call, vars_mark, .call), v);
     // Each result keeps only what the call's value still carries.
     if (self.results_of) |r| if (sameNode(r.node, node) and out.loans.len != v.loans.len) {
         const parts = try self.arena().alloc(Value, r.parts.len);
@@ -3668,7 +3668,7 @@ pub fn walkConditionPart(self: *Checker, ce: lowered.Expr, body: Sexp) Error!voi
     self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
     try self.pushScopeFor(.block, body);
     try bindNew(self, ir.As.name(cond), false, false, bound);
-    try endTemps(self, try lowered.endsOf(self, lowered.regionOf(self, value, .header), vars_mark, false));
+    try endTemps(self, try lowered.endsAt(self, value, vars_mark, .header));
 }
 
 /// Walk `part` of `node`, which runs on some paths through `node`
@@ -3912,7 +3912,7 @@ fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const
     const scrut_temps = self.temps.items.len;
     const vars_mark: VarId = @intCast(self.vars.items.len);
     const value = if (header == .viewed) try walkView(self, scrut_e, .read) else try walkE(self, scrut_e);
-    const header_temps = try lowered.endsOf(self, lowered.regionOf(self, scrut_e, .header), vars_mark, false);
+    const header_temps = try lowered.endsAt(self, scrut_e, vars_mark, .header);
     // A view the subject yields, which the construct reads where it
     // points (its tag, its payloads) after the header: one that carries
     // a loan on a temporary the header made reads it after its drop.
@@ -4099,7 +4099,7 @@ pub fn walkResultsBinding(self: *Checker, ce: lowered.Expr, body: Sexp) Error!vo
         self.part_value = part;
         try walkSet(self, n, lowered.stepsIn(self, .{ .node = n, .r = lowered.argRegion(self, ce, k) }));
     }
-    try endTemps(self, try lowered.endsOf(self, lowered.regionOf(self, value_e, .header), vars_mark, false));
+    try endTemps(self, try lowered.endsAt(self, value_e, vars_mark, .header));
 }
 
 /// A statement that gives a value (`sema.yieldsValue`).
@@ -4162,7 +4162,7 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
         // place where the recorded fact says its loans name only places
         // (`storage.livesIn`, CORE §9); the loans walked here agree, or
         // the fact is wrong.
-        ends = try lowered.headerEnds(self, source_e, vars_mark);
+        ends = try lowered.endsAt(self, source_e, vars_mark, .header);
         if (self_check) if (storage.livesIn(self.sema, source).onlyPlaces()) if (loanOn(value, ends.?) != null) {
             const lc = diag.lineCol(self.source, notes.startOf(self, source));
             std.debug.panic("{d}:{d}: internal error: the loop's source was decided to live only in places (`lives_in`), but its loans name a value made in its header", .{ lc.line, lc.col });
@@ -4201,7 +4201,7 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
             }
         };
     }
-    try endTemps(self, ends orelse try lowered.headerEnds(self, source_e, vars_mark));
+    try endTemps(self, ends orelse try lowered.endsAt(self, source_e, vars_mark, .header));
     var v = try walkLoop(self, spec);
     // The value the loop held ends with it.
     if (header == .held) v = try self.leaveScope(v);
