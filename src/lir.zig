@@ -75,15 +75,212 @@ pub const Expr = union(enum) {
     /// `how`, one of the node's coercions (`lower.Module.Chain`).
     coerce: struct { node: Sexp, how: *const Coercion, value: ExprId },
 
-    pub const Op = struct { node: Sexp, args: []const ExprId };
+    /// The operation of `node` over `args`: what it does, `kind`, and
+    /// for a call, its record, `Func.calls[aux]`.
+    pub const Op = struct { node: Sexp, args: []const ExprId, kind: OpKind = .other, aux: u32 = 0 };
 
     pub const Use = struct { v: VarId, node: Sexp };
+
+    // An operation's kind and record index fit in the room a closure
+    // takes, so an expression is no larger for them.
+    comptime {
+        std.debug.assert(@sizeOf(Op) <= @sizeOf(@FieldType(Expr, "closure")));
+    }
 
     /// An `if`: its condition, then the branch it picks.
     pub const If = struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId };
 
     /// A `match`: its subject, then the arm whose pattern it fits.
     pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId };
+};
+
+/// What an operation does, by the form of its node: the facts that
+/// decide more are recorded on the operation's own record (`Call`).
+pub const OpKind = enum(u8) {
+    /// `+`, `-`, `*`, `/`, `%`, their wrapping and saturating forms,
+    /// the bitwise operators and shifts, and `neg`.
+    arith,
+    /// `==`, `!=`, `<`, `>`, `<=`, `>=`.
+    compare,
+    /// `and`, `or`, `not`.
+    logic,
+    /// `?x` and `!x`: a read view and a write view.
+    view,
+    /// `<x`.
+    move,
+    /// `+x`.
+    clone,
+    /// `~x`.
+    weak,
+    /// `*x`.
+    share,
+    /// `^x`.
+    box,
+    member,
+    index,
+    /// `f[T]`: a compile-time instance.
+    inst,
+    /// A call, whose record is `Func.calls[aux]`.
+    call,
+    array,
+    array_fill,
+    template,
+    /// `v!`.
+    propagate,
+    /// `v?`.
+    propagate_none,
+    /// `a ?? b`.
+    nullish,
+    /// `v catch |e| handler`.
+    @"catch",
+    kwarg,
+    panic,
+    results,
+    /// `.variant` and `:symbol`.
+    literal,
+    /// `v as name`, `f() as a, b`, and the `match` tests of a condition.
+    @"as",
+    /// Any other operation: its node says what it is.
+    other,
+};
+
+/// What a call is, decided once by lowering (`lower.classifyCall`) in
+/// the order emit's call ladder asks: a call that fits two forms is
+/// the first of them here.
+pub const CallKind = enum(u8) {
+    /// An element operation of a slice, an array, or a List
+    /// (`sema.ElemCall`).
+    elem,
+    /// `Simd[T, n](a)`.
+    simd_conversion,
+    /// `f(x)&`, and `c.m(x)&` through an actor's handle.
+    task,
+    actor_spawn,
+    /// The built-ins (`sema.BuiltinCall`).
+    print,
+    warn,
+    conversion,
+    swap,
+    /// `String(...)`, `!t.add(...)` (`facts.StringCall`).
+    string,
+    /// A call through a type alias: of a number, a List, a Signal, or
+    /// an object.
+    alias_conversion,
+    alias_list,
+    alias_signal,
+    alias_object,
+    /// `.variant(payload)`.
+    variant,
+    /// A closure literal called where it is written.
+    inline_invoke,
+    /// Through an API: the witness's method, or an API object's table.
+    witness,
+    object,
+    /// A closure a local holds in the frame.
+    stack_closure,
+    /// The built-in types' makers, and an object's.
+    list,
+    table,
+    signal,
+    constructor,
+    /// A member callee with no type of its own: an error with fields,
+    /// a variant through its enum, an object of another module, an
+    /// instance sema gave it.
+    error_member,
+    variant_member,
+    foreign_object,
+    instance,
+    /// Through a callable view, and an owned closure handle.
+    fn_ref,
+    closure_handle,
+    /// A method of a built-in type emit lowers on its own
+    /// (`sema.BuiltinCall`).
+    builtin_method,
+    /// The runtime's calls: `task.all`, an actor's method, `task.select`
+    /// (to a value, or into the slot), its arms, `http.serve`, `reduce`,
+    /// `io.copy`, `task.supervise`, `task.isolate`, the `par` forms, and
+    /// the waits of a set and of a task.
+    task_join,
+    actor_call,
+    select_value,
+    select_into,
+    arm_recv,
+    arm_send,
+    arm_end,
+    arm_after,
+    http_serve,
+    reduce,
+    io_copy,
+    supervise,
+    isolate,
+    par_map,
+    par_each,
+    par_workers,
+    par_push,
+    wait_all,
+    wait,
+    /// Any other call: a function, a method, or a function value.
+    plain,
+};
+
+/// A call: what it is, how its callee is written, how it takes its
+/// self, and what is opened around it.
+pub const Call = struct {
+    kind: CallKind,
+    callee: Callee,
+    /// How a method takes its self; null for a call with none.
+    self: ?Self = null,
+    wrap: Wrap = .{},
+    flags: Flags = .{},
+
+    /// How the callee is written, as the ownership checker walks it.
+    pub const Callee = enum(u8) {
+        /// A function a field holds, called with the arguments alone.
+        field_fn,
+        /// A method, through the member's object, its self.
+        member,
+        name,
+        lambda,
+        other,
+    };
+
+    pub const Self = struct {
+        mode: sema.SelfMode,
+        /// Written with its sigil: `!b.m()`, `?b.m()`.
+        explicit: bool,
+    };
+
+    /// What emit opens around the call, outermost first.
+    pub const Wrap = packed struct(u8) {
+        /// A std maker checked as Rig compiles (`facts.isConstMaker`).
+        const_maker: bool = false,
+        /// Its parts are held first, in a `call` region.
+        held: bool = false,
+        /// It may reach an inlined function, whose optional, fallible,
+        /// or other result is made a run-time value
+        /// (`facts.callsInlined`).
+        rt_optional: bool = false,
+        rt_fallible: bool = false,
+        rt_plain: bool = false,
+        /// A duration form joins its failure.
+        folds: bool = false,
+        _: u2 = 0,
+    };
+
+    pub const Flags = packed struct(u8) {
+        /// A task that stays on its maker's thread (`isLocalTask`), or
+        /// that may take a dense stack (`isDenseCall`).
+        local: bool = false,
+        dense: bool = false,
+        /// It only reads its arguments and keeps none of them: `print`
+        /// and the `String` forms.
+        text_only: bool = false,
+        /// An actor's call or a select's arm: its result keeps no loan.
+        keeps_no_loan: bool = false,
+        /// `swap(a, b)` of two places or two values.
+        swap: bool = false,
+        _: u3 = 0,
+    };
 };
 
 /// How a value becomes the type its context takes, where it goes. Each
@@ -198,6 +395,8 @@ pub const Func = struct {
     vars: std.ArrayList(Var) = .empty,
     exprs: std.ArrayList(Expr) = .empty,
     regions: std.ArrayList(Region) = .empty,
+    /// The record of each call, which its op names (`Op.aux`).
+    calls: std.ArrayList(Call) = .empty,
     body: RegionId = 0,
 
     pub fn addVar(f: *Func, a: std.mem.Allocator, v: Var) !VarId {
@@ -469,7 +668,9 @@ const Printer = struct {
                 else => try p.w.writeAll("_"),
             },
             .op => |o| {
-                try p.w.print("{s}(", .{@tagName(o.node.kind() orelse .module)});
+                try p.w.print("{s}", .{@tagName(o.node.kind() orelse .module)});
+                if (o.kind == .call) try p.w.print("/{s}", .{@tagName(p.f.calls.items[o.aux].kind)});
+                try p.w.writeAll("(");
                 for (o.args, 0..) |a, i| {
                     if (i > 0) try p.w.writeAll(", ");
                     try p.expr(a, depth);

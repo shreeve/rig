@@ -9337,8 +9337,12 @@ pub const Emitter = struct {
 
     /// A call, by the form that writes it.
     fn emitCall(self: *Emitter, sexp: Sexp) Error!void {
-        if (self.facts.node(.elemCallOf, self.facts.node(.calleeOf, sexp))) |ec| return self.emitElemCall(sexp, ec);
+        if (self.facts.node(.elemCallOf, self.facts.node(.calleeOf, sexp))) |ec| {
+            self.callIs(sexp, .elem);
+            return self.emitElemCall(sexp, ec);
+        }
         if (self.simdConversion(sexp)) |vt| {
+            self.callIs(sexp, .simd_conversion);
             // `Simd[T, n](a)`: the vector of an array's elements.
             try self.writeVectorOpen(vt);
             try self.emitBare(ir.Call.args(sexp)[0]);
@@ -9415,8 +9419,12 @@ pub const Emitter = struct {
     /// self by value (`spawnMethod`).
     fn emitTask(self: *Emitter, sexp: Sexp) Error!void {
         // A fork whose record its binding statement made in its slot.
-        if (self.task_slot) |ts| if (sameNode(ts.call, sexp)) return self.w.print("{s}.start()", .{ts.name});
+        if (self.task_slot) |ts| if (sameNode(ts.call, sexp)) {
+            self.callIs(sexp, .task);
+            return self.w.print("{s}.start()", .{ts.name});
+        };
         const callee = self.facts.node(.calleeOf, sexp);
+        self.callIs(sexp, if (self.facts.node(.isActorCall, sexp)) .actor_spawn else .task);
         // `c.m(x)&` through an actor's handle (`rig.actorSpawn`).
         if (self.facts.node(.isActorCall, sexp)) {
             const obj = ir.Member.object(callee);
@@ -9521,50 +9529,94 @@ pub const Emitter = struct {
         const callee = self.facts.node(.calleeOf, sexp);
         const args = ir.Call.args(sexp);
 
-        if (self.facts.node(.builtinOf, sexp)) |b| return switch (b) {
-            .print => self.emitPrint(args),
-            .warn => self.emitWarn(args),
-            .conversion => self.emitConversion(sexp),
-            .swap => |swap| self.emitSwapCall(args, swap),
-        };
-        if (self.facts.node(.stringCall, sexp)) |op| return self.emitStringCall(sexp, op);
+        if (self.facts.node(.builtinOf, sexp)) |b| {
+            self.callIs(sexp, switch (b) {
+                .print => .print,
+                .warn => .warn,
+                .conversion => .conversion,
+                .swap => .swap,
+            });
+            return switch (b) {
+                .print => self.emitPrint(args),
+                .warn => self.emitWarn(args),
+                .conversion => self.emitConversion(sexp),
+                .swap => |swap| self.emitSwapCall(args, swap),
+            };
+        }
+        if (self.facts.node(.stringCall, sexp)) |op| {
+            self.callIs(sexp, .string);
+            return self.emitStringCall(sexp, op);
+        }
         // A call through an alias: a conversion to the number type it
         // names, or a value of the object it names.
         if (self.isAliasCallee(callee)) {
             const t = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped call through an alias");
-            if (self.facts.layout(.isNumeric, t)) return self.emitConversion(sexp);
+            if (self.facts.layout(.isNumeric, t)) {
+                self.callIs(sexp, .alias_conversion);
+                return self.emitConversion(sexp);
+            }
             if (self.facts.types.get(t) == .parameterized_nominal) {
                 const g = self.facts.types.get(t).parameterized_nominal.sym;
-                if (g == self.facts.builtins.list) return self.emitListConstruction(sexp);
+                if (g == self.facts.builtins.list) {
+                    self.callIs(sexp, .alias_list);
+                    return self.emitListConstruction(sexp);
+                }
                 if (g == self.facts.builtins.signal) {
+                    self.callIs(sexp, .alias_signal);
                     try self.emitTypeTy(t);
                     return self.emitSignalConstruction(sexp);
                 }
             }
+            self.callIs(sexp, .alias_object);
             try self.emitTypeTy(t);
             return self.emitFieldInit(args, self.declFields(t));
         }
-        if (callee.isKind(.enum_lit)) return self.emitVariantLit(sexp);
-        if (callee.isKind(.lambda)) return self.emitInlineInvoke(sexp);
+        if (callee.isKind(.enum_lit)) {
+            self.callIs(sexp, .variant);
+            return self.emitVariantLit(sexp);
+        }
+        if (callee.isKind(.lambda)) {
+            self.callIs(sexp, .inline_invoke);
+            return self.emitInlineInvoke(sexp);
+        }
         // A call through an API reaches its method through the witness,
         // or through an API object's table.
         if (self.facts.node(.dispatchOf, sexp)) |d| switch (d) {
-            .static => |st| return self.emitWitnessCall(sexp, st),
-            .dynamic => |dy| return self.emitObjectCall(sexp, dy),
+            .static => |st| {
+                self.callIs(sexp, .witness);
+                return self.emitWitnessCall(sexp, st);
+            },
+            .dynamic => |dy| {
+                self.callIs(sexp, .object);
+                return self.emitObjectCall(sexp, dy);
+            },
             .direct => {},
         };
 
         if (callee == .src) {
             if (self.localOf(callee)) |local| if (local.stack_closure) {
+                self.callIs(sexp, .stack_closure);
                 try self.w.print("{s}.__rig_invoke(", .{local.zig_name});
                 try self.emitArgs(sexp);
                 return self.w.writeAll(")");
             };
             if (self.facts.node(.symbolOf, callee)) |sym_id| {
-                if (self.facts.refOf(sym_id) == self.facts.builtins.list) return self.emitListConstruction(sexp);
-                if (self.facts.refOf(sym_id) == self.facts.builtins.table) return self.emitTableConstruction(sexp);
-                if (self.facts.refOf(sym_id) == self.facts.builtins.signal) return self.emitSignalConstruction(sexp);
-                if (self.facts.layout(.isTypeSym, sym_id)) return self.emitConstructor(sexp, sym_id);
+                if (self.facts.refOf(sym_id) == self.facts.builtins.list) {
+                    self.callIs(sexp, .list);
+                    return self.emitListConstruction(sexp);
+                }
+                if (self.facts.refOf(sym_id) == self.facts.builtins.table) {
+                    self.callIs(sexp, .table);
+                    return self.emitTableConstruction(sexp);
+                }
+                if (self.facts.refOf(sym_id) == self.facts.builtins.signal) {
+                    self.callIs(sexp, .signal);
+                    return self.emitSignalConstruction(sexp);
+                }
+                if (self.facts.layout(.isTypeSym, sym_id)) {
+                    self.callIs(sexp, .constructor);
+                    return self.emitConstructor(sexp, sym_id);
+                }
             }
         }
         // A member callee without a type of its own names a variant
@@ -9572,24 +9624,31 @@ pub const Emitter = struct {
         // or a type in another module (`m.Type(field: v)`).
         if (callee.isKind(.member) and self.facts.node(.typeOf, callee) == null) if (self.typeOf(sexp)) |t| {
             const vname = self.srcText(ir.Member.name(callee));
-            if (self.isErrorSetTy(t) and self.variantPayload(t, vname) != null) return self.emitErrorMember(sexp, t, vname);
+            if (self.isErrorSetTy(t) and self.variantPayload(t, vname) != null) {
+                self.callIs(sexp, .error_member);
+                return self.emitErrorMember(sexp, t, vname);
+            }
             if (self.variantPayload(t, vname) != null) {
+                self.callIs(sexp, .variant_member);
                 try self.writeAsOpen(t);
                 try self.emitVariantPayload(sexp, t, vname);
                 return self.w.writeAll(")");
             }
             if (switch (self.facts.types.get(t)) { .nominal => |r| !self.facts.layout(.owns, r), else => false }) {
+                self.callIs(sexp, .foreign_object);
                 try self.emitMember(callee);
                 return self.emitFieldInit(args, self.declFields(t));
             }
             // `m.Wrap[Int](v: 3)`, `m.Wrap(v: 3)`: the instance sema gave it.
             if (self.facts.types.get(t) == .parameterized_nominal and self.facts.node(.isTypeCallee, callee)) {
+                self.callIs(sexp, .instance);
                 try self.emitTypeTy(t);
                 return self.emitFieldInit(args, self.declFields(t));
             }
         };
         // A callable view calls through its `rig.FnRef`.
         if (self.typeOf(callee)) |t| if (self.facts.layout(.callableFn, t) != null) {
+            self.callIs(sexp, .fn_ref);
             try self.emitExpr(callee);
             try self.w.writeAll(".call(.{ ");
             try self.emitArgs(sexp);
@@ -9598,6 +9657,7 @@ pub const Emitter = struct {
         // An owned closure handle, held by a name or a field, or a call
         // yielding a view of one, held by pointer.
         if (self.typeOf(callee)) |t| if (self.facts.layout(.ownedClosureFn, t) != null) {
+            self.callIs(sexp, .closure_handle);
             try self.emitExpr(callee);
             if (callee.isKind(.call) and self.isPtrViewTy(t)) try self.w.writeAll(".*");
             try self.w.writeAll(".value.invoke(.{ ");
@@ -9605,10 +9665,14 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
 
-        if (self.facts.node(.builtinCallOf, callee)) |b| return self.emitBuiltinCall(sexp, callee, b);
+        if (self.facts.node(.builtinCallOf, callee)) |b| {
+            self.callIs(sexp, .builtin_method);
+            return self.emitBuiltinCall(sexp, callee, b);
+        }
         // `task.all(a, b, ...)`: the tasks, waited for together, giving
         // their values or nothing, as the checker decided.
         if (self.facts.node(.taskJoinOf, sexp)) |values| {
+            self.callIs(sexp, .task_join);
             const out = self.slotOf(sexp);
             try self.w.writeAll(rt(.waitTasksInto) ++ "(.{ ");
             try self.emitArgs(sexp);
@@ -9617,6 +9681,7 @@ pub const Emitter = struct {
         // `c.m(args)` through an actor's handle: a message the runtime
         // sends, which waits for the answer.
         if (self.facts.node(.isActorCall, sexp)) {
+            self.callIs(sexp, .actor_call);
             const obj = ir.Member.object(callee);
             try self.w.writeAll(rt(.actorCall) ++ "(");
             try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
@@ -9632,6 +9697,7 @@ pub const Emitter = struct {
             // Named arms: the value of the select's own type
             // (`rig.Select`), the winner's variant.
             if (self.selectResult(sexp)) |ty| {
+                self.callIs(sexp, .select_value);
                 // The runtime's own call, which takes no slot.
                 _ = self.takeFailSlot(sexp);
                 try self.w.writeAll(rt(.selectValue) ++ "(");
@@ -9644,6 +9710,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(" })");
             }
             // The runtime calls the arm's function with the slot.
+            self.callIs(sexp, .select_into);
             const out = self.slotOf(sexp);
             try self.w.writeAll(rt(.selectInto) ++ "(.{ ");
             for (args, 0..) |arm, i| {
@@ -9655,6 +9722,12 @@ pub const Emitter = struct {
         // An arm of `task.select`: the channel, the value an arm sends,
         // and the function the runtime calls.
         if (self.facts.node(.selectArmOf, sexp)) |kind| {
+            self.callIs(sexp, switch (kind) {
+                .recv => .arm_recv,
+                .send => .arm_send,
+                .after => .arm_after,
+                else => .arm_end,
+            });
             if (kind == .after) {
                 try self.w.writeAll(rt(.afterArm) ++ "(");
                 try self.emitArgs(sexp);
@@ -9695,6 +9768,7 @@ pub const Emitter = struct {
         }
         // `http.serve(<listener, f)`: the runtime's server.
         if (self.facts.node(.isHttpServe, sexp)) {
+            self.callIs(sexp, .http_serve);
             // The runtime's own call, which takes no slot.
             _ = self.takeFailSlot(sexp);
             try self.w.writeAll(rt(.httpServe) ++ "(");
@@ -9703,6 +9777,7 @@ pub const Emitter = struct {
         }
         // `xs.reduce(start, f)`: `rig.reduceInto(elems, start, f, slot)`.
         if (self.facts.node(.isReduceCall, sexp)) {
+            self.callIs(sexp, .reduce);
             const out = self.slotOf(sexp);
             try self.w.writeAll(rt(.reduceInto) ++ "(");
             try self.emitElems(ir.Member.object(callee));
@@ -9712,6 +9787,7 @@ pub const Emitter = struct {
         }
         // `io.copy(!from, !to)`: the runtime's, for files and sockets.
         if (self.facts.node(.isIoCopy, sexp)) {
+            self.callIs(sexp, .io_copy);
             // The runtime's own call, which takes no slot.
             _ = self.takeFailSlot(sexp);
             try self.w.writeAll(rt(.net) ++ ".copy(");
@@ -9721,6 +9797,7 @@ pub const Emitter = struct {
         // `task.supervise(f, restarts: n, per: ns)`: isolated again and
         // again by the runtime, with each option or its default.
         if (self.facts.node(.isSuperviseCall, sexp)) {
+            self.callIs(sexp, .supervise);
             const out = self.slotOf(sexp);
             try self.w.writeAll(rt(.superviseInto) ++ "(");
             try self.emitExpr(args[0]);
@@ -9735,6 +9812,7 @@ pub const Emitter = struct {
         }
         // `task.isolate(f)`: run apart by the runtime.
         if (self.facts.node(.isIsolateCall, sexp)) {
+            self.callIs(sexp, .isolate);
             const out = self.slotOf(sexp);
             try self.w.writeAll(rt(.isolateInto) ++ "(");
             try self.emitArgs(sexp);
@@ -9745,6 +9823,12 @@ pub const Emitter = struct {
         // limit but the workers' count when none is given;
         // `par.workers(!states, ?items, f)`, one task a state.
         if (self.facts.node(.parCallOf, sexp)) |kind| {
+            self.callIs(sexp, switch (kind) {
+                .map => .par_map,
+                .each => .par_each,
+                .workers => .par_workers,
+                .push => .par_push,
+            });
             const out = self.slotOf(sexp);
             try self.w.writeAll(switch (kind) {
                 .map => rt(.parMapInto) ++ "(",
@@ -9768,21 +9852,30 @@ pub const Emitter = struct {
         // `wait_allInto`, ...).
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.builtins.tasks)) {
             if (rig.isWaitMember(callee)) {
+                self.callIs(sexp, .wait_all);
                 const out = self.slotOf(sexp);
                 try self.emitMemberNamed(callee, "wait_all");
                 return self.w.print("Into({s})", .{out});
             }
         };
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.builtins.task)) {
+            self.callIs(sexp, .wait);
             const out = self.slotOf(sexp);
             try self.emitExpr(callee);
             return self.w.print("Into({s})", .{out});
         };
+        self.callIs(sexp, .plain);
         try self.checkCallTarget(sexp);
         try self.emitExpr(callee);
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
+    }
+
+    /// In a self-checking build, that LIR recorded call `call` as the
+    /// form `kind` this ladder writes it as (`lower.Module.expectCall`).
+    fn callIs(self: *Emitter, call: Sexp, kind: facts.lir.CallKind) void {
+        if (self.lowered) |*m| self.facts.expectCall(m, call, kind);
     }
 
     /// A method of a built-in type that typecheck resolved as one emit

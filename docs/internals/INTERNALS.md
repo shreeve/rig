@@ -2211,8 +2211,19 @@ declared by one region; and each var is used only inside the region
 that declares it. A var's read, and a binding's drop (`<x`), keep the
 node they are at: the name as written, or the node whose value the var
 holds in its place.
-`rig check --facts=lir` prints the root module's LIR,
-and lists each body not lowered with the construct that stopped it.
+Each operation carries what it does (`lir.OpKind`, by its node's
+form), and a call its record (`lir.Call`, in `Func.calls`): its kind,
+the first form of `lir.CallKind` it fits in the order emit's call
+ladder asks (`lower.classifyCall`), how its callee is written and its
+self taken, what emit opens around it (a maker checked as Rig
+compiles, a `call` region, a run-time result, a joined failure), and
+its flags (a local or dense task, a text-only call, a call whose
+result keeps no loan, a swap). In a self-checking build, emit asserts
+at each rung of its ladder, and the ownership checker at each form of
+callee it walks, that the record says what they chose.
+`rig check --facts=lir` prints the root module's LIR, each call with
+its kind (`call/plain(...)`), and lists each body not lowered with the
+construct that stopped it.
 
 Emit reads the storage it writes from LIR. `Emitter.emit` lowers its
 module first (`Facts.lower`). `lower.Module` indexes every body's vars

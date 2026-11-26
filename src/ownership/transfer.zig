@@ -2363,6 +2363,43 @@ fn checkWriteSelf(self: *Checker, id: VarId, path: PathId, reservation: usize, c
     try self.temps.insert(self.gpa, reservation, reserved);
 }
 
+/// In a self-checking build, that LIR's record of call `node` agrees
+/// with what the checker decides of it, `what` (`lower.Module.expectCallFact`).
+fn expectCall(self: *const Checker, node: Sexp, comptime what: []const u8, ok: fn (*const lir.Call) bool) void {
+    if (self.sema.lowered) |*m| m.expectCallFact(self.sema, node, what, ok);
+}
+
+/// The facts of a call record `walkCallBody` asks for.
+const Is = struct {
+    fn swap(c: *const lir.Call) bool {
+        return c.flags.swap;
+    }
+    fn keeps_no_loan(c: *const lir.Call) bool {
+        return c.flags.keeps_no_loan;
+    }
+    fn keeps_loans(c: *const lir.Call) bool {
+        return !c.flags.keeps_no_loan;
+    }
+    fn text_only(c: *const lir.Call) bool {
+        return c.flags.text_only;
+    }
+    fn field_fn(c: *const lir.Call) bool {
+        return c.callee == .field_fn;
+    }
+    fn member(c: *const lir.Call) bool {
+        return c.callee == .member and c.self != null;
+    }
+    fn name(c: *const lir.Call) bool {
+        return c.callee == .name;
+    }
+    fn lambda(c: *const lir.Call) bool {
+        return c.callee == .lambda;
+    }
+    fn other(c: *const lir.Call) bool {
+        return c.callee == .other;
+    }
+};
+
 pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     const node = call.node;
     const temps_start = self.temps.items.len;
@@ -2372,7 +2409,10 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     const written = lowered.operand(self, call, 1);
     const callee_e = if (sema.decisionKeyOf(written.node) == sema.decisionKeyOf(callee)) written else lowered.operand(self, written, 0);
     const args = ir.Call.args(node);
-    if (self.sema.swapCallOf(node)) |swap| if (args.len == 2) return walkSwapCall(self, call, args, swap == .places);
+    if (self.sema.swapCallOf(node)) |swap| if (args.len == 2) {
+        expectCall(self, node, "a swap", Is.swap);
+        return walkSwapCall(self, call, args, swap == .places);
+    };
     // The value the call calls (a closure's captures, what a callable
     // view views), which its result always carries, and its
     // self's value.
@@ -2400,16 +2440,19 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     // An actor's call and a select's arm keep no loan in their result:
     // the actor holds a count of its own, and a select ends its arms.
     const actor_call = self.sema.isActorCall(node) or self.sema.selectArmOf(node) != null;
+    if (actor_call) expectCall(self, node, "keeps no loan", Is.keeps_no_loan) else expectCall(self, node, "may keep a loan", Is.keeps_loans);
     // What the call puts on the place self is: a read loan, a write
     // loan where `!` makes a write view (`loanOf`).
     var recv_loan: LoanKind = .read;
     if (callee.isKind(.member) and !actor_call and generic.callsFunctionField(self, node, callee)) {
         // A function held in a field is called with the arguments
         // alone; it reaches nothing of the value holding it.
+        expectCall(self, node, "calls a function a field holds", Is.field_fn);
         result = try walkE(self, lowered.operand(self, callee_e, 0));
         field_call = true;
         if (self.errors_found == callee_found) try holdRead(self, callee, .callee);
     } else if (callee.isKind(.member)) {
+        expectCall(self, node, "calls a method", Is.member);
         const object_e = lowered.operand(self, callee_e, 0);
         var obj = ir.Member.object(callee);
         var obj_e = object_e;
@@ -2469,12 +2512,15 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     } else if (callee == .src) {
         // A callable's result may view what the callable holds: a
         // closure its captures, a callable view what it views.
+        expectCall(self, node, "calls a name", Is.name);
         result = try walkName(self, callee, true);
         if (self.errors_found == callee_found) try holdRead(self, callee, .callee);
     } else if (isLambda(callee)) {
+        expectCall(self, node, "calls a closure literal", Is.lambda);
         self.lambda_ok = true;
         result = try walkE(self, callee_e);
     } else {
+        expectCall(self, node, "calls a value", Is.other);
         result = try walkE(self, callee_e);
         if (self.errors_found == callee_found) try holdRead(self, callee, .callee);
     }
@@ -2491,6 +2537,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     // their text, not them.
     const text_op = self.sema.stringCallOf(node) orelse self.sema.stringCallOf(callee);
     if (self.sema.isPrintCall(node) or text_op != null) {
+        expectCall(self, node, "only reads its arguments", Is.text_only);
         try walkReadArgs(self, call, args, first_arg);
         if (recv_root) |id| if (recv_loan == .write) try checkWriteSelf(self, id, recv_path, reservation, callee);
         self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
