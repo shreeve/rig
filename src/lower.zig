@@ -1040,7 +1040,7 @@ const Lowerer = struct {
     fn jump(l: *Lowerer, s: Sexp, r: RegionId) Error!void {
         const value: Sexp = if (s.isKind(.@"continue")) .nil else ir.get(s, .value);
         const v: ?ExprId = if (value != .nil) try l.expr(value) else null;
-        if (v) |id| try l.role(id, value, if (s.isKind(.@"break")) .brk else .ret);
+        if (enabled) if (v) |id| try l.role(id, value, if (s.isKind(.@"break")) .brk else .ret);
         if (s.isKind(.@"return")) try l.returnParts(s);
         try l.step(r, .{ .jump = .{ .node = s, .value = v } });
     }
@@ -1066,7 +1066,7 @@ const Lowerer = struct {
             return l.step(r, .{ .eval = e });
         }
         // `<e` of anything but a name drops what it takes.
-        try l.role(e, target, .binding);
+        if (enabled) try l.role(e, target, .binding);
         try l.holdVar(target, .discard, .owned, .statement, storage.dropOf(l.ctx, target), l.stmt_region);
         try l.step(r, .{ .eval = e });
     }
@@ -1097,7 +1097,7 @@ const Lowerer = struct {
             .default, .fixed, .shadow => .binding,
             else => .none,
         };
-        try l.role(value_e, value, sink);
+        if (enabled) try l.role(value_e, value, sink);
         std.mem.rotate(VarId, l.temps.items[t0..], t1 - t0);
         l.declareInOrder(l.temps.items[t0..]);
         const order = storage.setOrder(ctx, set);
@@ -1120,7 +1120,7 @@ const Lowerer = struct {
         if (sym != null and (order.drops_old or storage.storesAfterValue(ctx, set))) {
             try l.hoistVar(value, .new_value, .owned, .assignment, storage.dropOf(ctx, value), r);
             value_e = l.exprOf(value) orelse value_e;
-            try l.role(value_e, value, sink);
+            if (enabled) try l.role(value_e, value, sink);
         }
         try l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
     }
@@ -1187,7 +1187,7 @@ const Lowerer = struct {
         };
         const value = ir.Destructure.value(d);
         const value_e = try l.expr(value);
-        try l.role(value_e, value, .binding);
+        if (enabled) try l.role(value_e, value, .binding);
         const tys: []const TypeId = if (storage.typeOf(l.ctx, value)) |t| switch (l.ctx.types.get(t)) {
             .results => |rs| rs,
             else => &.{},
@@ -1219,7 +1219,7 @@ const Lowerer = struct {
             try l.coerce(e, id);
             break :header id;
         };
-        try l.role(id, e, .none);
+        if (enabled) try l.role(id, e, .none);
         return id;
     }
 
@@ -1403,8 +1403,10 @@ const Lowerer = struct {
             o.aux = @intCast(l.f.calls.items.len);
             try l.f.calls.append(l.a, l.callRecord(e));
         }
-        try l.operandRoles(o, kids);
-        try l.placeOp(&o);
+        if (enabled) {
+            try l.operandRoles(o, kids);
+            try l.placeOp(&o);
+        }
         const id = try l.addExpr(.{ .op = o });
         try l.note(e, id);
         try l.temp(e);
