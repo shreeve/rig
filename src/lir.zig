@@ -18,6 +18,7 @@ const storage = @import("storage.zig");
 const sema = @import("sema.zig");
 const diag = @import("diag.zig");
 const rig = @import("rig.zig");
+const self_check = @import("build_options").self_check;
 
 const Sexp = parser.Sexp;
 
@@ -76,7 +77,8 @@ pub const Expr = union(enum) {
     coerce: struct { node: Sexp, how: *const Coercion, value: ExprId },
 
     /// The operation of `node` over `args`: what it does, `kind`, and
-    /// for a call, its record, `Func.calls[aux]`.
+    /// for a call, its record, `Func.calls[aux]`; for a `member` or an
+    /// `index` that reaches a place, the place, `Func.places[aux - 1]`.
     pub const Op = struct { node: Sexp, args: []const ExprId, kind: OpKind = .other, aux: u32 = 0 };
 
     pub const Use = struct { v: VarId, node: Sexp };
@@ -91,7 +93,7 @@ pub const Expr = union(enum) {
     pub const If = struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId };
 
     /// A `match`: its subject, then the arm whose pattern it fits.
-    pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId };
+    pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId, answers: MatchAnswers = .{} };
 };
 
 /// What an operation does, by the form of its node: the facts that
@@ -139,7 +141,7 @@ pub const OpKind = enum(u8) {
     /// `.variant` and `:symbol`.
     literal,
     /// `v as name`, `f() as a, b`, and the `match` tests of a condition.
-    @"as",
+    as,
     /// Any other operation: its node says what it is.
     other,
 };
@@ -287,6 +289,91 @@ pub const Call = struct {
     };
 };
 
+/// How an operation or a step uses an operand, decided once by lowering
+/// (`Lowerer.role`) for each expression: an expression is the operand of
+/// one operation or step, so its role is kept by its id
+/// (`Func.roles`), in a self-checking build for now, where the ownership
+/// checker asserts that it decides each the same.
+pub const Operand = packed struct(u16) {
+    use: Use = .read,
+    sink: Sink = .none,
+    /// Viewed to read where a view is expected, with no sigil
+    /// (`sema.View.implicit`).
+    implicit: bool = false,
+    /// A view of the operand's elements, or a String's bytes: `?a`
+    /// viewed as `?a[..]`.
+    elems: bool = false,
+    /// A held write view passed on where a read view is expected.
+    read_only: bool = false,
+    /// Held first in a hidden var of its call or array literal
+    /// (`argument`).
+    held: bool = false,
+    _: u5 = 0,
+
+    /// What an operand's user does with it (Core sentences 1, 2, 4, 5).
+    pub const Use = enum(u3) {
+        /// A place read where it stands, or a value read as it is.
+        read,
+        /// `<x`: the operand of a move.
+        move,
+        /// `?x` and `!x`: the operand of a view, or a value viewed to read
+        /// where a view is expected (`Operand.implicit`).
+        read_view,
+        write_view,
+        /// A held write view (`w`, `e.t`) passed to a call: it is a write
+        /// view of its holder for as long as the result may keep it.
+        pass_view,
+        /// A value made where it stands, which its user takes.
+        made,
+    };
+
+    /// Where a consumed operand goes (Core sentences 3, 7), as the ownership
+    /// checker names it (`ownership.Sink`).
+    pub const Sink = enum(u4) {
+        none,
+        binding,
+        argument,
+        field,
+        element,
+        allocation,
+        box,
+        ret,
+        brk,
+    };
+};
+
+/// A place: a var, then the fields and elements of it a `member` or
+/// `index` operation reaches (`sema.Hands.place`). Its op names it by
+/// `Func.places[aux - 1]`; recorded in a self-checking build, where the
+/// ownership checker asserts that it finds each place so
+/// (`resolvePlace`).
+pub const Place = struct {
+    /// Null for a place rooted at a leaf: a constant of the module.
+    root: ?VarId,
+    steps: []const PlaceStep,
+};
+
+pub const PlaceStep = packed struct(u8) {
+    kind: Kind,
+    /// Its object is the root, a read view: the field is on the root's
+    /// path only for a self checked by path (`bindSelfPaths`).
+    root_read_view: bool = false,
+    /// Its object is a shared handle.
+    through_shared: bool = false,
+    _: u4 = 0,
+
+    pub const Kind = enum(u2) {
+        /// A data field of an object, of a box's, or of what a view of
+        /// the root sees: a place of its own on the root's path (Core
+        /// §5).
+        field,
+        /// Any other member, which ends the path.
+        member,
+        /// An element or a slice, which ends the path.
+        index,
+    };
+};
+
 /// How a value becomes the type its context takes, where it goes. Each
 /// is a typing fact of the node it wraps, made explicit where the value
 /// is read: a value held in a var first is coerced where the var is
@@ -333,10 +420,11 @@ fn optionalDepth(types: *const sema.TypeStore, ty: sema.TypeId) u32 {
 
 /// A step of a region, run in order.
 pub const Step = union(enum) {
-    /// Evaluate `value` into `v`.
-    bind: struct { v: VarId, value: ExprId },
+    /// Evaluate `value` into `v`; for a binding's declaration, the
+    /// `set` that declares it.
+    bind: struct { v: VarId, value: ExprId, set: Sexp = .nil, answers: Assign = .{} },
     /// Store `value` in the place `target`: the assignment `node`.
-    store: struct { node: Sexp, target: ExprId, value: ExprId },
+    store: struct { node: Sexp, target: ExprId, value: ExprId, answers: Assign = .{} },
     /// Evaluate `value` for what it does.
     eval: ExprId,
     /// Drop what `v` holds: `<x`, the name read at `node`.
@@ -349,11 +437,40 @@ pub const Step = union(enum) {
     @"if": Expr.If,
     /// `while cond: step`, running `body` while `cond` holds, then
     /// `step`.
-    loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId },
+    loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId, step_point: storage.StepPoint = .continue_expr },
     /// `for x in source`, running `body` once for each element.
-    each: struct { node: Sexp, source: ExprId, body: RegionId },
+    each: struct { node: Sexp, source: ExprId, body: RegionId, fold: ?storage.Fold = null, string_bytes: bool = false },
     /// `match`, running the arm its subject fits.
     match: Expr.Choice,
+
+    // What emit's lowering decides of a step fits in the room the
+    // largest step (a `match`) takes, so a step is no larger for it.
+    comptime {
+        std.debug.assert(@sizeOf(Step) <= 56);
+    }
+};
+
+/// What emit's lowering decides of an assignment or a binding's
+/// declaration (its `set`), kept on its step for emit to read; the
+/// checkers' lowering leaves it as it starts.
+pub const Assign = struct {
+    order: storage.SetOrder = @bitCast(@as(u8, 0)),
+    fills_in_place: bool = false,
+    lane_checked: bool = false,
+    /// An operator's assignment: the call that makes it, if any.
+    compound: ?storage.CompoundCall = null,
+    /// A binding's declaration: what the binding holds.
+    hold: ?storage.BindHold = null,
+};
+
+/// What emit's lowering decides of a `match` (`Expr.Choice`).
+pub const MatchAnswers = packed struct(u8) {
+    mode: storage.MatchMode = .read,
+    in_place: bool = false,
+    rereads: bool = false,
+    block: bool = false,
+    selects: bool = false,
+    _: u2 = 0,
 };
 
 /// A stretch of a function that declares vars, which live until it ends.
@@ -368,6 +485,11 @@ pub const Region = struct {
     /// The var that is its value, for a header that ends its
     /// temporaries (`header_value`).
     label: ?VarId = null,
+    /// For a `match` arm, whether its pattern fits any subject, and
+    /// whether the name it binds then views the subject by address;
+    /// decided by emit's lowering.
+    catch_all: bool = false,
+    catch_all_by_address: bool = false,
 
     pub const Kind = enum {
         /// A function's body.
@@ -392,6 +514,11 @@ pub const Region = struct {
     };
 };
 
+/// A list a self-checking build keeps, and no other: there it is empty.
+fn Checked(comptime T: type) type {
+    return if (self_check) std.ArrayList(T) else struct {};
+}
+
 /// A function, a closure, a test, or a `drop` body, lowered.
 pub const Func = struct {
     /// The `fun`, `sub`, `lambda`, `test`, or `drop_decl` node.
@@ -401,6 +528,13 @@ pub const Func = struct {
     regions: std.ArrayList(Region) = .empty,
     /// The record of each call, which its op names (`Op.aux`).
     calls: std.ArrayList(Call) = .empty,
+    /// The role of each expression as an operand, by its id; filled in
+    /// a self-checking build, and shorter than `exprs` where the rest
+    /// take the default.
+    roles: Checked(Operand) = if (self_check) .empty else .{},
+    /// The places `member` and `index` operations reach, each named by
+    /// its op (`Op.aux - 1`); filled in a self-checking build.
+    places: Checked(Place) = if (self_check) .empty else .{},
     body: RegionId = 0,
 
     pub fn addVar(f: *Func, a: std.mem.Allocator, v: Var) !VarId {
@@ -416,6 +550,12 @@ pub const Func = struct {
     pub fn addRegion(f: *Func, a: std.mem.Allocator, node: Sexp, kind: Region.Kind) !RegionId {
         try f.regions.append(a, .{ .node = node, .kind = kind });
         return @intCast(f.regions.items.len - 1);
+    }
+
+    /// The role of expression `e` as an operand.
+    pub fn roleOf(f: *const Func, e: ExprId) Operand {
+        if (!self_check) return .{};
+        return if (e < f.roles.items.len) f.roles.items[e] else .{};
     }
 
     pub fn region(f: *Func, r: RegionId) *Region {

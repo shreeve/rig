@@ -480,11 +480,17 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
         .@"defer", .@"errdefer" => try exits.walkDefer(self, sexp),
         else => return switch (kind) {
             .block => walkBlock(self, sexp),
-            .move => walkMove(self, lowered.operand(self, ex, 0)),
+            .move => blk: {
+                if (self_check) expectRole(self, lowered.operand(self, ex, 0), .{ .use = .move });
+                break :blk walkMove(self, lowered.operand(self, ex, 0));
+            },
             // A view the type checker rejected makes no loan.
             .read, .write => if (types.rejected(self, sexp))
                 walkRejectedView(self, lowered.operand(self, ex, 0))
-            else if (viewsElements(self, sexp))
+            else if (blk: {
+                if (self_check) expectRole(self, lowered.operand(self, ex, 0), .{ .use = if (sexp.isKind(.read)) .read_view else .write_view, .elems = viewsElements(self, sexp) });
+                break :blk viewsElements(self, sexp);
+            })
                 // `?a` viewed as `?a[..]`, `!a` as `!a[..]`, `?t` of a
                 // String as `?t[..]`.
                 walkElems(self, ex, lowered.operand(self, ex, 0), if (sexp.isKind(.read)) .read else .write)
@@ -492,7 +498,10 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
                 walkView(self, lowered.operand(self, ex, 0), loanOf(self, sexp)),
             .clone, .weak => walkCloneWeak(self, ex),
             .share => walkShare(self, ex),
-            .box => walkConsumedE(self, lowered.operand(self, ex, 0), .box),
+            .box => blk: {
+                if (self_check) expectRole(self, lowered.operand(self, ex, 0), .{ .sink = .box });
+                break :blk walkConsumedE(self, lowered.operand(self, ex, 0), .box);
+            },
             .lambda => walkLambda(self, ex, false),
             .@"if" => walkIf(self, ex),
             .@"while" => walkWhile(self, ex),
@@ -506,16 +515,25 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             // A destructure's target takes its result's loans.
             .result_part => self.part_value,
             .member, .index, .inst => if (self.sema.instanceOf(sexp) != null) .{} else walkMember(self, ex),
-            .kwarg => walkConsumedE(self, lowered.operand(self, ex, 1), .argument),
+            .kwarg => blk: {
+                if (self_check) expectRole(self, lowered.operand(self, ex, 1), .{ .sink = .argument });
+                break :blk walkConsumedE(self, lowered.operand(self, ex, 1), .argument);
+            },
             .array => blk: {
                 const late = self.late.items.len;
                 try holdLateOperands(self, ex, ir.Array.elems(sexp), 0);
                 var v: Value = .{};
-                for (0..ir.Array.elems(sexp).len) |i| v = try self.valueUnion(v, try walkConsumedE(self, lowered.operand(self, ex, i), .element));
+                for (0..ir.Array.elems(sexp).len) |i| {
+                    if (self_check) expectRole(self, lowered.operand(self, ex, i), .{ .sink = .element });
+                    v = try self.valueUnion(v, try walkConsumedE(self, lowered.operand(self, ex, i), .element));
+                }
                 try live.endLate(self, late);
                 break :blk v;
             },
-            .array_fill => walkConsumedE(self, lowered.operand(self, ex, 1), .element),
+            .array_fill => blk: {
+                if (self_check) expectRole(self, lowered.operand(self, ex, 1), .{ .sink = .element });
+                break :blk walkConsumedE(self, lowered.operand(self, ex, 1), .element);
+            },
             // A template's value is a String made of its slots, which
             // it only reads, as `String(...)` reads its arguments: the
             // String holds their text, not them.
@@ -569,8 +587,12 @@ pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
     const expr = e.node;
     // A bare value viewed to read where a view is expected is walked as
     // `?expr` (`View.implicit`).
-    if (viewOf(self, expr)) |view| if (view.implicit) return walkImplicitView(self, e, view);
+    if (viewOf(self, expr)) |view| if (view.implicit) {
+        if (self_check) expectRole(self, e, .{ .use = .read_view, .implicit = true, .elems = viewsElements(self, expr) });
+        return walkImplicitView(self, e, view);
+    };
     if (isLambda(expr)) {
+        if (self_check) expectRole(self, e, .{ .use = .made });
         // A closure literal given to a call as a callable view
         // lives for the call; anywhere else it is reported by
         // walkLambda.
@@ -585,7 +607,11 @@ pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
     // it is a write view of its holder for as long as the result may
     // keep the view.
     // A `![]T` passed where a `[]T` is expected is viewed to read.
-    if (sink == .argument and isWriteViewPlace(self, expr)) return walkView(self, e, if (types.viewsBy(self, expr, .read_only)) .read else .write);
+    if (sink == .argument and isWriteViewPlace(self, expr)) {
+        if (self_check) expectRole(self, e, .{ .use = .pass_view, .read_only = types.viewsBy(self, expr, .read_only) });
+        return walkView(self, e, if (types.viewsBy(self, expr, .read_only)) .read else .write);
+    }
+    if (self_check) expectRole(self, e, .{ .as_is = true });
     setTail(self, expr, sink);
     return walkE(self, e);
 }
@@ -783,12 +809,44 @@ pub fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
                     if (ty == .shared) p.through_shared = true;
                     if (ty == .read_view or ty == .write_view) p.through_view = true;
                 }
+                if (self_check) expectPlace(self, e, p);
                 return p;
             },
             else => return null,
         },
         else => return null,
     }
+}
+
+/// In a self-checking build, that the place lowering recorded for
+/// `member` or `index` node `e` (`lir.Place`) is `p`, as found here: its
+/// root, how far its path goes and whether it ends, and whether it is
+/// reached through an element or a shared handle. A place a header's
+/// held base roots is not lowering's.
+fn expectPlace(self: *const Checker, e: Sexp, p: Place) void {
+    if (!self_check or self.held != null) return;
+    const b = self.lir_body orelse return;
+    const m = &(self.sema.lowered orelse return);
+    const lp = m.placeOf(b.f, e) orelse {
+        if (types.hands(self, e).kind != .place) return;
+        const at = diag.lineCol(self.sema.source, self.sema.startOf(e));
+        std.debug.panic("{s}:{d}:{d}: internal error: lir: a place the ownership checker finds that lowering does not record", .{ self.sema.name, at.line, at.col });
+    };
+    const root_ok = if (lp.root) |r| (b.f.vars.items[r].node == .src and b.f.vars.items[r].node.src.pos == self.vars.items[p.root].decl) else true;
+    const self_root = origins.isSelfVar(self, p.root);
+    var depth: u8 = 0;
+    var ended = false;
+    var indexed = false;
+    var shared = false;
+    for (lp.steps) |s| {
+        if (s.kind == .index) indexed = true;
+        if (s.through_shared) shared = true;
+        if (ended) continue;
+        if (s.kind == .field and (!s.root_read_view or self_root) and depth < Paths.max_depth) depth += 1 else ended = true;
+    }
+    if (root_ok and depth == self.paths.depth(p.path) and ended == p.path_ended and indexed == p.indexed and shared == p.through_shared) return;
+    const at = diag.lineCol(self.sema.source, self.sema.startOf(e));
+    std.debug.panic("{s}:{d}:{d}: internal error: lir: a place recorded as {d} steps (root ok {}, depth {d}, ended {}, indexed {}, shared {}) that the ownership checker finds at depth {d}, ended {}, indexed {}, shared {}", .{ self.sema.name, at.line, at.col, lp.steps.len, root_ok, depth, ended, indexed, shared, self.paths.depth(p.path), p.path_ended, p.indexed, p.through_shared });
 }
 
 /// Whether `e`, a step of a place, goes on the place's path (Core §5,
@@ -1378,6 +1436,7 @@ pub fn walkDrop(self: *Checker, node: Sexp) Error!void {
         const saved = self.binding;
         defer self.binding = saved;
         self.binding = .{ .name = "_", .value = target };
+        if (self_check) expectRole(self, lowered.stepValue(self, node, target), .{ .sink = .binding });
         _ = try walkConsumedE(self, lowered.stepValue(self, node, target), .binding);
         return;
     }
@@ -1825,6 +1884,7 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
                     .value => {
                         const mark = try useAfterValue(st.c, st.set);
                         defer st.c.after_value.shrinkRetainingCapacity(mark);
+                        if (self_check) expectRole(st.c, st.value_e, .{ .sink = .field });
                         st.value = try walkConsumedE(st.c, st.value_e, .field);
                     },
                     // The base of a target that is no place (a view,
@@ -1887,6 +1947,7 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
             const saved = self.binding;
             defer self.binding = saved;
             self.binding = .{ .name = name, .value = expr };
+            if (self_check) expectRole(self, value_e, .{ .sink = .binding });
             const v = try walkConsumedE(self, value_e, .binding);
             // A binding reported for taking a held write view holds
             // nothing, so its later uses report nothing more.
@@ -2363,6 +2424,34 @@ fn expectCall(self: *const Checker, node: Sexp, comptime what: []const u8, ok: f
     if (self.sema.lowered) |*m| m.expectCallFact(self.sema, node, what, ok);
 }
 
+/// What the walk decides of an operand, each field null where it
+/// decides nothing of it.
+pub const Role = struct {
+    use: ?lir.Operand.Use = null,
+    sink: ?lir.Operand.Sink = null,
+    implicit: ?bool = null,
+    elems: ?bool = null,
+    read_only: ?bool = null,
+    held: ?bool = null,
+    /// Consumed as it is: no view passed on, none made with no sigil.
+    as_is: bool = false,
+};
+
+/// In a self-checking build, that the role lowering recorded for
+/// operand `e` (`lir.Operand`) is `want`, what the walk decides of it.
+pub fn expectRole(self: *const Checker, e: lowered.Expr, want: Role) void {
+    if (!self_check) return;
+    const b = self.lir_body orelse return;
+    const o = b.f.roleOf(e.id orelse return);
+    const ok = (want.use == null or want.use.? == o.use) and (want.sink == null or want.sink.? == o.sink) and
+        (want.implicit == null or want.implicit.? == o.implicit) and (want.elems == null or want.elems.? == o.elems) and
+        (want.read_only == null or want.read_only.? == o.read_only) and (want.held == null or want.held.? == o.held) and
+        (!want.as_is or (o.use != .pass_view and !o.implicit));
+    if (ok) return;
+    const at = diag.lineCol(self.sema.source, self.sema.startOf(e.node));
+    std.debug.panic("{s}:{d}:{d}: internal error: lir: an operand recorded as {any} that the ownership checker walks as {any}", .{ self.sema.name, at.line, at.col, o, want });
+}
+
 /// The facts of a call record `walkCallBody` asks for.
 const Is = struct {
     fn swap(c: *const lir.Call) bool {
@@ -2382,6 +2471,9 @@ const Is = struct {
     }
     fn member(c: *const lir.Call) bool {
         return c.callee == .member and c.self != null;
+    }
+    fn no_self(c: *const lir.Call) bool {
+        return c.callee == .member and c.self == null;
     }
     fn name(c: *const lir.Call) bool {
         return c.callee == .name;
@@ -2446,7 +2538,10 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         field_call = true;
         if (self.errors_found == callee_found) try holdRead(self, callee, .callee);
     } else if (callee.isKind(.member)) {
-        expectCall(self, node, "calls a method", Is.member);
+        // A type or a module named before the function is no self: it
+        // has no value, and nothing of it is taken (`storage.isTypeCallee`).
+        const no_self = storage.isTypeCallee(self.sema, ir.Member.object(callee));
+        if (no_self) expectCall(self, node, "calls a type's or a module's function", Is.no_self) else expectCall(self, node, "calls a method", Is.member);
         const object_e = lowered.operand(self, callee_e, 0);
         var obj = ir.Member.object(callee);
         var obj_e = object_e;
@@ -2456,7 +2551,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
             obj = ir.get(obj, .operand);
             obj_e = lowered.operand(self, object_e, 0);
         }
-        recv_mode = if (explicit_write) .write else types.selfMode(self, obj, callee);
+        recv_mode = if (explicit_write) .write else if (no_self) .read else types.selfMode(self, obj, callee);
         recv_loan = if (explicit_write) loanOf(self, ir.Member.object(callee)) else if (recv_mode == .write) .write else .read;
         const place = if (recv_mode == .value) null else resolvePlace(self, obj);
         if (place) |p| {
@@ -2599,6 +2694,8 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     for (args, arg_values, 0..) |a, *v, i| {
         self.in_rejected_call = types.rejected(self, node);
         const found = self.errors_found;
+        if (self_check) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .sink = .argument });
+        if (self_check and sameNode(a, storage.argValue(a)) and heldForCall(self, a, .argument) != null) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .held = true });
         v.* = try walkConsumedE(self, lowered.operand(self, call, first_arg + i), .argument);
         if (self.errors_found == found) try holdRead(self, a, .argument);
         // An argument the call copies into storage of its own is viewed
@@ -2813,6 +2910,7 @@ pub fn walkDestructure(self: *Checker, node: Sexp) Error!void {
         .bind => |x| break lowered.stepOperand(self, value, x.value),
         else => {},
     } else lowered.uncovered(self, value);
+    if (self_check) expectRole(self, value_e, .{ .sink = .binding });
     const whole = try walkConsumedE(self, value_e, .binding);
     self.after_value.shrinkRetainingCapacity(mark);
     if (!self.reachable) return;
