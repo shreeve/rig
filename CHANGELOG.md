@@ -1013,6 +1013,8 @@ arms.
 
 ### Tests
 
+- The test runner tells a case ended by a signal from one that ran past its limit: "killed by signal SIGABRT (6) after 0.3s", or "timed out after 120s", where both said "timed out".
+
 - `tools/jiff-oracle/` answers generated date, time, and zone cases
   from Jiff 1.0.0 and its bundled 2026f zone data alone, for the datetime
   library to match line for line; `test/cli/jiff_oracle.sh` checks it
