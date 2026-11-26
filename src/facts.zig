@@ -153,12 +153,6 @@ pub const Facts = struct {
         };
     }
 
-    /// In a self-checking build, that `call`'s LIR record is of
-    /// `kind`, the form emit writes it as (`lower.Module.expectCall`).
-    pub fn expectCall(f: Facts, m: *const Lowered, call: Sexp, kind: lir.CallKind) void {
-        m.expectCall(f.c(), call, kind, "emit");
-    }
-
     fn c(f: Facts) *const SemContext {
         return @ptrCast(@alignCast(f.sema_context));
     }
@@ -175,26 +169,24 @@ pub const Facts = struct {
     }
 
     pub const node_facts = [_][]const u8{
-        "symbolOf",         "typeOf",           "startOf",           "calleeOf",
-        "callTargetOf",     "ctArgsOf",         "callSlotsOf",       "instanceOf",
-        "genericCallOf",    "elemCallOf",       "builtinOf",         "builtinCallOf",
-        "isConstMaker",     "durationOf",       "provenOf",          "provenIfOf",
-        "flagOf",           "callableOf",       "viewOf",            "viewsTempArray",
-        "readsThrough",     "copiesPayload",    "readsInPlace",      "taskJoinOf",
-        "isActorMake",      "isFrozenMake",     "isActorCall",       "isTypeParamCall",
-        "dispatchOf",       "ownerWitnessesOf", "erasureOf",         "isChanMake",
-        "isSelect",         "selectArmOf",      "isActorSupervised", "isSuperviseCall",
-        "isHttpServe",      "isReduceCall",     "isIoCopy",          "isOnceClosure",
-        "isLocalTask",      "isIsolateCall",    "parCallOf",         "testCheckOf",
-        "writesTemp",       "useOf",            "liftOf",            "takes",
-        "oldIsNone",        "upgradeOf",        "writesThrough",     "copiesElem",
-        "isTypedLiteral",   "isFailingLeaf",    "isMemberTest",      "isErrorMember",
-        "namesErrorMember", "isTableWrite",     "isEnumText",        "headerOf",
-        "heldBaseOf",       "payloadFieldOf",   "payloadBindings",   "altsBind",
-        "payloadTests",     "copiesHeader",     "stringCall",        "stringNumOf",
-        "isPrintCall",      "isNoneLeaf",       "isTypeCallee",      "moduleMemberSym",
-        "selfOf",           "heldFirst",        "selfWrites",        "argParams",
-        "lambdaYields",     "matchedType",
+        "symbolOf",          "typeOf",         "startOf",         "calleeOf",
+        "callTargetOf",      "ctArgsOf",       "callSlotsOf",     "instanceOf",
+        "genericCallOf",     "elemCallOf",     "builtinOf",       "builtinCallOf",
+        "durationOf",        "provenOf",       "provenIfOf",      "flagOf",
+        "callableOf",        "viewOf",         "viewsTempArray",  "readsThrough",
+        "copiesPayload",     "readsInPlace",   "taskJoinOf",      "isActorMake",
+        "isFrozenMake",      "isActorCall",    "isTypeParamCall", "dispatchOf",
+        "ownerWitnessesOf",  "erasureOf",      "isChanMake",      "isSelect",
+        "isActorSupervised", "isOnceClosure",  "isLocalTask",     "testCheckOf",
+        "writesTemp",        "useOf",          "liftOf",          "takes",
+        "oldIsNone",         "upgradeOf",      "writesThrough",   "copiesElem",
+        "isTypedLiteral",    "isFailingLeaf",  "isMemberTest",    "isErrorMember",
+        "namesErrorMember",  "isTableWrite",   "isEnumText",      "headerOf",
+        "heldBaseOf",        "payloadFieldOf", "payloadBindings", "altsBind",
+        "payloadTests",      "copiesHeader",   "stringCall",      "stringNumOf",
+        "isPrintCall",       "isNoneLeaf",     "isTypeCallee",    "moduleMemberSym",
+        "selfOf",            "heldFirst",      "selfWrites",      "argParams",
+        "lambdaYields",      "matchedType",
     };
 
     /// How a type or a symbol is spelled and held in Zig: one answer per
@@ -360,11 +352,6 @@ pub const Facts = struct {
     /// own (`sema.FrameOwner`), has a large frame, emitted `noinline`.
     pub fn isLargeOwner(f: Facts, n: Sexp) bool {
         return f.c().large_frames.contains(f.c().startOf(n));
-    }
-    /// Whether the call may reach a function emitted `inline`, whose
-    /// result Zig could know at compile time.
-    pub fn callsInlined(f: Facts, call: Sexp) bool {
-        return call == .list and f.c().decides(.inlined_calls, call.list.id);
     }
     /// Whether `call` calls a Rig function or method: a function of this
     /// module or another, or a method a module declares on its type, not
@@ -986,6 +973,49 @@ test "Facts reads every match decision the plan made" {
         }
     };
     try std.testing.expectEqual(1, matches);
+}
+
+test "every call emit writes has the record lowering made" {
+    const source =
+        \\V = Simd[Int, 4]([1, 2, 3, 4])
+        \\
+        \\obj P
+        \\  x: Int
+        \\
+        \\  fun twice(?@) -> Int
+        \\    @x * 2
+        \\
+        \\sub main()
+        \\  p = P(x: 3)
+        \\  print(p.twice(), (V + V)[1])
+        \\
+    ;
+    const a = std.testing.allocator;
+    var p = parser.Parser.init(a, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    var ctx = try sema.check(a, source, tree, .{});
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+    const f = Facts.of(&ctx);
+    var lowered = try f.lower(a, tree, false);
+    defer lowered.deinit();
+    var nodes: std.ArrayList(Sexp) = .empty;
+    defer nodes.deinit(a);
+    try collect(a, tree, &nodes);
+    // Each call, a body's or the module constant's, by its form.
+    const kinds = [_]lir.CallKind{ .simd_conversion, .constructor, .print, .plain };
+    var i: usize = 0;
+    for (nodes.items) |n| if (n.isKind(.call)) {
+        try std.testing.expectEqual(kinds[i], (lowered.callOf(n) orelse return error.TestUnexpectedResult).kind);
+        i += 1;
+    };
+    try std.testing.expectEqual(kinds.len, i);
+    // Emit reads a call's record in one place, where a call lowering did
+    // not record is an internal error, never Zig written from a guess.
+    const emit_source = @embedFile("emit.zig");
+    try std.testing.expectEqual(1, std.mem.count(u8, emit_source, ".callOf("));
+    try std.testing.expect(std.mem.indexOf(u8, emit_source, ".callOf(call) orelse self.unsupported(call, \"a call lowering did not record\")") != null);
 }
 
 test "Facts reads where each step runs and where each jump goes" {
