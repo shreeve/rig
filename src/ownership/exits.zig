@@ -3,6 +3,7 @@
 //! would drop, and rewinds when the path goes on.
 
 const std = @import("std");
+const self_check = @import("build_options").self_check;
 const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const sema = @import("../sema.zig");
@@ -351,7 +352,7 @@ pub fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
     const v: Value = if (value == .nil) .{} else if (moved) |id|
         (if (self.vars.items[id].payload_view) try transfer.movePayload(self, id, value.src.pos, "move") else try transfer.moveVar(self, id, value.src.pos, .move))
     else blk: {
-        transfer.expectRole(self, lowered.stepValue(self, node, value), .{ .sink = .brk });
+        if (self_check) transfer.expectRole(self, lowered.stepValue(self, node, value), .{ .sink = .brk });
         break :blk try transfer.walkConsumedE(self, lowered.stepValue(self, node, value), .brk);
     };
     self.value_reads = false;

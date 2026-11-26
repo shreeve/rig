@@ -481,14 +481,14 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
         else => return switch (kind) {
             .block => walkBlock(self, sexp),
             .move => blk: {
-                expectRole(self, lowered.operand(self, ex, 0), .{ .use = .move });
+                if (self_check) expectRole(self, lowered.operand(self, ex, 0), .{ .use = .move });
                 break :blk walkMove(self, lowered.operand(self, ex, 0));
             },
             // A view the type checker rejected makes no loan.
             .read, .write => if (types.rejected(self, sexp))
                 walkRejectedView(self, lowered.operand(self, ex, 0))
             else if (blk: {
-                expectRole(self, lowered.operand(self, ex, 0), .{ .use = if (sexp.isKind(.read)) .read_view else .write_view, .elems = viewsElements(self, sexp) });
+                if (self_check) expectRole(self, lowered.operand(self, ex, 0), .{ .use = if (sexp.isKind(.read)) .read_view else .write_view, .elems = viewsElements(self, sexp) });
                 break :blk viewsElements(self, sexp);
             })
                 // `?a` viewed as `?a[..]`, `!a` as `!a[..]`, `?t` of a
@@ -499,7 +499,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             .clone, .weak => walkCloneWeak(self, ex),
             .share => walkShare(self, ex),
             .box => blk: {
-                expectRole(self, lowered.operand(self, ex, 0), .{ .sink = .box });
+                if (self_check) expectRole(self, lowered.operand(self, ex, 0), .{ .sink = .box });
                 break :blk walkConsumedE(self, lowered.operand(self, ex, 0), .box);
             },
             .lambda => walkLambda(self, ex, false),
@@ -516,7 +516,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             .result_part => self.part_value,
             .member, .index, .inst => if (self.sema.instanceOf(sexp) != null) .{} else walkMember(self, ex),
             .kwarg => blk: {
-                expectRole(self, lowered.operand(self, ex, 1), .{ .sink = .argument });
+                if (self_check) expectRole(self, lowered.operand(self, ex, 1), .{ .sink = .argument });
                 break :blk walkConsumedE(self, lowered.operand(self, ex, 1), .argument);
             },
             .array => blk: {
@@ -524,14 +524,14 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
                 try holdLateOperands(self, ex, ir.Array.elems(sexp), 0);
                 var v: Value = .{};
                 for (0..ir.Array.elems(sexp).len) |i| {
-                    expectRole(self, lowered.operand(self, ex, i), .{ .sink = .element });
+                    if (self_check) expectRole(self, lowered.operand(self, ex, i), .{ .sink = .element });
                     v = try self.valueUnion(v, try walkConsumedE(self, lowered.operand(self, ex, i), .element));
                 }
                 try live.endLate(self, late);
                 break :blk v;
             },
             .array_fill => blk: {
-                expectRole(self, lowered.operand(self, ex, 1), .{ .sink = .element });
+                if (self_check) expectRole(self, lowered.operand(self, ex, 1), .{ .sink = .element });
                 break :blk walkConsumedE(self, lowered.operand(self, ex, 1), .element);
             },
             // A template's value is a String made of its slots, which
@@ -588,11 +588,11 @@ pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
     // A bare value viewed to read where a view is expected is walked as
     // `?expr` (`View.implicit`).
     if (viewOf(self, expr)) |view| if (view.implicit) {
-        expectRole(self, e, .{ .use = .read_view, .implicit = true, .elems = viewsElements(self, expr) });
+        if (self_check) expectRole(self, e, .{ .use = .read_view, .implicit = true, .elems = viewsElements(self, expr) });
         return walkImplicitView(self, e, view);
     };
     if (isLambda(expr)) {
-        expectRole(self, e, .{ .use = .made });
+        if (self_check) expectRole(self, e, .{ .use = .made });
         // A closure literal given to a call as a callable view
         // lives for the call; anywhere else it is reported by
         // walkLambda.
@@ -608,10 +608,10 @@ pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
     // keep the view.
     // A `![]T` passed where a `[]T` is expected is viewed to read.
     if (sink == .argument and isWriteViewPlace(self, expr)) {
-        expectRole(self, e, .{ .use = .pass_view, .read_only = types.viewsBy(self, expr, .read_only) });
+        if (self_check) expectRole(self, e, .{ .use = .pass_view, .read_only = types.viewsBy(self, expr, .read_only) });
         return walkView(self, e, if (types.viewsBy(self, expr, .read_only)) .read else .write);
     }
-    expectRole(self, e, .{ .as_is = true });
+    if (self_check) expectRole(self, e, .{ .as_is = true });
     setTail(self, expr, sink);
     return walkE(self, e);
 }
@@ -809,7 +809,7 @@ pub fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
                     if (ty == .shared) p.through_shared = true;
                     if (ty == .read_view or ty == .write_view) p.through_view = true;
                 }
-                expectPlace(self, e, p);
+                if (self_check) expectPlace(self, e, p);
                 return p;
             },
             else => return null,
@@ -1436,7 +1436,7 @@ pub fn walkDrop(self: *Checker, node: Sexp) Error!void {
         const saved = self.binding;
         defer self.binding = saved;
         self.binding = .{ .name = "_", .value = target };
-        expectRole(self, lowered.stepValue(self, node, target), .{ .sink = .binding });
+        if (self_check) expectRole(self, lowered.stepValue(self, node, target), .{ .sink = .binding });
         _ = try walkConsumedE(self, lowered.stepValue(self, node, target), .binding);
         return;
     }
@@ -1884,7 +1884,7 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
                     .value => {
                         const mark = try useAfterValue(st.c, st.set);
                         defer st.c.after_value.shrinkRetainingCapacity(mark);
-                        expectRole(st.c, st.value_e, .{ .sink = .field });
+                        if (self_check) expectRole(st.c, st.value_e, .{ .sink = .field });
                         st.value = try walkConsumedE(st.c, st.value_e, .field);
                     },
                     // The base of a target that is no place (a view,
@@ -1947,7 +1947,7 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
             const saved = self.binding;
             defer self.binding = saved;
             self.binding = .{ .name = name, .value = expr };
-            expectRole(self, value_e, .{ .sink = .binding });
+            if (self_check) expectRole(self, value_e, .{ .sink = .binding });
             const v = try walkConsumedE(self, value_e, .binding);
             // A binding reported for taking a held write view holds
             // nothing, so its later uses report nothing more.
@@ -2688,7 +2688,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     for (args, arg_values, 0..) |a, *v, i| {
         self.in_rejected_call = types.rejected(self, node);
         const found = self.errors_found;
-        expectRole(self, lowered.operand(self, call, first_arg + i), .{ .sink = .argument });
+        if (self_check) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .sink = .argument });
         if (self_check and sameNode(a, storage.argValue(a)) and heldForCall(self, a, .argument) != null) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .held = true });
         v.* = try walkConsumedE(self, lowered.operand(self, call, first_arg + i), .argument);
         if (self.errors_found == found) try holdRead(self, a, .argument);
@@ -2904,7 +2904,7 @@ pub fn walkDestructure(self: *Checker, node: Sexp) Error!void {
         .bind => |x| break lowered.stepOperand(self, value, x.value),
         else => {},
     } else lowered.uncovered(self, value);
-    expectRole(self, value_e, .{ .sink = .binding });
+    if (self_check) expectRole(self, value_e, .{ .sink = .binding });
     const whole = try walkConsumedE(self, value_e, .binding);
     self.after_value.shrinkRetainingCapacity(mark);
     if (!self.reachable) return;
