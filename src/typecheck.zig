@@ -3725,7 +3725,7 @@ test "check: a frame an inline call cannot count is an error at the call, never 
 
 test "check: a keyword argument counts as its value in a body's operations" {
     const sources = [_][]const u8{
-        "fun f(a: Int, by: Int = 1) -> Int\n  a * by\n\nsub main()\n  print(f(1, 2 + 3))\n",
+        "fun f(a: Int, by: Int) -> Int\n  a * by\n\nsub main()\n  print(f(1, 2 + 3))\n",
         "fun f(a: Int, by: Int = 1) -> Int\n  a * by\n\nsub main()\n  print(f(1, by: 2 + 3))\n",
     };
     var ops: [2]u32 = undefined;

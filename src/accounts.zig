@@ -292,65 +292,20 @@ const Walker = struct {
 
     /// A `defer` or `errdefer` statement's region, whose body Zig writes
     /// again at each exit of its block it covers: every exit among the
-    /// steps after it (`storage.leave_kinds`), and the block's end. The
-    /// body's values and copies count once more for each exit past the
-    /// first, as copies.
+    /// statements after it (`check/generics.zig`, `countExits`), and the
+    /// block's end. The body's values and copies count once more for each
+    /// exit past the first, as copies.
     fn deferBody(w: *Walker, sub: lir.RegionId, rest: []const lir.Step, slots: *Slots) Error!void {
         const ctx = w.ctx;
         const start = slots.items.len;
         try w.region(sub, false, false, slots);
+        // Each later step of a block is a statement's region.
         var exits: usize = 1;
-        for (rest) |s| exits += w.stepExits(s);
+        for (rest) |s| if (s == .region) {
+            exits += generics.countExits(w.f.regions.items[s.region].node);
+        };
         const once = try ctx.arena.allocator().dupe(Slot, slots.items[start..]);
         for (1..exits) |_| for (once) |slot| try slots.append(ctx.allocator, .{ .ty = slot.ty, .name = "", .copy = true, .marked = slot.marked });
-    }
-
-    /// The exits in step `s` (`storage.leave_kinds`): its jumps, and the
-    /// `?` and `!` that leave the body.
-    fn stepExits(w: *const Walker, s: lir.Step) usize {
-        return switch (s) {
-            .bind => |b| w.exprExits(b.value),
-            .store => |st| w.exprExits(st.target) + w.exprExits(st.value),
-            .eval => |e| w.exprExits(e),
-            .drop => 0,
-            .jump => |j| 1 + (if (j.value) |e| w.exprExits(e) else 0),
-            .region => |r| w.regionExits(r),
-            .@"if" => |i| w.exprExits(i.cond) + w.regionExits(i.then) + (if (i.@"else") |e| w.regionExits(e) else 0),
-            .loop => |lp| w.exprExits(lp.cond) + w.regionExits(lp.body) + (if (lp.step) |st| w.regionExits(st) else 0),
-            .each => |ea| w.exprExits(ea.source) + w.regionExits(ea.body),
-            .match => |c| w.choiceExits(c),
-        };
-    }
-
-    fn regionExits(w: *const Walker, id: lir.RegionId) usize {
-        const r = &w.f.regions.items[id];
-        var n: usize = 0;
-        for (r.steps.items) |s| n += w.stepExits(s);
-        if (r.value) |e| n += w.exprExits(e);
-        return n;
-    }
-
-    fn choiceExits(w: *const Walker, c: lir.Expr.Choice) usize {
-        var n = w.exprExits(c.subject);
-        for (c.arms) |a| n += w.regionExits(a);
-        return n;
-    }
-
-    fn exprExits(w: *const Walker, id: lir.ExprId) usize {
-        return switch (w.f.exprs.items[id]) {
-            .@"var" => |u| if (w.held[u.v]) |e| w.exprExits(e) else 0,
-            .leaf, .closure => 0,
-            .op => |o| blk: {
-                var n: usize = @intFromBool(std.mem.findScalar(Tag, &rig.body_exit_kinds, o.node.kind() orelse .module) != null);
-                for (o.args) |a| n += w.exprExits(a);
-                break :blk n;
-            },
-            .hold => |h| w.exprExits(h.value),
-            .coerce => |c| w.exprExits(c.value),
-            .block => |r| w.regionExits(r),
-            .branch => |b| w.exprExits(b.cond) + w.regionExits(b.then) + (if (b.@"else") |e| w.regionExits(e) else 0),
-            .choice => |c| w.choiceExits(c),
-        };
     }
 
     /// The node expression `id` stands for.
