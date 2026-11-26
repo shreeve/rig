@@ -67,7 +67,8 @@ const FrameCount = sema.FrameCount;
 const Error = std.mem.Allocator.Error;
 
 /// The most operations (each step and each operation of its LIR: a call,
-/// an operator, a store, a coercion) a body may run and be inlined.
+/// an operator, a store, a coercion; a statement that is an expression
+/// counts as its operations) a body may run and be inlined.
 pub const max_size = 60;
 
 /// The most reach (`accounts.count`) the functions the rule

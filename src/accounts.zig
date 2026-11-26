@@ -24,7 +24,9 @@
 //! `inlining.decide` adds per call.
 //!
 //! The same walk counts each body's operations (`sema.FrameOwner.ops`),
-//! the size `inlining.decide` measures a function by.
+//! the size `inlining.decide` measures a function by: each step but a
+//! region and an expression statement's, whose operations count, and
+//! each operation, coercion, hold, branch, choice, and closure.
 //!
 //! A frame whose types mention generic parameters is checked at each
 //! instance (`check/generics.zig`, `checkInstanceFrames`). The module's
@@ -241,7 +243,9 @@ const Walker = struct {
         const r = &w.f.regions.items[id];
         try w.decls(r, slots);
         for (r.steps.items, 0..) |s, j| {
-            if (s != .region) w.ops += 1;
+            // A region runs its own steps, and a statement that is an
+            // expression runs its operations: neither step is one more.
+            if (s != .region and s != .eval) w.ops += 1;
             switch (s) {
                 .bind => |b| {
                     const v = w.f.vars.items[b.v];
