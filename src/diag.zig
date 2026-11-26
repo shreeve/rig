@@ -60,6 +60,13 @@ pub const Part = struct { start: u32, path: []const u8 };
 
 pub const Located = struct { path: []const u8, start: u32, text: []const u8 };
 
+/// Whether `items` holds an error other than a lint: the module is not
+/// lowered, nor checked for ownership.
+pub fn hasTypeErrorsIn(items: []const Diagnostic) bool {
+    for (items) |d| if (d.severity == .@"error" and !d.lint) return true;
+    return false;
+}
+
 pub fn hasErrorsIn(items: []const Diagnostic) bool {
     for (items) |d| {
         if (d.severity == .@"error") return true;

@@ -195,16 +195,10 @@ pub fn lowerChecked(ctx: *SemContext, tree: Sexp) !void {
     ctx.moved.deinit(ctx.allocator);
     ctx.moved = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
     try markMoved(ctx, tree);
-    if (rejected(ctx)) return;
+    if (diag.hasTypeErrorsIn(ctx.diagnostics.items)) return;
     var m = try lowerModule(ctx.allocator, ctx, tree, .{ .checked = true });
-    if (rejected(ctx)) return m.deinit();
+    if (diag.hasTypeErrorsIn(ctx.diagnostics.items)) return m.deinit();
     ctx.lowered = m;
-}
-
-/// Whether the module has an error other than a lint.
-fn rejected(ctx: *const SemContext) bool {
-    for (ctx.diagnostics.items) |d| if (d.severity == .@"error" and !d.lint) return true;
-    return false;
 }
 
 /// Record the symbols a name reads after its declaration (a later
