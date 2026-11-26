@@ -88,7 +88,8 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
             const saved_phase = self.decl_phase;
             defer self.lir_body = saved_lir;
             defer self.decl_phase = saved_phase;
-            self.lir_body = try lowered.enter(self, sexp, sexp);
+            self.lir_body = try lowered.enter(self, sexp);
+            self.const_at = 0;
             self.decl_phase = .values;
             for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try walkDecl(self, c);
             for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try walkDecl(self, c);
@@ -106,8 +107,17 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
         },
         .@"pub" => try walkDecl(self, ir.Pub.decl(sexp)),
         .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
-        else => if (self.decl_phase != .code) try walkStmt(self, sexp),
+        else => if (self.decl_phase == .values) try walkConstant(self, sexp),
     }
+}
+
+/// A statement of the module's compile-time body: its next statement,
+/// as lowering made them in the order `walkDecl` walks them.
+fn walkConstant(self: *Checker, sexp: Sexp) Error!void {
+    const st = lowered.stmtsOf(self, (self.lir_body orelse return).f.body);
+    const i = self.const_at;
+    self.const_at += 1;
+    _ = try walkStmtValueE(self, if (i < st.len()) lowered.stmtAt(self, st.at(i)) else lowered.uncovered(self, sexp), null);
 }
 
 /// A function, method, drop body, test, or an API's defaults and an
@@ -172,7 +182,7 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
     const top = self.fn_depth == 0;
     const saved_lir = self.lir_body;
     defer self.lir_body = saved_lir;
-    self.lir_body = try lowered.enter(self, root, body);
+    self.lir_body = try lowered.enter(self, root);
     if (top) {
         self.defer_used.clearRetainingCapacity();
         self.uses.clear();
@@ -201,19 +211,21 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
 /// returns a value, its last expression is the return value, whose
 /// loans it gives.
 pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
-    const lowered_stmts = try lowered.stmtsOf(self, body);
-    const stmts = lowered_stmts.list;
+    const b = self.lir_body orelse {
+        try notes.errAt(self, body, "internal error: this block has no lowered statements", .{});
+        return .{};
+    };
+    const st = lowered.stmtsOf(self, b.f.body);
     var result: Value = .{};
-    for (stmts, 0..) |stmt, i| {
-        if (try exits.unreached(self, stmts, i)) break;
-        if (lowered_stmts.yields and returns_value and i == stmts.len - 1) {
+    for (0..st.len()) |i| {
+        if (try exits.unreached(self, st, i)) break;
+        const e = lowered.stmtAt(self, st.at(i));
+        if (returns_value and st.yields(i)) {
             const saved_stmt = self.cur_stmt;
-            self.cur_stmt = stmt;
+            self.cur_stmt = e.node;
             defer self.cur_stmt = saved_stmt;
-            result = try walkReturnValueE(self, lowered.yieldOf(self, stmt), null);
-        } else {
-            try walkStmt(self, stmt);
-        }
+            result = try walkReturnValueE(self, .{ .node = e.node, .id = e.id }, null);
+        } else _ = try walkStmtValueE(self, e, null);
     }
     return result;
 }
@@ -282,16 +294,8 @@ pub fn bindParam(self: *Checker, p: Sexp) Error!void {
     }
 }
 
-pub fn walkStmt(self: *Checker, stmt: Sexp) Error!void {
-    _ = try walkStmtValue(self, stmt, null);
-}
-
 /// Walk one statement; its temporary views end with it. With
 /// `sink`, its value is consumed there (a loop's `as` condition).
-pub fn walkStmtValue(self: *Checker, stmt: Sexp, sink: ?Sink) Error!Value {
-    return walkStmtValueE(self, lowered.stmtExpr(self, stmt), sink);
-}
-
 pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value {
     const stmt = e.node;
     const p = notes.span(self, stmt);
@@ -314,18 +318,19 @@ pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value 
 
 /// Walk a `(block ...)` in its own scope; its value is the value of
 /// its last statement, which may not view the block's own locals.
-pub fn walkBlock(self: *Checker, block: Sexp) Error!Value {
-    const stmts = (try lowered.stmtsOf(self, block)).list;
+pub fn walkBlock(self: *Checker, e: lowered.Expr) Error!Value {
+    const block = e.node;
+    const st = lowered.stmtsOf(self, lowered.blockOf(self, e) orelse {
+        _ = lowered.uncovered(self, block);
+        return .{};
+    });
     const t = takeTail(self, block);
     try self.pushScopeFor(.block, block);
     var v: Value = .{};
-    for (stmts, 0..) |s, i| {
-        if (try exits.unreached(self, stmts, i)) break;
-        if (i < stmts.len - 1) {
-            try walkStmt(self, s);
-            continue;
-        }
-        v = try walkTailStmt(self, s, t);
+    for (0..st.len()) |i| {
+        if (try exits.unreached(self, st, i)) break;
+        const s = lowered.stmtAt(self, st.at(i));
+        if (i + 1 < st.len()) _ = try walkStmtValueE(self, s, null) else v = try walkTailStmt(self, s, t);
     }
     v = try self.leaveScope(v);
     return if (self.reachable) v else .{};
@@ -335,9 +340,10 @@ pub fn walkBlock(self: *Checker, block: Sexp) Error!Value {
 /// a statement whose value `t`, if any, consumes: its temporaries
 /// end with it, and its tail name moves before the scope's defers
 /// run, as emit takes it there.
-pub fn walkTailStmt(self: *Checker, stmt: Sexp, t: ?Tail) Error!Value {
+pub fn walkTailStmt(self: *Checker, e: lowered.Expr, t: ?Tail) Error!Value {
+    const stmt = e.node;
     if (t) |ctx| markTail(self, stmt, ctx);
-    const v = try walkStmtValue(self, stmt, null);
+    const v = try walkStmtValueE(self, e, null);
     if (t) |ctx| {
         self.tail = null;
         if (stmt == .src and self.reachable) try consumeTailName(self, stmt, ctx);
@@ -470,16 +476,16 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             self.decl_phase = .all;
             try walkDecl(self, sexp);
         },
-        .set => try walkSet(self, sexp),
-        .destructure => try walkDestructure(self, sexp),
-        .drop => try walkDrop(self, sexp),
-        .@"return" => try walkReturn(self, sexp),
-        .@"break" => try exits.walkJump(self, sexp, .brk),
-        .@"continue" => try exits.walkJump(self, sexp, .cont),
+        .set => try walkSet(self, sexp, lowered.stepsIn(self, ex)),
+        .destructure => try walkDestructure(self, ex),
+        .drop => try walkDrop(self, ex),
+        .@"return" => try walkReturn(self, ex),
+        .@"break" => try exits.walkJump(self, ex, .brk),
+        .@"continue" => try exits.walkJump(self, ex, .cont),
         .panic => try walkPanic(self, ex),
-        .@"defer", .@"errdefer" => try exits.walkDefer(self, sexp),
+        .@"defer", .@"errdefer" => try exits.walkDefer(self, ex),
         else => return switch (kind) {
-            .block => walkBlock(self, sexp),
+            .block => walkBlock(self, ex),
             .move => blk: {
                 if (self_check) expectRole(self, lowered.operand(self, ex, 0), .{ .use = .move });
                 break :blk walkMove(self, lowered.operand(self, ex, 0));
@@ -544,7 +550,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
                 break :blk .{};
             },
             // A block is walked by its region.
-            .raw_block => walkTailPartE(self, .{ .node = ir.RawBlock.body(sexp) }, takeTail(self, sexp)),
+            .raw_block => walkTailPartE(self, .{ .node = ir.RawBlock.body(sexp), .id = ex.id, .r = ex.r }, takeTail(self, sexp)),
             .enum_lit, .symbol, .use, .type, .generic_struct, .generic_inst => .{},
             // Operators on values produce fresh Copy results. A binary
             // operator reads its left operand where it runs, and uses
@@ -1428,7 +1434,8 @@ pub fn walkCloneWeak(self: *Checker, ex: lowered.Expr) Error!Value {
 // Sentence 3: drop points
 // -----------------------------------------------------------------------------
 
-pub fn walkDrop(self: *Checker, node: Sexp) Error!void {
+pub fn walkDrop(self: *Checker, e: lowered.Expr) Error!void {
+    const node = e.node;
     const target = ir.Drop.target(node);
     // `<e` of anything but a name drops what it takes, as `_ = <e`
     // does (`walkSet`).
@@ -1436,8 +1443,9 @@ pub fn walkDrop(self: *Checker, node: Sexp) Error!void {
         const saved = self.binding;
         defer self.binding = saved;
         self.binding = .{ .name = "_", .value = target };
-        if (self_check) expectRole(self, lowered.stepValue(self, node, target), .{ .sink = .binding });
-        _ = try walkConsumedE(self, lowered.stepValue(self, node, target), .binding);
+        const value_e = lowered.stepValue(self, lowered.stepsIn(self, e), target);
+        if (self_check) expectRole(self, value_e, .{ .sink = .binding });
+        _ = try walkConsumedE(self, value_e, .binding);
         return;
     }
     const pos = target.src.pos;
@@ -1839,13 +1847,15 @@ fn loanOn(v: Value, ids: []const VarId) ?Loan {
 // Bindings and assignment (Core sections 5 and 6)
 // -----------------------------------------------------------------------------
 
-pub fn walkSet(self: *Checker, node: Sexp) Error!void {
+pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!void {
     const kind = rig.bindingKindOf(ir.Set.op(node));
     const target = ir.Set.target(node);
     const expr = ir.Set.value(node);
-    // The value as the statement's step stores, binds, or discards it.
-    const target_id: ?lir.ExprId = if (lowered.stepOf(self, node)) |step| (if (step == .store) step.store.target else null) else null;
-    const value_e = lowered.stepValue(self, node, expr);
+    // The value as the statement's last step stores, binds, or
+    // discards it.
+    const last: ?lir.Step = if (set_steps.len > 0) set_steps[set_steps.len - 1] else null;
+    const target_id: ?lir.ExprId = if (last) |step| (if (step == .store) step.store.target else null) else null;
+    const value_e = lowered.stepValue(self, set_steps, expr);
     if (target != .src) {
         // The steps in the order emit evaluates them
         // (`storage.eachSetStep`): the value, the base of the target's
@@ -2817,7 +2827,8 @@ pub fn callResults(self: *Checker, node: Sexp, temps_start: usize, stored: Value
 /// runs a `drop` body; any other reads none of its views. This walks
 /// the desugaring: the results statement temporaries, each taken by
 /// its binding (docs/internals/INTERNALS.md, "Several results").
-pub fn walkDestructure(self: *Checker, node: Sexp) Error!void {
+pub fn walkDestructure(self: *Checker, e: lowered.Expr) Error!void {
+    const node = e.node;
     const value = ir.Destructure.value(node);
     const targets = ir.Destructure.targets(node).items();
     // What a target's store reads is used after the value, as an
@@ -2841,10 +2852,13 @@ pub fn walkDestructure(self: *Checker, node: Sexp) Error!void {
     self.results_of = null;
     const temps_start = self.temps.items.len;
     // The value as the statement binds it to the results it holds.
-    const value_e: lowered.Expr = for (lowered.stepsOf(self, node)) |step| switch (step) {
+    const steps = lowered.stepsIn(self, e);
+    const value_e: lowered.Expr = for (steps) |step| switch (step) {
         .bind => |x| break lowered.stepOperand(self, value, x.value),
         else => {},
     } else lowered.uncovered(self, value);
+    // Each target's steps are a stretch of its targets' region's.
+    const target_steps = lowered.stepsIn(self, .{ .node = node, .r = if (steps.len > 0 and steps[steps.len - 1] == .region) steps[steps.len - 1].region else null });
     if (self_check) expectRole(self, value_e, .{ .sink = .binding });
     const whole = try walkConsumedE(self, value_e, .binding);
     self.after_value.shrinkRetainingCapacity(mark);
@@ -2895,7 +2909,7 @@ pub fn walkDestructure(self: *Checker, node: Sexp) Error!void {
         try self.setFlow(id, .{ .loans = left.loans });
         if (try pendingView(self, t, targets, parts, held, j)) continue;
         self.part_value = parts[j];
-        try walkSet(self, t);
+        try walkSet(self, t, lowered.targetSteps(self, target_steps, targets, j));
     }
 }
 
@@ -3238,7 +3252,7 @@ pub fn walkLambda(self: *Checker, le: lowered.Expr, owned: bool) Error!Value {
     self.reachable = true;
     const saved_lir = self.lir_body;
     defer self.lir_body = saved_lir;
-    self.lir_body = try lowered.enter(self, node, body);
+    self.lir_body = try lowered.enter(self, node);
     try self.pushScopeFor(.closure, body);
     for (caps, cap_values.items) |cap, cv| {
         const name = sema.captureNameNode(cap).?;
@@ -3398,9 +3412,10 @@ pub fn walkNullish(self: *Checker, ex: lowered.Expr) Error!Value {
 // Return
 // -----------------------------------------------------------------------------
 
-pub fn walkReturn(self: *Checker, node: Sexp) Error!void {
+pub fn walkReturn(self: *Checker, e: lowered.Expr) Error!void {
+    const node = e.node;
     const value = ir.Return.value(node);
-    const value_e = lowered.stepValue(self, node, value);
+    const value_e = lowered.stepValue(self, lowered.stepsIn(self, e), value);
     var result: Value = .{};
     // `return a, b`: each part leaves the function as `return x`
     // does, left to right.
@@ -3522,7 +3537,7 @@ pub fn walkIf(self: *Checker, e: lowered.Expr) Error!Value {
     const else_b = ir.If.@"else"(node);
     // The condition is a header, its own statement.
     const mark = try useBranchesAfter(self, node, cond);
-    _ = try walkStmtValueE(self, if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.stmtExpr(self, cond), null);
+    _ = try walkStmtValueE(self, if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.uncovered(self, cond), null);
     self.after_value.shrinkRetainingCapacity(@min(mark, self.after_value.items.len));
     const base = try self.here();
     const past = notes.resumeAt(self, .nil, node);
@@ -3800,7 +3815,7 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
         if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
         // The body is a statement of its own (`sema.isArmBody`): its
         // temporaries end with it, in the arm's scope.
-        var v = try walkTailStmt(self, body, tail_ctx);
+        var v = try walkTailStmt(self, lowered.armBody(self, ctrl, i, body), tail_ctx);
         v = try self.leaveScope(v);
         value = try self.valueUnion(value, v);
         const s = try self.leave(base, past);
@@ -4079,10 +4094,10 @@ pub fn walkResultsBinding(self: *Checker, ce: lowered.Expr, body: Sexp) Error!vo
     try self.pushScopeFor(.block, body);
     const saved_part = self.part_value;
     defer self.part_value = saved_part;
-    for (names, parts) |n, part| {
+    for (names, parts, 1..) |n, part, k| {
         if (!n.isKind(.set)) continue;
         self.part_value = part;
-        try walkSet(self, n);
+        try walkSet(self, n, lowered.stepsIn(self, .{ .node = n, .r = lowered.argRegion(self, ce, k) }));
     }
     try endTemps(self, try lowered.endsOf(self, lowered.regionOf(self, value_e, .header), vars_mark, false));
 }
@@ -4276,7 +4291,7 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
         const c = spec.cond.?;
         exit = try walkConditionParts(self, if (lir_cond) |id| lowered.exprFor(self, c, id) else lowered.uncovered(self, c), spec.body, fail, ctx.parent);
     } else {
-        if (spec.cond) |c| _ = try walkStmtValueE(self, if (lir_cond) |id| lowered.exprFor(self, c, id) else lowered.stmtExpr(self, c), null);
+        if (spec.cond) |c| _ = try walkStmtValueE(self, if (lir_cond) |id| lowered.exprFor(self, c, id) else lowered.uncovered(self, c), null);
         if (!spec.cond_always_true) exit = try self.arena().dupe(State, &.{try exits.exitTo(self, fail)});
     }
     // The loop is `loop { x = a or break; body: { body }; step }`
@@ -4297,12 +4312,12 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
         .each => |x| x.body,
         else => null,
     } else null;
-    _ = try walkStmtValueE(self, if (lir_body) |r| lowered.partExpr(self, spec.body, r) else lowered.stmtExpr(self, spec.body), null);
+    _ = try walkStmtValueE(self, if (lir_body) |r| lowered.partExpr(self, spec.body, r) else lowered.uncovered(self, spec.body), null);
     if (step_inside) {
         while (self.scopes.items.len > ctx.step_depth) try self.popScope();
         if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, notes.stepAt(self, spec.node));
         ctx.step_point = null;
-        try walkStep(self, spec.cont.?, spec.node);
+        try walkStep(self, spec);
     }
     while (self.scopes.items.len > depth) try self.popScope();
 
@@ -4312,21 +4327,23 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     // after the body, since it would skip binding what the step
     // reads); a `continue` in the step ends it.
     if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
-    if (!step_inside) if (spec.cont) |c| {
+    if (!step_inside) if (spec.cont != null) {
         ctx.conts.clearRetainingCapacity();
-        try walkStep(self, c, spec.node);
+        try walkStep(self, spec);
         if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
     };
     return .{ .back = try exits.exitTo(self, .{ .to = ctx.point, .resume_at = ctx.start }), .exit = exit };
 }
 
-/// Walk the step of `while` loop `node`, which runs after its body
-/// (`stepAt`).
-pub fn walkStep(self: *Checker, step: Sexp, node: Sexp) Error!void {
+/// Walk the step of the `while` loop `spec` walks, which runs after
+/// its body (`stepAt`), from the region LIR made for it.
+pub fn walkStep(self: *Checker, spec: LoopSpec) Error!void {
     const saved = self.step_at;
     defer self.step_at = saved;
-    if (saved == null) self.step_at = notes.stepAt(self, node);
-    try walkStmt(self, step);
+    if (saved == null) self.step_at = notes.stepAt(self, spec.node);
+    const step = spec.cont.?;
+    const r = if (spec.lir) |c| (if (c == .loop) c.loop.step else null) else null;
+    _ = try walkStmtValueE(self, if (r) |sr| lowered.bodyStmt(self, step, sr) else lowered.uncovered(self, step), null);
 }
 
 pub fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {

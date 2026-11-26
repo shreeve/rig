@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const parser = @import("../parser.zig");
+const lir = @import("../lir.zig");
 const sema = @import("../sema.zig");
 const storage = @import("../storage.zig");
 const diag = @import("../diag.zig");
@@ -287,10 +288,10 @@ pub const Scope = struct {
     node: Sexp = .nil,
 };
 
-/// A `defer` or `errdefer` body, and the number of vars declared before
-/// it: the rest are dropped before it runs. An `errdefer` runs only at
-/// an exit that fails.
-pub const Deferred = struct { body: Sexp, vars: u32, err_only: bool };
+/// A `defer` or `errdefer` body, the region LIR made for it, and the
+/// number of vars declared before it: the rest are dropped before it
+/// runs. An `errdefer` runs only at an exit that fails.
+pub const Deferred = struct { body: Sexp, r: ?lir.RegionId, vars: u32, err_only: bool };
 
 /// One change to a var's flow, kept so it can be undone.
 pub const Change = struct { id: VarId, old: Flow };
@@ -622,6 +623,9 @@ pub const Checker = struct {
     /// The struct or enum whose members are being walked: the owner of a
     /// method (`declOrigins`).
     decl_owner: ?SymbolId = null,
+    /// The next statement of the module's compile-time body to walk
+    /// (`walkConstant`).
+    const_at: u32 = 0,
     /// The method of a generic type being walked, by its name's position
     /// (`PlainRequirement.method`).
     method_pos: ?u32 = null,
