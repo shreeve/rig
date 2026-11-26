@@ -431,6 +431,19 @@ pub fn stepsOf(self: *const Checker, stmt: Sexp) []const lir.Step {
     return b.f.regions.items[r].steps.items;
 }
 
+/// The value statement `stmt`'s step takes, `node` in the tree: what
+/// it stores, binds, evaluates, or leaves with.
+pub fn stepValue(self: *const Checker, stmt: Sexp, node: Sexp) Expr {
+    if (node != .nil) if (stepOf(self, stmt)) |step| switch (step) {
+        .store => |x| return stepOperand(self, node, x.value),
+        .bind => |x| return stepOperand(self, node, x.value),
+        .eval => |x| return stepOperand(self, node, x),
+        .jump => |j| if (j.value) |id| return stepOperand(self, node, id),
+        else => {},
+    };
+    return exprAt(self, node);
+}
+
 /// Statement `stmt`, whose value its body yields, as its region's value.
 pub fn yieldOf(self: *const Checker, stmt: Sexp) Expr {
     const b = self.lir_body orelse return exprAt(self, stmt);

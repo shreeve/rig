@@ -447,11 +447,6 @@ pub fn noteItems(self: *Checker, ty: ?TypeId) Error!void {
     }
 }
 
-/// Whether a value of `ty` may hold a view, here or in an instance.
-pub fn mayHoldInInstance(self: *const Checker, ty: ?TypeId) bool {
-    return types.mayCarryLoan(self, ty) or genericType(self, ty);
-}
-
 /// A store of `stored` in what var `id` leads to, a type that holds a
 /// type parameter (`genericType`), whose loans a generic body does not
 /// track: a parameter the caller viewed is noted as holding them
@@ -584,13 +579,6 @@ pub fn noteGenericStore(self: *Checker, into: VarId, pos: u32) void {
     if (self.func.generic_store_count == self.func.generic_stores.len) return;
     self.func.generic_stores[self.func.generic_store_count] = .{ .param = i, .pos = pos, .name = self.vars.items[into].name };
     self.func.generic_store_count += 1;
-}
-
-/// A bracket list of compile-time arguments (`List[Int]`, `max[Int]`),
-/// which names a type or a function and holds no value.
-pub fn isInstance(self: *const Checker, e: Sexp) bool {
-    const s = self.sema;
-    return s.instanceOf(e) != null;
 }
 
 /// The type of the function call `node` calls, when it names a type

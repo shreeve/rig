@@ -72,12 +72,6 @@ pub fn hasLoanOn(loans: []const Loan, root: VarId) bool {
     return false;
 }
 
-pub fn refOfTypeSexp(t: Sexp) Ref {
-    if (t.isKind(.read_view)) return .read;
-    if (t.isKind(.write_view)) return .write;
-    return .none;
-}
-
 // -----------------------------------------------------------------------------
 // Declarations, functions, statements, and blocks
 // -----------------------------------------------------------------------------
@@ -214,11 +208,7 @@ pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
     const stmts = lowered_stmts.list;
     var result: Value = .{};
     for (stmts, 0..) |stmt, i| {
-        try exits.checkAfterJump(self, stmts, i);
-        if (!self.reachable) {
-            try exits.checkRestAfterJump(self, stmts, i);
-            break;
-        }
+        if (try exits.unreached(self, stmts, i)) break;
         if (lowered_stmts.yields and returns_value and i == stmts.len - 1) {
             const saved_stmt = self.cur_stmt;
             self.cur_stmt = stmt;
@@ -270,7 +260,7 @@ pub fn bindParam(self: *Checker, p: Sexp) Error!void {
     const ty = types.symType(self, name_node);
     var ref = sugar;
     if (ref == .none) ref = types.refOfType(self, ty);
-    if (ref == .none) ref = refOfTypeSexp(type_node);
+    if (ref == .none) ref = if (type_node.isKind(.read_view)) .read else if (type_node.isKind(.write_view)) .write else .none;
     const index = self.func.params;
     if (self.func.binding_params) self.func.params += 1;
     const id = try self.addVar(.{
@@ -333,11 +323,7 @@ pub fn walkBlock(self: *Checker, block: Sexp) Error!Value {
     try self.pushScopeFor(.block, block);
     var v: Value = .{};
     for (stmts, 0..) |s, i| {
-        try exits.checkAfterJump(self, stmts, i);
-        if (!self.reachable) {
-            try exits.checkRestAfterJump(self, stmts, i);
-            break;
-        }
+        if (try exits.unreached(self, stmts, i)) break;
         if (i < stmts.len - 1) {
             try walkStmt(self, s);
             continue;
@@ -526,7 +512,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             .call => walkCall(self, ex),
             // A destructure's target takes its result's loans.
             .result_part => self.part_value,
-            .member, .index, .inst => if (generic.isInstance(self, sexp)) .{} else walkMember(self, ex),
+            .member, .index, .inst => if (self.sema.instanceOf(sexp) != null) .{} else walkMember(self, ex),
             .kwarg => walkConsumedE(self, lowered.operand(self, ex, 1), .argument),
             .array => blk: {
                 const late = self.late.items.len;
@@ -546,7 +532,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
                 self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
                 break :blk .{};
             },
-            .raw_block => walkTailPart(self, ir.RawBlock.body(sexp), takeTail(self, sexp)),
+            .raw_block => walkTailPartE(self, lowered.exprAt(self, ir.RawBlock.body(sexp)), takeTail(self, sexp)),
             .enum_lit, .symbol, .use, .type, .generic_struct, .generic_inst => .{},
             // Operators on values produce fresh Copy results. A binary
             // operator reads its left operand where it runs, and uses
@@ -637,10 +623,6 @@ pub fn takeTail(self: *Checker, node: Sexp) ?Tail {
 /// Walk a part of a consumed value (a branch, an arm, a handler):
 /// its tail leaves it. A block part moves its tail name before its
 /// defers run (`walkBlock`); a bare name part moves here.
-pub fn walkTailPart(self: *Checker, body: Sexp, t: ?Tail) Error!Value {
-    return walkTailPartE(self, lowered.exprAt(self, body), t);
-}
-
 pub fn walkTailPartE(self: *Checker, e: lowered.Expr, t: ?Tail) Error!Value {
     const body = e.node;
     const ctx = t orelse return walkE(self, e);
@@ -1019,12 +1001,7 @@ pub fn walkReadArgs(self: *Checker, owner: lowered.Expr, args: []const Sexp, fir
 /// The slots of template `t`, in order, each read as an argument of
 /// `print` is (`walkReadArgs`).
 pub fn walkTemplateSlots(self: *Checker, t: Sexp) Error!void {
-    for (0..rig.Template.slotCount(t)) |i| try walkReadArg(self, rig.Template.value(t, i));
-}
-
-/// One argument `walkReadArgs` reads.
-pub fn walkReadArg(self: *Checker, a: Sexp) Error!void {
-    return walkReadArgE(self, lowered.exprAt(self, a));
+    for (0..rig.Template.slotCount(t)) |i| try walkReadArgE(self, lowered.exprAt(self, rig.Template.value(t, i)));
 }
 
 pub fn walkReadArgE(self: *Checker, e: lowered.Expr) Error!void {
@@ -1409,11 +1386,7 @@ pub fn walkDrop(self: *Checker, node: Sexp) Error!void {
         const saved = self.binding;
         defer self.binding = saved;
         self.binding = .{ .name = "_", .value = target };
-        const e: lowered.Expr = if (lowered.stepOf(self, node)) |step| switch (step) {
-            .eval => |x| lowered.stepOperand(self, target, x),
-            else => lowered.exprAt(self, target),
-        } else lowered.exprAt(self, target);
-        _ = try walkConsumedE(self, e, .binding);
+        _ = try walkConsumedE(self, lowered.stepValue(self, node, target), .binding);
         return;
     }
     const pos = target.src.pos;
@@ -1725,14 +1698,21 @@ pub fn holdTemp(self: *Checker, node: Sexp, v: Value) Error!Value {
             try self.setFlow(kv.value, .{ .loans = v.loans });
             break :blk kv.value;
         };
-        const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = pos, .ty = types.exprType(self, node), .kind = .hidden, .temp_value = true }, .{ .loans = v.loans });
-        try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
-        break :blk id;
+        break :blk try addTempVar(self, node, v.loans);
     };
     // The temporary is in use until its consumer is done with it.
     const loan: Loan = .{ .root = id, .kind = .read, .pos = pos };
     try live.addTemp(self, loan);
     return .{ .loans = try self.oneLoan(loan) };
+}
+
+/// The hidden var of statement temporary `node`, which views `loans`,
+/// dropped with its statement (`dropStmtTemps`).
+fn addTempVar(self: *Checker, node: Sexp, loans: []const Loan) Error!VarId {
+    const pos = notes.startOf(self, node);
+    const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = pos, .ty = types.exprType(self, node), .kind = .hidden, .temp_value = true }, .{ .loans = loans });
+    try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+    return id;
 }
 
 /// Make the hidden vars for the statement temporaries `part`, a
@@ -1746,12 +1726,7 @@ pub fn holdPartTemps(self: *Checker, part: Sexp) Error!void {
     const ctx = self.sema;
     var temps: std.ArrayList(Sexp) = .empty;
     try sema.stmtTemps(ctx, self.arena(), part, &temps);
-    for (temps.items) |node| {
-        const pos = notes.startOf(self, node);
-        const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = pos, .ty = types.exprType(self, node), .kind = .hidden, .temp_value = true }, .{});
-        try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
-        try self.part_temps.put(self.gpa, node.list.id, id);
-    }
+    for (temps.items) |node| try self.part_temps.put(self.gpa, node.list.id, try addTempVar(self, node, &.{}));
 }
 
 /// Whether var `id` is still the hidden var of the statement
@@ -1783,26 +1758,39 @@ pub fn dropStmtTemps(self: *Checker, start: usize) Error!void {
         i -= 1;
         const d = self.stmt_drops.items[i];
         if (!isStmtTempVar(self, d.id, d.pos)) continue;
-        if (self.isViewed(d.id)) for (0..self.flows.items.len) |holder| {
-            if (holder == d.id) continue;
-            var f = self.flows.items[holder];
-            var reported = false;
-            var kept: std.ArrayList(Loan) = .empty;
-            for (f.loans) |l| {
-                if (l.root != d.id) {
-                    try kept.append(self.arena(), l);
-                } else if (!reported and live.holdsPastDrop(self, @intCast(holder))) {
-                    try notes.reportTempOutlived(self, l, @intCast(holder));
-                    reported = true;
-                }
-            }
-            if (kept.items.len == f.loans.len) continue;
-            f.loans = kept.items;
-            try self.setFlow(@intCast(holder), f);
-        };
+        try endLoansOn(self, d.id, .temp);
         try self.setFlow(d.id, .{ .status = .dropped, .at = d.pos });
     }
     self.stmt_drops.shrinkRetainingCapacity(start);
+}
+
+/// A `holder`'s loans on hidden var `id` end, as `id` does: a
+/// statement's temporary dropped (`temp`), or a call's storage gone as
+/// it returns (`call`). A holder that still uses what it views is
+/// reported, at its first loan on `id`.
+fn endLoansOn(self: *Checker, id: VarId, why: enum { temp, call }) Error!void {
+    if (!self.isViewed(id)) return;
+    for (0..self.flows.items.len) |holder| {
+        if (holder == id) continue;
+        var f = self.flows.items[holder];
+        if (!hasLoanOn(f.loans, id)) continue;
+        const h: VarId = @intCast(holder);
+        const uses = switch (why) {
+            .temp => live.holdsPastDrop(self, h, 0),
+            .call => self.reachable and live.holderLive(self, h, null),
+        };
+        if (uses) for (f.loans) |l| if (l.root == id) {
+            switch (why) {
+                .temp => try notes.reportTempOutlived(self, l, h),
+                .call => try notes.reportCallHeld(self, l, h),
+            }
+            break;
+        };
+        var left: std.ArrayList(Loan) = .empty;
+        for (f.loans) |l| if (l.root != id) try left.append(self.arena(), l);
+        f.loans = left.items;
+        try self.setFlow(h, f);
+    }
 }
 
 /// A loan in `v` on a temporary held since `stmt_drops` held
@@ -1823,16 +1811,8 @@ pub fn walkSet(self: *Checker, node: Sexp) Error!void {
     const target = ir.Set.target(node);
     const expr = ir.Set.value(node);
     // The value as the statement's step stores, binds, or discards it.
-    var target_id: ?lir.ExprId = null;
-    const value_e: lowered.Expr = if (lowered.stepOf(self, node)) |step| switch (step) {
-        .store => |x| blk: {
-            target_id = x.target;
-            break :blk lowered.stepOperand(self, expr, x.value);
-        },
-        .bind => |x| lowered.stepOperand(self, expr, x.value),
-        .eval => |x| lowered.stepOperand(self, expr, x),
-        else => lowered.exprAt(self, expr),
-    } else lowered.exprAt(self, expr);
+    const target_id: ?lir.ExprId = if (lowered.stepOf(self, node)) |step| (if (step == .store) step.store.target else null) else null;
+    const value_e = lowered.stepValue(self, node, expr);
     if (target != .src) {
         // The steps in the order emit evaluates them
         // (`storage.eachSetStep`): the value, the base of the target's
@@ -2310,23 +2290,10 @@ const first_arg = 2;
 fn holdLateOperands(self: *Checker, e: lowered.Expr, parts: []const Sexp, first: usize) Error!void {
     if (!self.nll) return;
     if (!(lowered.holdsParts(self, e) orelse false)) return live.holdLateParts(self, e.node, parts);
-    const mark = self.late.items.len;
     for (parts, 0..) |a, i| {
         var part = lowered.operand(self, e, first + i);
         if (a.isKind(.kwarg)) part = lowered.operand(self, part, 1);
         if (!lowered.heldFirst(self, part)) try live.holdLate(self, storage.argValue(a));
-    }
-    if (self_check) {
-        const ours = self.late.items.len;
-        try live.holdLateParts(self, e.node, parts);
-        const lir_late = self.late.items[mark..ours];
-        const tree_late = self.late.items[ours..];
-        var same = lir_late.len == tree_late.len;
-        if (same) for (lir_late) |p| if (std.mem.findScalar(u32, tree_late, p) == null) {
-            same = false;
-        };
-        if (!same) std.debug.panic("internal error: the parts a lowered `{s}` reads where it runs are not the tree's", .{@tagName(e.node.kind() orelse .module)});
-        self.late.shrinkRetainingCapacity(ours);
     }
 }
 
@@ -2376,19 +2343,7 @@ pub fn endCallHeld(self: *Checker, node: Sexp, mark: usize, v: Value) Error!Valu
         var kept: std.ArrayList(Loan) = .empty;
         for (out.loans) |l| if (l.root != id) try kept.append(self.arena(), l);
         out.loans = kept.items;
-        if (self.isViewed(id)) for (0..self.flows.items.len) |holder| {
-            if (holder == id) continue;
-            var f = self.flows.items[holder];
-            if (!hasLoanOn(f.loans, id)) continue;
-            if (self.reachable and live.holderLive(self, @intCast(holder), null)) for (f.loans) |l| if (l.root == id) {
-                try notes.reportCallHeld(self, l, @intCast(holder));
-                break;
-            };
-            var left: std.ArrayList(Loan) = .empty;
-            for (f.loans) |l| if (l.root != id) try left.append(self.arena(), l);
-            f.loans = left.items;
-            try self.setFlow(@intCast(holder), f);
-        };
+        try endLoansOn(self, id, .call);
         var t: usize = 0;
         while (t < self.temps.items.len) {
             if (self.temps.items[t].root == id) _ = self.temps.orderedRemove(t) else t += 1;
@@ -2397,6 +2352,17 @@ pub fn endCallHeld(self: *Checker, node: Sexp, mark: usize, v: Value) Error!Valu
     }
     self.call_held.shrinkRetainingCapacity(mark);
     return out;
+}
+
+/// A write self, path `path` of `id`, is viewed when the call
+/// `callee` names starts, before the callee stores anything: a loan
+/// that conflicts with it is noted. The call's own reservation, temp
+/// `reservation`, is no conflict.
+fn checkWriteSelf(self: *Checker, id: VarId, path: PathId, reservation: usize, callee: Sexp) Error!void {
+    const reserved = self.temps.orderedRemove(reservation);
+    const at = notes.startOf(self, ir.Member.object(callee));
+    if (try rules.conflictingLoan(self, id, path, .write, at)) |l| try notes.noteWholeSelf(self, id, path, l, callee, at);
+    try self.temps.insert(self.gpa, reservation, reserved);
 }
 
 pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
@@ -2528,12 +2494,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     const text_op = self.sema.stringCallOf(node) orelse self.sema.stringCallOf(callee);
     if (self.sema.isPrintCall(node) or text_op != null) {
         try walkReadArgs(self, call, args, first_arg);
-        if (recv_root) |id| if (recv_loan == .write) {
-            const reserved = self.temps.orderedRemove(reservation);
-            const at = notes.startOf(self, ir.Member.object(callee));
-            if (try rules.conflictingLoan(self, id, recv_path, .write, at)) |l| try notes.noteWholeSelf(self, id, recv_path, l, callee, at);
-            try self.temps.insert(self.gpa, reservation, reserved);
-        };
+        if (recv_root) |id| if (recv_loan == .write) try checkWriteSelf(self, id, recv_path, reservation, callee);
         self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
         return .{};
     }
@@ -2654,15 +2615,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         for (arg_values, 0..) |v, i| if (p.keepsViewed(i)) try notes.noteKept(self, callee, v, p.paramName(i) orelse "?", write_recv, arg_values);
     };
 
-    // A write self is viewed when the call starts, before the
-    // callee stores anything.
-    if (recv_root) |id| if (recv_loan == .write) {
-        // The reservation itself is no conflict.
-        const reserved = self.temps.orderedRemove(reservation);
-        const at = notes.startOf(self, ir.Member.object(callee));
-        if (try rules.conflictingLoan(self, id, recv_path, .write, at)) |l| try notes.noteWholeSelf(self, id, recv_path, l, callee, at);
-        try self.temps.insert(self.gpa, reservation, reserved);
-    };
+    if (recv_root) |id| if (recv_loan == .write) try checkWriteSelf(self, id, recv_path, reservation, callee);
 
     // The callee may store what its arguments view into anything it
     // can mutate: self, and whatever the write views passed
@@ -2683,7 +2636,8 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         if (recv_mode == .write and callee.isKind(.member)) {
             const obj = ir.Member.object(callee);
             // What self is, not the view of it.
-            if (generic.mayHoldInInstance(self, types.pointee(self, types.exprType(self, obj)))) {
+            const self_ty = types.pointee(self, types.exprType(self, obj));
+            if (types.mayCarryLoan(self, self_ty) or generic.genericType(self, self_ty)) {
                 const pos = notes.startOf(self, obj);
                 const viewed: Value = if (recv_root) |id| .{ .loans = try self.oneLoan(.{ .root = id, .path = recv_path, .kind = .write, .pos = pos }) } else recv_value;
                 try storeThroughView(self, viewed, stored, pos, null);
@@ -3373,7 +3327,7 @@ pub fn walkNullish(self: *Checker, ex: lowered.Expr) Error!Value {
 
 pub fn walkReturn(self: *Checker, node: Sexp) Error!void {
     const value = ir.Return.value(node);
-    const value_e = jumpValue(self, node, value);
+    const value_e = lowered.stepValue(self, node, value);
     var result: Value = .{};
     // `return a, b`: each part leaves the function as `return x`
     // does, left to right.
@@ -3394,16 +3348,6 @@ pub fn walkReturn(self: *Checker, node: Sexp) Error!void {
 /// `part`, for a part of `return a, b`, is the type of the result it
 /// gives, by which its loans are judged (Core sentence 7, per result).
 /// Gives the loans the result keeps.
-/// The value jump statement `node` leaves with, `value`, as its step
-/// holds it.
-pub fn jumpValue(self: *const Checker, node: Sexp, value: Sexp) lowered.Expr {
-    if (value != .nil) if (lowered.stepOf(self, node)) |step| switch (step) {
-        .jump => |j| if (j.value) |id| return lowered.stepOperand(self, value, id),
-        else => {},
-    };
-    return lowered.exprAt(self, value);
-}
-
 pub fn walkReturnValueE(self: *Checker, e: lowered.Expr, part: ?TypeId) Error!Value {
     const expr = e.node;
     var value: Value = .{};
@@ -3724,62 +3668,12 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
     // A bare place is matched as `match ?p`; a part of a made value
     // in a hidden var the match holds (docs/internals/INTERNALS.md, "Header
     // subjects").
-    const header = headerOf(self, match);
     const saved_held = self.held;
     defer self.held = saved_held;
-    if (header == .held) try holdBase(self, match);
-    var info: Scrutinee = .{};
-    var node = scrut;
-    const written = scrut.isKind(.read) or scrut.isKind(.write);
-    const viewed = written or header == .viewed or header == .held;
-    if (viewed) {
-        if (written) node = ir.get(scrut, .operand);
-        info.via = .viewed;
-    }
-    if (resolvePlace(self, node)) |p| {
-        info.root = p.root;
-        info.place = p.path;
-        const v = self.vars.items[p.root];
-        if (p.through_view or v.payload_view) info.via = .viewed;
-        if (p.through_shared) info.via = .shared;
-        if (types.exprType(self, node)) |t| if (types.typeData(self, t) == .shared) {
-            info.via = .shared;
-        };
-        if (!p.whole) info.path = try notes.placeText(self, node);
-        if (!takesSubject(self, match) and !scrut.isKind(.write)) info.read_place = notes.spanText(self, node);
-    } else if (!takesSubject(self, match) and readsInPlace(self, scrut)) {
-        // A value no var holds, which the match reads where it is:
-        // its bindings view it, as they view a place.
-        info.via = .viewed;
-        if (types.exprType(self, node)) |t| if (types.typeData(self, t) == .shared) {
-            info.via = .shared;
-        };
-        info.shown = notes.spanText(self, node);
-    }
-    const scrut_temps = self.temps.items.len;
-    // The subject is a header: its temporaries end with it.
-    const drops = self.stmt_drops.items.len;
     const scrut_e = if (lowered.controlOf(self, me)) |c| (if (c == .match) lowered.exprFor(self, scrut, c.match.subject) else lowered.exprAt(self, scrut)) else lowered.exprAt(self, scrut);
-    const scrut_value = if (header == .viewed) try walkView(self, scrut_e, .read) else try walkE(self, scrut_e);
-    const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
-    for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
-    // A view the subject yields, which the match reads where it points
-    // (its tag, its payloads) after the header: one that carries a
-    // loan on a temporary the header made reads it after its drop.
-    const ctx = self.sema;
-    if (storage.holdsView(ctx, match)) {
-        for (scrut_value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null) {
-            const temp = self.vars.items[l.root].name;
-            try notes.err(self, l.pos, "this `match` reads the view its subject returns after its header drops the temporary `{s}` it points into; bind `{s}` to a name first", .{ temp, temp });
-            break;
-        };
-    }
-    try dropStmtTemps(self, drops);
+    const subject = try walkSubject(self, match, scrut_e, "match");
+    const info, const scrut_value, const header_temps = .{ subject.info, subject.value, subject.header_temps };
     var outlived = false;
-    // The subject's loans end with its header: the match holds what
-    // its value carries until an arm is chosen (`hold`), and each
-    // payload binding its own loans on what it views.
-    self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
     // The match reads its subject again after a guard runs, to test
     // the next arm's pattern: what the subject views stays viewed while
     // the arm is chosen, through every guard. (An arm's bindings hold
@@ -3843,9 +3737,7 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
     try self.apply(acc orelse start);
     if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
     // The value the match held ends with it.
-    if (header == .held) {
-        value = try self.leaveScope(value);
-    }
+    if (headerOf(self, match) == .held) value = try self.leaveScope(value);
     return value;
 }
 
@@ -3866,9 +3758,37 @@ pub fn walkAsMatch(self: *Checker, part: Sexp, body: Sexp) Error!void {
     }
     // A part of a made value in a hidden var the condition holds, in
     // a scope the caller ends with the body's.
-    const header = headerOf(self, match);
     const saved_held = self.held;
     defer self.held = saved_held;
+    const subject = try walkSubject(self, match, lowered.exprAt(self, scrut), "as");
+    const info, const scrut_value, const header_temps = .{ subject.info, subject.value, subject.header_temps };
+    try self.pushScopeFor(.block, body);
+    self.arm_var = null;
+    self.arm_subject = notes.spanText(self, scrut);
+    self.arm_take = notes.takeableSubject(self, scrut);
+    const bound = self.vars.items.len;
+    _ = try bindPattern(self, pattern, info, scrut_value);
+    // A binding that views a temporary the subject made would outlive
+    // it.
+    for (bound..self.vars.items.len) |id| {
+        for (self.flows.items[id].loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null and live.holderLive(self, @intCast(id), null)) {
+            return notes.reportTempOutlived(self, l, @intCast(id));
+        };
+    }
+}
+
+/// A `match`'s subject, or an `as` match's, as its arms see it.
+const Subject = struct { info: Scrutinee, value: Value, header_temps: []const VarId };
+
+/// Walk `scrut_e`, the subject of `match` (`word` names the construct
+/// in a message): a bare place is matched as `match ?p` is, and a part
+/// of a made value in a hidden var the construct holds, in a scope the
+/// caller ends (its `self.held` restored by the caller). The subject is
+/// a header: its temporaries end with it, and its loans with it, but
+/// for what the arms' bindings hold on what they view.
+fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const u8) Error!Subject {
+    const scrut = ir.Match.subject(match);
+    const header = headerOf(self, match);
     if (header == .held) try holdBase(self, match);
     var info: Scrutinee = .{};
     var node = scrut;
@@ -3890,6 +3810,8 @@ pub fn walkAsMatch(self: *Checker, part: Sexp, body: Sexp) Error!void {
         if (!p.whole) info.path = try notes.placeText(self, node);
         if (!takesSubject(self, match) and !scrut.isKind(.write)) info.read_place = notes.spanText(self, node);
     } else if (!takesSubject(self, match) and readsInPlace(self, scrut)) {
+        // A value no var holds, which the match reads where it is:
+        // its bindings view it, as they view a place.
         info.via = .viewed;
         if (types.exprType(self, node)) |t| if (types.typeData(self, t) == .shared) {
             info.via = .shared;
@@ -3897,37 +3819,23 @@ pub fn walkAsMatch(self: *Checker, part: Sexp, body: Sexp) Error!void {
         info.shown = notes.spanText(self, node);
     }
     const scrut_temps = self.temps.items.len;
-    // The subject is a header: its temporaries end with it.
     const drops = self.stmt_drops.items.len;
-    const scrut_e = lowered.exprAt(self, scrut);
-    const scrut_value = if (header == .viewed) try walkView(self, scrut_e, .read) else try walkE(self, scrut_e);
+    const value = if (header == .viewed) try walkView(self, scrut_e, .read) else try walkE(self, scrut_e);
     const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
     for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
-    const ctx = self.sema;
-    if (storage.holdsView(ctx, match)) {
-        for (scrut_value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null) {
+    // A view the subject yields, which the construct reads where it
+    // points (its tag, its payloads) after the header: one that carries
+    // a loan on a temporary the header made reads it after its drop.
+    if (storage.holdsView(self.sema, match)) {
+        for (value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null) {
             const temp = self.vars.items[l.root].name;
-            try notes.err(self, l.pos, "this `as` reads the view its subject returns after its header drops the temporary `{s}` it points into; bind `{s}` to a name first", .{ temp, temp });
+            try notes.err(self, l.pos, "this `{s}` reads the view its subject returns after its header drops the temporary `{s}` it points into; bind `{s}` to a name first", .{ word, temp, temp });
             break;
         };
     }
     try dropStmtTemps(self, drops);
-    // The subject's loans end with its header: each payload binding
-    // holds its own loans on what it views.
     self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
-    try self.pushScopeFor(.block, body);
-    self.arm_var = null;
-    self.arm_subject = notes.spanText(self, scrut);
-    self.arm_take = notes.takeableSubject(self, scrut);
-    const bound = self.vars.items.len;
-    _ = try bindPattern(self, pattern, info, scrut_value);
-    // A binding that views a temporary the subject made would outlive
-    // it.
-    for (bound..self.vars.items.len) |id| {
-        for (self.flows.items[id].loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null and live.holderLive(self, @intCast(id), null)) {
-            return notes.reportTempOutlived(self, l, @intCast(id));
-        };
-    }
+    return .{ .info = info, .value = value, .header_temps = header_temps };
 }
 
 /// Bind a pattern's names. Returns true for a catch-all pattern.
