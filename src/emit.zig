@@ -6085,13 +6085,13 @@ pub const Emitter = struct {
                 }
                 if (d.opt != facts.type_invalid) try self.w.print(rt(.pack) ++ "({s}, ", .{try self.typeText(d.opt)});
                 if (d.how == .folded) try self.w.writeAll("(");
-                try self.w.print("{s}(", .{durationFn(if (d.float) .float else .int, d.how)});
+                try self.w.writeAll(if (d.float) rt(.durationFloat) ++ "(" else rt(.durationInt) ++ "(");
                 if (d.part) try self.w.writeAll("i128") else if (d.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(d.ty);
                 try self.w.writeAll(", ");
                 self.bare = true;
                 try self.emitValueWant(sexp, false, want_ptr);
                 try self.w.print(", {d}", .{d.unit_ns});
-                try self.writeFoldErrors(d.how, d.float);
+                try self.writeDurationHow(d.how, d.float);
                 try self.w.writeAll(")");
                 try self.writeFoldBreak(d.how, sexp);
                 if (d.opt != facts.type_invalid) try self.w.writeAll(")");
@@ -7704,13 +7704,11 @@ pub const Emitter = struct {
             // known while a flag holds, while it does (`provenIf`).
             const proven = provenTests(self.provenOf(sexp));
             const cond = self.provenIf(sexp);
-            try self.w.print(".{s}{s}(", .{ method, if (cond != null) "If" else if (proven != null) "Proven" else "" });
+            try self.w.print(".{s}{s}(", .{ method, if (cond != null or proven != null) "Proven" else "" });
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
             try self.emitBare(index);
-            if (cond) |c| {
-                try self.w.print(", {s}{s}, .{s}, {s}", .{ if (proven != null) "." else "", proven orelse "null", provenTests(c.tests).?, c.flag });
-            } else if (proven) |p| try self.w.print(", .{s}", .{p});
+            try self.writeChecks(proven, cond);
             try self.w.writeAll(if (in_place) ").*" else ")");
             return;
         }
@@ -7729,14 +7727,13 @@ pub const Emitter = struct {
             // while a flag holds, while it does (`provenIf`).
             const proven = provenTests(self.provenOf(sexp));
             const cond = self.provenIf(sexp);
-            try self.w.print("{s}(", .{if (in_place) (if (cond != null) rt(.elemPtrIf) else if (proven != null) rt(.elemPtrProven) else rt(.elemPtr)) else if (cond != null) rt(.atIf) else if (proven != null) rt(.atProven) else rt(.at)});
+            const checked = cond != null or proven != null;
+            try self.w.print("{s}(", .{if (in_place) (if (checked) rt(.elemPtrProven) else rt(.elemPtr)) else if (checked) rt(.atProven) else rt(.at)});
             try self.emitIndexBase(base, base_ty, .bare);
             try self.w.writeAll(", ");
             self.place_chain = false;
             try self.emitBare(index);
-            if (cond) |c| {
-                try self.w.print(", {s}{s}, .{s}, {s}", .{ if (proven != null) "." else "", proven orelse "null", provenTests(c.tests).?, c.flag });
-            } else if (proven) |p| try self.w.print(", .{s}", .{p});
+            try self.writeChecks(proven, cond);
             try self.w.writeAll(if (in_place) ").*" else ")");
             if (fixed) try self.w.writeAll(")");
             return;
@@ -10030,7 +10027,7 @@ pub const Emitter = struct {
     fn emitDurationParts(self: *Emitter, args: []const Sexp, p: facts.DurationParts) Error!void {
         if (p.opt != facts.type_invalid) try self.w.print(rt(.pack) ++ "({s}, ", .{try self.typeText(p.opt)});
         if (p.how == .folded) try self.w.writeAll("(");
-        try self.w.print("{s}(", .{durationFn(.sum, p.how)});
+        try self.w.writeAll(rt(.durationSum) ++ "(");
         if (p.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(p.ty);
         try self.w.writeAll(", .{ ");
         for (p.args, 0..) |ai, k| {
@@ -10038,25 +10035,28 @@ pub const Emitter = struct {
             try self.emitBare(argValue(args[ai]));
         }
         try self.w.writeAll(" }");
-        try self.writeFoldErrors(p.how, false);
+        try self.writeDurationHow(p.how, false);
         try self.w.writeAll(")");
         try self.writeFoldBreak(p.how, if (p.args.len > 0) args[p.args[0]] else .nil);
         if (p.opt != facts.type_invalid) try self.w.writeAll(")");
     }
 
-    /// The errors a duration form that joins its call's failure passes
-    /// the runtime (`sema.DurationHow.folded`): the callee's own `range`,
-    /// and its `invalid` for a `Float`, which may not be finite.
-    fn writeFoldErrors(self: *Emitter, how: facts.DurationHow, float: bool) Error!void {
+    /// How a duration form converts (`sema.DurationHow`, `rig.durationAs`):
+    /// `.total`, `.clamped`, or, for one that joins its call's failure,
+    /// the callee's own `range` error, and its `invalid` for a `Float`,
+    /// which may not be finite, as a pair.
+    fn writeDurationHow(self: *Emitter, how: facts.DurationHow, float: bool) Error!void {
         const into = switch (how) {
             .folded => |x| x,
-            else => return,
+            else => return self.w.print(", .{s}", .{@tagName(how)}),
         };
         const members: []const []const u8 = if (float) &.{ "range", "invalid" } else &.{"range"};
-        for (members) |m| {
-            try self.w.writeAll(", error.");
+        try self.w.writeAll(if (float) ", .{ " else ", ");
+        for (members, 0..) |m, k| {
+            try self.w.writeAll(if (k > 0) ", error." else "error.");
             if (into.module.len == 0) try self.w.print("@\"{s}.{s}\"", .{ into.set, m }) else try self.w.print("@\"{s}.{s}.{s}\"", .{ into.module, into.set, m });
         }
+        if (float) try self.w.writeAll(" }");
     }
 
     /// A conversion that joins its call's failure leaves the call with
@@ -11977,6 +11977,14 @@ pub const Emitter = struct {
         return .{ .tests = p.tests, .flag = self.flag_names.get(p.flag) orelse return null };
     }
 
+    /// The tests an index omits (`rig.checkedOffset`): those `proven`
+    /// names, `, .both`, and with a flag, those its tests name too while
+    /// it holds, `, .{ .both, .lower, __rig_ok_1 }`.
+    fn writeChecks(self: *Emitter, proven: ?[]const u8, cond: anytype) Error!void {
+        if (cond) |c| return self.w.print(", .{{ {s}{s}, .{s}, {s} }}", .{ if (proven != null) "." else "", proven orelse "null", provenTests(c.tests).?, c.flag });
+        if (proven) |p| try self.w.print(", .{s}", .{p});
+    }
+
     /// The flag made before statement `stmt` (docs/internals/INTERNALS.md,
     /// "Flags"), when the proof pass made one: its tests, each of a
     /// binding or a length as the statement starts, and together.
@@ -12068,30 +12076,6 @@ fn ident(name: []const u8) Ident {
 /// library Zig file (`rig.ZigSpelling.exact`).
 fn exactIdent(name: []const u8) Ident {
     return .{ .name = name, .spelling = .exact };
-}
-
-/// The runtime's conversion of a duration form of an `Int`, a `Float`,
-/// or a sum of parts, for how it converts (`sema.DurationHow`):
-/// `rig.durationInt`, `durationIntClamp`, `durationIntTry`.
-fn durationFn(form: enum { int, float, sum }, how: facts.DurationHow) []const u8 {
-    return switch (how) {
-        .total => switch (form) {
-            .int => rt(.durationInt),
-            .float => rt(.durationFloat),
-            .sum => rt(.durationSum),
-        },
-        // A wait refuses a `Float` known only as the program runs.
-        .clamped => switch (form) {
-            .int => rt(.durationIntClamp),
-            .float => unreachable,
-            .sum => rt(.durationSumClamp),
-        },
-        .folded => switch (form) {
-            .int => rt(.durationIntTry),
-            .float => rt(.durationFloatTry),
-            .sum => rt(.durationSumTry),
-        },
-    };
 }
 
 /// The Zig name of member `name` of error set `set`, declared in the

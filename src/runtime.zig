@@ -3790,26 +3790,16 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             return idx;
         }
 
-        /// `at`, `slot`, and `constSlot` with the tests `p` proves omitted
-        /// (`Proven`), and, with `If`, the tests `q` too while `ok`, a flag
-        /// the compiler made before the statement (`offsetIf`).
-        pub inline fn atProven(self: *const Self, i: Int, comptime p: Proven) T {
-            return self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        /// `at`, `slot`, and `constSlot` with the tests `checks` proves
+        /// omitted (`checkedOffset`).
+        pub inline fn atProven(self: *const Self, i: Int, checks: anytype) T {
+            return self.memConst().ptr[self.provenSlot(checkedOffset(i, self.len, checks, true))];
         }
-        pub inline fn slotProven(self: *Self, i: Int, comptime p: Proven) *T {
-            return &self.mem().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        pub inline fn slotProven(self: *Self, i: Int, checks: anytype) *T {
+            return &self.mem().ptr[self.provenSlot(checkedOffset(i, self.len, checks, true))];
         }
-        pub inline fn constSlotProven(self: *const Self, i: Int, comptime p: Proven) *const T {
-            return &self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
-        }
-        pub inline fn atIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) T {
-            return self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok, true))];
-        }
-        pub inline fn slotIf(self: *Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *T {
-            return &self.mem().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok, true))];
-        }
-        pub inline fn constSlotIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *const T {
-            return &self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok, true))];
+        pub inline fn constSlotProven(self: *const Self, i: Int, checks: anytype) *const T {
+            return &self.memConst().ptr[self.provenSlot(checkedOffset(i, self.len, checks, true))];
         }
 
         inline fn provenSlot(self: *const Self, idx: ?usize) usize {
@@ -4893,52 +4883,48 @@ pub fn floatToNs(x: f64, unit: i64) ?i128 {
     return if (neg) -n else n;
 }
 
-/// A duration of `n` units of `unit` nanoseconds, which cannot fail: a
-/// unit below a second, or a constant the checker checked.
-pub inline fn durationInt(comptime T: type, n: i64, comptime unit: i64) T {
-    return durationOf(T, @as(i128, n) * unit) orelse durationBug();
+/// What a duration form does beyond its type's range
+/// (`sema.DurationHow`): `.total`, a form that never is (a unit below a
+/// second, or a constant the checker checked); `.clamped`, a wait's, which
+/// takes the longest duration; or the callee's own error, of a set of its
+/// own so that it joins the callee's declared set, which it fails with. A
+/// `Float` form that fails gives a pair, its error beyond the range and
+/// its error for a number that is not finite.
+fn DurationAs(comptime T: type, comptime how: anytype) type {
+    return switch (@typeInfo(@TypeOf(how))) {
+        .error_set => @TypeOf(how)!T,
+        .@"struct" => (@TypeOf(how[0]) || @TypeOf(how[1]))!T,
+        else => T,
+    };
 }
 
-/// `durationInt` that fails with `range`, the callee's own error, of a
-/// set of its own, so that it joins the callee's declared set.
-pub inline fn durationIntTry(comptime T: type, n: i64, comptime unit: i64, comptime range: anytype) @TypeOf(range)!T {
-    return durationOf(T, @as(i128, n) * unit) orelse range;
+/// `ns` nanoseconds as `T`, beyond the range as `how` says.
+inline fn durationAs(comptime T: type, ns: i128, comptime how: anytype) DurationAs(T, how) {
+    if (comptime @typeInfo(@TypeOf(how)) == .error_set) return durationOf(T, ns) orelse how;
+    if (comptime how == .clamped) return durationClamped(T, ns);
+    comptime std.debug.assert(how == .total);
+    return durationOf(T, ns) orelse durationBug();
 }
 
-/// `durationInt` for a wait: the longest duration beyond the range.
-pub inline fn durationIntClamp(comptime T: type, n: i64, comptime unit: i64) T {
-    return durationClamped(T, @as(i128, n) * unit);
+/// A duration of `n` units of `unit` nanoseconds.
+pub inline fn durationInt(comptime T: type, n: i64, comptime unit: i64, comptime how: anytype) DurationAs(T, how) {
+    return durationAs(T, @as(i128, n) * unit, how);
 }
 
 /// A duration of `x` units of `unit` nanoseconds, rounded to the nearest
 /// whole nanosecond, a half away from zero: a constant the checker
-/// checked.
-pub fn durationFloat(comptime T: type, x: f64, comptime unit: i64) T {
+/// checked (`.total`), or a number that fails with the callee's errors.
+pub fn durationFloat(comptime T: type, x: f64, comptime unit: i64, comptime how: anytype) DurationAs(T, how) {
+    if (comptime @typeInfo(@TypeOf(how)) == .@"struct") return durationOf(T, floatNs(x, unit) orelse return how[1]) orelse how[0];
+    comptime std.debug.assert(how == .total);
     return durationOf(T, floatNs(x, unit) orelse durationBug()) orelse durationBug();
-}
-
-/// `durationFloat` that fails with `invalid` for a number that is not
-/// finite and `range` beyond the range, the callee's own errors.
-pub fn durationFloatTry(comptime T: type, x: f64, comptime unit: i64, comptime range: anytype, comptime invalid: anytype) (@TypeOf(range) || @TypeOf(invalid))!T {
-    return durationOf(T, floatNs(x, unit) orelse return invalid) orelse range;
 }
 
 /// The sum of `parts`, each an `i128` of nanoseconds, as `T`: a duration
 /// given by several units' keywords, `time.sleep(hours: 1, minutes:
-/// 30)` (`sema.DurationParts`), every part a constant the checker
-/// checked.
-pub inline fn durationSum(comptime T: type, parts: anytype) T {
-    return durationOf(T, partsNs(parts)) orelse durationBug();
-}
-
-/// `durationSum` that fails with `range`, the callee's own error.
-pub inline fn durationSumTry(comptime T: type, parts: anytype, comptime range: anytype) @TypeOf(range)!T {
-    return durationOf(T, partsNs(parts)) orelse range;
-}
-
-/// `durationSum` for a wait: the longest duration beyond the range.
-pub inline fn durationSumClamp(comptime T: type, parts: anytype) T {
-    return durationClamped(T, partsNs(parts));
+/// 30)` (`sema.DurationParts`).
+pub inline fn durationSum(comptime T: type, parts: anytype, comptime how: anytype) DurationAs(T, how) {
+    return durationAs(T, partsNs(parts), how);
 }
 
 /// The sum of a duration's parts, each within 2^100 nanoseconds, so
@@ -5191,15 +5177,26 @@ inline fn provenOffset(i: Int, count: usize, width: usize, comptime p: Proven) ?
     return @intCast(u);
 }
 
-/// `s[i]` with the tests `p` proves omitted: the element is read through
-/// the slice's pointer, which carries no test of its own.
-pub inline fn atProven(items: anytype, i: Int, comptime p: Proven) std.meta.Elem(@TypeOf(items)) {
-    return items.ptr[provenOffset(i, items.len, 1, p) orelse indexPanic()];
+/// `s[i]` with the tests `checks` proves omitted (`checkedOffset`): the
+/// element is read through the slice's pointer, which carries no test of
+/// its own.
+pub inline fn atProven(items: anytype, i: Int, checks: anytype) std.meta.Elem(@TypeOf(items)) {
+    return items.ptr[checkedOffset(i, items.len, checks, comptime lenHeld(@TypeOf(items))) orelse indexPanic()];
 }
 
-/// `elemPtr` with the tests `p` proves omitted.
-pub inline fn elemPtrProven(items: anytype, i: Int, comptime p: Proven) @TypeOf(&items[0]) {
-    return &items.ptr[provenOffset(i, items.len, 1, p) orelse indexPanic()];
+/// `elemPtr` with the tests `checks` proves omitted.
+pub inline fn elemPtrProven(items: anytype, i: Int, checks: anytype) @TypeOf(&items[0]) {
+    return &items.ptr[checkedOffset(i, items.len, checks, comptime lenHeld(@TypeOf(items))) orelse indexPanic()];
+}
+
+/// `i` as an element within `count`, with the tests `checks` proves
+/// omitted: a `Proven`, the tests the compiler proved, or `.{ p, q, ok }`,
+/// those `p` proves (or none) and, while `ok`, a flag the compiler made
+/// before the statement, those `q` proves too (`offsetIf`, whose `held`
+/// it passes on).
+inline fn checkedOffset(i: Int, count: usize, checks: anytype, comptime held: bool) ?usize {
+    if (comptime @typeInfo(@TypeOf(checks)) != .@"struct") return provenOffset(i, count, 1, checks);
+    return offsetIf(i, count, 1, checks[0], checks[1], checks[2], held);
 }
 
 // Flags (docs/internals/INTERNALS.md, "Flags"). The compiler tests some
@@ -5230,16 +5227,6 @@ inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comp
     const u = std.math.cast(usize, i) orelse return null;
     if (u > count or count - u < width) return null;
     return u;
-}
-
-/// `atProven` and `elemPtrProven` with the tests `q` omitted too while
-/// `ok` (`offsetIf`).
-pub inline fn atIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) std.meta.Elem(@TypeOf(items)) {
-    return items.ptr[offsetIf(i, items.len, 1, p, q, ok, comptime lenHeld(@TypeOf(items))) orelse indexPanic()];
-}
-
-pub inline fn elemPtrIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) @TypeOf(&items[0]) {
-    return &items.ptr[offsetIf(i, items.len, 1, p, q, ok, comptime lenHeld(@TypeOf(items))) orelse indexPanic()];
 }
 
 /// `a + b`, which cannot overflow while `ok`; else the add tests it, and
