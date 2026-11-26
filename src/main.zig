@@ -1586,20 +1586,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\}}
         \\
     , .{});
-    const package = try std.mem.concat(allocator, PackageFile, &.{ placed.items, &.{
-        .{ .path = emit.runtime_filename, .contents = emit.runtime_source },
-        .{ .path = emit.tasks_filename, .contents = emit.tasks_source },
-        .{ .path = emit.sched_filename, .contents = emit.sched_source },
-        .{ .path = emit.net_filename, .contents = emit.net_source },
-        .{ .path = emit.alloc_filename, .contents = emit.alloc_source },
-        .{ .path = emit.table_filename, .contents = emit.table_source },
-        .{ .path = emit.ordered_filename, .contents = emit.ordered_source },
-        .{ .path = emit.unordered_filename, .contents = emit.unordered_source },
-        .{ .path = emit.arith_filename, .contents = emit.arith_source },
-        .{ .path = emit.names_filename, .contents = emit.names_source },
-        .{ .path = split_filename, .contents = split_source },
-        .{ .path = "main.zig", .contents = root.written() },
-    } });
+    const package = try std.mem.concat(allocator, PackageFile, &.{ placed.items, &runtime_files, &.{.{ .path = "main.zig", .contents = root.written() }} });
     try writePackage(allocator, io, dir, &.{.{ .path = "programs", .contents = list.written() }});
 
     const bin = try std.fs.path.join(allocator, &.{ dir, "bin" });
@@ -2129,6 +2116,22 @@ const Package = struct {
 /// `writePackage` places (`emit.placeSites`).
 const PackageFile = struct { path: []const u8, contents: []const u8, module: bool = false };
 
+/// The runtime's files, written beside every program's modules, or once
+/// for a batch, whose programs import them as the module `rig`.
+const runtime_files = [_]PackageFile{
+    .{ .path = emit.runtime_filename, .contents = emit.runtime_source },
+    .{ .path = emit.tasks_filename, .contents = emit.tasks_source },
+    .{ .path = emit.sched_filename, .contents = emit.sched_source },
+    .{ .path = emit.net_filename, .contents = emit.net_source },
+    .{ .path = emit.alloc_filename, .contents = emit.alloc_source },
+    .{ .path = emit.table_filename, .contents = emit.table_source },
+    .{ .path = emit.ordered_filename, .contents = emit.ordered_source },
+    .{ .path = emit.unordered_filename, .contents = emit.unordered_source },
+    .{ .path = emit.arith_filename, .contents = emit.arith_source },
+    .{ .path = emit.names_filename, .contents = emit.names_source },
+    .{ .path = split_filename, .contents = split_source },
+};
+
 /// Whether a program built here may be preempted by signal: on x86-64
 /// Linux and arm64 macOS (`sched.preempt_built` decides for the build
 /// itself, which a debug build for Linux, on Zig's own backend, is not).
@@ -2251,19 +2254,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     const hook = kind.hook;
     const runtime_import = if (kind.batch) emit.runtime_module else emit.runtime_filename;
     var files: std.ArrayList(PackageFile) = .empty;
-    if (!kind.batch) {
-        try files.append(allocator, .{ .path = emit.runtime_filename, .contents = emit.runtime_source });
-        try files.append(allocator, .{ .path = emit.tasks_filename, .contents = emit.tasks_source });
-        try files.append(allocator, .{ .path = emit.sched_filename, .contents = emit.sched_source });
-        try files.append(allocator, .{ .path = emit.net_filename, .contents = emit.net_source });
-        try files.append(allocator, .{ .path = emit.alloc_filename, .contents = emit.alloc_source });
-        try files.append(allocator, .{ .path = emit.table_filename, .contents = emit.table_source });
-        try files.append(allocator, .{ .path = emit.ordered_filename, .contents = emit.ordered_source });
-        try files.append(allocator, .{ .path = emit.unordered_filename, .contents = emit.unordered_source });
-        try files.append(allocator, .{ .path = emit.arith_filename, .contents = emit.arith_source });
-        try files.append(allocator, .{ .path = emit.names_filename, .contents = emit.names_source });
-        try files.append(allocator, .{ .path = split_filename, .contents = split_source });
-    }
+    if (!kind.batch) try files.appendSlice(allocator, &runtime_files);
 
     var root_source: []const u8 = "";
     var links_libc = false;
