@@ -126,7 +126,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("rig")
     ap.add_argument("--release", action="store_true")
-    ap.add_argument("--jobs", type=int, default=int((os.environ.get("CPUQ_CORES") or "2").split("-")[0]))
+    ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--seed", default="1")
     ap.add_argument("--keep", help="write the programs here and keep them")
     a = ap.parse_args()

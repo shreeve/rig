@@ -99,9 +99,9 @@ def run(cmd, env=None, cwd=None):
     return p.stdout + p.stderr
 
 def zig_wrapper(tmp):
-    """A `zig` that limits its jobs to the cores cpuq granted."""
+    """A `zig` that limits its jobs."""
     path = os.path.join(tmp, "zig-jobs")
-    jobs = os.environ.get("CPUQ_CORES", "2")
+    jobs = "2"
     with open(path, "w") as f:
         f.write('#!/bin/sh\ncmd="$1"; shift\nexec zig "$cmd" -j%s "$@"\n' % jobs)
     os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
@@ -189,8 +189,6 @@ def main():
     ap.add_argument("--build-only", action="store_true")
     ap.add_argument("--time-only", action="store_true", help="time the builds in --out")
     a = ap.parse_args()
-    if "CPUQ_CORES" not in os.environ:
-        print("note: not under cpuq; see the usage line", file=sys.stderr)
     files = a.files.split(",")
     variants = a.variants.split(",")
     tmp = a.out or tempfile.mkdtemp(prefix="rig-bench-json-")
