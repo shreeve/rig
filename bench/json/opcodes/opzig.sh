@@ -22,4 +22,4 @@ cmd="$1"; shift
 if [ -n "$OP_MODE" ]; then
   for a in "$@"; do shift; [ "$a" = -Odebug ] && a=$OP_MODE; set -- "$@" "$a"; done
 fi
-exec zig "$cmd" -j"${CPUQ_CORES:-2}" "$@"
+exec zig "$cmd" -j2 "$@"
