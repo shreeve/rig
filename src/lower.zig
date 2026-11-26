@@ -170,7 +170,7 @@ fn markUsed(ctx: *SemContext) !void {
     ctx.used.deinit(ctx.allocator);
     ctx.used = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
     var names = ctx.facts.names.iterator();
-    while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.* and !ctx.facts.rebinds.contains(e.key_ptr.*)) ctx.used.set(e.value_ptr.*);
+    while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_leaf != e.key_ptr.* and !ctx.facts.rebinds.contains(@intCast(e.key_ptr.*))) ctx.used.set(e.value_ptr.*);
     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < ctx.used.bit_length) ctx.used.set(s.origin);
 }
 
