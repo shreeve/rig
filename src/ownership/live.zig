@@ -184,14 +184,14 @@ pub fn holdLate(self: *Checker, e: Sexp) Error!void {
     try self.late.append(self.gpa, usePos(self, name.src.pos));
 }
 
-/// The parts of `node`, a call or an array literal, that it reads
+/// The parts of a call or an array literal that it reads
 /// where it runs (`storage.isPureArg`), after the others: where it
-/// evaluates the rest into temporaries first (`storage.hoistsArgs`),
-/// or passes its keyword arguments in its parameters' order.
-pub fn holdLateParts(self: *Checker, node: Sexp, parts: []const Sexp) Error!void {
+/// evaluates the rest into temporaries first (`hoists`), or passes its
+/// keyword arguments in its parameters' order.
+pub fn holdLateParts(self: *Checker, parts: []const Sexp, hoists: bool) Error!void {
     const ctx = self.sema;
     if (!self.nll) return;
-    if (!storage.hoistsArgs(ctx, node)) {
+    if (!hoists) {
         for (parts) |a| {
             if (a.isKind(.kwarg)) break;
         } else return;

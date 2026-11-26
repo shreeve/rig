@@ -587,10 +587,10 @@ pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
     const expr = e.node;
     // A bare value viewed to read where a view is expected is walked as
     // `?expr` (`View.implicit`).
-    if (viewOf(self, expr)) |view| if (view.implicit) {
+    if (lowered.implicitView(self, e)) |view| {
         if (self_check) expectRole(self, e, .{ .use = .read_view, .implicit = true, .elems = viewsElements(self, expr) });
         return walkImplicitView(self, e, view);
-    };
+    }
     if (isLambda(expr)) {
         if (self_check) expectRole(self, e, .{ .use = .made });
         // A closure literal given to a call as a callable view
@@ -2342,7 +2342,11 @@ const first_arg = 2;
 /// parameters' order (`live.holdLateParts`).
 fn holdLateOperands(self: *Checker, e: lowered.Expr, parts: []const Sexp, first: usize) Error!void {
     if (!self.nll) return;
-    if (!(lowered.holdsParts(self, e) orelse false)) return live.holdLateParts(self, e.node, parts);
+    const ctx = self.sema;
+    // Outside a lowered body, whether the parts are evaluated first is
+    // asked; in one, a region holds them but for an element operation's.
+    const holds = lowered.holdsParts(self, e) orelse return live.holdLateParts(self, parts, storage.hoistsArgs(ctx, e.node));
+    if (!holds) return live.holdLateParts(self, parts, e.node.isKind(.call) and ctx.elemCallOf(ctx.calleeOf(e.node)) != null and storage.hoistsArgs(ctx, e.node));
     for (parts, 0..) |a, i| {
         var part = lowered.operand(self, e, first + i);
         if (a.isKind(.kwarg)) part = lowered.operand(self, part, 1);
@@ -2548,7 +2552,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
                 // A self the call holds in storage of its own is
                 // viewed from there; any other is viewed where its
                 // leaves are.
-                recv_value = if (heldForCall(self, obj, .self)) |held|
+                recv_value = if (if (rec.wrap.held) heldForCall(self, obj, .self) else null) |held|
                     try holdForCall(self, held, recv_value, kind)
                 else
                     try self.valueUnion(recv_value, try selfLeaves(self, obj, kind));
@@ -2651,7 +2655,9 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         if (self.errors_found == found) try holdRead(self, a, .argument);
         // An argument the call copies into storage of its own is viewed
         // from the copy.
-        if (heldForCall(self, storage.argValue(a), .argument)) |held| v.* = try holdForCall(self, held, v.*, .read);
+        if (rec.wrap.held) if (heldForCall(self, storage.argValue(a), .argument)) |held| {
+            v.* = try holdForCall(self, held, v.*, .read);
+        };
         // A value handed over that carries a write loan (a write view
         // a method's result keeps of its self) keeps its root under
         // a write view until the call returns, as a write view in the

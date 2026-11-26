@@ -335,7 +335,39 @@ pub fn opOf(self: *const Checker, e: Expr) ?lir.Expr.Op {
 /// its callee is written, how it takes its self, and its flags.
 pub fn callOf(self: *const Checker, call: Expr) lir.Call {
     if (opOf(self, call)) |o| if (o.kind == .call) return self.lir_body.?.f.calls.items[o.aux];
-    return lower.checkedCall(self.sema, uncovered(self, call.node).node);
+    const node = uncovered(self, call.node).node;
+    var rec = lower.checkedCall(self.sema, node);
+    rec.wrap.held = lower.holdsParts(self.sema, node);
+    return rec;
+}
+
+/// The view operand `e` is made where a view is expected with no sigil
+/// (`sema.View.implicit`): in a lowered body, the `view` coercion
+/// lowering made of its node, else the typing facts'.
+pub fn implicitView(self: *const Checker, e: Expr) ?sema.View {
+    const out = blk: {
+        const b = self.lir_body orelse break :blk self.sema.viewOf(e.node);
+        var id = e.id orelse break :blk self.sema.viewOf(e.node);
+        while (true) switch (b.f.exprs.items[id]) {
+            .coerce => |c| switch (c.how.*) {
+                .view => |v| break :blk v,
+                else => id = c.value,
+            },
+            .hold => |h| id = h.value,
+            .@"var" => |x| id = hoistedOf(b, x.v) orelse break :blk null,
+            else => break :blk null,
+        };
+    };
+    const view = if (out) |v| (if (v.implicit) v else null) else null;
+    if (self_check) {
+        const want = self.sema.viewOf(e.node);
+        const same = if (want) |w| (if (w.implicit) view != null and view.?.ty == w.ty and view.?.fn_ty == w.fn_ty and std.mem.eql(sema.ViewStep, view.?.steps(), w.steps()) else view == null) else view == null;
+        if (!same) {
+            const at = diag.lineCol(self.source, self.sema.startOf(e.node));
+            std.debug.panic("{s}:{d}:{d}: internal error: lir: an implicit view lowering made of an operand that the typing facts do not record, or the other way", .{ self.sema.name, at.line, at.col });
+        }
+    }
+    return view;
 }
 
 /// Operand `i` of `e`: the LIR's, where `e` is an operation of a

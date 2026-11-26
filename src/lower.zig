@@ -271,6 +271,12 @@ pub const Module = struct {
     }
 };
 
+/// Whether call `c` evaluates its parts first, in a region of kind
+/// `call` (`storage.hoistsArgs`): an element operation's never do.
+pub fn holdsParts(ctx: *const SemContext, c: Sexp) bool {
+    return ctx.elemCallOf(ctx.calleeOf(c)) == null and storage.hoistsArgs(ctx, c);
+}
+
 /// How a module is lowered.
 pub const Options = struct {
     /// Every object's optional is held as a tagged struct, so each lift
@@ -2316,7 +2322,7 @@ const Lowerer = struct {
     fn call(l: *Lowerer, c: Sexp, id: ExprId) Error!void {
         const ctx = l.ctx;
         const callee = ctx.calleeOf(c);
-        const hoists = ctx.elemCallOf(callee) == null and storage.hoistsArgs(ctx, c);
+        const hoists = holdsParts(ctx, c);
         // Its record is the last made: its operands' calls were lowered
         // before it.
         l.f.calls.items[l.f.calls.items.len - 1].wrap.held = hoists;
