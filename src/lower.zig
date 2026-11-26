@@ -792,8 +792,14 @@ const Lowerer = struct {
     }
 
     fn closeStmt(l: *Lowerer, s: Sexp, o: Open, into: RegionId) Error!void {
+        try l.closeStmtBy(s, o, into, true);
+    }
+
+    /// `closeStmt`, which records the statement's flat temporaries
+    /// (`flatten`) only when `flat`.
+    fn closeStmtBy(l: *Lowerer, s: Sexp, o: Open, into: RegionId, flat: bool) Error!void {
         try l.checkTemps(s, o.temps);
-        if (l.temps.items.len > o.temps) try l.flatten(o.region);
+        if (flat and l.temps.items.len > o.temps) try l.flatten(o.region);
         l.stmt_region = o.stmt;
         l.temps.shrinkRetainingCapacity(o.temps);
         try l.step(into, .{ .region = o.region });
@@ -985,6 +991,13 @@ const Lowerer = struct {
                 l.block = b;
                 if (body.isKind(.block)) {
                     _ = try l.stmts(body, b, false);
+                } else if (body == .list) {
+                    // One statement is a statement of its own
+                    // (`sema.sharesStmtTemps`), run where the `defer`
+                    // runs, so none of its temporaries is made ahead.
+                    const o = try l.openStmt(body);
+                    try l.stmtBody(body, o.region);
+                    try l.closeStmtBy(body, o, b, false);
                 } else try l.stmtBody(body, b);
                 try l.step(r, .{ .region = b });
             },
