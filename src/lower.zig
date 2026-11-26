@@ -256,16 +256,6 @@ pub const Module = struct {
         std.debug.panic("{s}:{d}:{d}: internal error: lir: a call recorded as `{s}` that {s} writes as `{s}`", .{ ctx.name, at.line, at.col, @tagName(c.kind), consumer, @tagName(kind) });
     }
 
-    /// In a self-checking build, that `ok` holds of call `node`'s record:
-    /// what the ownership checker decides of the call, `what`.
-    pub fn expectCallFact(m: *const Module, ctx: *const SemContext, node: Sexp, comptime what: []const u8, ok: fn (*const lir.Call) bool) void {
-        if (!enabled) return;
-        const c = m.callOf(node) orelse return;
-        if (ok(c)) return;
-        const at = diag.lineCol(ctx.source, ctx.startOf(node));
-        std.debug.panic("{s}:{d}:{d}: internal error: lir: a call recorded as `{s}`, callee `{s}`, that the ownership checker finds " ++ what, .{ ctx.name, at.line, at.col, @tagName(c.kind), @tagName(c.callee) });
-    }
-
     /// The place `member` or `index` node `node` reaches in body `f`;
     /// null in a build that does not check itself.
     pub fn placeOf(m: *const Module, f: *const lir.Func, node: Sexp) ?lir.Place {
@@ -2292,25 +2282,8 @@ const Lowerer = struct {
     /// lowering records only in a self-checking build.
     fn callRecord(l: *Lowerer, c: Sexp) lir.Call {
         const ctx = l.ctx;
-        const callee = ctx.calleeOf(c);
-        var rec: lir.Call = .{ .kind = .unclassified, .callee = calleeForm(ctx, c, callee) };
-        if (rec.callee == .member) {
-            const obj = ir.Member.object(callee);
-            const explicit = obj.isKind(.write) or obj.isKind(.read);
-            // A type or a module named before the function is no self:
-            // it has no value (`storage.isTypeCallee`).
-            if (!storage.isTypeCallee(ctx, obj)) rec.self = .{ .explicit = explicit, .mode = if (obj.isKind(.write)) .write else selfMode(ctx, if (explicit) ir.get(obj, .operand) else obj, callee) };
-        }
-        if (l.opts.checked) {
-            rec.flags = .{
-                .local = ctx.isLocalTask(c),
-                .dense = c == .list and ctx.decides(.dense_calls, c.list.id),
-                .text_only = ctx.isPrintCall(c) or (ctx.stringCallOf(c) orelse ctx.stringCallOf(callee)) != null,
-                .keeps_no_loan = ctx.isActorCall(c) or ctx.selectArmOf(c) != null,
-                .swap = ctx.swapCallOf(c) != null and ir.Call.args(c).len == 2,
-            };
-            if (!enabled) return rec;
-        }
+        if (l.opts.checked and !enabled) return checkedCall(ctx, c);
+        var rec = if (l.opts.checked) checkedCall(ctx, c) else callShape(ctx, c, ctx.calleeOf(c));
         rec.kind = classifyCall(ctx, c, &l.stack_closures);
         rec.wrap.const_maker = ctx.isConstMaker(c);
         if (c == .list and ctx.decides(.inlined_calls, c.list.id)) {
@@ -2751,6 +2724,36 @@ pub fn classifyCall(ctx: *const SemContext, c: Sexp, stack_closures: *const sema
         if (isBuiltinInstance(ctx, t, ctx.builtins.task)) return .wait;
     };
     return .plain;
+}
+
+/// The record the checkers read of call `c`: how its callee is written,
+/// how it takes its self, and its flags. The ownership checker reads it
+/// from the LIR (`lowered.callOf`).
+pub fn checkedCall(ctx: *const SemContext, c: Sexp) lir.Call {
+    const callee = ctx.calleeOf(c);
+    var rec = callShape(ctx, c, callee);
+    rec.flags = .{
+        .local = ctx.isLocalTask(c),
+        .dense = c == .list and ctx.decides(.dense_calls, c.list.id),
+        .text_only = ctx.isPrintCall(c) or (ctx.stringCallOf(c) orelse ctx.stringCallOf(callee)) != null,
+        .keeps_no_loan = ctx.isActorCall(c) or ctx.selectArmOf(c) != null,
+        .swap = ctx.swapCallOf(c) != null and ir.Call.args(c).len == 2,
+    };
+    return rec;
+}
+
+/// How call `c` is written: its callee's form, and how a method takes
+/// its self.
+fn callShape(ctx: *const SemContext, c: Sexp, callee: Sexp) lir.Call {
+    var rec: lir.Call = .{ .kind = .unclassified, .callee = calleeForm(ctx, c, callee) };
+    if (rec.callee == .member) {
+        const obj = ir.Member.object(callee);
+        const explicit = obj.isKind(.write) or obj.isKind(.read);
+        // A type or a module named before the function is no self:
+        // it has no value (`storage.isTypeCallee`).
+        if (!storage.isTypeCallee(ctx, obj)) rec.self = .{ .explicit = explicit, .mode = if (obj.isKind(.write)) .write else selfMode(ctx, if (explicit) ir.get(obj, .operand) else obj, callee) };
+    }
+    return rec;
 }
 
 /// How call `c`'s callee is written, as the ownership checker walks it

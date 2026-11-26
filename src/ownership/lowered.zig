@@ -12,6 +12,7 @@ const std = @import("std");
 const parser = @import("../parser.zig");
 const sema = @import("../sema.zig");
 const lir = @import("../lir.zig");
+const lower = @import("../lower.zig");
 const diag = @import("../diag.zig");
 const rig = @import("../rig.zig");
 const self_check = @import("build_options").self_check;
@@ -328,6 +329,13 @@ pub fn opOf(self: *const Checker, e: Expr) ?lir.Expr.Op {
         .op => |o| return if (sema.decisionKeyOf(o.node) == sema.decisionKeyOf(e.node)) o else null,
         else => return null,
     };
+}
+
+/// The record lowering made of call `call` (`lower.checkedCall`): how
+/// its callee is written, how it takes its self, and its flags.
+pub fn callOf(self: *const Checker, call: Expr) lir.Call {
+    if (opOf(self, call)) |o| if (o.kind == .call) return self.lir_body.?.f.calls.items[o.aux];
+    return lower.checkedCall(self.sema, uncovered(self, call.node).node);
 }
 
 /// Operand `i` of `e`: the LIR's, where `e` is an operation of a

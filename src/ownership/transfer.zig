@@ -2418,12 +2418,6 @@ fn checkWriteSelf(self: *Checker, id: VarId, path: PathId, reservation: usize, c
     try self.temps.insert(self.gpa, reservation, reserved);
 }
 
-/// In a self-checking build, that LIR's record of call `node` agrees
-/// with what the checker decides of it, `what` (`lower.Module.expectCallFact`).
-fn expectCall(self: *const Checker, node: Sexp, comptime what: []const u8, ok: fn (*const lir.Call) bool) void {
-    if (self.sema.lowered) |*m| m.expectCallFact(self.sema, node, what, ok);
-}
-
 /// What the walk decides of an operand, each field null where it
 /// decides nothing of it.
 pub const Role = struct {
@@ -2452,40 +2446,6 @@ pub fn expectRole(self: *const Checker, e: lowered.Expr, want: Role) void {
     std.debug.panic("{s}:{d}:{d}: internal error: lir: an operand recorded as {any} that the ownership checker walks as {any}", .{ self.sema.name, at.line, at.col, o, want });
 }
 
-/// The facts of a call record `walkCallBody` asks for.
-const Is = struct {
-    fn swap(c: *const lir.Call) bool {
-        return c.flags.swap;
-    }
-    fn keeps_no_loan(c: *const lir.Call) bool {
-        return c.flags.keeps_no_loan;
-    }
-    fn keeps_loans(c: *const lir.Call) bool {
-        return !c.flags.keeps_no_loan;
-    }
-    fn text_only(c: *const lir.Call) bool {
-        return c.flags.text_only;
-    }
-    fn field_fn(c: *const lir.Call) bool {
-        return c.callee == .field_fn;
-    }
-    fn member(c: *const lir.Call) bool {
-        return c.callee == .member and c.self != null;
-    }
-    fn no_self(c: *const lir.Call) bool {
-        return c.callee == .member and c.self == null;
-    }
-    fn name(c: *const lir.Call) bool {
-        return c.callee == .name;
-    }
-    fn lambda(c: *const lir.Call) bool {
-        return c.callee == .lambda;
-    }
-    fn other(c: *const lir.Call) bool {
-        return c.callee == .other;
-    }
-};
-
 pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     const node = call.node;
     const temps_start = self.temps.items.len;
@@ -2495,10 +2455,10 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     const written = lowered.operand(self, call, 1);
     const callee_e = if (sema.decisionKeyOf(written.node) == sema.decisionKeyOf(callee)) written else lowered.operand(self, written, 0);
     const args = ir.Call.args(node);
-    if (self.sema.swapCallOf(node)) |swap| if (args.len == 2) {
-        expectCall(self, node, "a swap", Is.swap);
-        return walkSwapCall(self, call, args, swap == .places);
-    };
+    // How the callee is written, how the call takes its self, and what
+    // it keeps, as lowering found them.
+    const rec = lowered.callOf(self, call);
+    if (rec.flags.swap) return walkSwapCall(self, call, args, self.sema.swapCallOf(node).? == .places);
     // The value the call calls (a closure's captures, what a callable
     // view views), which its result always carries, and its
     // self's value.
@@ -2525,23 +2485,17 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     const callee_found = self.errors_found;
     // An actor's call and a select's arm keep no loan in their result:
     // the actor holds a count of its own, and a select ends its arms.
-    const actor_call = self.sema.isActorCall(node) or self.sema.selectArmOf(node) != null;
-    if (actor_call) expectCall(self, node, "keeps no loan", Is.keeps_no_loan) else expectCall(self, node, "may keep a loan", Is.keeps_loans);
+    const actor_call = rec.flags.keeps_no_loan;
     // What the call puts on the place self is: a read loan, a write
     // loan where `!` makes a write view (`loanOf`).
     var recv_loan: LoanKind = .read;
-    if (callee.isKind(.member) and !actor_call and generic.callsFunctionField(self, node, callee)) {
+    if (rec.callee == .field_fn) {
         // A function held in a field is called with the arguments
         // alone; it reaches nothing of the value holding it.
-        expectCall(self, node, "calls a function a field holds", Is.field_fn);
         result = try walkE(self, lowered.operand(self, callee_e, 0));
         field_call = true;
         if (self.errors_found == callee_found) try holdRead(self, callee, .callee);
-    } else if (callee.isKind(.member)) {
-        // A type or a module named before the function is no self: it
-        // has no value, and nothing of it is taken (`storage.isTypeCallee`).
-        const no_self = storage.isTypeCallee(self.sema, ir.Member.object(callee));
-        if (no_self) expectCall(self, node, "calls a type's or a module's function", Is.no_self) else expectCall(self, node, "calls a method", Is.member);
+    } else if (rec.callee == .member) {
         const object_e = lowered.operand(self, callee_e, 0);
         var obj = ir.Member.object(callee);
         var obj_e = object_e;
@@ -2551,7 +2505,9 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
             obj = ir.get(obj, .operand);
             obj_e = lowered.operand(self, object_e, 0);
         }
-        recv_mode = if (explicit_write) .write else if (no_self) .read else types.selfMode(self, obj, callee);
+        // A type or a module named before the function is no self: it
+        // has no value, and nothing of it is taken.
+        recv_mode = if (rec.self) |s| s.mode else .read;
         recv_loan = if (explicit_write) loanOf(self, ir.Member.object(callee)) else if (recv_mode == .write) .write else .read;
         const place = if (recv_mode == .value) null else resolvePlace(self, obj);
         if (place) |p| {
@@ -2598,18 +2554,15 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
                     try self.valueUnion(recv_value, try selfLeaves(self, obj, kind));
             }
         }
-    } else if (callee == .src) {
+    } else if (rec.callee == .name) {
         // A callable's result may view what the callable holds: a
         // closure its captures, a callable view what it views.
-        expectCall(self, node, "calls a name", Is.name);
         result = try walkName(self, callee, true);
         if (self.errors_found == callee_found) try holdRead(self, callee, .callee);
-    } else if (isLambda(callee)) {
-        expectCall(self, node, "calls a closure literal", Is.lambda);
+    } else if (rec.callee == .lambda) {
         self.lambda_ok = true;
         result = try walkE(self, callee_e);
     } else {
-        expectCall(self, node, "calls a value", Is.other);
         result = try walkE(self, callee_e);
         if (self.errors_found == callee_found) try holdRead(self, callee, .callee);
     }
@@ -2624,9 +2577,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     // `print`, `String(...)`, and `!t.add(...)` only read their
     // arguments, and hold none of them past the call: a String keeps
     // their text, not them.
-    const text_op = self.sema.stringCallOf(node) orelse self.sema.stringCallOf(callee);
-    if (self.sema.isPrintCall(node) or text_op != null) {
-        expectCall(self, node, "only reads its arguments", Is.text_only);
+    if (rec.flags.text_only) {
         try walkReadArgs(self, call, args, first_arg);
         if (recv_root) |id| if (recv_loan == .write) try checkWriteSelf(self, id, recv_path, reservation, callee);
         self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
@@ -2637,7 +2588,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     // `send`) may not hold a view. Of an arm of `task.select`, a send
     // arm's value goes into its channel as `send`'s does, and its
     // function and a receive arm's go to the select, which calls them.
-    const arm = self.sema.selectArmOf(node);
+    const arm = if (actor_call) self.sema.selectArmOf(node) else null;
     const into = if (arm != null and arm.? != .send)
         null
     else if (callee.isKind(.member) and !rules.namesType(self, callee))
@@ -2820,7 +2771,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         // An arm of `task.select` views until the select returns,
         // which runs the arm it commits after making every arm (the
         // arm's storage lives for the select): the select ends them.
-        if (self.sema.selectArmOf(node) == null) self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+        if (arm == null) self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
         return .{};
     }
     // The result views only what could hold it (Core sentence 7). A

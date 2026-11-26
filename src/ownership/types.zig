@@ -261,21 +261,6 @@ pub fn carriesWriteView(self: *const Checker, ty: ?TypeId) bool {
     return sema.holdsWriteView(ctx, ty orelse return false);
 }
 
-/// How a method call takes its self, from the signature ctx
-/// resolved for the callee: `!@` writes, a `Self` value is consumed,
-/// anything else reads. A shared handle is only ever read through.
-pub fn selfMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.SelfMode {
-    if (obj.isKind(.move)) return .value;
-    if (exprType(self, obj)) |t| if (typeData(self, t) == .shared) return .read;
-    const f = typeData(self, exprType(self, callee) orelse return .read);
-    if (f != .function or f.function.params.len == 0) return .read;
-    return switch (typeData(self, f.function.params[0])) {
-        .write_view => .write,
-        .nominal, .parameterized_nominal => .value,
-        else => .read,
-    };
-}
-
 /// Whether `ty` is a shared or weak handle.
 pub fn isHandleType(self: *const Checker, ty: ?TypeId) bool {
     const t = ty orelse return false;
