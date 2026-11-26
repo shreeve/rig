@@ -179,8 +179,8 @@ pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
     };
     // A function's index lives while its walk does: the function arena
     // is reset after each module-level function. The module's own body
-    // lives for the module's walk.
-    const a = if (root.isKind(.module)) self.arena_state.allocator() else self.fn_arena_state.allocator();
+    // lives until it is walked (`dropConstants`).
+    const a = if (root.isKind(.module)) self.const_arena_state.allocator() else self.fn_arena_state.allocator();
     const out = try a.create(Body);
     out.* = .{ .f = f, .leaves = self.on_lir };
     // The ids of the body's list nodes, which the parser numbers in
@@ -217,6 +217,13 @@ pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
     try out.regions.put(a, sema.decisionKeyOf(body).?, f.body);
     try index(out, a, f.body);
     return out;
+}
+
+/// The module's compile-time body is walked: free its index, and,
+/// outside a self-checking build (whose shadow walks it again), its LIR.
+pub fn dropConstants(self: *Checker) void {
+    _ = self.const_arena_state.reset(.free_all);
+    if (!self_check) if (self.interner.lowered) |*m| m.dropConstants();
 }
 
 /// Index region `r` and everything in it, outermost first.

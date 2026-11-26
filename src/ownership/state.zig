@@ -27,6 +27,8 @@ const lowered = @import("lowered.zig");
 const Place = transfer.Place;
 
 pub const VarId = u32;
+/// No var: an empty slot of `Checker.syms`.
+const no_var = std.math.maxInt(VarId);
 
 /// Which loans a query looks for: any, or only write loans.
 pub const LoanQuery = enum { any, write };
@@ -523,14 +525,16 @@ pub const Checker = struct {
     sema: *const sema.SemContext,
     /// The same context, through which the instance check of a function
     /// value's type (`PlainRequirement.callable`) makes the type at the
-    /// instance's arguments; nothing else is written through it.
+    /// instance's arguments, and the module's compile-time body's LIR is
+    /// freed once walked (`lowered.dropConstants`); nothing else is
+    /// written through it.
     interner: *sema.SemContext,
     diagnostics: std.ArrayList(Diagnostic) = .empty,
 
     vars: std.ArrayList(Var) = .empty,
     /// The innermost var of each binding sema resolved (see
-    /// `Var.shadows`).
-    syms: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
+    /// `Var.shadows`), by symbol id; `no_var` where none is visible.
+    syms: std.ArrayList(VarId) = .empty,
     /// What generic bodies copy: this module's, found while walking them,
     /// then those of other modules' bodies its instances use.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
@@ -660,6 +664,13 @@ pub const Checker = struct {
     /// The lowered body being walked, whose LIR gives each expression's
     /// operands (`lowered.operand`).
     lir_body: ?*lowered.Body = null,
+    /// Which of a module's declarations the walk takes: its compile-time
+    /// body (`values`: constants, and what types declare by value), or
+    /// its code (functions, methods, tests); `all` inside a body.
+    decl_phase: enum { all, values, code } = .all,
+    /// The module's compile-time body's index, freed once that body is
+    /// walked (`lowered.dropConstants`).
+    const_arena_state: std.heap.ArenaAllocator,
 
     func: FnCtx = .{},
     /// The body of the function being walked, at whose end its own scope
@@ -742,6 +753,7 @@ pub const Checker = struct {
             .gpa = allocator,
             .arena_state = std.heap.ArenaAllocator.init(allocator),
             .fn_arena_state = std.heap.ArenaAllocator.init(allocator),
+            .const_arena_state = std.heap.ArenaAllocator.init(allocator),
             .source = source,
             .paths = paths,
             .sema = ctx,
@@ -804,6 +816,7 @@ pub const Checker = struct {
         self.paths.deinit(self.gpa);
         self.gpa.destroy(self.paths);
         self.fn_arena_state.deinit();
+        self.const_arena_state.deinit();
         self.arena_state.deinit();
     }
 
@@ -925,9 +938,10 @@ pub const Checker = struct {
             }
         };
         if (v.sym) |sym| {
-            const gop = try self.syms.getOrPut(self.gpa, sym);
-            v.shadows = if (gop.found_existing) gop.value_ptr.* else null;
-            gop.value_ptr.* = id;
+            if (sym >= self.syms.items.len) try self.syms.appendNTimes(self.gpa, no_var, @max(sym + 1, self.sema.symbols.items.len) - self.syms.items.len);
+            const slot = &self.syms.items[sym];
+            v.shadows = if (slot.* == no_var) null else slot.*;
+            slot.* = id;
         }
         try self.vars.append(self.gpa, v);
         try self.flows.append(self.gpa, flow);
@@ -945,11 +959,7 @@ pub const Checker = struct {
             const v = self.vars.items[i];
             self.countLoans(self.flows.items[i].loans, false);
             const sym = v.sym orelse continue;
-            if (v.shadows) |prev| {
-                self.syms.putAssumeCapacity(sym, prev);
-            } else {
-                _ = self.syms.remove(sym);
-            }
+            self.syms.items[sym] = v.shadows orelse no_var;
         }
         self.vars.shrinkRetainingCapacity(start);
         self.flows.shrinkRetainingCapacity(start);
@@ -972,7 +982,9 @@ pub const Checker = struct {
     /// function enclosing the current closure body is not visible:
     /// typecheck reports its use.
     pub fn varOf(self: *const Checker, sym: SymbolId) ?VarId {
-        var id = self.syms.get(sym) orelse return null;
+        if (sym >= self.syms.items.len) return null;
+        var id = self.syms.items[sym];
+        if (id == no_var) return null;
         while (self.isHiddenVar(id)) id = self.vars.items[id].shadows orelse return null;
         var crossed = false;
         var si = self.scopes.items.len;
