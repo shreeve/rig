@@ -3392,7 +3392,7 @@ pub fn walkCatch(self: *Checker, ex: lowered.Expr) Error!Value {
     if (name != .nil) {
         _ = try self.addVar(.{ .name = types.text(self, name), .decl = name.src.pos, .sym = self.bindingOf(name), .ty = types.symType(self, name) }, .{});
     }
-    var v2 = try walkTailPartE(self, if (lowered.argRegion(self, ex, 1)) |h| lowered.partExpr(self, handler, h) else lowered.uncovered(self, handler), t);
+    var v2 = try walkTailPartE(self, if (lowered.argRegion(self, ex, 1)) |h| lowered.exprIn(self, handler, h) else lowered.uncovered(self, handler), t);
     v2 = try self.leaveScope(v2);
     const s = try self.leave(base, notes.resumeAt(self, .nil, node));
     try self.apply(try self.join(stateAt(base), s));
@@ -3554,7 +3554,7 @@ pub fn walkIf(self: *Checker, e: lowered.Expr) Error!Value {
 fn branchOf(self: *const Checker, b: Sexp, lir_if: ?lir.Expr.If, then: bool) lowered.Expr {
     const i = lir_if orelse return lowered.uncovered(self, b);
     const r = if (then) i.then else i.@"else" orelse return lowered.uncovered(self, b);
-    return lowered.partExpr(self, b, r);
+    return lowered.exprIn(self, b, r);
 }
 
 /// A branch before its condition in the source (`stmt if cond`, `a if
@@ -4312,7 +4312,7 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
         .each => |x| x.body,
         else => null,
     } else null;
-    _ = try walkStmtValueE(self, if (lir_body) |r| lowered.partExpr(self, spec.body, r) else lowered.uncovered(self, spec.body), null);
+    _ = try walkStmtValueE(self, if (lir_body) |r| lowered.exprIn(self, spec.body, r) else lowered.uncovered(self, spec.body), null);
     if (step_inside) {
         while (self.scopes.items.len > ctx.step_depth) try self.popScope();
         if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, notes.stepAt(self, spec.node));

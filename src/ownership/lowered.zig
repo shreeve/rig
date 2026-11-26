@@ -4,7 +4,7 @@
 //! `stepValue`), and the operands of an expression from its LIR
 //! operation (`Expr`, `operand`); an `if`, a loop, or a `match` is its
 //! LIR step (`controlOf`), and each of its parts the region made for it
-//! (`partExpr`). The uses liveness reads are the LIR's (`indexUses`).
+//! (`exprIn`). The uses liveness reads are the LIR's (`indexUses`).
 //! The checkers' lowering lowers every body the checker walks
 //! (`lower.Options.checked`).
 
@@ -225,18 +225,24 @@ pub fn uncovered(self: *const Checker, node: Sexp) Expr {
     return .{ .node = node };
 }
 
-/// Statement region `r` as the walk reaches it: with the expression
-/// it evaluates last, for a statement that is an expression, or with
-/// none, for one whose step says what it does (`stepsIn`).
+/// Statement region `r` as the walk reaches it (`exprIn`).
 pub fn stmtAt(self: *const Checker, r: lir.RegionId) Expr {
+    return exprIn(self, self.lir_body.?.f.regions.items[r].node, r);
+}
+
+/// Node `node` as region `r`, which LIR made for it, runs it (a
+/// statement, a branch, an arm's or a loop's body): with the expression
+/// `r` yields, or evaluates last, where that is `node`'s; else with
+/// none, for a statement whose steps say what it does (`stepsIn`), a
+/// block, or a construct `r` runs (`controlOf`).
+pub fn exprIn(self: *const Checker, node: Sexp, r: lir.RegionId) Expr {
     const b = self.lir_body.?;
     const reg = &b.f.regions.items[r];
-    const key = sema.decisionKeyOf(reg.node);
+    const key = sema.decisionKeyOf(node);
     const steps = reg.steps.items;
-    // A statement whose value its body yields is its region's value.
-    if (reg.value) |v| if (sema.decisionKeyOf(nodeOf(b, v)) == key) return .{ .node = reg.node, .id = v, .r = r };
-    if (steps.len > 0 and steps[steps.len - 1] == .eval and sema.decisionKeyOf(nodeOf(b, steps[steps.len - 1].eval)) == key) return .{ .node = reg.node, .id = steps[steps.len - 1].eval, .r = r };
-    return .{ .node = reg.node, .r = r };
+    if (reg.value) |v| if (sema.decisionKeyOf(nodeOf(b, v)) == key) return .{ .node = node, .id = v, .r = r };
+    if (steps.len > 0 and steps[steps.len - 1] == .eval and sema.decisionKeyOf(nodeOf(b, steps[steps.len - 1].eval)) == key) return .{ .node = node, .id = steps[steps.len - 1].eval, .r = r };
+    return .{ .node = node, .r = r };
 }
 
 /// The statements of body or block region `r`: its steps' regions,
@@ -317,6 +323,17 @@ pub fn armBody(self: *const Checker, c: ?Control, i: usize, body: Sexp) Expr {
     });
 }
 
+/// Guard `guard` of arm `i` of the match `c` controls, as the arm's
+/// region tests it before its body.
+pub fn guardOf(self: *const Checker, c: ?Control, i: usize, guard: Sexp) Expr {
+    const b = self.lir_body orelse return uncovered(self, guard);
+    const m = c orelse return uncovered(self, guard);
+    if (m != .match or i >= m.match.arms.len) return uncovered(self, guard);
+    const steps = b.f.regions.items[m.match.arms[i]].steps.items;
+    if (steps.len == 0 or steps[steps.len - 1] != .@"if") return uncovered(self, guard);
+    return exprFor(self, guard, steps[steps.len - 1].@"if".cond);
+}
+
 /// The control step of construct `e` (an `if`, `while`, `for`, or
 /// `match`): where `e` is a value, the branch or choice its expression
 /// is; else the last step of its statement's region, or of the region
@@ -371,17 +388,6 @@ pub const Control = union(enum) {
         };
     }
 };
-
-/// Guard `guard` of arm `i` of the match `c` controls, as the arm's
-/// region tests it before its body.
-pub fn guardOf(self: *const Checker, c: ?Control, i: usize, guard: Sexp) Expr {
-    const b = self.lir_body orelse return uncovered(self, guard);
-    const m = c orelse return uncovered(self, guard);
-    if (m != .match or i >= m.match.arms.len) return uncovered(self, guard);
-    const steps = b.f.regions.items[m.match.arms[i]].steps.items;
-    if (steps.len == 0 or steps[steps.len - 1] != .@"if") return uncovered(self, guard);
-    return exprFor(self, guard, steps[steps.len - 1].@"if".cond);
-}
 
 /// The value capture `i` of closure `e` takes, `value` in the tree.
 pub fn captureOf(self: *const Checker, e: Expr, i: usize, value: Sexp) Expr {
@@ -445,27 +451,6 @@ pub fn exprFor(self: *const Checker, node: Sexp, id: lir.ExprId) Expr {
     const b = self.lir_body.?;
     if (sema.decisionKeyOf(nodeOf(b, id)) != sema.decisionKeyOf(node)) return uncovered(self, node);
     return .{ .node = node, .id = id };
-}
-
-/// Part `node` of a construct (a branch, an arm's body, a loop's body)
-/// as the walk reaches it from region `r`, which LIR made for it: a
-/// block is walked by its region, by node; an expression is the value
-/// the region yields.
-pub fn partExpr(self: *const Checker, node: Sexp, r: lir.RegionId) Expr {
-    const b = self.lir_body.?;
-    const reg = &b.f.regions.items[r];
-    const key = sema.decisionKeyOf(node);
-    const out: Expr = if (node.isKind(.block))
-        .{ .node = node, .r = r }
-    else if (reg.value) |v| (if (sema.decisionKeyOf(nodeOf(b, v)) == key) .{ .node = node, .id = v } else return uncovered(self, node)) else blk: {
-        // A statement the region evaluates (`stmt if cond`), or a
-        // construct it runs, an `else if`'s `if`.
-        const steps = reg.steps.items;
-        if (steps.len > 0 and steps[steps.len - 1] == .eval and sema.decisionKeyOf(nodeOf(b, steps[steps.len - 1].eval)) == key) break :blk .{ .node = node, .id = steps[steps.len - 1].eval };
-        if (controlFrom(b, r, key orelse return uncovered(self, node)) != null) break :blk .{ .node = node, .r = r };
-        return uncovered(self, node);
-    };
-    return out;
 }
 
 /// The node LIR expression `id` of body `b` is the value of.
@@ -633,15 +618,15 @@ pub fn dropConstants(self: *Checker) void {
     if (self.interner.lowered) |*m| m.dropConstants();
 }
 
-/// The steps that run statement `e`: those of the region it is walked
-/// from, or, for a statement where a value goes, of the region its
-/// expression is.
+/// The steps that run statement `e`: for a statement where a value
+/// goes, those of the region its expression is; else those of the
+/// region it is walked from.
 pub fn stepsIn(self: *const Checker, e: Expr) []const lir.Step {
     const b = self.lir_body orelse return &.{};
-    const r = e.r orelse switch (b.f.exprs.items[under(b, e.id orelse return &.{})]) {
+    const r = if (e.id) |id| switch (b.f.exprs.items[under(b, id)]) {
         .block => |r| r,
-        else => return &.{},
-    };
+        else => e.r orelse return &.{},
+    } else e.r orelse return &.{};
     return b.f.regions.items[r].steps.items;
 }
 
