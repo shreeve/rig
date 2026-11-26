@@ -87,6 +87,12 @@ pub const Module = struct {
     /// build's asserts that it is what emit and the ownership checker
     /// decide (`callOf`).
     calls: sema.FastMap(u64, *const lir.Call) = .empty,
+    /// The place of each `member` and `index` that reaches one, by its
+    /// key, and the body that names its root, for the self-checking
+    /// build's asserts (`placeOf`).
+    place_of: sema.FastMap(u64, PlaceAt) = .empty,
+
+    pub const PlaceAt = struct { f: *const lir.Func, i: u32 };
 
     pub const VarKey = struct { node: u64, kind: StorageKind };
 
@@ -210,6 +216,15 @@ pub const Module = struct {
         if (ok(c)) return;
         const at = diag.lineCol(ctx.source, ctx.startOf(node));
         std.debug.panic("{s}:{d}:{d}: internal error: lir: a call recorded as `{s}`, callee `{s}`, that the ownership checker finds " ++ what, .{ ctx.name, at.line, at.col, @tagName(c.kind), @tagName(c.callee) });
+    }
+
+    /// The place `member` or `index` node `node` reaches in body `f`;
+    /// null in a build that does not check itself.
+    pub fn placeOf(m: *const Module, f: *const lir.Func, node: Sexp) ?lir.Place {
+        if (!enabled) return null;
+        const at = m.place_of.get(sema.decisionKeyOf(node) orelse return null) orelse return null;
+        if (at.f != f) return null;
+        return f.places.items[at.i];
     }
 
     /// The var of binding `sym`.
@@ -1389,6 +1404,7 @@ const Lowerer = struct {
             try l.f.calls.append(l.a, l.callRecord(e));
         }
         try l.operandRoles(o, kids);
+        try l.placeOp(&o);
         const id = try l.addExpr(.{ .op = o });
         try l.note(e, id);
         try l.temp(e);
@@ -2268,6 +2284,59 @@ const Lowerer = struct {
             },
             else => {},
         }
+    }
+
+    /// The place `member` or `index` operation `o` reaches, when its
+    /// value is one (`sema.Hands.place`) rooted at a var: its object's
+    /// place, then this step.
+    fn placeOp(l: *Lowerer, o: *lir.Expr.Op) Error!void {
+        if (!enabled) return;
+        const ctx = l.ctx;
+        const e = o.node;
+        if (!e.isKind(.member) and !e.isKind(.index)) return;
+        if (sema.handsOver(ctx, e).kind != .place) return;
+        const base: lir.Place = if (l.opAt(o.args[0])) |b| (if ((b.node.isKind(.member) or b.node.isKind(.index)) and b.aux > 0) l.f.places.items[b.aux - 1] else return) else root: {
+            var at = o.args[0];
+            while (true) switch (l.f.exprs.items[at]) {
+                .coerce => |c| at = c.value,
+                .@"var" => |u| break :root .{ .root = u.v, .steps = &.{} },
+                .leaf => break :root .{ .root = null, .steps = &.{} },
+                else => return,
+            };
+        };
+        var at_step: lir.PlaceStep = .{ .kind = .index };
+        const object = ir.get(e, .object);
+        if (ctx.typeOf(object)) |ty| if (ty != ctx.types.unknown_id and ty != ctx.types.invalid_id) {
+            at_step.through_shared = ctx.types.get(ty) == .shared;
+            if (e.isKind(.member)) {
+                at_step.kind = .member;
+                var t = ty;
+                if (base.steps.len == 0) switch (ctx.types.get(t)) {
+                    .write_view => |inner| t = inner,
+                    .read_view => |inner| {
+                        t = inner;
+                        at_step.root_read_view = true;
+                    },
+                    else => {},
+                };
+                while (sema.boxedType(ctx, t)) |inner| t = inner;
+                const data = switch (ctx.types.get(t)) {
+                    .nominal => true,
+                    .parameterized_nominal => |pn| !sema.isBuiltinGeneric(ctx, pn.sym),
+                    else => false,
+                };
+                const name = ir.Member.name(e);
+                if (data and name == .src and sema.lookupDataFieldConst(ctx, t, rig.leafText(ctx.source, name.src)) != null) at_step.kind = .field;
+            }
+        } else if (e.isKind(.member)) {
+            at_step.kind = .member;
+        };
+        const steps = try l.a.alloc(lir.PlaceStep, base.steps.len + 1);
+        @memcpy(steps[0..base.steps.len], base.steps);
+        steps[base.steps.len] = at_step;
+        try l.f.places.append(l.a, .{ .root = base.root, .steps = steps });
+        o.aux = @intCast(l.f.places.items.len);
+        try l.module.place_of.put(l.a, sema.decisionKeyOf(e).?, .{ .f = l.f, .i = o.aux - 1 });
     }
 
     /// The operation expression `id` is, under its coercions and holds.

@@ -76,7 +76,8 @@ pub const Expr = union(enum) {
     coerce: struct { node: Sexp, how: *const Coercion, value: ExprId },
 
     /// The operation of `node` over `args`: what it does, `kind`, and
-    /// for a call, its record, `Func.calls[aux]`.
+    /// for a call, its record, `Func.calls[aux]`; for a `member` or an
+    /// `index` that reaches a place, the place, `Func.places[aux - 1]`.
     pub const Op = struct { node: Sexp, args: []const ExprId, kind: OpKind = .other, aux: u32 = 0 };
 
     pub const Use = struct { v: VarId, node: Sexp };
@@ -340,6 +341,38 @@ pub const Operand = packed struct(u16) {
     };
 };
 
+/// A place: a var, then the fields and elements of it a `member` or
+/// `index` operation reaches (`sema.Hands.place`). Its op names it by
+/// `Func.places[aux - 1]`; recorded in a self-checking build, where the
+/// ownership checker asserts that it finds each place so
+/// (`resolvePlace`).
+pub const Place = struct {
+    /// Null for a place rooted at a leaf: a constant of the module.
+    root: ?VarId,
+    steps: []const PlaceStep,
+};
+
+pub const PlaceStep = packed struct(u8) {
+    kind: Kind,
+    /// Its object is the root, a read view: the field is on the root's
+    /// path only for a self checked by path (`bindSelfPaths`).
+    root_read_view: bool = false,
+    /// Its object is a shared handle.
+    through_shared: bool = false,
+    _: u4 = 0,
+
+    pub const Kind = enum(u2) {
+        /// A data field of an object, of a box's, or of what a view of
+        /// the root sees: a place of its own on the root's path (Core
+        /// §5).
+        field,
+        /// Any other member, which ends the path.
+        member,
+        /// An element or a slice, which ends the path.
+        index,
+    };
+};
+
 /// How a value becomes the type its context takes, where it goes. Each
 /// is a typing fact of the node it wraps, made explicit where the value
 /// is read: a value held in a var first is coerced where the var is
@@ -458,6 +491,9 @@ pub const Func = struct {
     /// a self-checking build, and shorter than `exprs` where the rest
     /// take the default.
     roles: std.ArrayList(Operand) = .empty,
+    /// The places `member` and `index` operations reach, each named by
+    /// its op (`Op.aux - 1`); filled in a self-checking build.
+    places: std.ArrayList(Place) = .empty,
     body: RegionId = 0,
 
     pub fn addVar(f: *Func, a: std.mem.Allocator, v: Var) !VarId {

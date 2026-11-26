@@ -809,12 +809,44 @@ pub fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
                     if (ty == .shared) p.through_shared = true;
                     if (ty == .read_view or ty == .write_view) p.through_view = true;
                 }
+                expectPlace(self, e, p);
                 return p;
             },
             else => return null,
         },
         else => return null,
     }
+}
+
+/// In a self-checking build, that the place lowering recorded for
+/// `member` or `index` node `e` (`lir.Place`) is `p`, as found here: its
+/// root, how far its path goes and whether it ends, and whether it is
+/// reached through an element or a shared handle. A place a header's
+/// held base roots is not lowering's.
+fn expectPlace(self: *const Checker, e: Sexp, p: Place) void {
+    if (!self_check or self.held != null) return;
+    const b = self.lir_body orelse return;
+    const m = &(self.sema.lowered orelse return);
+    const lp = m.placeOf(b.f, e) orelse {
+        if (types.hands(self, e).kind != .place) return;
+        const at = diag.lineCol(self.sema.source, self.sema.startOf(e));
+        std.debug.panic("{s}:{d}:{d}: internal error: lir: a place the ownership checker finds that lowering does not record", .{ self.sema.name, at.line, at.col });
+    };
+    const root_ok = if (lp.root) |r| (b.f.vars.items[r].node == .src and b.f.vars.items[r].node.src.pos == self.vars.items[p.root].decl) else true;
+    const self_root = origins.isSelfVar(self, p.root);
+    var depth: u8 = 0;
+    var ended = false;
+    var indexed = false;
+    var shared = false;
+    for (lp.steps) |s| {
+        if (s.kind == .index) indexed = true;
+        if (s.through_shared) shared = true;
+        if (ended) continue;
+        if (s.kind == .field and (!s.root_read_view or self_root) and depth < Paths.max_depth) depth += 1 else ended = true;
+    }
+    if (root_ok and depth == self.paths.depth(p.path) and ended == p.path_ended and indexed == p.indexed and shared == p.through_shared) return;
+    const at = diag.lineCol(self.sema.source, self.sema.startOf(e));
+    std.debug.panic("{s}:{d}:{d}: internal error: lir: a place recorded as {d} steps (root ok {}, depth {d}, ended {}, indexed {}, shared {}) that the ownership checker finds at depth {d}, ended {}, indexed {}, shared {}", .{ self.sema.name, at.line, at.col, lp.steps.len, root_ok, depth, ended, indexed, shared, self.paths.depth(p.path), p.path_ended, p.indexed, p.through_shared });
 }
 
 /// Whether `e`, a step of a place, goes on the place's path (Core §5,
