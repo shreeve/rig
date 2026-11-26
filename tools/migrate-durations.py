@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Rewrite a 0.3.0 program's durations, a bare `Int` of nanoseconds, in
-the forms a duration takes since 0.3.1 (SPEC "Durations"), where a bare
+the forms a duration takes since 0.4.0 (SPEC "Durations"), where a bare
 number is seconds and a unit's keyword names any other unit:
 
     time.sleep(40 * time.MS)            ->  time.sleep(ms: 40)

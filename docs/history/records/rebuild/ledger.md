@@ -48,6 +48,70 @@ budgets"). Updated as steps land.
 
 ## Entries
 
+### 2026-11-25 to 26: v0.4.0
+
+- **v0.4.0** carries the rebuild's steps below. `rig check` of Trig takes 1.95 s and 397 MB, where it
+  took 3.95 s and 620 MB at `revamp-base` (burst, under load, fastest
+  of 7, measured by Trig's session).
+- Landed, with each PR's measurement (Trig's `rig check` on the Mac
+  unless it says otherwise; "identity" means emit-diff identical):
+  - #1287, a generic instance checked once for the program: the check
+    guard 0.9% fewer instructions; Trig level (1,142.5 ms against
+    1,146.3 ms, median of 20), since instance checks are under 1% of
+    its time.
+  - #1291, #1296, #1297 (M3 5a to 5d, and 7), identity: a type's
+    symbols read at their home, another module's generic types and
+    parameters named by their declaration's ref with the proxies
+    deleted, and the built-ins registered once, in module 0. Net
+    lines +49, −50, and −17.
+  - #1294 and #1300, after #1293, identity: the facts about a leaf, and
+    the names, keyed by its leaf id in dense arrays. Trig 4.8% faster
+    than main (1,157.6 to 1,102.4 ms), 1.3% fewer instructions, peak
+    1.2 MB higher; over the whole leaf-id step, 5.8% faster and peak
+    1.16 MB lower.
+  - #1298, a behaviour step, every hunk neutral: a temporary made
+    before its statement can act goes into its slot ahead of the
+    statement; `rig.keep(` falls from 1,421 sites to 334 over the
+    emit-diff corpus. Trig's release binary 375 KB (0.2%) smaller;
+    `rig check` level; the json, hash, and text guards within 2%.
+  - #1299, #1305, #1307, #1308, #1309 (own-swap 1 to 5), identity: the
+    ownership checker walks each body's LIR, its operands, statements,
+    calls, and entries, and the expression index and the shadow are
+    deleted. Against main before the stack, 7.3% fewer instructions
+    (18.332G to 16.999G) and 2.5 MB less peak; the ownership pass about
+    282 to 225 ms (#1308). Ownership's lines went 11,017 to 11,007.
+  - #1301, the runtime takes one config record from the program: check
+    guard 0.1% more; Trig's release binary 232 bytes larger.
+  - #1302, one checked index and one duration conversion per operation:
+    net source −29; Trig's release binary 0.75% larger, all of it debug
+    information.
+  - #1303, each emitted type carries the checkers' classification:
+    check guard 0.6% fewer; Trig's release binary 27,584 bytes (0.016%)
+    larger, the markers' cost.
+  - #1304, a member of another module, and an integer type's range,
+    found by one lookup each, identity: net source −42; check guard
+    0.09% fewer.
+  - #1306, frames and inlining counted on LIR, a behaviour step with
+    every hunk classified: 137 Trig functions flip `inline`; a Mac race
+    of 6 projects, 20 rounds, no change beyond the bar; the json guard
+    within 0.4% of main. Net source +216.
+  - #1312, the test runners construct with `X.new`, as Rip 4.0
+    requires.
+- Also landed 2026-11-25, each recorded in its PR: #1270 to #1286,
+  #1288 (one evaluator), #1289, #1290 (proofs on LIR), #1292, #1293,
+  and #1295 (the ownership shadow). #1310 and #1311 (own-swap 6 and 7)
+  are drafts.
+- **The finding:** ownership (11,030 lines with its unit tests, about
+  10,600 without, against 6,000) and emit with facts (13,940 against
+  8,000) do not reach their budgets by walking LIR. Moving onto LIR
+  deletes their copies of its structure, family by family, but both
+  still dispatch on the node: how each call and place is written, and
+  which transfer applies. The budgets need typed operations, where
+  lowering picks each call's kind and each place's path once. A design
+  round shared by emit and ownership comes first, then ownership's
+  region-driven transfer and emit's printing from LIR, then the two
+  budgets set again for the owner's approval.
+
 ### 2026-11-25, later
 
 - The front pilot landed (#1258, #1259): a `for` over an iterator is

@@ -2,13 +2,18 @@
 
 What changed in Rig, newest release first. An entry "Unreleased",
 when there is one, lists what `main` carries beyond the last tag; each
-release's notes, its summary, are in [docs/releases/](docs/releases/).
-0.3.0's "Upgrading" section goes with the migration guide,
-[docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md).
+release's notes, its summary, are in [docs/releases/](docs/releases/),
+0.4.0's in [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md). The
+"Upgrading" sections of 0.4.0 and 0.3.0 go with the migration guide,
+[docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), whose last section,
+"From 0.3.0 to 0.4.0", takes a 0.3.0 program to 0.4.0.
 [HANDOFF](HANDOFF.md) says where the work stands, and
 [docs/ROADMAP.md](docs/ROADMAP.md) lists what is planned.
 
-## Unreleased
+## v0.4.0 (2026-11-26)
+
+`v0.4.0` follows `v0.3.0` (Zig 0.17.0, Nexus 2.0.0); its summary is
+[docs/releases/v0.4.0.md](docs/releases/v0.4.0.md).
 
 ### Upgrading from v0.3.0
 
@@ -224,10 +229,10 @@ nanoseconds:** `time.sleep(5)` sleeps five seconds, and 0.3.0's
 `time.sleep(5)` is `time.sleep(ns: 5)`. `tools/migrate-durations.py
 PATH` rewrites a 0.3.0 program's durations so that each means what it
 meant; run it once ([docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md),
-"From 0.3.0 to 0.3.1"). It changes the meaning of every `time.sleep`,
+"From 0.3.0 to 0.4.0"). It changes the meaning of every `time.sleep`,
 `time.after`, `time.within`, `time.Instant.at`, and Instant `add` given
 a bare number, and of `per:` of `task.supervise` and
-`*Actor.supervised`. 0.3.1 rejects these, which 0.3.0 accepted:
+`*Actor.supervised`. 0.4.0 rejects these, which 0.3.0 accepted:
 
 - a bare duration that names one of std.time's constants, which count
   nanoseconds: `time.sleep(5 * time.MS)`, `time.sleep(time.SECOND)`,
@@ -447,6 +452,28 @@ as after a connection its client gave up: one ended `serve`, and
 `listener.accept()` failed with it. No migration script: Trig and loco
 serve no HTTP.
 
+**Four more forms 0.3.0 accepted are rejected,** each described under
+"Compiler" below, with its fix in the message:
+
+- a `for` over a chain whose binding hides a local, `x = 1` then `for x
+  in xs.filter(f)`: "`for` binding `x` shadows the local `x`; use a
+  different name". Rename the loop's binding;
+- `for x in !out` where `out` holds a read view (`out = ?a`, a call
+  that returns one, a `?List` field or element): "cannot write-iterate
+  through a read view (`?T`)". 0.3.0 wrote through the read view, so a
+  String another view still read could be dropped and then read. Write
+  through the owner, `for x in !a`;
+- a name of `as a, b` that is a module-level declaration's, `K = 3`
+  then `if pair() as K, b`: "optional binding `K` has the same name as
+  the module-level declaration `K`". Rename the binding;
+- an object holding a generic of another module whose fields name the
+  generic's parameter as an optional, `w: w.W[Node]` in `Node` where
+  `W[T]` has `kids: List[T?]`, even one never made: "`Node?` in `w` is
+  laid out from `Node`'s layout, which needs `w` first". Hold an
+  optional view, `(?Node)?`, or a box, `^Node?`, as the message says.
+
+No script rewrites these; Trig and loco have none.
+
 ### Removed
 
 - **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
@@ -664,6 +691,19 @@ serve no HTTP.
 
 ### Compiler
 
+- **The compiler rebuild** ([docs/internals/rebuild.md](docs/internals/rebuild.md),
+  its [ledger](docs/history/records/rebuild/ledger.md)): rebuilt pass
+  by pass, each step's emitted Zig identical or every difference
+  explained, `rig check` of Trig takes 1.95 s and 397 MB, where it took
+  3.95 s and 620 MB at the tag `revamp-base` (fastest of 7 on burst, a
+  shared x86-64 Linux VM, under load). Every module interns in one type store for the program, a type names
+  its symbol by its declaration's ref, and the built-ins are registered
+  once; the facts about a leaf, and the name it binds, are keyed by its
+  leaf id in dense arrays; one evaluator folds every constant; each
+  module is lowered to LIR as it is checked, and the ownership checker,
+  the proofs, frame accounts, and the inlining rule read it; and emit
+  reads every storage decision and coercion it prints from the LIR. The
+  entries below describe each step.
 - **The ownership checker takes a statement from its body's LIR.** Every walk reads the statements of a body or block from the regions lowering made for it, in place of the tree's list, and the value an assignment stores, a jump leaves with, a drop or a destructure takes, and a body yields from its statement's step. The checkers' lowering (`lower.Options.checked`) lowers every body the checker walks: the module's constants and what its types declare by value are one compile-time body, the closures of compile-time functions are owners, and default values and residual `matches` that emit's lowering leaves out are lowered; emit lowers each module again without it. A self-checking build stops at an internal error where the checker walks a body or block with no LIR, or where a step's expression is not the tree's. The emitted Zig is the same.
 - **The ownership checker takes an expression's operands from its body's LIR.** Every walk of a lowered body, not only the shadow, walks the operands of plain operators, `and` and `or`, members, indexes, and every operation walked by its children as the LIR operation made for the node lists them, a part held first in a var as the value the var holds; a self-checking build stops at an internal error where an operand is not the tree's child. The emitted Zig is the same.
 - **Frame accounts are counted on each body's LIR** (`src/accounts.zig`), in place of typecheck's walk of the typed tree: a frame's values are the bindings and fork records its regions declare, a closure's captures in its maker, and the calls and arrays no binding takes; its copies follow the LIR's uses, so a `match`'s patterns, which make no value, no longer count. A module's frames are counted once it is lowered, so a frame too large is reported once the module has no other error, and the frames of the instances it makes are checked after it is counted. Over the examples, benches, std, and Trig, 2% of the frame owners count another reach; two of Trig's checker functions, each run once per checker task, trade `noinline` (`check_pulled` gains it, `check_groups` loses it).

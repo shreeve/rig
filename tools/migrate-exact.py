@@ -2,7 +2,7 @@
 """tools/migrate-exact.py PATH [RIG]: add `exact` to each object that
 `extend_from_bytes` makes from bytes, where `rig check` of the program
 PATH (its root file) asks for it: "add `exact` to `obj Name`". Rig
-0.3.1 reads only `exact` objects from bytes (CHANGELOG, "Upgrading").
+0.4.0 reads only `exact` objects from bytes (CHANGELOG, "Upgrading").
 Each fix edits the object's declaration, `obj Name` or `pub obj Name`
 (before any `:` and its APIs), in the file of the program that declares
 it, then checks again until nothing more is asked. Prints each edit;

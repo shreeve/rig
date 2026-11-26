@@ -1,5 +1,5 @@
 # tools/migrate-durations.py rewrites a 0.3.0 program's durations, bare
-# nanoseconds, in the forms of 0.3.1, where a bare number is seconds, and
+# nanoseconds, in the forms of 0.4.0, where a bare number is seconds, and
 # the program means what it meant: each Instant below is the nanoseconds
 # 0.3.0 gave it. A `per:` it cannot count in seconds is reported
 # (MANUAL), and a Markdown file's ```rig blocks are rewritten, not its

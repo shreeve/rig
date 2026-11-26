@@ -48,14 +48,33 @@ A new session, human or agent, takes these steps in order:
 
 ## Current state
 
-- **Release:** `v0.3.0` is the latest release (Zig 0.17.0, Nexus
-  2.0.0). What changed since `v0.2.9`, the renames and removed
-  spellings included, is in [CHANGELOG.md](CHANGELOG.md), and
-  [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md) migrates a 0.2 program.
+- **Release:** `v0.4.0` (2026-11-26) is the latest release (Zig
+  0.17.0, Nexus 2.0.0); its summary is
+  [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md). What changed since
+  `v0.3.0`, with every form 0.3.0 accepted that 0.4.0 rejects, is in
+  [CHANGELOG.md](CHANGELOG.md), and
+  [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md) migrates a 0.2 program
+  to 0.3 and, in its last section, a 0.3.0 program to 0.4.0.
 - **Releases:** every change, fixes included, ships in the current
-  line, `v0.3.x`; an earlier line gets no further releases. Rounds land
-  on `main` untagged until the next tag; its release notes include a
-  migration guide for the renames (`tools/migrate-0.3.py`).
+  line, `v0.4.x`; an earlier line gets no further releases. Rounds land
+  on `main` untagged until the next tag; its release notes list each
+  form the release rejects that the last one accepted, with its
+  migration script.
+- **The compiler rebuild** ([docs/internals/rebuild.md](docs/internals/rebuild.md),
+  its [ledger](docs/history/records/rebuild/ledger.md)): the compiler
+  is rebuilt in place, pass by pass, measured against the tag
+  `revamp-base`. `v0.4.0` carries one type store for the program, names
+  keyed by leaf id, one constant evaluator, sema checking each module
+  once, each module lowered to LIR as it is checked, the ownership
+  checker, the proofs, frame accounts, and inlining on LIR, and emit
+  reading its storage decisions and coercions from LIR. `rig check` of
+  Trig takes 1.95 s and 397 MB, where it took 3.95 s and 620 MB at
+  `revamp-base` (fastest of 7 on burst, under load). Ownership (about
+  10,600 lines, its unit tests aside, against a budget of 6,000) and
+  emit with facts (13,940 against 8,000) are over their line budgets:
+  walking LIR removes their copies of the LIR's structure, but not
+  their dispatch on the node, which needs typed operations (Next,
+  below).
 - **Build modes:** debug (the default, leak-checked) and `--release`
   (Zig's safe mode). No mode drops a check; a program opts out only in
   its source, with `+%`, `-%`, `*%`, or a `raw` block. `--release=fast`
@@ -439,7 +458,7 @@ A new session, human or agent, takes these steps in order:
   number is seconds, an `Int` or a `Float`, and `ms:`, `us:`, `ns:`
   name the other units, wherever a duration is taken; `per:` is seconds. It changes what a
   0.3.0 program means, so `tools/migrate-durations.py` rewrites one
-  (MIGRATING-0.3, "From 0.3.0 to 0.3.1"), and Trig and loco get its
+  (MIGRATING-0.3, "From 0.3.0 to 0.4.0"), and Trig and loco get its
   note before it merges.
 - **A ternary's condition binds names** (owner, 2026-11-04), built:
   `v.id if r.decl as v else 0` and `r * r if s matches .circle(r) else
@@ -495,6 +514,27 @@ A new session, human or agent, takes these steps in order:
   on zod3). It lands on Trig's zod3 timing under `--pgo`.
 
 ## Next, in order
+
+The rebuild's next steps:
+
+1. **Typed operations,** a design round shared by emit and ownership:
+   lowering picks each call's kind and each place's path once, as a
+   typed LIR operation, so neither pass dispatches on the node again.
+   It decides how far the two passes can come down toward their
+   budgets.
+2. **Ownership's transfer driven by LIR regions:** the walk becomes
+   region, then step, then each operation's transfer, with a region's
+   exits read from its steps and one way a hidden var ends, where four
+   ways and liveness by source position remain
+   (`~/Data/Code/Claude/rig/rig/rebuild/own-region-design.md`). It
+   follows own-swap-6 and own-swap-7 (#1310, #1311).
+3. **Emit prints from LIR,** the step in flight: emit's value chain and
+   statement slots read from the LIR, and facts becomes the layout
+   table both back ends share
+   (`~/Data/Code/Claude/rig/rig/rebuild/emit-lir-design.md`).
+4. **The re-budget** of ownership's and emit's lines, set from what
+   typed operations make deletable, for the owner to approve in
+   architecture.md.
 
 The owner's priority is Trig's speed against tsrs; memory counts where
 it buys speed. Trig checks with several checkers in tasks, and its
@@ -634,8 +674,8 @@ The North Star (AGENTS.md) and `docs/CORE.md` are fixed points.
 - **The weak spots and open questions** in
   [docs/internals/weak-spots.md](docs/internals/weak-spots.md), bug
   fixes, docs, tests, and speed.
-- **Language and library work toward `v0.3.1` and Trig,** listed in
-  [docs/ROADMAP.md](docs/ROADMAP.md). Each fits the Core.
+- **Language and library work toward the next release and Trig,**
+  listed in [docs/ROADMAP.md](docs/ROADMAP.md). Each fits the Core.
 
 **Needs the design owner first:**
 

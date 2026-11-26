@@ -7,7 +7,8 @@ rewrites, then the forms the compiler now asks you to write another
 way. [CHANGELOG](../CHANGELOG.md) ("Upgrading from v0.2.9") lists every
 form 0.2.9 accepted that 0.3.0 rejects; a later section covers
 programs written against `main` between the two releases, and the last
-takes a 0.3.0 program to [0.3.1](#from-030-to-031).
+takes a 0.3.0 program to [0.4.0](#from-030-to-040), whose forms
+CHANGELOG ("Upgrading from v0.3.0") lists.
 
 Commit first: each script rewrites text in place. Run them from the
 checkout of Rig whose `bin/rig` you will use, and run `rig check` on
@@ -810,9 +811,15 @@ sub main()
 3 2
 ```
 
-## From 0.3.0 to 0.3.1
+## From 0.3.0 to 0.4.0
 
-0.3.1 changes what a duration means: a bare number is seconds, where
+The scripts run in this order: `tools/migrate-durations.py`,
+`tools/migrate-datetime.py`, `tools/migrate-options.py`,
+`tools/migrate-tov.py`, and `tools/migrate-loops.py`, then `rig check`.
+The subsections below say what each rewrites and what it leaves to
+you.
+
+0.4.0 changes what a duration means: a bare number is seconds, where
 0.3.0 read nanoseconds, so `time.sleep(5)` sleeps five seconds. Any
 other unit is written with its keyword, and the value of each form may
 be an `Int` or a `Float` ([SPEC "Durations"](../SPEC.md#durations)):
@@ -834,14 +841,14 @@ slept
 
 `tools/migrate-durations.py` rewrites every duration a 0.3.0 program
 writes so that it means what it meant. Run it once, on 0.3.0 sources:
-a bare number it wrote cannot be told from one written for 0.3.1.
+a bare number it wrote cannot be told from one written for 0.4.0.
 
 ```sh
 python3 tools/migrate-durations.py --dry-run src/   # what would change
 python3 tools/migrate-durations.py src/             # rewrite in place
 ```
 
-| 0.3.0 | 0.3.1 |
+| 0.3.0 | 0.4.0 |
 |---|---|
 | `time.sleep(40 * time.MS)`, `time.sleep(time.MS)` | `time.sleep(ms: 40)`, `time.sleep(ms: 1)` |
 | `time.sleep(5 * time.US)` | `time.sleep(us: 5)` |
@@ -868,7 +875,7 @@ nanoseconds, and `per:` given one.
 
 ### `time.Duration` and `time.Monotonic`
 
-0.3.1 gives lengths of time a type: what a clock gives back is a
+0.4.0 gives lengths of time a type: what a clock gives back is a
 `time.Duration`, its whole seconds and nanoseconds, which prints as
 `1ms 234us`, and a reading of the monotonic clock is a `time.Monotonic`.
 `time.now()`, `time.Instant`, the constants `NS`, `US`, `MS`,
@@ -900,7 +907,7 @@ python3 tools/migrate-datetime.py --dry-run src/   # what would change
 python3 tools/migrate-datetime.py src/             # rewrite in place
 ```
 
-| Before | 0.3.1 |
+| Before | 0.4.0 |
 |---|---|
 | `time.now()` | `time.monotonic()` |
 | `time.Instant`, `time.Instant.at(x)` | `time.Monotonic`, `time.Monotonic.at(x)` |
@@ -945,7 +952,7 @@ python3 tools/migrate-loops.py --dry-run src/   # what it would rewrite, and wha
 python3 tools/migrate-loops.py src/             # rewrite in place
 ```
 
-| 0.3.0 | 0.3.1 |
+| 0.3.0 | 0.4.0 |
 |---|---|
 | `while true` | `loop` |
 | `for x in xs` ... `else` (no `break` was taken) | `if not xs.any(f)`, or a name set before the `break` and tested after |

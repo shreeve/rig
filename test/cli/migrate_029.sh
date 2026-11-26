@@ -66,7 +66,7 @@ l=self-syntax-review-symmetry-p_kw_self_local
 cmp -s "tree/$l/$l.rig" "before/$l/$l.rig" || fail "a local named self changed: $(cat "tree/$l/$l.rig")"
 (( $(grep -c MANUAL out.txt) == 1 )) || fail "MANUAL: $(cat out.txt)"
 
-# A 0.2.9 program then takes 0.3.1's `loop` for `while true`
+# A 0.2.9 program then takes 0.4.0's `loop` for `while true`
 # (tools/migrate-loops.py), on a copy, before it checks.
 cp -R tree loops
 python3 "$ROOT/tools/migrate-loops.py" --quiet loops >out.txt 2>&1 || fail "migrate-loops: $(cat out.txt)"
