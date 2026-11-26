@@ -989,7 +989,7 @@ pub const Emitter = struct {
             // `exact`: its fields in declaration order, its bytes theirs.
             try self.w.print("pub const {f} = extern struct {{\n", .{ident(name)});
         } else try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
-        if (self.facts.isCellObject(sym)) try self.w.writeAll("    pub const __rig_synced = {};\n");
+        if (self.facts.layout(.cellObjectSym, sym)) try self.w.writeAll("    pub const __rig_synced = {};\n");
         try self.emitFields(1);
         try self.emitRigName(1);
         try self.emitOwnApis(1);
@@ -1037,7 +1037,7 @@ pub const Emitter = struct {
         const prev = try self.enterNominal(ir.GenericStruct.name(node), true, members);
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericStruct.tparams(node), "struct");
-        if (self.facts.isCellObject(self.nominal.?.sym)) try self.w.writeAll("        pub const __rig_synced = {};\n");
+        if (self.facts.layout(.cellObjectSym, self.nominal.?.sym)) try self.w.writeAll("        pub const __rig_synced = {};\n");
         try self.emitFields(2);
         try self.emitRigName(2);
         try self.emitOwnApis(2);
@@ -1863,7 +1863,7 @@ pub const Emitter = struct {
         try self.w.writeAll("pub const __rig_repr: " ++ rt(.Repr) ++ " = .{");
         var sep: []const u8 = " ";
         if (ty) |t| {
-            try self.w.print(" .drops = {}, .copied = {}", .{ self.facts.hasDropGlue(t), self.facts.layout(.viewByValue, t) });
+            try self.w.print(" .drops = {}, .copied = {}", .{ self.facts.layout(.typeHasDropGlue, t), self.facts.layout(.viewByValue, t) });
             sep = ", ";
         }
         if (zeros) {
@@ -2573,7 +2573,7 @@ pub const Emitter = struct {
     /// How a resource binding's drop is armed: behind an alive flag when
     /// it may be consumed first.
     fn resourceGuard(self: *Emitter, sym: SymbolId) Guard {
-        const v = self.bindingVar(sym) orelse return .scope;
+        const v = self.lowered.?.bindingOf(sym) orelse return .scope;
         return if (v.flag) .flag else .scope;
     }
 
@@ -2810,12 +2810,6 @@ pub const Emitter = struct {
         return null;
     }
 
-    /// Whether statement or header `stmt` makes owning temporaries its
-    /// end drops (`lower.Module.tempsOf`).
-    fn hasTemps(self: *Emitter, stmt: Sexp) bool {
-        return self.lowered.?.tempsOf(stmt).len > 0;
-    }
-
     /// Start header `e` (`facts.syntax.isHeaderOf`), its own statement: when it
     /// makes temporaries, a block holds their slots, whose `defer`s drop
     /// them as the block yields the header's value, `(label: { slots
@@ -2830,7 +2824,7 @@ pub const Emitter = struct {
     /// reaches (`pointer`, `emitSubjectPtr`).
     fn openHeaderBy(self: *Emitter, e: Sexp, by: facts.StorageBy) Error!Header {
         const first = self.temp_slots.items.len;
-        if (!self.hasTemps(e)) return .{ .first = first };
+        if (self.lowered.?.tempsOf(e).len == 0) return .{ .first = first };
         const label = try self.hiddenStorage(e, .header_value, by, .next);
         try self.w.print("({s}: {{ ", .{label});
         try self.emitTempSlots(e);
@@ -2953,7 +2947,7 @@ pub const Emitter = struct {
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
         if (self.facts.node(.calleeOf, e).isKind(.lambda)) return true;
-        if (self.hoistsArgs(e)) return true;
+        if (self.lowered.?.holdsParts(e)) return true;
         return !self.yieldsNothing(e);
     }
 
@@ -4903,7 +4897,7 @@ pub const Emitter = struct {
         }).by;
         const name = try self.hiddenStorage(info.match, .subject, by, .next);
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
-        if ((try self.hasStorage(value)) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
+        if ((try self.hasStorage(value)) and !info.subject.isKind(.move) and self.lowered.?.tempsOf(value).len == 0) {
             // Read by no arm (`_ => 1`), the subject is still evaluated
             // once, for its index's test: the discard keeps Zig from
             // rejecting an unused constant.
@@ -4951,7 +4945,7 @@ pub const Emitter = struct {
         try self.w.writeAll(" = ");
         const h = try self.openHeader(value);
         if (self.isPtrViewExpr(value)) try self.emitDeref(value) else try self.emitBare(value);
-        if (info.boxed and self.hasTemps(value)) try self.w.writeAll(".value.*");
+        if (info.boxed and self.lowered.?.tempsOf(value).len > 0) try self.w.writeAll(".value.*");
         try self.closeHeader(h);
         try self.w.print("; _ = &{s};\n", .{name});
         try self.poisonAtExit(name);
@@ -5226,7 +5220,7 @@ pub const Emitter = struct {
             const base = if (alts.per_variant) try self.fmt("{s}.{f}", .{ payload, ident(r.variant) }) else payload;
             try buf.writer.print(".{f} => {s}, ", .{ ident(r.variant), try self.fieldRead(base, r.field, addr, bytes, r.unwrap) });
         }
-        if (alts.reads.len < self.facts.variantCount(alts.enum_ty) orelse 0) try buf.writer.writeAll("else => unreachable ");
+        if (alts.reads.len < self.facts.layout(.enumVariantCount, alts.enum_ty) orelse 0) try buf.writer.writeAll("else => unreachable ");
         try buf.writer.writeAll("}");
         return buf.written();
     }
@@ -7332,7 +7326,7 @@ pub const Emitter = struct {
                 try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp));
             },
             .@"while", .@"for", .labeled => if (facts.syntax.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
-            .array => if (self.hoistsArgs(sexp)) try self.emitHoistedArray(sexp) else try self.emitArray(sexp),
+            .array => if (self.lowered.?.holdsParts(sexp)) try self.emitHoistedArray(sexp) else try self.emitArray(sexp),
             .array_fill => try self.emitArrayFill(sexp),
             // A jump as a fallback (`?? return`, `catch break`): a block
             // that leaves, which Zig types as `noreturn`.
@@ -8777,7 +8771,7 @@ pub const Emitter = struct {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last) and !try self.hasErasedCopies(last)) return self.emitYield(last, result, how);
+        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and self.lowered.?.tempsOf(last).len == 0 and !try self.hasErasedCopies(last)) return self.emitYield(last, result, how);
 
         const terminates = isTerminatingStmt(last);
         // A block whose value is Void may end in a statement that gives
@@ -9343,7 +9337,7 @@ pub const Emitter = struct {
             try self.emitBare(ir.Call.args(sexp)[0]);
             return self.w.writeAll("))");
         }
-        if (self.hoistsArgs(sexp)) return self.emitHoistedCall(sexp);
+        if (self.lowered.?.holdsParts(sexp)) return self.emitHoistedCall(sexp);
         try self.emitCallDirect(sexp);
     }
 
@@ -10007,7 +10001,7 @@ pub const Emitter = struct {
             written += 1;
             if (slots) |sl| switch (sl[i]) {
                 .arg => |ai| try self.emitArg(args[ai], params, i),
-                .default => |d| try self.emitDefault(self.semaOf(d.source) orelse return self.unsupported(call, "this default argument"), d.expr, if (i < params.len) params[i] else facts.type_invalid, false),
+                .default => |d| try self.emitDefault(self.facts.moduleWithSource(d.source) orelse return self.unsupported(call, "this default argument"), d.expr, if (i < params.len) params[i] else facts.type_invalid, false),
                 .parts => |p| try self.emitDurationParts(args, p),
             } else try self.emitArg(args[i], params, i);
         }
@@ -10294,12 +10288,6 @@ pub const Emitter = struct {
         return self.w.print("@import(\"{s}\").{f}", .{ decl.zig_file, ident(rig.leafText(decl.source, e.src)) });
     }
 
-    /// The checked module whose source is `source`: this one, or one it
-    /// reaches.
-    fn semaOf(self: *Emitter, source: []const u8) ?Facts {
-        return self.facts.moduleWithSource(source);
-    }
-
     /// The argument filling parameter slot `i`: a `!T` parameter receives
     /// a pointer.
     fn emitArg(self: *Emitter, arg: Sexp, params: []const TypeId, i: usize) Error!void {
@@ -10362,12 +10350,6 @@ pub const Emitter = struct {
         if (callee != .src) return false;
         const id = self.facts.node(.symbolOf, callee) orelse return false;
         return self.facts.symbols.items[id].kind == .type_alias;
-    }
-
-    /// Whether call or array literal `call` holds its parts, each
-    /// evaluated first (a `call` region of its LIR).
-    fn hoistsArgs(self: *Emitter, call: Sexp) bool {
-        return self.lowered.?.holdsParts(call);
     }
 
     /// `storage.consumedTemporary`.
@@ -11678,7 +11660,7 @@ pub const Emitter = struct {
     /// `as` and payload bindings, and an owned closure environment; the
     /// kind picks its drop call.
     fn holdOf(self: *Emitter, sym: SymbolId) ?ResourceKind {
-        return (self.bindingVar(sym) orelse return null).drop;
+        return (self.lowered.?.bindingOf(sym) orelse return null).drop;
     }
 
     /// How the var of `kind` that holds the value of `e`, or a discard of
@@ -11691,11 +11673,6 @@ pub const Emitter = struct {
     /// waited for there, a fork (`StorageKind.task_record`).
     fn taskInFrame(self: *Emitter, call: Sexp) bool {
         return self.varOf(call, .task_record) != null;
-    }
-
-    /// The var of binding `sym`, or null for a symbol no body binds.
-    fn bindingVar(self: *Emitter, sym: SymbolId) ?*const facts.lir.Var {
-        return self.lowered.?.bindingOf(sym);
     }
 
     /// The hidden var of `kind` lowering made for `node`.

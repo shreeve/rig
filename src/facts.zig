@@ -215,7 +215,7 @@ pub const Facts = struct {
         "formatTypeValue",   "formatTypeMarked", "formatGenericSelfMarked", "formatInlineListMarked",
         "viewHeldAsPointer", "viewByValue",      "viewsStringBytes",        "genericReadView",
         "namedNoneOf",       "wordBitsOfSym",    "optionalRouted",          "isCompoundSym",
-        "cloneable",
+        "cloneable",         "enumVariantCount", "typeHasDropGlue",         "cellObjectSym",
     };
 
     fn listed(comptime list: []const []const u8, comptime name: []const u8) void {
@@ -540,10 +540,6 @@ pub const Facts = struct {
     pub fn isBuiltinGeneric(f: Facts, sym: SymbolId) bool {
         return sema.isBuiltinGeneric(f.c(), f.c().ref(sym));
     }
-    /// How many variants enum type `enum_ty` has (`sema.enumVariantCount`).
-    pub fn variantCount(f: Facts, enum_ty: TypeId) ?usize {
-        return sema.enumVariantCount(f.c(), enum_ty);
-    }
 
     /// The declaration behind a (possibly viewed) nominal type, with the
     /// facts of the module that declares it.
@@ -595,10 +591,6 @@ pub const Facts = struct {
     // How a type is held in Zig: one answer per type, which every pass
     // reads the same way (docs/internals/INTERNALS.md, Emit, "Views").
 
-    /// Whether dropping a `ty` releases anything (`sema.typeHasDropGlue`).
-    pub fn hasDropGlue(f: Facts, ty: TypeId) bool {
-        return sema.typeHasDropGlue(f.c(), ty);
-    }
     /// The none the object `sym` of this module names.
     pub fn namedNoneOfSym(f: Facts, sym: SymbolId) ?sema.NamedNone {
         return f.c().named_nones.get(sym);
@@ -613,12 +605,6 @@ pub const Facts = struct {
     pub fn wordHeldBitsOfSym(f: Facts, sym: SymbolId) ?u8 {
         if (!f.c().decides(.word_held, sym)) return null;
         return sema.wordBitsOfSym(f.c(), sym);
-    }
-    /// Whether the object `sym` declares here is a word-Cell object
-    /// (`sema.cellObject`), whose handles count atomically: emit marks it
-    /// `__rig_synced` for the runtime's `synchronized`.
-    pub fn isCellObject(f: Facts, sym: SymbolId) bool {
-        return sema.cellObjectSym(f.c(), sym);
     }
     /// Whether the object `sym` declares here is `exact`, laid out in
     /// declaration order: a Zig `extern struct`.
