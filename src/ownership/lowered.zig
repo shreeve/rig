@@ -6,15 +6,20 @@
 //! and the uses that liveness reads are the names its vars are read at
 //! (`indexUses`).
 //!
-//! A self-checking build walks each module twice, the second time with
-//! `Checker.on_lir` set, and compares the two walks' diagnostics
-//! (`compare`): the shadow of the checker on LIR.
+//! Every walk of a lowered body takes the operands of its expressions
+//! from the body's LIR (`Expr`, `operand`). A self-checking build walks
+//! each module twice, the second time with `Checker.on_lir` set, which
+//! also reads statements, bindings, temporaries, and uses from LIR, and
+//! compares the two walks' diagnostics (`compare`): the shadow of the
+//! checker on LIR.
 
 const std = @import("std");
 const parser = @import("../parser.zig");
 const sema = @import("../sema.zig");
 const lir = @import("../lir.zig");
 const diag = @import("../diag.zig");
+const rig = @import("../rig.zig");
+const self_check = @import("build_options").self_check;
 const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SymbolId = sema.SymbolId;
@@ -28,8 +33,14 @@ const Checker = state.Checker;
 /// A body lowered, and what the walk looks up in it by tree node.
 pub const Body = struct {
     f: *const lir.Func,
-    /// The outermost expression made for each node, by its key.
+    /// The outermost expression made for each node, by its key: each
+    /// list node's, and in the shadow each leaf's too (`leaves`). A list
+    /// node's is in `dense`, by its id less `dense_lo`, where the body's
+    /// list nodes' ids lie close enough together; else in `exprs`.
     exprs: sema.FastMap(u64, lir.ExprId) = .empty,
+    dense: []lir.ExprId = &.{},
+    dense_lo: u32 = 0,
+    leaves: bool = false,
     /// The region made for each block, by its node's key: the body's
     /// by the key of the function's block.
     regions: sema.FastMap(u64, lir.RegionId) = .empty,
@@ -38,22 +49,133 @@ pub const Body = struct {
     binds: sema.FastMap(u64, SymbolId) = .empty,
     /// The nodes whose value a statement holds in a temporary it drops.
     temps: sema.FastMap(u64, void) = .empty,
+    /// The value each hidden var a region evaluates first holds (a part
+    /// a call or an assignment holds), by the var: the operand that
+    /// reads the var is walked as that value, where it stands.
+    hoisted: sema.FastMap(lir.VarId, lir.ExprId) = .empty,
 };
 
+const no_expr = std.math.maxInt(lir.ExprId);
+
+/// An expression the walk reaches: its tree node, and, in a lowered
+/// body, the LIR expression made for it (`id`), whose operands the
+/// walk takes as the operands of the node.
+pub const Expr = struct {
+    node: Sexp,
+    id: ?lir.ExprId = null,
+};
+
+/// Tree node `node` as the walk reaches it: with the outermost LIR
+/// expression made for it, in a lowered body.
+pub fn exprAt(self: *const Checker, node: Sexp) Expr {
+    const b = self.lir_body orelse return .{ .node = node };
+    // A leaf's expression has no operands: only the shadow, which reads
+    // the var a name's use reads, looks one up.
+    if (node == .list and b.dense.len > 0) {
+        const i = node.list.id -% b.dense_lo;
+        if (i >= b.dense.len or b.dense[i] == no_expr) return .{ .node = node };
+        return .{ .node = node, .id = b.dense[i] };
+    }
+    if (!b.leaves and node != .list) return .{ .node = node };
+    return .{ .node = node, .id = b.exprs.get(sema.decisionKeyOf(node) orelse return .{ .node = node }) };
+}
+
+/// The node LIR expression `id` of body `b` is the value of.
+pub fn nodeOf(b: *const Body, id: lir.ExprId) Sexp {
+    return switch (b.f.exprs.items[id]) {
+        .@"var" => |x| x.node,
+        .leaf => |l| l,
+        .op => |o| o.node,
+        .hold => |h| nodeOf(b, h.value),
+        .block => |r| b.f.regions.items[r].node,
+        .branch => |x| x.node,
+        .choice => |x| x.node,
+        .closure => |x| x.node,
+        .coerce => |x| x.node,
+    };
+}
+
+/// The operation `e` is, under the coercions and holds of its node, a
+/// var that holds it first, and the region that holds its parts or
+/// ends its temporaries; null for any other expression, and outside a
+/// lowered body.
+pub fn opOf(self: *const Checker, e: Expr) ?lir.Expr.Op {
+    const b = self.lir_body orelse return null;
+    var id = e.id orelse return null;
+    while (true) switch (b.f.exprs.items[id]) {
+        .coerce => |c| id = c.value,
+        .hold => |h| id = h.value,
+        .@"var" => |x| id = b.hoisted.get(x.v) orelse return null,
+        .block => |r| {
+            const reg = &b.f.regions.items[r];
+            switch (reg.kind) {
+                .call, .header, .value => id = reg.value orelse return null,
+                else => return null,
+            }
+        },
+        .op => |o| return if (sema.decisionKeyOf(o.node) == sema.decisionKeyOf(e.node)) o else null,
+        else => return null,
+    };
+}
+
+/// Operand `i` of `e`: the LIR's, where `e` is an operation of a
+/// lowered body, else the tree's child `i`.
+pub fn operand(self: *const Checker, e: Expr, i: usize) Expr {
+    const o = opOf(self, e) orelse return exprAt(self, rig.children(e.node)[i]);
+    const id = o.args[i];
+    const node = nodeOf(self.lir_body.?, id);
+    if (self_check) {
+        const child = rig.children(e.node)[i];
+        if (sema.decisionKeyOf(node) != sema.decisionKeyOf(child)) std.debug.panic("internal error: an operand of a lowered `{s}` is not its tree child", .{@tagName(e.node.kind() orelse .module)});
+    }
+    return .{ .node = node, .id = id };
+}
+
+/// How many operands `e` has: its tree children.
+pub fn operandCount(e: Expr) usize {
+    return rig.children(e.node).len;
+}
+
 /// The lowered body `root` declares, whose block or expression is
-/// `body`, indexed; null when the checker walks the tree
-/// (`Checker.on_lir` unset), or when the body was not lowered.
+/// `body`, indexed; null when the body was not lowered.
 pub fn enter(self: *Checker, root: Sexp, body: Sexp) Error!?*Body {
-    if (!self.on_lir) return null;
     const m = &(self.sema.lowered orelse return null);
     const i = m.roots.get(sema.decisionKeyOf(root) orelse return null) orelse return null;
     const f = m.owners[i].func orelse return null;
-    const a = self.arena();
+    // A function's index lives while its walk does: the function arena
+    // is reset after each module-level function.
+    const a = self.fn_arena_state.allocator();
     const out = try a.create(Body);
-    out.* = .{ .f = f };
-    for (f.vars.items) |v| switch (v.name) {
+    out.* = .{ .f = f, .leaves = self.on_lir };
+    // The ids of the body's list nodes, which the parser numbers in
+    // the order it makes them, mostly lie in one stretch: an array over
+    // it finds each without hashing.
+    var lists: u32 = 0;
+    var leaves: u32 = 0;
+    var lo: u32 = std.math.maxInt(u32);
+    var hi: u32 = 0;
+    for (f.exprs.items) |e| {
+        const node = nodeOfExpr(e);
+        if (node == .list and node.list.id != 0) {
+            lists += 1;
+            lo = @min(lo, node.list.id);
+            hi = @max(hi, node.list.id);
+        } else if (node == .src) leaves += 1;
+    }
+    if (lists > 0 and hi - lo < 4 * lists + 256) {
+        out.dense = try a.alloc(lir.ExprId, hi - lo + 1);
+        @memset(out.dense, no_expr);
+        out.dense_lo = lo;
+        lists = 0;
+    }
+    try out.exprs.ensureTotalCapacity(a, lists + if (out.leaves) leaves else 0);
+    if (self.on_lir) for (f.vars.items) |v| switch (v.name) {
         .binding => |s| if (sema.decisionKeyOf(v.node)) |key| try out.binds.put(a, key, s),
         .hidden => |k| if (k == .temp) if (sema.decisionKeyOf(v.node)) |key| try out.temps.put(a, key, {}),
+    };
+    for (f.regions.items) |r| for (r.steps.items) |s| switch (s) {
+        .bind => |x| if (f.vars.items[x.v].name == .hidden) try out.hoisted.put(a, x.v, x.value),
+        else => {},
     };
     try out.regions.put(a, sema.decisionKeyOf(body).?, f.body);
     try index(out, a, f.body);
@@ -102,9 +224,10 @@ fn index(b: *Body, a: std.mem.Allocator, r: lir.RegionId) Error!void {
     if (reg.value) |e| try expr(b, a, e);
 }
 
-fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
-    const e = b.f.exprs.items[id];
-    const node: Sexp = switch (e) {
+/// The node expression `e` is indexed by: none for a hold or a block,
+/// whose value is indexed by its own.
+fn nodeOfExpr(e: lir.Expr) Sexp {
+    return switch (e) {
         .@"var" => |x| x.node,
         .leaf => |l| l,
         .op => |o| o.node,
@@ -114,10 +237,18 @@ fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
         .closure => |x| x.node,
         .coerce => |x| x.node,
     };
-    if (sema.decisionKeyOf(node)) |key| {
-        const gop = try b.exprs.getOrPut(a, key);
+}
+
+fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
+    const e = b.f.exprs.items[id];
+    const node = nodeOfExpr(e);
+    if (node == .list and b.dense.len > 0 and node.list.id != 0) {
+        const slot = &b.dense[node.list.id - b.dense_lo];
+        if (slot.* == no_expr) slot.* = id;
+    } else if (b.leaves or node == .list) if (sema.decisionKeyOf(node)) |key| {
+        const gop = b.exprs.getOrPutAssumeCapacity(key);
         if (!gop.found_existing) gop.value_ptr.* = id;
-    }
+    };
     switch (e) {
         .@"var", .leaf, .closure => {},
         .op => |o| for (o.args) |x| try expr(b, a, x),
@@ -141,6 +272,7 @@ fn expr(b: *Body, a: std.mem.Allocator, id: lir.ExprId) Error!void {
 /// body list them, or null for one not lowered. A statement whose value
 /// the body yields comes last, as `value` says.
 pub fn stmtsOf(self: *Checker, body: Sexp) Error!?Stmts {
+    if (!self.on_lir) return null;
     const b = self.lir_body orelse return null;
     const r = b.regions.get(sema.decisionKeyOf(body) orelse return null) orelse return null;
     const reg = &b.f.regions.items[r];
@@ -165,6 +297,7 @@ pub const Stmts = struct { list: []const Sexp, yields: bool };
 
 /// The binding a var of the lowered body declares at name `node`.
 pub fn bindingAt(self: *const Checker, node: Sexp) ?SymbolId {
+    if (!self.on_lir) return null;
     const b = self.lir_body orelse return null;
     return b.binds.get(sema.decisionKeyOf(node) orelse return null);
 }
@@ -172,8 +305,9 @@ pub fn bindingAt(self: *const Checker, node: Sexp) ?SymbolId {
 /// The binding name `node` reads, as the var its use reads in the
 /// lowered body says; null for a node the body made no var read of.
 pub fn symbolOf(self: *const Checker, node: Sexp) ?SymbolId {
+    if (!self.on_lir) return null;
     const b = self.lir_body orelse return null;
-    var id = b.exprs.get(sema.decisionKeyOf(node) orelse return null) orelse return null;
+    var id = exprAt(self, node).id orelse return null;
     while (true) switch (b.f.exprs.items[id]) {
         .coerce => |c| id = c.value,
         .hold => |h| id = h.value,
@@ -188,6 +322,7 @@ pub fn symbolOf(self: *const Checker, node: Sexp) ?SymbolId {
 /// Whether the lowered body holds the value of `node` in a temporary
 /// its statement drops; null for a node outside any lowered body.
 pub fn holdsTemp(self: *const Checker, node: Sexp) ?bool {
+    if (!self.on_lir) return null;
     const b = self.lir_body orelse return null;
     return b.temps.contains(sema.decisionKeyOf(node) orelse return false);
 }

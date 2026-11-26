@@ -653,10 +653,12 @@ pub const Checker = struct {
     reachable: bool = true,
     /// Non-zero while computing a loop fixpoint: diagnostics suppressed.
     quiet: u32 = 0,
-    /// The walk reads each body's LIR (`lowered.zig`): the shadow walk of
-    /// a self-checking build.
+    /// The walk reads each body's statements, bindings, temporaries, and
+    /// uses from its LIR too (`lowered.zig`): the shadow walk of a
+    /// self-checking build.
     on_lir: bool = false,
-    /// The lowered body being walked, when `on_lir`.
+    /// The lowered body being walked, whose LIR gives each expression's
+    /// operands (`lowered.operand`).
     lir_body: ?*lowered.Body = null,
 
     func: FnCtx = .{},
