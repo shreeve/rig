@@ -93,7 +93,7 @@ pub const Expr = union(enum) {
     pub const If = struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId };
 
     /// A `match`: its subject, then the arm whose pattern it fits.
-    pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId };
+    pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId, answers: MatchAnswers = .{} };
 };
 
 /// What an operation does, by the form of its node: the facts that
@@ -420,10 +420,11 @@ fn optionalDepth(types: *const sema.TypeStore, ty: sema.TypeId) u32 {
 
 /// A step of a region, run in order.
 pub const Step = union(enum) {
-    /// Evaluate `value` into `v`.
-    bind: struct { v: VarId, value: ExprId },
+    /// Evaluate `value` into `v`; for a binding's declaration, the
+    /// `set` that declares it.
+    bind: struct { v: VarId, value: ExprId, set: Sexp = .nil, answers: Assign = .{} },
     /// Store `value` in the place `target`: the assignment `node`.
-    store: struct { node: Sexp, target: ExprId, value: ExprId },
+    store: struct { node: Sexp, target: ExprId, value: ExprId, answers: Assign = .{} },
     /// Evaluate `value` for what it does.
     eval: ExprId,
     /// Drop what `v` holds: `<x`, the name read at `node`.
@@ -436,11 +437,40 @@ pub const Step = union(enum) {
     @"if": Expr.If,
     /// `while cond: step`, running `body` while `cond` holds, then
     /// `step`.
-    loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId },
+    loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId, step_point: storage.StepPoint = .continue_expr },
     /// `for x in source`, running `body` once for each element.
-    each: struct { node: Sexp, source: ExprId, body: RegionId },
+    each: struct { node: Sexp, source: ExprId, body: RegionId, fold: ?storage.Fold = null, string_bytes: bool = false },
     /// `match`, running the arm its subject fits.
     match: Expr.Choice,
+
+    // What emit's lowering decides of a step fits in the room the
+    // largest step (a `match`) takes, so a step is no larger for it.
+    comptime {
+        std.debug.assert(@sizeOf(Step) <= 56);
+    }
+};
+
+/// What emit's lowering decides of an assignment or a binding's
+/// declaration (its `set`), kept on its step for emit to read; the
+/// checkers' lowering leaves it as it starts.
+pub const Assign = struct {
+    order: storage.SetOrder = @bitCast(@as(u8, 0)),
+    fills_in_place: bool = false,
+    lane_checked: bool = false,
+    /// An operator's assignment: the call that makes it, if any.
+    compound: ?storage.CompoundCall = null,
+    /// A binding's declaration: what the binding holds.
+    hold: ?storage.BindHold = null,
+};
+
+/// What emit's lowering decides of a `match` (`Expr.Choice`).
+pub const MatchAnswers = packed struct(u8) {
+    mode: storage.MatchMode = .read,
+    in_place: bool = false,
+    rereads: bool = false,
+    block: bool = false,
+    selects: bool = false,
+    _: u2 = 0,
 };
 
 /// A stretch of a function that declares vars, which live until it ends.
@@ -455,6 +485,11 @@ pub const Region = struct {
     /// The var that is its value, for a header that ends its
     /// temporaries (`header_value`).
     label: ?VarId = null,
+    /// For a `match` arm, whether its pattern fits any subject, and
+    /// whether the name it binds then views the subject by address;
+    /// decided by emit's lowering.
+    catch_all: bool = false,
+    catch_all_by_address: bool = false,
 
     pub const Kind = enum {
         /// A function's body.

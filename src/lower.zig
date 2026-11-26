@@ -1110,17 +1110,17 @@ const Lowerer = struct {
         if (kind.operator() != null) {
             try l.openAssign(set, order, r);
             if (storage.compoundCall(ctx, set) != null and target != .src) try l.hoistVar(target, .slot, .pointer, .assignment, null, r);
-            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
+            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
         }
         if (target != .src) {
             if (kind == .default) try l.placeAssign(set, order, r);
-            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
+            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
         }
         if (std.mem.eql(u8, rig.leafText(ctx.source, target.src), "_")) {
             try l.holdVar(value, .discard, .owned, .statement, storage.dropOf(ctx, value), l.stmt_region);
             return l.step(r, .{ .eval = value_e });
         }
-        if (declared) |v| return l.step(r, .{ .bind = .{ .v = v, .value = value_e } });
+        if (declared) |v| return l.step(r, .{ .bind = .{ .v = v, .value = value_e, .set = set, .answers = l.assignAnswers(set, order, true) } });
         // A reassigned resource's new value is made before the old one is
         // dropped, as any store whose value can act is.
         if (sym != null and (order.drops_old or storage.storesAfterValue(ctx, set))) {
@@ -1128,7 +1128,21 @@ const Lowerer = struct {
             value_e = l.exprOf(value) orelse value_e;
             if (enabled) try l.role(value_e, value, sink);
         }
-        try l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e } });
+        try l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
+    }
+
+    /// What emit's lowering decides of assignment or declaration `set`,
+    /// whose order is `order`; nothing in the checkers' lowering.
+    fn assignAnswers(l: *const Lowerer, set: Sexp, order: storage.SetOrder, declares: bool) lir.Assign {
+        if (l.opts.checked) return .{};
+        const ctx = l.ctx;
+        return .{
+            .order = order,
+            .fills_in_place = storage.fillsInPlace(ctx, set),
+            .lane_checked = storage.laneChecked(ctx, set),
+            .compound = if (rig.bindingKindOf(ir.Set.op(set)).operator() != null) storage.compoundCall(ctx, set) else null,
+            .hold = if (declares) storage.bindHold(ctx, set) else null,
+        };
     }
 
     /// Declare `temps`, temporaries of the current statement, in their
@@ -1721,7 +1735,7 @@ const Lowerer = struct {
         }
         try l.branch(ir.While.body(w), body_r, false);
         try l.conditionRules(w, scope);
-        try l.step(scope, .{ .loop = .{ .node = w, .cond = cond, .body = body_r, .step = step_r } });
+        try l.step(scope, .{ .loop = .{ .node = w, .cond = cond, .body = body_r, .step = step_r, .step_point = if (l.opts.checked) .continue_expr else storage.stepPoint(l.ctx, w) } });
         try l.step(r, .{ .region = scope });
     }
 
@@ -1775,7 +1789,13 @@ const Lowerer = struct {
                 try l.headerVar(source);
             } else try l.subjectHeader(source);
         }
-        try l.step(scope, .{ .each = .{ .node = loop, .source = src, .body = body_r } });
+        try l.step(scope, .{ .each = .{
+            .node = loop,
+            .source = src,
+            .body = body_r,
+            .fold = if (l.opts.checked) null else storage.fold(ctx, loop),
+            .string_bytes = !l.opts.checked and storage.bindsStringBytes(ctx, loop),
+        } });
         try l.step(r, .{ .region = scope });
     }
 
@@ -1810,9 +1830,23 @@ const Lowerer = struct {
         const subject_e = try l.expr(raw);
         const arms = ir.Match.arms(m);
         const regions = try l.a.alloc(RegionId, arms.len);
-        for (arms, regions) |a, *r| r.* = try l.arm(a, value);
+        for (arms, regions) |a, *r| {
+            r.* = try l.arm(a, value);
+            if (l.opts.checked) continue;
+            const arm_r = l.region(r.*);
+            arm_r.catch_all = storage.catchesAll(l.ctx, a);
+            const p = ir.Arm.pattern(a);
+            if (arm_r.catch_all and l.ctx.symbolOf(p) != null) arm_r.catch_all_by_address = storage.catchAllCaptured(l.ctx, p, m);
+        }
         if (!value) try l.matchRules(m, scope);
-        return .{ .scope = scope, .choice = .{ .node = m, .subject = subject_e, .arms = regions } };
+        const answers: lir.MatchAnswers = if (l.opts.checked) .{} else .{
+            .mode = storage.matchMode(l.ctx, m),
+            .in_place = storage.matchesInPlace(l.ctx, m),
+            .rereads = storage.matchRereads(l.ctx, m),
+            .block = storage.matchBlock(l.ctx, m),
+            .selects = storage.matchSelects(l.ctx, m),
+        };
+        return .{ .scope = scope, .choice = .{ .node = m, .subject = subject_e, .arms = regions, .answers = answers } };
     }
 
     /// A `match` arm: its pattern's bindings, its guard (a header), and
@@ -2870,10 +2904,65 @@ fn encode(comptime ask: Ask, a: Answer(ask)) u8 {
     };
 }
 
-/// Answer each question of `Ask` about every node of `e` it is asked of.
+/// Answer each question of `Ask` about every node of module `e` it is
+/// asked of. A self-checking build asks that the answers emit's lowering
+/// keeps on the steps it made are these (`checkAnswerFields`).
 pub fn answerAll(m: *Module, ctx: *const SemContext, e: Sexp) !void {
+    try answerNode(m, ctx, e);
+    if (enabled) checkAnswerFields(m);
+}
+
+/// That each answer emit's lowering keeps on a step, an arm, or a
+/// `match` of `m` is the one `answerAll` gives of its node.
+fn checkAnswerFields(m: *const Module) void {
+    const C = struct {
+        fn same(comptime what: []const u8, node: Sexp, kept: anytype, asked: anytype) void {
+            if (std.meta.eql(kept, asked)) return;
+            std.debug.panic("internal error: lir: emit's lowering keeps {s} {any} of node {d}, which answerAll answers {any}", .{ what, kept, sema.decisionKeyOf(node) orelse 0, asked });
+        }
+        fn assign(mm: *const Module, set: Sexp, a: lir.Assign, declares: bool) void {
+            same("set_order", set, a.order, mm.answer(set, .set_order).?);
+            same("fills_in_place", set, a.fills_in_place, mm.answer(set, .fills_in_place).?);
+            same("lane_checked", set, a.lane_checked, mm.answer(set, .lane_checked).?);
+            same("compound_call", set, a.compound, mm.answer(set, .compound_call) orelse null);
+            same("bind_hold", set, a.hold, if (declares) mm.answer(set, .bind_hold).? else null);
+        }
+        fn choice(mm: *const Module, f: *const lir.Func, c: lir.Expr.Choice) void {
+            same("match_mode", c.node, c.answers.mode, mm.answer(c.node, .match_mode).?);
+            same("matches_in_place", c.node, c.answers.in_place, mm.answer(c.node, .matches_in_place).?);
+            same("match_rereads", c.node, c.answers.rereads, mm.answer(c.node, .match_rereads).?);
+            same("match_block", c.node, c.answers.block, mm.answer(c.node, .match_block).?);
+            same("match_selects", c.node, c.answers.selects, mm.answer(c.node, .match_selects).?);
+            for (c.arms) |ar| {
+                const r = f.regions.items[ar];
+                same("catch_all", r.node, r.catch_all, mm.answer(r.node, .catch_all).?);
+                same("catch_all_by_address", r.node, r.catch_all_by_address, mm.answer(ir.Arm.pattern(r.node), .catch_all_by_address) orelse false);
+            }
+        }
+    };
+    for (m.owners) |o| {
+        const f = o.func orelse continue;
+        for (f.exprs.items) |e| switch (e) {
+            .choice => |c| C.choice(m, f, c),
+            else => {},
+        };
+        for (f.regions.items) |r| for (r.steps.items) |st| switch (st) {
+            .store => |x| C.assign(m, x.node, x.answers, false),
+            .bind => |x| if (x.set != .nil) C.assign(m, x.set, x.answers, true),
+            .loop => |x| C.same("step_point", x.node, x.step_point, m.answer(x.node, .step_point).?),
+            .each => |x| {
+                C.same("fold", x.node, x.fold, m.answer(x.node, .fold).?);
+                C.same("binds_string_bytes", x.node, x.string_bytes, m.answer(x.node, .binds_string_bytes).?);
+            },
+            .match => |c| C.choice(m, f, c),
+            else => {},
+        };
+    }
+}
+
+fn answerNode(m: *Module, ctx: *const SemContext, e: Sexp) !void {
     switch (e) {
-        .list => for (if (e.kind() == null) e.items() else rig.children(e)) |c| try answerAll(m, ctx, c),
+        .list => for (if (e.kind() == null) e.items() else rig.children(e)) |c| try answerNode(m, ctx, c),
         .src => {},
         else => return,
     }

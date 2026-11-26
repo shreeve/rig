@@ -769,7 +769,7 @@ pub fn subjectRereadable(subject: Sexp) bool {
 /// How a `match` reaches its subject (`checkMatch`): a bare or `?`
 /// subject is read, `!` binds write views of the fields, and `<` of
 /// a value that owns a resource hands the arm its fields.
-pub const MatchMode = enum { read, write, consume };
+pub const MatchMode = enum(u2) { read, write, consume };
 
 /// The type an arm's member pattern is of: an error member's own set,
 /// which the subject may be one of; else the subject's, `subject`.
