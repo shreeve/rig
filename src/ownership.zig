@@ -49,7 +49,7 @@
 //!   parameter's flow, and the parameter is live at every exit (the
 //!   caller uses its value after the return), so the loan stays in
 //!   force for the rest of the body.
-//! * Types come from ctx's facts table (`typeOf`, `symbolAt`); an
+//! * Types come from ctx's facts table (`typeOf`, `symbolOf`); an
 //!   unknown type is assumed to be able to hold a view.
 //! * A loan is in force only while the var holding it is live: while
 //!   it may be used again (see `holderLive`). Views end at their last
@@ -141,10 +141,23 @@ const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const diag = @import("diag.zig");
 const state = @import("ownership/state.zig");
+const lowered = @import("ownership/lowered.zig");
 
 pub const Diagnostic = diag.Diagnostic;
 pub const Error = std.mem.Allocator.Error;
 pub const Checker = state.Checker;
+
+/// Check module `tree` again with the checker walking each body's LIR,
+/// and panic where its diagnostics differ from `tree_walk`'s: the shadow
+/// of a self-checking build (`lowered.zig`).
+pub fn shadow(gpa: std.mem.Allocator, ctx: *sema.SemContext, source: []const u8, tree: parser.Sexp, tree_walk: *const Checker) Error!void {
+    if (!@import("build_options").self_check or ctx.lowered == null) return;
+    var c = try Checker.init(gpa, source, ctx);
+    defer c.deinit();
+    c.on_lir = true;
+    try c.check(tree);
+    lowered.compare(ctx.name, source, tree_walk.diagnostics.items, c.diagnostics.items);
+}
 
 test {
     _ = @import("ownership/state.zig");

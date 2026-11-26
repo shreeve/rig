@@ -40,6 +40,7 @@ const ir = parser.ir;
 const Tag = rig.Tag;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const TypeId = sema.TypeId;
 const Wide = sema.Wide;
 const IntInfo = sema.IntInfo;
@@ -765,12 +766,12 @@ pub const Called = struct { value: CtVal, ty: TypeId };
 /// The result type of a call of `t` (of signature `f`) with `args`, in
 /// the declaring module: its integer parameters replaced by their values.
 fn resultIn(t: Target, f: sema.FunctionType, args: []const CtVal) Error!TypeId {
-    var params: std.ArrayList(SymbolId) = .empty;
+    var params: std.ArrayList(SymbolRef) = .empty;
     var vals: std.ArrayList(TypeId) = .empty;
     const a = t.ctx.arena.allocator();
     for (f.ct_params, 0..) |pty, i| {
         if (t.ctx.types.get(pty) != .int or i >= f.ct_syms.len or args[i] != .int) continue;
-        try params.append(a, t.ctx.localSym(f.ct_syms[i]));
+        try params.append(a, f.ct_syms[i]);
         try vals.append(a, try sema.ctInt(t.ctx, args[i].int));
     }
     if (params.items.len == 0) return f.returns;

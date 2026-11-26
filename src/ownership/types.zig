@@ -44,10 +44,10 @@ pub fn typeData(self: *const Checker, id: TypeId) sema.Type {
     return self.sema.types.get(id);
 }
 
-/// The type of the symbol declared at `decl_pos`.
-pub fn symType(self: *const Checker, decl_pos: u32) ?TypeId {
+/// The type of the binding name `name` declares.
+pub fn symType(self: *const Checker, name: Sexp) ?TypeId {
     const ctx = self.sema;
-    const sid = ctx.symbolAt(decl_pos) orelse return null;
+    const sid = ctx.symbolOf(name) orelse return null;
     return known(self, ctx.symbols.items[sid].ty);
 }
 
@@ -177,7 +177,7 @@ pub fn kindLabel(self: *const Checker, t: TypeId) Owning {
     var inner = t;
     while (ctx.types.get(inner) == .optional) inner = ctx.types.get(inner).optional;
     const name = switch (ctx.types.get(inner)) {
-        .parameterized_nominal => |pn| ctx.symbols.items[ctx.localSym(pn.sym)].name,
+        .parameterized_nominal => |pn| sema.symbolAt(ctx, pn.sym).name,
         else => if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value",
     };
     if (!sema.typeHasDropGlue(ctx, t) and sema.isUnique(ctx, t)) {
@@ -189,7 +189,7 @@ pub fn kindLabel(self: *const Checker, t: TypeId) Owning {
             else => unreachable,
         };
         return .{ .unique = switch (ctx.types.get(elem)) {
-            .parameterized_nominal => |pn| ctx.symbols.items[ctx.localSym(pn.sym)].name,
+            .parameterized_nominal => |pn| sema.symbolAt(ctx, pn.sym).name,
             else => if (sema.nominalDecl(ctx, elem)) |d| d.symbol().name else "value",
         } };
     }
@@ -301,14 +301,7 @@ pub fn rejected(self: *const Checker, e: Sexp) bool {
 pub fn dropBodyType(self: *const Checker, ty: TypeId) bool {
     const ctx = self.sema;
     const decl = sema.nominalDecl(ctx, ty) orelse return false;
-    var dctx = decl.ctx;
-    var sym = decl.symbol();
-    if (sema.isProxy(sym)) {
-        if (sym.from.module_id == 0) return false;
-        const foreign = dctx.foreign_semas.get(sym.from.module_id) orelse return false;
-        dctx = foreign;
-        sym = foreign.symbols.items[sym.from.sym];
-    }
+    const sym = decl.symbol();
     for (sym.fields orelse &.{}) |fld| if (fld.is_drop_method) return true;
     return false;
 }

@@ -1189,7 +1189,12 @@ its contents, which it has from the start.
 id, and whether it is the root) and returns a `SemContext`, which every
 later pass reads. It runs these steps in order:
 
-1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `List[T]`,
+1. **builtins** (`resolve.seedBuiltins`): module 0, the program's own
+   context (`program.Types.base`), registers them once
+   (`resolve.registerBuiltins`), and every module's table starts with
+   its symbols, at the same ids, and its scope with their names, so a
+   built-in is `ctx.builtins.list`, a ref in module 0, in every module
+   (`program.Types.builtins`). `Cell[T]`, `List[T]`,
    `^T`, and `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
    and substitution as user generics, and `Endian`, `Arch`, `Os`, and
@@ -1697,7 +1702,6 @@ instead of re-deriving it by name:
 | `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple of pieces `rig.String.of` and `add` take; `?t` of a String viewed as a `?String` is a `viewOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, or none for a field the pattern leaves out. A pattern binds by name, any of the fields (`:w` is one leaf in both slots of its `kwarg`, so it reads as `w: w`), and a variant with one field by position too, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, lowering, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
-| `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded in self-checking builds (`storage.planUnits`); emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a self passed as an argument comes first (`P.scale[2](p)`) |
 
 **The view table.** Which views a value gives (Core §4) is decided in
@@ -2194,7 +2198,10 @@ call whose parts are held first, a header that ends its temporaries, a
 value `if` or `match`. `lir.verify` checks that a body is well formed:
 each region and expression is reached once, from the body; each var is
 declared by one region; and each var is used only inside the region
-that declares it. `rig check --facts=lir` prints the root module's LIR,
+that declares it. A var's read, and a binding's drop (`<x`), keep the
+node they are at: the name as written, or the node whose value the var
+holds in its place.
+`rig check --facts=lir` prints the root module's LIR,
 and lists each body not lowered with the construct that stopped it.
 
 Emit reads the storage it writes from LIR. `Emitter.emit` lowers its
@@ -2278,22 +2285,27 @@ when `RIG_VERIFY_PROOFS=1` is set as it is built (the root module then
 declares `__rig_verify_proofs`), and `RIG_NO_PROOFS=1` makes emit write
 every test, as if nothing were proven.
 
-**Units.** A body is cut into units (`rig.eachUnit`), the one list every
-pass reads: a statement that orders no others (an assignment, a binding,
-an expression, `return`, `break`, `continue`, `<x`); each guard part of
-an `if` or `while` condition (an `as` part, or an operand of the top
-`and` chain of any other part, which Zig's `and` runs only after the
-operands before it held); a `while` step; a `for` source; a statement
+**Units.** A body is cut into units by its LIR (`src/lower.zig`), the
+order emit writes it in: a statement that orders no others (an
+assignment, a binding, an expression, `return`, `break`, `continue`,
+`<x`), the region lowering makes for it; each guard part of an `if` or
+`while` condition (an `as` part, or an operand of the top `and` chain
+of any other part, which Zig's `and` runs only after the operands
+before it held); a `while` step's region; a `for` source; a statement
 `match`'s selection (its subject, every pattern, every guard); and a
 `raw` block. The structured statements (a block, `if`, `while`, `for`,
-`match`, a labeled one, `defer`) are no unit: they order the units they
-hold. `rig.stmtClass` places every IR tag (structured, a unit, `raw`, or
+`match`, a labeled one, `defer`) are no unit: each lowers to a guard or
+block region, and orders the units it holds. The walk reads which a
+statement is from its regions (`Shape` in `src/proofs.zig`), and
+`rig.stmtClass` places every IR tag (structured, a unit, `raw`, or
 never a statement, which is opaque as `raw` is), so a new tag fails to
-compile until it is placed, and `rig.skeletonOf` gives the one skeleton
-that `eachUnit` lists units by and the proof walk follows. A block inside a unit's expression (an arm of a value `match`, a
-branch of a value `if`, a `catch` handler, a value loop's body) and a
-closure's body hold units of their own, nested in it. A self-checking
-build records each node's unit (`storage.planUnits`, `SemContext.unitOf`). The proof is the
+compile until it is placed. A block inside a unit's expression (an arm
+of a value `match`, a branch of a value `if`, a `catch` handler, a
+value loop's body) and a closure's body hold units of their own, nested
+in it, each in a region of its own. The storage lowering makes for a
+unit's values is declared and bound in the unit's own region, which is
+where emit writes it, so no hoist carries a check or a write into
+another unit. The proof is the
 desugaring
 
 ```text
@@ -2463,26 +2475,11 @@ is not written. `rig check --facts=proofs` prints a node's tests under a
 flag on a line of its own, `L:C ok KIND TESTS`, after the line of its
 tests of every path.
 
-**Keeping emit and the walk together.** Three checks make a divergence
-fail a run rather than a proof:
+**Keeping emit and the walk together.** The walk and emit read one
+lowering of each body, so the order of its units is the order emit
+writes them in. One check makes a divergence fail a run rather than a
+proof:
 
-- Emit enters each unit as it writes the unit's code (`enterUnit`), and
-  asserts, in every self-checking build of the compiler (a debug build,
-  or `-Dself-check=true`, as test/rig.rip builds), that each check, write,
-  expression, and hidden storage location it writes lies in the unit
-  that holds it (`Emitter.inUnit`): no hoist carries a check or a write
-  into another unit's code unseen.
-- The unit-order test (`proofs.checkUnitOrder`): a self-checking build
-  of the compiler traces the units emit writes, in the order their code runs,
-  and each Zig jump it writes, and checks that they are the units the
-  walk visits, nested alike, the units of each block in the same order,
-  each unit's code started once (only a pause and a resume of it, as a
-  `match`'s selection around each arm, write more of it, and only units
-  inside its construct start while it is paused), and each jump
-  written once, going where the walk sends its facts. A unit test runs
-  it over the programs of the `emit` and `proofs` behavior tests, and checks
-  that a swapped pair of units, a unit written twice, a paused unit
-  taken up again after a later unit, or a misdirected jump fails it.
 - The differential run (`swarm test/rig.rip proofs`): each program with
   a proven test runs in debug (every omitted test asserted), with
   `--release`, and with `--release` and `RIG_NO_PROOFS=1`; all three
@@ -3132,7 +3129,7 @@ against a scan byte by byte.
 registered by `resolve.registerBuiltins`, after `Simd`, with an `Int`
 parameter `n`, and neither name is reserved: a module's own declaration
 hides the built-in one, as its `Order` does. A table is a generic
-instance, `parameterized_nominal` of `table_sym_id` over `[T, n]`; its
+instance, `parameterized_nominal` of `builtins.table` over `[T, n]`; its
 one member is `push(!@, T) -> Slot[n]`, and typing knows `len`, `t[s]`
 (`Checker.tableIndex`), `for`, and `Table()`
 (`Checker.checkTableConstruction`). A slot is a type of its own kind,
@@ -3347,6 +3344,21 @@ call names the file it calls into (`rules.checkLive(self, ...)`):
 | `generic.zig` | generic bodies: what they require of each instance |
 | `types.zig` | what the checker reads of sema's facts: per type and per expression (CORE §9) |
 | `notes.zig` | messages, and the notes that name both ends of a view |
+| `lowered.zig` | the walk's view of each body's [LIR](#lir), and the shadow that compares the two walks |
+
+**The walk on LIR.** In a self-checking build each module is checked
+twice, the second time with `Checker.on_lir` set, and a module whose
+two walks report other diagnostics is an internal error
+(`ownership.shadow`). The second walk reads from each body's LIR the
+statements of each body and block (its regions'), the symbol of each
+binding it declares (its `lir.Var`'s), the binding each name it reads
+names (the var its use reads, `lir.Expr.var`), which values are
+statement temporaries (the vars its regions declare for them), and the
+uses liveness reads: each name a var is read or dropped at, each
+binding's declaring name, and a pattern's names, which LIR does not
+lower. A body whose uses of a binding that may hold a loan differ from
+its tree's is an internal error. A body or node the LIR does not cover
+is read from the tree.
 
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
 parameter, capture, pattern, loop element) paired with a `Flow`: its
@@ -6101,9 +6113,7 @@ across modules, and only std.prelude's scope names them.
   of a Rig declaration of its signature with no `from` or `keeps`
   (`sema.signatureOrigins`): a reader's result views only the table, a
   writer stores the keys and values it takes, and nothing keeps a
-  closure. They are the same in every module, so the first module to
-  register a table works them out and the rest read them
-  (`resolve.TableOrigins`). `update` and `retain` pass their own entries to the closure as views
+  closure. `update` and `retain` pass their own entries to the closure as views
   (`Field.views_entries`), which makes the requirement a Rig body that
   did so would (`PlainRequirement.callable`). `ensure_with` calls
   `make` in the prelude (`add_made`), whose result held as a `V` makes

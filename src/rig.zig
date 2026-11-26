@@ -247,7 +247,7 @@ pub fn isJump(e: Sexp) bool {
 
 /// Call `f(ctx, owner, body)` for the body of each function, `sub`,
 /// `test`, and `drop` declared in module `root`, members of types
-/// included: the bodies `eachUnit` lists the units of.
+/// included.
 pub fn eachBody(root: Sexp, ctx: anytype, comptime f: anytype) !void {
     if (root.kind() != .module) return;
     for (ir.Module.decls(root)) |d| try bodiesOfDecl(d, ctx, f);
@@ -262,26 +262,8 @@ fn bodiesOfDecl(decl: Sexp, ctx: anytype, comptime f: anytype) !void {
     }
 }
 
-/// What a unit is (`eachUnit`).
-pub const UnitKind = enum {
-    /// A statement of a block that orders no others (`stmtClass`).
-    stmt,
-    /// The step of a `while`.
-    step,
-    /// A guard part of an `if` or `while` condition: an `as` part, or an
-    /// operand of the top `and` chain of any other part.
-    guard,
-    /// The source of a `for`.
-    source,
-    /// A statement `match`'s selection: its subject, every pattern, and
-    /// every guard, which run before an arm's body and never after it.
-    selection,
-    /// A `raw` block, opaque: no unit is listed inside it.
-    raw,
-};
-
-/// What a statement of a block is to the units of a body
-/// (`skeletonOf`). Every IR tag is listed, so a new one fails to compile
+/// What a statement of a block is to the units of a body (the proof
+/// pass's `Shape`). Every IR tag is listed, so a new one fails to compile
 /// until it is placed.
 pub const StmtClass = enum {
     /// It orders the units it holds, and is no unit itself.
@@ -311,122 +293,6 @@ pub fn stmtClass(tag: Tag) StmtClass {
     };
 }
 
-/// How a statement orders the units it holds: the one skeleton `eachUnit`
-/// lists the units by and the proof pass walks (docs/internals/INTERNALS.md,
-/// "Proven checks").
-pub const Skeleton = union(enum) {
-    /// One unit, of kind `stmt` or `raw`.
-    unit: UnitKind,
-    /// A block: its statements in order.
-    block: Sexp,
-    @"if": struct { cond: Sexp, then: Sexp, @"else": Sexp },
-    @"while": struct { cond: Sexp, body: Sexp, step: Sexp },
-    @"for": struct { source: Sexp, body: Sexp },
-    /// A statement `match`: its selection unit, then each arm's body.
-    match: Sexp,
-    /// A labeled statement: the statement.
-    labeled: Sexp,
-    /// A `defer` or `errdefer`: its body, run at its block's exits.
-    @"defer": Sexp,
-};
-
-/// The skeleton of statement `stmt` (`StmtClass`). A leaf is a unit that
-/// holds nothing to check or write.
-pub fn skeletonOf(stmt: Sexp) Skeleton {
-    const tag = stmt.kind() orelse return .{ .unit = .stmt };
-    return switch (stmtClass(tag)) {
-        .unit => .{ .unit = .stmt },
-        .raw, .none => .{ .unit = .raw },
-        .structured => switch (tag) {
-            .block => .{ .block = stmt },
-            .@"if" => .{ .@"if" = .{ .cond = ir.If.cond(stmt), .then = ir.If.then(stmt), .@"else" = ir.If.@"else"(stmt) } },
-            .@"while" => .{ .@"while" = .{ .cond = ir.While.cond(stmt), .body = ir.While.body(stmt), .step = ir.While.step(stmt) } },
-            .@"for" => .{ .@"for" = .{ .source = ir.For.source(stmt), .body = ir.For.body(stmt) } },
-            .match => .{ .match = stmt },
-            .labeled => .{ .labeled = ir.Labeled.stmt(stmt) },
-            .@"defer", .@"errdefer" => .{ .@"defer" = ir.get(stmt, .body) },
-            else => unreachable,
-        },
-    };
-}
-
-/// Call `visitor.enter(root, kind)` and `visitor.exit(root)` around each
-/// unit of a function or closure body, in the order the body runs them
-/// (docs/internals/INTERNALS.md, "Proven checks"). A unit is a part of a body
-/// inside which nothing is ordered: a statement, a guard part, a `while`
-/// step, a `for` source, a statement `match`'s selection, or a `raw`
-/// block. A block inside a unit's expression (an arm of a value `match`,
-/// a branch of a value `if`, a `catch` handler, a loop's body) and a
-/// closure's body hold units of their own, listed between the enter and
-/// the exit of the unit around them. The selection's root is the `match`
-/// node; its nodes are the subject, the patterns, and the guards
-/// (`selectionParts`). The one list of a body's units: a self-checking
-/// build records each node's unit from it (`SemContext.unitOf`), and the proof
-/// pass and emit enter the same units.
-pub fn eachUnit(body: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    try unitsOfBranch(body, visitor);
-}
-
-/// The errors a unit visitor's `enter` may return, which every step of
-/// `eachUnit` passes on.
-fn VisitError(comptime V: type) type {
-    const T = if (@typeInfo(V) == .pointer) @typeInfo(V).pointer.child else V;
-    return @typeInfo(@typeInfo(@TypeOf(T.enter)).@"fn".return_type.?).error_union.error_set;
-}
-
-/// A branch: a block, or one statement.
-fn unitsOfBranch(b: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    if (b.isKind(.block)) {
-        for (ir.Block.stmts(b)) |s| try unitsOfStmt(s, visitor);
-        return;
-    }
-    if (b != .nil) try unitsOfStmt(b, visitor);
-}
-
-fn unitsOfStmt(stmt: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    switch (skeletonOf(stmt)) {
-        .unit => |kind| try unitOf(stmt, kind, visitor),
-        .block => |b| try unitsOfBranch(b, visitor),
-        .@"if" => |x| {
-            try unitsOfCond(x.cond, visitor);
-            try unitsOfBranch(x.then, visitor);
-            try unitsOfBranch(x.@"else", visitor);
-        },
-        .@"while" => |x| {
-            try unitsOfCond(x.cond, visitor);
-            try unitsOfBranch(x.body, visitor);
-            if (x.step != .nil) try unitOf(x.step, .step, visitor);
-        },
-        .@"for" => |x| {
-            try unitOf(x.source, .source, visitor);
-            try unitsOfBranch(x.body, visitor);
-        },
-        .match => |m| {
-            try unitOf(m, .selection, visitor);
-            for (ir.Match.arms(m)) |arm| try unitsOfBranch(ir.Arm.body(arm), visitor);
-        },
-        .labeled => |inner| try unitsOfStmt(inner, visitor),
-        .@"defer" => |body| try unitsOfBranch(body, visitor),
-    }
-}
-
-/// The guard parts of a condition (`eachGuardPart`), each `and` operand
-/// of a part that binds nothing its own unit. A part `s matches .circle(r)`
-/// is the selection of the `match` it is (`asMatchOf`).
-fn unitsOfCond(cond: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    const Parts = struct {
-        v: @TypeOf(visitor),
-        pub fn part(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
-            if (p.isKind(.as_match)) return unitOf(asMatchOf(p), .selection, self.v);
-            try eachGuardOperand(p, self, @This().unit);
-        }
-        fn unit(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
-            try unitOf(p, .guard, self.v);
-        }
-    };
-    try eachGuardPart(cond, Parts{ .v = visitor });
-}
-
 /// Call `f(ctx, e)` for each operand of guard part `part`'s top `and`
 /// chain, left to right, or for the part itself: an `as` part, or one
 /// that is no `and`. Zig's `and` runs each only when those before it
@@ -437,53 +303,6 @@ pub fn eachGuardOperand(part: Sexp, ctx: anytype, comptime f: anytype) !void {
         return eachGuardOperand(ir.get(part, .right), ctx, f);
     }
     try f(ctx, part);
-}
-
-/// The nodes of a statement `match`'s selection unit: its subject, then
-/// each arm's pattern and guard.
-pub fn selectionParts(a: std.mem.Allocator, match: Sexp) ![]const Sexp {
-    var out: std.ArrayList(Sexp) = .empty;
-    try out.append(a, ir.Match.subject(match));
-    for (ir.Match.arms(match)) |arm| {
-        try out.append(a, ir.Arm.pattern(arm));
-        if (ir.Arm.guard(arm) != .nil) try out.append(a, ir.Arm.guard(arm));
-    }
-    return out.items;
-}
-
-fn unitOf(root: Sexp, kind: UnitKind, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    // A leaf (a name, a literal) holds nothing to check or write.
-    if (root != .list) return;
-    try visitor.enter(root, kind);
-    switch (kind) {
-        // Nothing inside `raw` is a unit of its own.
-        .raw => {},
-        .selection => {
-            try nestedUnits(ir.Match.subject(root), visitor);
-            for (ir.Match.arms(root)) |arm| {
-                try nestedUnits(ir.Arm.pattern(arm), visitor);
-                try nestedUnits(ir.Arm.guard(arm), visitor);
-            }
-        },
-        else => try nestedUnits(root, visitor),
-    }
-    try visitor.exit(root);
-}
-
-/// The units of the blocks and closure bodies inside a unit's expression.
-/// A visitor with a `nest` method is given each such block before and
-/// after its units.
-fn nestedUnits(e: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
-    if (e != .list) return;
-    if (e.isKind(.block)) {
-        const V = @TypeOf(visitor);
-        const T = if (@typeInfo(V) == .pointer) @typeInfo(V).pointer.child else V;
-        if (@hasDecl(T, "nest")) try visitor.nest(e, true);
-        try unitsOfBranch(e, visitor);
-        if (@hasDecl(T, "nest")) try visitor.nest(e, false);
-        return;
-    }
-    for (e.items()) |c| try nestedUnits(c, visitor);
 }
 
 /// `x[...]`: an index, or compile-time arguments (sema tells which).
@@ -2962,19 +2781,6 @@ pub fn hiddenIteratorName() []const u8 {
 /// there ends with no overflow.
 pub const last_hidden_pos: u32 = std.math.maxInt(u32) - 2;
 
-/// A leaf for a name no source text holds, at `pos` inside the `for`
-/// keyword (which holds no leaf); its `id` tells `leafText` which name.
-fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
-    return .{ .src = .{ .pos = pos, .len = 1, .id = hidden_id_base + @intFromEnum(name) } };
-}
-
-/// The integer leaf of byte `value`, which spans `len` bytes at `pos`
-/// (a string literal where a `U8` goes, or one byte of one where a
-/// `[N]U8` goes) and reads as its decimal value.
-fn byteLeaf(pos: u32, len: u16, value: u8) Sexp {
-    return .{ .src = .{ .pos = pos, .len = len, .id = byte_id_base + value } };
-}
-
 /// Leaf ids from here to `hidden_id_base` are bytes (`byteLeaf`).
 const byte_id_base: u16 = 0xFE00;
 
@@ -4519,7 +4325,7 @@ pub const Parser = struct {
     /// that ends only by a jump, and the one that gives a value.
     fn loopBlock(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const at = self.span(node);
-        return self.base.newNode(.@"while", &.{ hiddenLeaf(at.start, .true_value), .nil, ir.Loop.body(node), .nil }, at);
+        return self.base.newNode(.@"while", &.{ self.hiddenLeaf(at.start, .true_value), .nil, ir.Loop.body(node), .nil }, at);
     }
 
     /// The slot of a node of `kind` whose parentheses, a `paren` the
@@ -4818,7 +4624,7 @@ pub const Parser = struct {
         const pat_at = self.span(pattern);
         const pass = try self.base.newNode(.pass, &.{}, pat_at);
         const arm = try self.base.newNode(.arm, &.{ pattern, .nil, pass }, pat_at);
-        const other = try self.base.newNode(.arm, &.{ hiddenLeaf(pat_at.start, .discard), .nil, try self.base.newNode(.pass, &.{}, pat_at) }, pat_at);
+        const other = try self.base.newNode(.arm, &.{ self.hiddenLeaf(pat_at.start, .discard), .nil, try self.base.newNode(.pass, &.{}, pat_at) }, pat_at);
         const match = try self.base.newNode(.match, &.{ ir.get(node, .value), arm, other }, at);
         return self.base.newNode(.as_match, &.{match}, at);
     }
@@ -4918,9 +4724,9 @@ pub const Parser = struct {
         const kw = self.matchesKeyword(node);
         const pattern = ir.get(node, .pattern);
         const pat_at = self.span(pattern);
-        const yes = then orelse hiddenLeaf(kw + 1, .true_value);
+        const yes = then orelse self.hiddenLeaf(kw + 1, .true_value);
         const arm = try self.base.newNode(.arm, &.{ pattern, .nil, yes }, pat_at);
-        const other = try self.base.newNode(.arm, &.{ hiddenLeaf(kw, .discard), .nil, hiddenLeaf(kw + 2, .false_value) }, pat_at);
+        const other = try self.base.newNode(.arm, &.{ self.hiddenLeaf(kw, .discard), .nil, self.hiddenLeaf(kw + 2, .false_value) }, pat_at);
         return self.base.newNode(.match, &.{ ir.get(node, .value), arm, other }, at);
     }
 
@@ -5416,7 +5222,7 @@ pub const Parser = struct {
         const at = self.span(node);
         const moved = try self.base.newNode(.move, &.{ir.get(node, .operand)}, at);
         try self.mark(.self_sigil, moved);
-        const member = try self.base.newNode(.member, &.{ moved, hiddenLeaf(at.start, .wait) }, at);
+        const member = try self.base.newNode(.member, &.{ moved, self.hiddenLeaf(at.start, .wait) }, at);
         return self.base.newNode(.call, &.{ .nil, member }, at);
     }
 
@@ -5611,7 +5417,7 @@ pub const Parser = struct {
             self.reject(place, "a captured field path is longer than 65533 bytes; bind it to a shorter name first, and capture the name");
             return node;
         }
-        out[ir.slot(.cap_read, .name)] = .{ .src = .{ .pos = at.start, .len = @intCast(text.len + 1), .id = path_capture_id } };
+        out[ir.slot(.cap_read, .name)] = .{ .src = self.base.newLeaf(at.start, @intCast(text.len + 1), path_capture_id) };
         out[ir.slot(.cap_read, .value)] = try self.base.newNode(sigil, &.{place}, at);
         return node;
     }
@@ -5677,7 +5483,7 @@ pub const Parser = struct {
                 self.reject(node, std.fmt.allocPrint(self.allocator(), "write `{s}`, the path this closure captures, on one line", .{path}) catch "write the path this closure captures on one line");
                 return null;
             };
-            return .{ .src = .{ .pos = self.span(node).start, .len = @intCast(text.len), .id = 0 } };
+            return .{ .src = self.base.newLeaf(self.span(node).start, @intCast(text.len), 0) };
         };
         const items = node.items();
         var copy: ?[]Sexp = null;
@@ -5762,7 +5568,7 @@ pub const Parser = struct {
         const out = try self.allocator().alloc(Sexp, count);
         @memcpy(out[0..have.len], have);
         const at = self.span(lambda).start;
-        for (out[have.len..]) |*p| p.* = hiddenLeaf(try self.hiddenPos(at), .discard);
+        for (out[have.len..]) |*p| p.* = self.hiddenLeaf(try self.hiddenPos(at), .discard);
         slot.* = try self.base.newList(out, .{ .start = at, .end = at });
     }
 
@@ -5816,11 +5622,11 @@ pub const Parser = struct {
             .src => |leaf| if (at.get(leaf.pos)) |i| {
                 const lit = lits[i];
                 if (!lit.array) {
-                    slot.* = byteLeaf(leaf.pos, leaf.len, lit.bytes[0]);
+                    slot.* = self.byteLeaf(leaf.pos, leaf.len, lit.bytes[0]);
                     return;
                 }
                 const elems = try self.allocator().alloc(Sexp, lit.bytes.len);
-                for (lit.bytes, elems, 0..) |b, *e, k| e.* = byteLeaf(leaf.pos + 1 + @as(u32, @intCast(k)), 1, b);
+                for (lit.bytes, elems, 0..) |b, *e, k| e.* = self.byteLeaf(leaf.pos + 1 + @as(u32, @intCast(k)), 1, b);
                 slot.* = try self.base.newNode(.array, elems, .{ .start = leaf.pos, .end = leafEnd(self.base.source, leaf) });
             },
             .list => for (@constCast(slot.items())) |*child| try self.bytesAt(child, lits, at),
@@ -6370,16 +6176,32 @@ pub const Parser = struct {
         return @enumFromInt(HiddenName.first_stage + (n - 1) * 3);
     }
 
+    /// A leaf for a name no source text holds, at `pos` inside the `for`
+    /// keyword (which holds no leaf); its `id` tells `leafText` which
+    /// name. Like every leaf the wrapper makes, it has a leaf id of its
+    /// own (`parser.BaseParser.newLeaf`), so a fact about it is about it
+    /// alone.
+    fn hiddenLeaf(self: *Parser, pos: u32, name: HiddenName) Sexp {
+        return .{ .src = self.base.newLeaf(pos, 1, hidden_id_base + @intFromEnum(name)) };
+    }
+
+    /// The integer leaf of byte `value`, which spans `len` bytes at `pos`
+    /// (a string literal where a `U8` goes, or one byte of one where a
+    /// `[N]U8` goes) and reads as its decimal value.
+    fn byteLeaf(self: *Parser, pos: u32, len: u16, value: u8) Sexp {
+        return .{ .src = self.base.newLeaf(pos, len, byte_id_base + value) };
+    }
+
     /// A leaf of hidden name `name` at a position past the source's end,
     /// which `span` reads as `home`.
     fn synthLeaf(self: *Parser, home: u32, name: HiddenName) std.mem.Allocator.Error!Sexp {
-        return hiddenLeaf(try self.hiddenPos(home), name);
+        return self.hiddenLeaf(try self.hiddenPos(home), name);
     }
 
     /// A leaf whose text is `text`, at a position past the source's end
     /// that `span` reads as `home` (`named_id_base`).
     pub fn namedLeaf(self: *Parser, home: u32, text: []const u8) std.mem.Allocator.Error!Sexp {
-        return .{ .src = .{ .pos = try self.hiddenPos(home), .len = 1, .id = try namedId(text) } };
+        return .{ .src = self.base.newLeaf(try self.hiddenPos(home), 1, try namedId(text)) };
     }
 
     /// Where a position past the source's end belongs (`hiddenPos`): its
@@ -6845,11 +6667,11 @@ pub const Parser = struct {
             // its `for`, so the loop does not enclose its declaration:
             // what it holds stays in force through every iteration
             // (`ownership.Checker.liveFrom`).
-            hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, hiddenLeaf(key - 1, .iterator), .nil, value }, at);
-            iter = hiddenLeaf(key + 2, .iterator);
+            hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, self.hiddenLeaf(key - 1, .iterator), .nil, value }, at);
+            iter = self.hiddenLeaf(key + 2, .iterator);
         }
         const view = try self.base.newNode(.write, &.{iter}, at);
-        const member = try self.base.newNode(.member, &.{ view, hiddenLeaf(key, .next) }, at);
+        const member = try self.base.newNode(.member, &.{ view, self.hiddenLeaf(key, .next) }, at);
         const call = try self.base.newNode(.call, &.{ .nil, member }, at);
         const bound = try self.base.newNode(.as, &.{ call, binding }, .{ .start = self.span(binding).start, .end = at.end });
         const out = try self.allocator().alloc(Sexp, 5);
@@ -6867,7 +6689,7 @@ pub const Parser = struct {
         const slot = ir.slot(.@"for", .@"var");
         if (items[slot] != .nil) return;
         const at = self.span(loop).start;
-        items[slot] = hiddenLeaf(at, .discard);
+        items[slot] = self.hiddenLeaf(at, .discard);
     }
 
     /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.
@@ -7321,13 +7143,13 @@ test "hidden leaves take the positions past the source's end, up to `last_hidden
     defer p.deinit();
     const first = try p.hiddenPos(3);
     try testing.expectEqual(@as(u32, source.len + 1), first);
-    try testing.expectEqual(parser.Span{ .start = 3, .end = 3 }, p.span(hiddenLeaf(first, .discard)));
+    try testing.expectEqual(parser.Span{ .start = 3, .end = 3 }, p.span(p.hiddenLeaf(first, .discard)));
     // As many as fit past a source of the most bytes a module holds;
     // the last ends with no overflow, and one more is out of room.
     p.padded = last_hidden_pos - 1 - source.len;
     const last = try p.hiddenPos(5);
     try testing.expectEqual(last_hidden_pos, last);
-    try testing.expectEqual(last_hidden_pos + 1, leafEnd(source, hiddenLeaf(last, .discard).src));
+    try testing.expectEqual(last_hidden_pos + 1, leafEnd(source, p.hiddenLeaf(last, .discard).src));
     try testing.expectError(error.OutOfMemory, p.hiddenPos(5));
 }
 
@@ -7404,82 +7226,6 @@ test "a condition's guard parts: each part a binding condition joins, or the who
     }
 }
 
-test "a body's units: statements, guard parts, steps, sources, selections, and raw blocks, nested in the unit holding their block" {
-    const source =
-        \\fun f(s: ?String, o: Int?, k: Int) -> Int
-        \\  i = 0
-        \\  while o as x and i < s.len and s[i] > 0: i += 1
-        \\    if i > 2 and x > 1
-        \\      break
-        \\  for c in s[i..]
-        \\    print(c)
-        \\  match k
-        \\    1 if i > 0 => print(1)
-        \\    _ => pass
-        \\  y = match k
-        \\    1
-        \\      print(2)
-        \\      3
-        \\    _ => 4
-        \\  raw
-        \\    print(5)
-        \\  defer print(6)
-        \\  g = |n: Int| n + 1
-        \\  i + y + g(1)
-        \\
-    ;
-    var p = Parser.init(testing.allocator, source);
-    defer p.deinit();
-    const tree = try p.parseProgram();
-    const Units = struct {
-        lines: std.ArrayList(u8) = .empty,
-        depth: usize = 0,
-        parser: *const Parser,
-        pub fn enter(self: *@This(), root: Sexp, kind: UnitKind) std.mem.Allocator.Error!void {
-            const sp = self.parser.span(root);
-            const text = std.mem.trim(u8, self.parser.base.source[sp.start..sp.end], " \n");
-            const line_end = std.mem.indexOfScalar(u8, text, '\n') orelse text.len;
-            for (0..self.depth) |_| try self.lines.appendSlice(testing.allocator, "  ");
-            try self.lines.print(testing.allocator, "{s} {s}\n", .{ @tagName(kind), text[0..line_end] });
-            self.depth += 1;
-        }
-        pub fn exit(self: *@This(), _: Sexp) std.mem.Allocator.Error!void {
-            self.depth -= 1;
-        }
-    };
-    var units: Units = .{ .parser = &p };
-    defer units.lines.deinit(testing.allocator);
-    const Body = struct {
-        fn each(u: *Units, _: Sexp, body: Sexp) std.mem.Allocator.Error!void {
-            try eachUnit(body, u);
-        }
-    };
-    try eachBody(tree, &units, Body.each);
-    try testing.expectEqualStrings(
-        \\stmt i = 0
-        \\guard o as x
-        \\guard i < s.len
-        \\guard s[i] > 0
-        \\guard i > 2
-        \\guard x > 1
-        \\stmt break
-        \\step i += 1
-        \\source s[i..]
-        \\stmt print(c)
-        \\selection match k
-        \\stmt print(1)
-        \\stmt pass
-        \\stmt y = match k
-        \\  stmt print(2)
-        \\raw raw
-        \\stmt print(6)
-        \\stmt g = |n: Int| n + 1
-        \\  stmt n + 1
-        \\stmt i + y + g(1)
-        \\
-    , units.lines.items);
-}
-
 test "a body's exits are `return`, `!`, and `?`; the jumps are `break` and `continue`" {
     const source =
         \\fun f(o: Int?, r: Int!) -> Int?
@@ -7553,6 +7299,52 @@ test "parser: a self sigil moves onto the place before the method" {
     var head = stmts[8];
     while (!head.isKind(.write)) head = if (head.isKind(.call)) ir.Call.callee(head) else ir.get(head, .object);
     try testing.expect(p.marked(.self_sigil, head) and ir.Write.operand(head) == .src);
+}
+
+/// Each leaf of `node` in `seen`, by leaf id: a leaf with none, or one
+/// whose id another leaf holds, fails.
+fn expectOwnLeafIds(seen: *std.AutoHashMapUnmanaged(parser.LeafId, parser.Src), node: Sexp) !void {
+    switch (node) {
+        .src => |leaf| {
+            try testing.expect(leaf.leaf != 0);
+            const got = try seen.getOrPut(testing.allocator, leaf.leaf);
+            if (got.found_existing) try testing.expect(got.value_ptr.pos == leaf.pos and got.value_ptr.len == leaf.len and got.value_ptr.id == leaf.id);
+            got.value_ptr.* = leaf;
+        },
+        .list => for (node.items()) |child| try expectOwnLeafIds(seen, child),
+        else => {},
+    }
+}
+
+test "parser: every leaf the wrapper makes has a leaf id no other leaf holds" {
+    // A bare `for`'s `_`, `loop`'s `true`, a chain's hidden names, a
+    // byte literal, a captured path, and a closure padded to its type.
+    const source =
+        \\sub main()
+        \\  xs = [1, 2]
+        \\  for xs
+        \\    print(1)
+        \\  loop
+        \\    break
+        \\  print(xs.map(|x| x + 1).count())
+        \\  b: U8 = "a"
+        \\  p = P(a: 1)
+        \\  g = |?p.a| p.a
+        \\  f = |a| a
+        \\
+    ;
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    const body = ir.Sub.body(ir.Module.decls(tree)[0]).items();
+    const lambda = ir.Set.value(body[body.len - 1]);
+    try p.padLambda(lambda, 3);
+    try testing.expectEqual(@as(usize, 3), ir.Lambda.params(lambda).items().len);
+    var seen: std.AutoHashMapUnmanaged(parser.LeafId, parser.Src) = .empty;
+    defer seen.deinit(testing.allocator);
+    try expectOwnLeafIds(&seen, tree);
+    var it = seen.keyIterator();
+    while (it.next()) |id| try testing.expect(id.* <= p.base.leafCount());
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {

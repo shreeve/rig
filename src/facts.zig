@@ -66,18 +66,12 @@ pub const BuiltinCall = sema.BuiltinCall;
 pub const Proven = sema.Proven;
 pub const ProvenIf = sema.ProvenIf;
 pub const FlagTest = sema.FlagTest;
-pub const UnitKind = rig.UnitKind;
 pub const NodeKey = sema.NodeKey;
 
 /// Whether this build of the compiler runs its own consistency checks
 /// (`zig build -Dself-check`; on in every debug build).
 pub const self_check = @import("build_options").self_check;
 
-/// Emit asserts that it writes each node inside the unit that holds it
-/// (`Emitter.inUnit`) in every self-checking build.
-pub const check_units = self_check;
-
-pub const UnitEvent = sema.UnitEvent;
 pub const CtVal = sema.cteval.CtVal;
 pub const CtResult = sema.cteval.Result;
 pub const CtHidden = sema.cteval.Hidden;
@@ -145,23 +139,8 @@ pub const Facts = struct {
     zig_file: []const u8,
     /// The program's root module.
     is_root: bool,
-    cell_sym_id: sema.SymbolRef,
-    list_sym_id: sema.SymbolRef,
-    table_sym_id: sema.SymbolRef,
-    signal_sym_id: sema.SymbolRef,
-    actor_sym_id: sema.SymbolRef,
-    chan_sym_id: sema.SymbolRef,
-    frozen_sym_id: sema.SymbolRef,
-    task_sym_id: sema.SymbolRef,
-    tasks_sym_id: sema.SymbolRef,
-    box_sym_id: sema.SymbolRef,
-    endian_sym_id: sema.SymbolRef,
-    order_sym_id: sema.SymbolRef,
-    printer_sym_id: sema.SymbolRef,
-    hasher_sym_id: sema.SymbolRef,
-    arch_sym_id: sema.SymbolRef,
-    os_sym_id: sema.SymbolRef,
-    feature_sym_id: sema.SymbolRef,
+    /// The built-in types and enums, by their refs in module 0.
+    builtins: *const sema.Builtins,
 
     pub fn of(ctx: *const SemContext) Facts {
         return .{
@@ -172,23 +151,7 @@ pub const Facts = struct {
             .name = ctx.name,
             .zig_file = ctx.zig_file,
             .is_root = ctx.is_root,
-            .cell_sym_id = ctx.builtins.cell,
-            .list_sym_id = ctx.builtins.list,
-            .table_sym_id = ctx.builtins.table,
-            .signal_sym_id = ctx.builtins.signal,
-            .actor_sym_id = ctx.builtins.actor,
-            .chan_sym_id = ctx.builtins.chan,
-            .frozen_sym_id = ctx.builtins.frozen,
-            .task_sym_id = ctx.builtins.task,
-            .tasks_sym_id = ctx.builtins.tasks,
-            .box_sym_id = ctx.builtins.box,
-            .endian_sym_id = ctx.builtins.endian,
-            .order_sym_id = ctx.builtins.order,
-            .printer_sym_id = ctx.builtins.printer,
-            .hasher_sym_id = ctx.builtins.hasher,
-            .arch_sym_id = ctx.builtins.arch,
-            .os_sym_id = ctx.builtins.os,
-            .feature_sym_id = ctx.builtins.feature,
+            .builtins = ctx.builtins,
         };
     }
 
@@ -415,15 +378,6 @@ pub const Facts = struct {
     /// The unit an argument filling a duration parameter counts.
     pub fn durationOf(f: Facts, node: Sexp) ?sema.Duration {
         return f.c().durationOf(node);
-    }
-    /// The root of the innermost unit holding `node` (`rig.eachUnit`),
-    /// which emit asserts it writes the node inside.
-    pub fn unitOf(f: Facts, node: Sexp) ?sema.NodeKey {
-        return f.c().unitOf(node);
-    }
-    /// The kind of the unit `node` is the root of, or null.
-    pub fn unitRootKind(f: Facts, node: Sexp) ?UnitKind {
-        return f.c().unitRootKind(node);
     }
     /// Which of the node's tests are known to pass (`src/proofs.zig`):
     /// emit omits those, and a debug build makes them as assertions.
@@ -666,6 +620,9 @@ pub const Facts = struct {
     }
     pub fn isErrorMember(f: Facts, node: Sexp) bool {
         return f.c().isErrorMember(node);
+    }
+    pub fn namesErrorMember(f: Facts, node: Sexp) bool {
+        return f.c().namesErrorMember(node);
     }
     /// Whether a table's slot `t[s]` is written, so reached to write
     /// (`slot`), not read-only (`constSlot`).
@@ -1104,7 +1061,6 @@ pub const syntax = struct {
     pub const paramName = sema.paramName;
     pub const paramNameNode = sema.paramNameNode;
     pub const tparamsOf = sema.tparamsOf;
-    pub const isProxy = sema.isProxy;
     pub const ownApiMethod = sema.ownApiMethod;
     pub const isIntLiteralText = sema.isIntLiteralText;
     pub const isFloatLiteralText = sema.isFloatLiteralText;

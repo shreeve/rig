@@ -45,6 +45,7 @@ const ir = parser.ir;
 const Tag = rig.Tag;
 const SemContext = sema.SemContext;
 const SymbolId = sema.SymbolId;
+const SymbolRef = sema.SymbolRef;
 const ScopeId = sema.ScopeId;
 const TypeId = sema.TypeId;
 const Type = sema.Type;
@@ -1153,7 +1154,7 @@ pub const Checker = struct {
             else => return self.groupType(result),
         };
         const a = self.ctx.arena.allocator();
-        const subst: TypeSubst = .{ .params = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].type_params orelse &.{}, .args = pn.args };
+        const subst: TypeSubst = .{ .params = sema.paramRefs(self.ctx, pn.sym), .args = pn.args };
         var data: std.ArrayList(Field) = .empty;
         var tys: std.ArrayList(TypeId) = .empty;
         for (fields) |f| {
@@ -1161,7 +1162,7 @@ pub const Checker = struct {
             try data.append(a, f);
             try tys.append(a, try sema.substituteType(self.ctx, f.ty, subst));
         }
-        return .{ .name = self.ctx.symbols.items[self.ctx.localSym(pn.sym)].name, .fields = data.items, .tys = tys.items, .module = null, .sym = self.ctx.localSym(pn.sym) };
+        return .{ .name = sema.symbolAt(self.ctx, pn.sym).name, .fields = data.items, .tys = tys.items, .module = null, .sym = self.ctx.localSym(pn.sym) };
     }
 
     /// Where field `f` of `gt` is declared, as a note.
@@ -2334,6 +2335,16 @@ pub const Checker = struct {
         foreign: ?ForeignFields = null,
         /// A generic type's arguments, when given (`Pair[Int, ?String]`).
         args: ?[]const TypeId = null,
+
+        /// The type's ref, in this module or the one that declares it.
+        pub fn ref(nt: NamedType, ctx: *const SemContext) sema.SymbolRef {
+            return if (nt.foreign) |fo| .{ .module_id = fo.module_id, .sym = nt.id } else ctx.ref(nt.id);
+        }
+
+        /// The module whose table holds the type's symbol.
+        pub fn home(nt: NamedType, ctx: *const SemContext) *const SemContext {
+            return if (nt.foreign) |fo| fo.ctx else ctx;
+        }
     };
 
     // ---- compile-time arguments ---------------------------------------------
@@ -2584,7 +2595,7 @@ pub const Checker = struct {
     pub const LiteralBound = struct { param: usize, ty: TypeId, arg: u32 };
 
     pub const Inference = struct {
-        own: []const SymbolId,
+        own: []const SymbolRef,
         bound: []Bound,
         literals: std.ArrayList(LiteralBound) = .empty,
         /// The first argument whose type does not have the shape of the
