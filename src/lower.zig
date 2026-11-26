@@ -245,16 +245,6 @@ pub const Module = struct {
         return m.calls.get(sema.decisionKeyOf(node) orelse return null);
     }
 
-    /// In a self-checking build, that call `node`'s recorded kind is
-    /// `kind`, the form `consumer` chose for it.
-    pub fn expectCall(m: *const Module, ctx: *const SemContext, node: Sexp, kind: lir.CallKind, consumer: []const u8) void {
-        if (!enabled) return;
-        const c = m.callOf(node) orelse return;
-        if (c.kind == kind) return;
-        const at = diag.lineCol(ctx.source, ctx.startOf(node));
-        std.debug.panic("{s}:{d}:{d}: internal error: lir: a call recorded as `{s}` that {s} writes as `{s}`", .{ ctx.name, at.line, at.col, @tagName(c.kind), consumer, @tagName(kind) });
-    }
-
     /// In a self-checking build, that `ok` holds of call `node`'s record:
     /// what the ownership checker decides of the call, `what`.
     pub fn expectCallFact(m: *const Module, ctx: *const SemContext, node: Sexp, comptime what: []const u8, ok: fn (*const lir.Call) bool) void {
