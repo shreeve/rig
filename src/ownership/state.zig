@@ -546,6 +546,10 @@ pub const Checker = struct {
     /// The paths of the places met so far (`resolvePlace`), shared by
     /// every function the checker walks.
     paths: *Paths,
+    /// The extents `notes.extent` found last, of lists of three items or
+    /// more, by their items' address: a statement's or a scope's is
+    /// asked again at each liveness check in it.
+    extents: *[notes.extent_slots]notes.ExtentSlot,
     /// `mayOwnView`'s answers, by holder and view type.
     reaches: std.AutoHashMapUnmanaged(ReachKey, sema.ViewReach) = .empty,
     /// The struct or enum whose members are being walked: the owner of a
@@ -749,6 +753,8 @@ pub const Checker = struct {
     pub fn init(allocator: std.mem.Allocator, source: []const u8, ctx: *sema.SemContext) Error!Checker {
         const paths = try allocator.create(Paths);
         paths.* = .{};
+        const extents = try allocator.create([notes.extent_slots]notes.ExtentSlot);
+        @memset(extents, .{});
         var c = Checker{
             .gpa = allocator,
             .arena_state = std.heap.ArenaAllocator.init(allocator),
@@ -756,6 +762,7 @@ pub const Checker = struct {
             .const_arena_state = std.heap.ArenaAllocator.init(allocator),
             .source = source,
             .paths = paths,
+            .extents = extents,
             .sema = ctx,
             .interner = ctx,
         };
@@ -815,6 +822,7 @@ pub const Checker = struct {
         self.arm_binds.deinit(self.gpa);
         self.paths.deinit(self.gpa);
         self.gpa.destroy(self.paths);
+        self.gpa.destroy(self.extents);
         self.fn_arena_state.deinit();
         self.const_arena_state.deinit();
         self.arena_state.deinit();
