@@ -1910,6 +1910,7 @@ target.name_compound.ternary.grow main
 target.name_compound.ternary.move main
 target.name_compound.ternary.read main
 test/reject/concurrency/task_copy.rig main
+test/reject/concurrency/wait_result_through_a_write_view_that_could_hold_the_view.rig Pool.run
 test/reject/concurrency/wait_twice.rig main
 test/reject/concurrency/within_a_closure_called_more_than_once.rig main
 test/reject/concurrency/within_moves_a_capture_once.rig main
