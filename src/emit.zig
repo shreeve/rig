@@ -4254,7 +4254,7 @@ pub const Emitter = struct {
     fn emitWhile(self: *Emitter, sexp: Sexp, lp: *Loop) Error!void {
         const cond = ir.While.cond(sexp);
         const step = ir.While.step(sexp);
-        lp.target.step_point = if (step == .nil) null else try self.need(self.answer(.step_point, sexp), sexp);
+        lp.target.step_point = if (step == .nil) null else (try self.stepOf(sexp)).loop.step_point;
         const step_inside = lp.target.step_point == .after_body;
         try self.startLoopLine(lp);
         try self.enterLoop(lp);
@@ -4410,7 +4410,7 @@ pub const Emitter = struct {
         // its source makes, hands its elements over one at a time, each
         // taken from its `iterator` var.
         if (self.varOf(sexp, .iterator) != null) return self.emitConsumingFor(sexp, lp, !is_list);
-        if (try self.need(self.answer(.fold, sexp), sexp)) |how| return self.emitFold(sexp, lp, how, is_list);
+        if ((try self.stepOf(sexp)).each.fold) |how| return self.emitFold(sexp, lp, how, is_list);
         const elem_sym = self.facts.node(.symbolOf, binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.facts.node(.headerOf, sexp);
@@ -4422,7 +4422,7 @@ pub const Emitter = struct {
         const elem_is_view = if (src_ty) |t| if (self.loopElem(t)) |e| e == elem_ty else false else false;
         // A binding that is the bytes of a String element walks the elements
         // by address and takes each one's bytes.
-        const string_bytes = try self.need(self.answer(.binds_string_bytes, sexp), sexp);
+        const string_bytes = (try self.stepOf(sexp)).each.string_bytes;
         const by_ptr = mode == .write or owned or string_bytes or
             (elem_ty != null and self.facts.types.get(elem_ty.?) == .read_view and !elem_is_view);
 
@@ -4655,25 +4655,26 @@ pub const Emitter = struct {
         const scrutinee = ir.Match.subject(sexp);
         // An enum in a box or behind a handle is switched on where it is.
         const scrut_ty = self.facts.node(.matchedType, sexp);
+        const answers = (try self.need(self.lowered.?.choiceOf(sexp), sexp)).answers;
         var info: MatchInfo = .{
             .match = sexp,
-            .mode = try self.need(self.answer(.match_mode, sexp), sexp),
+            .mode = answers.mode,
             .ty = scrut_ty,
             .error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false,
             // `match ?t` / `match !t` switch on the value viewed.
             .subject = viewedPlace(scrutinee),
             .boxed = scrut_ty != null and scrut_ty.? != self.typeOf(scrutinee).?,
-            .in_place = try self.need(self.answer(.matches_in_place, sexp), sexp),
+            .in_place = answers.in_place,
         };
-        const guarded = try self.need(self.answer(.match_selects, sexp), sexp);
+        const guarded = answers.selects;
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
         // subject is read again.
-        const rereads = try self.need(self.answer(.match_rereads, sexp), sexp);
+        const rereads = answers.rereads;
         // Evaluating the subject first, or holding the value it is a part
         // of (`Header.held`), takes a block around the match.
         const held = self.facts.node(.headerOf, sexp) == .held;
-        const block = if (try self.need(self.answer(.match_block, sexp), sexp)) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
+        const block = if (answers.block) try self.fmt("__rig_match_{d}", .{self.nextId()}) else "";
         var held_mark: ?usize = null;
         defer if (held_mark) |m| self.hoisted.shrinkRetainingCapacity(m);
         if (block.len > 0) {
@@ -5092,7 +5093,7 @@ pub const Emitter = struct {
 
     /// Whether the pattern of `arm` takes every value (`storage.catchesAll`).
     fn catchesAll(self: *Emitter, arm: Sexp) Error!bool {
-        return self.need(self.answer(.catch_all, arm), arm);
+        return (try self.need(self.lowered.?.armOf(arm), arm)).catch_all;
     }
 
     /// `x => ...` binding the whole value as `expr`, when the arm uses it
@@ -5116,7 +5117,7 @@ pub const Emitter = struct {
             const stored = try self.declare(payloadPointee(local, false), self.srcText(pattern));
             return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = try self.fmt(rt(.stringBytes) ++ "({s})", .{subj}), .field = "" }});
         }
-        const by_addr = try self.need(self.answer(.catch_all_by_address, pattern), pattern);
+        const by_addr = try self.byAddress(pattern);
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(pattern));
         const expr = if (by_addr) try self.fmt("&{s}", .{subj}) else subj;
         return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = expr, .field = "" }});
@@ -5520,7 +5521,7 @@ pub const Emitter = struct {
             const local = self.payloadLocal(b) orelse continue;
             // A write binds a pointer to each field, and a read one to a
             // field it views (`?F`) or reads in place.
-            const addr = try self.need(self.answer(.payload_by_address, b), b);
+            const addr = try self.byAddress(b);
             const bytes = self.bindsStringBytes(b, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(b));
             try self.line("const {s} = {s};", .{ stored.zig_name, try self.fieldRead(payload, f.name, addr, bytes, self.unwraps(pattern, i)) });
@@ -5688,7 +5689,7 @@ pub const Emitter = struct {
     fn emitCapture(self: *Emitter, name_node: Sexp) Error!void {
         const local = self.payloadLocal(name_node) orelse return;
         const t = local.ty orelse return self.unsupported(name_node, "a catch-all binding of unknown type");
-        const by_addr = try self.need(self.answer(.catch_all_by_address, name_node), name_node);
+        const by_addr = try self.byAddress(name_node);
         // A value captured by address is held as a pointer to it; a view
         // held as a pointer is that pointer.
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(name_node));
@@ -5717,11 +5718,11 @@ pub const Emitter = struct {
         var by_addr = writes;
         for (captures) |c| {
             if (self.usedPayloadLocal(c, used_in) == null) continue;
-            if (try self.need(self.answer(.payload_by_address, c), c)) by_addr = true;
+            if (try self.byAddress(c)) by_addr = true;
         }
         for (captures, fields, 0..) |c, f, i| {
             const local = self.usedPayloadLocal(c, used_in) orelse continue;
-            const addr = try self.need(self.answer(.payload_by_address, c), c);
+            const addr = try self.byAddress(c);
             const bytes = self.bindsStringBytes(c, local.ty);
             const stored = try self.declare(payloadPointee(local, addr and !bytes), self.srcText(c));
             if (payload == null) payload = try self.hiddenStorage(at.arm, .payload, if (by_addr) .pointer else .copy, .fresh);
@@ -10479,6 +10480,19 @@ pub const Emitter = struct {
     /// its step (`lower.Module.assignOf`).
     fn assignOf(self: *Emitter, set: Sexp) Error!facts.lir.Assign {
         return self.need(self.lowered.?.assignOf(set), set);
+    }
+
+    /// The step of assignment, declaration, loop, or `match` `node`
+    /// (`lower.Module.stepOf`), which keeps what lowering decided of it.
+    fn stepOf(self: *Emitter, node: Sexp) Error!*const facts.lir.Step {
+        return self.need(self.lowered.?.stepOf(node), node);
+    }
+
+    /// Whether binding `name` of a `match` arm's pattern holds the address
+    /// of what it binds (`lir.Var.by_address`).
+    fn byAddress(self: *Emitter, name: Sexp) Error!bool {
+        const sym = self.facts.node(.symbolOf, name) orelse return self.unsupported(name, "an unresolved binding");
+        return (try self.need(self.lowered.?.bindingOf(sym), name)).by_address;
     }
 
     /// The answer to `ask` about `node`, which lowering asks of every node

@@ -979,17 +979,17 @@ test "Facts reads every match decision the plan made" {
     var matches: usize = 0;
     for (nodes.items) |n| if (n.isKind(.match)) {
         matches += 1;
-        try std.testing.expectEqual(MatchMode.read, lowered.answer(n, .match_mode).?);
+        const answers = lowered.choiceOf(n).?.answers;
+        try std.testing.expectEqual(MatchMode.read, answers.mode);
         // A name's value is matched where it is.
-        try std.testing.expect(lowered.answer(n, .matches_in_place).?);
-        try std.testing.expect(lowered.answer(n, .match_block).?);
-        try std.testing.expect(lowered.answer(n, .match_rereads) != null);
+        try std.testing.expect(answers.in_place);
+        try std.testing.expect(answers.block);
         for (ir.Match.arms(n)) |arm| {
             const pattern = ir.Arm.pattern(arm);
-            if (pattern == .src) try std.testing.expect(lowered.answer(pattern, .catch_all_by_address) != null);
+            if (pattern == .src) try std.testing.expect(lowered.bindingOf(f.node(.symbolOf, pattern).?) != null);
             if (pattern.isKind(.variant_pattern)) for (f.node(.payloadBindings, pattern).?) |b| {
                 // `t` is a view of the String where it is; `n` a copy.
-                const by_addr = lowered.answer(b, .payload_by_address).?;
+                const by_addr = lowered.bindingOf(f.node(.symbolOf, b).?).?.by_address;
                 try std.testing.expectEqual(std.mem.eql(u8, source[b.src.pos..][0..b.src.len], "t"), by_addr);
             };
         }
@@ -1056,7 +1056,7 @@ test "Facts reads where each step runs and where each jump goes" {
     var ns: usize = 0;
     for (nodes.items) |n| {
         if (n.isKind(.@"while")) {
-            try std.testing.expectEqual(steps[ns], lowered.answer(n, .step_point).?);
+            try std.testing.expectEqual(steps[ns], lowered.stepOf(n).?.loop.step_point);
             ns += 1;
         }
         if (n.isKind(.@"break") or n.isKind(.@"continue")) {

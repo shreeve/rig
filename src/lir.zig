@@ -43,9 +43,11 @@ pub const Var = struct {
     parts: []const ?sema.ResourceKind = &.{},
     /// A binding a use may move out: its drop is armed behind a flag.
     flag: bool = false,
-    /// A payload binding of a `match` arm that holds the payload's
-    /// address (`storage.bindsByAddress`); emit's lowering decides it.
-    payload_by_address: bool = false,
+    /// A binding of a `match` arm's pattern, its catch-all name or a
+    /// payload, that holds the address of what it binds
+    /// (`storage.catchAllCaptured`, `storage.bindsByAddress`); emit's
+    /// lowering decides it.
+    by_address: bool = false,
 
     pub const Name = union(enum) {
         binding: sema.SymbolId,
@@ -522,11 +524,9 @@ pub const Region = struct {
     /// The var that is its value, for a header that ends its
     /// temporaries (`header_value`).
     label: ?VarId = null,
-    /// For a `match` arm, whether its pattern fits any subject, and
-    /// whether the name it binds then views the subject by address;
-    /// decided by emit's lowering.
+    /// For a `match` arm, whether its pattern fits any subject; decided
+    /// by emit's lowering.
     catch_all: bool = false,
-    catch_all_by_address: bool = false,
 
     pub const Kind = enum {
         /// A function's body.

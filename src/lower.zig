@@ -96,14 +96,17 @@ pub const Module = struct {
     /// emit's lowering alone: on no `lir.Func`, so the checkers' lowering
     /// carries nothing for it.
     at: sema.FastMap(u64, ExprAt) = .empty,
-    /// The step of each assignment and binding's declaration, by its
-    /// `set`'s key, where emit reads what lowering decided of it
-    /// (`assignOf`). Kept for emit's lowering alone.
-    sets: sema.FastMap(u64, StepAt) = .empty,
+    /// Where emit reads what lowering decided of a statement: the step
+    /// of each assignment and binding's declaration (by its `set`), loop,
+    /// and `match`, and the `match` of each value, by the node's key; the
+    /// region of each `match` arm, by the arm's. Kept for emit's lowering
+    /// alone (`assignOf`, `stepOf`, `choiceOf`, `armOf`).
+    steps: sema.FastMap(u64, *const lir.Step) = .empty,
+    choices: sema.FastMap(u64, *const lir.Expr.Choice) = .empty,
+    arms: sema.FastMap(u64, *const lir.Region) = .empty,
 
     pub const PlaceAt = struct { f: *const lir.Func, i: u32 };
     pub const ExprAt = struct { f: *const lir.Func, id: ExprId, answers: lir.Answers = .{} };
-    pub const StepAt = struct { f: *const lir.Func, r: RegionId, i: u32 };
 
     pub const VarKey = struct { node: u64, kind: StorageKind };
 
@@ -204,12 +207,29 @@ pub const Module = struct {
     /// What emit's lowering decided of assignment or declaration `set`,
     /// kept on its step; null for one no body lowered.
     pub fn assignOf(m: *const Module, set: Sexp) ?lir.Assign {
-        const at = m.sets.get(sema.decisionKeyOf(set) orelse return null) orelse return null;
-        return switch (at.f.regions.items[at.r].steps.items[at.i]) {
+        return switch ((m.stepOf(set) orelse return null).*) {
             .store => |x| x.answers,
             .bind => |x| x.answers,
-            else => unreachable,
+            else => null,
         };
+    }
+
+    /// The step of assignment, declaration, loop, or `match` `node`.
+    pub fn stepOf(m: *const Module, node: Sexp) ?*const lir.Step {
+        return m.steps.get(sema.decisionKeyOf(node) orelse return null);
+    }
+
+    /// The `lir.Expr.Choice` of `match` `node`, a statement's or a
+    /// value's.
+    pub fn choiceOf(m: *const Module, node: Sexp) ?*const lir.Expr.Choice {
+        const key = sema.decisionKeyOf(node) orelse return null;
+        if (m.steps.get(key)) |s| return if (s.* == .match) &s.match else null;
+        return m.choices.get(key);
+    }
+
+    /// The region of `match` arm `arm`.
+    pub fn armOf(m: *const Module, arm: Sexp) ?*const lir.Region {
+        return m.arms.get(sema.decisionKeyOf(arm) orelse return null);
     }
 
     /// The coercions of `node` made where it is written: at its place,
@@ -474,7 +494,23 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
             },
             .hidden => |k| if (sema.decisionKeyOf(v.node)) |key| try m.vars.put(a, .{ .node = key, .kind = k }, v),
         };
-        for (f.regions.items) |r| if (r.kind == .call) try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
+        for (f.regions.items) |*r| {
+            if (r.kind == .call) try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
+            if (opts.checked) continue;
+            if (r.kind == .arm) try m.arms.put(a, sema.decisionKeyOf(r.node).?, r);
+            for (r.steps.items) |*s| if (sema.decisionKeyOf(switch (s.*) {
+                .store => |x| x.node,
+                .bind => |x| x.set,
+                .loop => |x| x.node,
+                .each => |x| x.node,
+                .match => |x| x.node,
+                else => .nil,
+            })) |key| try m.steps.put(a, key, s);
+        }
+        if (!opts.checked) for (f.exprs.items) |*e| switch (e.*) {
+            .choice => |*c| try m.choices.put(a, sema.decisionKeyOf(c.node).?, c),
+            else => {},
+        };
         if (enabled) for (f.exprs.items) |e| switch (e) {
             .op => |x| if (x.kind == .call) try m.calls.put(a, sema.decisionKeyOf(x.node).?, &f.calls.items[x.aux]),
             else => {},
@@ -1162,17 +1198,17 @@ const Lowerer = struct {
         if (kind.operator() != null) {
             try l.openAssign(set, order, r);
             if (storage.compoundCall(ctx, set) != null and target != .src) try l.hoistVar(target, .slot, .pointer, .assignment, null, r);
-            return l.assignStep(r, set, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
+            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
         }
         if (target != .src) {
             if (kind == .default) try l.placeAssign(set, order, r);
-            return l.assignStep(r, set, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
+            return l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
         }
         if (std.mem.eql(u8, rig.leafText(ctx.source, target.src), "_")) {
             try l.holdVar(value, .discard, .owned, .statement, storage.dropOf(ctx, value), l.stmt_region);
             return l.step(r, .{ .eval = value_e });
         }
-        if (declared) |v| return l.assignStep(r, set, .{ .bind = .{ .v = v, .value = value_e, .set = set, .answers = l.assignAnswers(set, order, true) } });
+        if (declared) |v| return l.step(r, .{ .bind = .{ .v = v, .value = value_e, .set = set, .answers = l.assignAnswers(set, order, true) } });
         // A reassigned resource's new value is made before the old one is
         // dropped, as any store whose value can act is.
         if (sym != null and (order.drops_old or storage.storesAfterValue(ctx, set))) {
@@ -1180,15 +1216,7 @@ const Lowerer = struct {
             value_e = l.exprOf(value) orelse value_e;
             if (enabled) try l.role(value_e, value, sink);
         }
-        try l.assignStep(r, set, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
-    }
-
-    /// Step `s` of assignment or declaration `set`, in region `r`, where
-    /// emit's lowering records it (`Module.assignOf`).
-    fn assignStep(l: *Lowerer, r: RegionId, set: Sexp, s: lir.Step) Error!void {
-        try l.step(r, s);
-        if (l.opts.checked) return;
-        try l.module.sets.put(l.ma, sema.decisionKeyOf(set).?, .{ .f = l.f, .r = r, .i = @intCast(l.region(r).steps.items.len - 1) });
+        try l.step(r, .{ .store = .{ .node = set, .target = target_e, .value = value_e, .answers = l.assignAnswers(set, order, false) } });
     }
 
     /// What emit's lowering decides of assignment or declaration `set`,
@@ -1948,11 +1976,11 @@ const Lowerer = struct {
             arm_r.catch_all = storage.catchesAll(l.ctx, a);
             const p = ir.Arm.pattern(a);
             if (arm_r.catch_all) {
-                if (l.ctx.symbolOf(p) != null) arm_r.catch_all_by_address = storage.catchAllCaptured(l.ctx, p, m);
+                if (l.bindings.get(ctx.symbolOf(p) orelse continue)) |v| l.f.vars.items[v].by_address = storage.catchAllCaptured(ctx, p, m);
             } else for (storage.prongsOf(ctx, &p)) |prong| if (prong.isKind(.variant_pattern)) {
                 for (ctx.payloadBindings(prong) orelse continue) |b| if (b != .nil) {
                     const v = l.bindings.get(ctx.symbolOf(b) orelse continue) orelse continue;
-                    l.f.vars.items[v].payload_by_address = storage.bindsByAddress(ctx, b, m);
+                    l.f.vars.items[v].by_address = storage.bindsByAddress(ctx, b, m);
                 };
             };
         }
@@ -2973,18 +3001,8 @@ pub const Ask = enum(u8) {
     prints_by_address,
     lane_checked,
     fills_in_place,
-    step_point,
-    fold,
     binds_string_bytes,
     through_write,
-    match_mode,
-    matches_in_place,
-    match_rereads,
-    match_block,
-    match_selects,
-    catch_all,
-    catch_all_by_address,
-    payload_by_address,
     hoists_results,
 };
 
@@ -2997,10 +3015,7 @@ pub fn Answer(comptime ask: Ask) type {
         .hands => sema.Hands.Kind,
         .self_hold => ?storage.SelfHold,
         .argument_hold => storage.ArgumentHold,
-        .step_point => storage.StepPoint,
-        .fold => ?storage.Fold,
         .through_write => ?storage.ThroughWrite,
-        .match_mode => storage.MatchMode,
         else => bool,
     };
 }
@@ -3025,47 +3040,9 @@ pub fn answerAll(m: *Module, ctx: *const SemContext, e: Sexp) !void {
     if (enabled) checkAnswerFields(m);
 }
 
-/// That each answer emit's lowering keeps on a step, an arm, a `match`,
-/// an expression, a call, or a binding of `m` is the one `answerAll`
-/// gives of its node.
+/// That each answer emit's lowering keeps of a node of `m` it noted
+/// (`Module.at`) is the one `answerAll` gives.
 fn checkAnswerFields(m: *const Module) void {
-    const C = struct {
-        fn same(comptime what: []const u8, node: Sexp, kept: anytype, asked: anytype) void {
-            if (std.meta.eql(kept, asked)) return;
-            std.debug.panic("internal error: lir: emit's lowering keeps {s} {any} of node {d}, which answerAll answers {any}", .{ what, kept, sema.decisionKeyOf(node) orelse 0, asked });
-        }
-        fn choice(mm: *const Module, f: *const lir.Func, c: lir.Expr.Choice) void {
-            same("match_mode", c.node, c.answers.mode, mm.answer(c.node, .match_mode).?);
-            same("matches_in_place", c.node, c.answers.in_place, mm.answer(c.node, .matches_in_place).?);
-            same("match_rereads", c.node, c.answers.rereads, mm.answer(c.node, .match_rereads).?);
-            same("match_block", c.node, c.answers.block, mm.answer(c.node, .match_block).?);
-            same("match_selects", c.node, c.answers.selects, mm.answer(c.node, .match_selects).?);
-            for (c.arms) |ar| {
-                const r = f.regions.items[ar];
-                same("catch_all", r.node, r.catch_all, mm.answer(r.node, .catch_all).?);
-                same("catch_all_by_address", r.node, r.catch_all_by_address, mm.answer(ir.Arm.pattern(r.node), .catch_all_by_address) orelse false);
-            }
-        }
-    };
-    for (m.owners) |o| {
-        const f = o.func orelse continue;
-        for (f.exprs.items) |e| switch (e) {
-            .choice => |c| C.choice(m, f, c),
-            else => {},
-        };
-        for (f.regions.items) |r| for (r.steps.items) |st| switch (st) {
-            .loop => |x| C.same("step_point", x.node, x.step_point, m.answer(x.node, .step_point).?),
-            .each => |x| {
-                C.same("fold", x.node, x.fold, m.answer(x.node, .fold).?);
-                C.same("binds_string_bytes", x.node, x.string_bytes, m.answer(x.node, .binds_string_bytes).?);
-            },
-            .match => |c| C.choice(m, f, c),
-            else => {},
-        };
-        for (f.vars.items) |v| if (v.name == .binding) {
-            C.same("payload_by_address", v.node, v.payload_by_address, m.answer(v.node, .payload_by_address) orelse false);
-        };
-    }
     var it = m.at.iterator();
     while (it.next()) |en| {
         const at = en.value_ptr.*;
@@ -3075,10 +3052,11 @@ fn checkAnswerFields(m: *const Module) void {
         const default: lir.Answers = .{};
         inline for (comptime std.meta.fieldNames(lir.Answers)) |name| {
             const ask = @field(Ask, name);
-            // A loop's answers are its step's.
-            const step = n.isKind(.@"for") and ask == .binds_string_bytes;
             // A question not asked of the node keeps its default.
-            if (!step) C.same(name, n, @field(kept, name), if (m.answer(n, ask)) |x| x else @field(default, name));
+            const asked = if (m.answer(n, ask)) |x| x else @field(default, name);
+            if (!std.meta.eql(@field(kept, name), asked)) {
+                std.debug.panic("internal error: lir: emit's lowering keeps {s} {any} of node {d}, which answerAll answers {any}", .{ name, @field(kept, name), en.key_ptr.*, asked });
+            }
         }
     }
 }
@@ -3141,35 +3119,11 @@ fn answerNode(m: *Module, ctx: *const SemContext, e: Sexp) !void {
         },
         .box => try x.put(e, .fills_in_place, storage.fillsInPlace(ctx, e)),
         .@"+", .@"-", .@"*", .neg => try x.put(e, .lane_checked, storage.laneChecked(ctx, e)),
-        .@"while" => try x.put(e, .step_point, storage.stepPoint(ctx, e)),
-        .@"for" => {
-            try x.put(e, .fold, storage.fold(ctx, e));
-            try x.put(e, .binds_string_bytes, storage.bindsStringBytes(ctx, e));
-        },
         .as => {
             try x.put(e, .binds_string_bytes, storage.bindsStringBytes(ctx, e));
             try x.put(e, .through_write, storage.throughWrite(ctx, e));
         },
         .results => try x.put(e, .hoists_results, storage.hoistsResults(ctx, e)),
-        .match => {
-            try x.put(e, .match_mode, storage.matchMode(ctx, e));
-            try x.put(e, .matches_in_place, storage.matchesInPlace(ctx, e));
-            try x.put(e, .match_rereads, storage.matchRereads(ctx, e));
-            try x.put(e, .match_block, storage.matchBlock(ctx, e));
-            try x.put(e, .match_selects, storage.matchSelects(ctx, e));
-            for (ir.Match.arms(e)) |arm| {
-                const pattern = ir.Arm.pattern(arm);
-                const all = storage.catchesAll(ctx, arm);
-                try x.put(arm, .catch_all, all);
-                if (all) {
-                    if (ctx.symbolOf(pattern) != null) try x.put(pattern, .catch_all_by_address, storage.catchAllCaptured(ctx, pattern, e));
-                } else for (storage.prongsOf(ctx, &pattern)) |prong| if (prong.isKind(.variant_pattern)) {
-                    for (ctx.payloadBindings(prong) orelse continue) |b| if (b != .nil) {
-                        try x.put(b, .payload_by_address, storage.bindsByAddress(ctx, b, e));
-                    };
-                };
-            }
-        },
         else => {},
     }
 }
