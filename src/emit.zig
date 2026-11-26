@@ -8682,7 +8682,7 @@ pub const Emitter = struct {
         } else null;
         try self.w.writeAll(rt(.shared) ++ "(");
         // A constructor call spells its own type: `rig.shared(Node{ ... })`.
-        const typed = payload_ty != null and self.isConstructorCall(inner) and
+        const typed = payload_ty != null and (try self.isConstructorCall(inner)) and
             if (self.typeOf(inner)) |inner_ty| inner_ty == payload_ty.? else false;
         const cast = payload_ty != null and !typed;
         if (cast) try self.writeAsOpen(payload_ty.?);
@@ -10451,7 +10451,7 @@ pub const Emitter = struct {
         const args = ir.Call.args(call);
         const params = self.facts.node(.argParams, call);
         const slots = self.facts.node(.callSlotsOf, call);
-        const fields = self.buildsValue(call);
+        const fields = try self.buildsValue(call);
         if (try self.consumedTemporary(call)) |recv| {
             try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .self, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, &.{}, 0, false);
         } else try self.hoistSelf(call, id);
@@ -10548,20 +10548,17 @@ pub const Emitter = struct {
 
     /// A call whose arguments become the fields of the value it builds:
     /// a constructor or a variant.
-    fn buildsValue(self: *Emitter, call: Sexp) bool {
-        const callee = self.facts.node(.calleeOf, call);
-        if (callee.isKind(.enum_lit)) return true;
-        if (callee.isKind(.member)) return self.facts.node(.typeOf, callee) == null;
-        return self.isConstructorCall(call);
+    fn buildsValue(self: *Emitter, call: Sexp) Error!bool {
+        return switch ((try self.callRecord(call)).kind) {
+            .variant, .error_member, .variant_member, .foreign_object, .instance, .constructor => true,
+            else => false,
+        };
     }
 
     /// A call `emitCall` lowers with `emitConstructor`, whose Zig spells
     /// the value's type.
-    fn isConstructorCall(self: *Emitter, e: Sexp) bool {
-        if (!e.isKind(.call) or self.facts.node(.calleeOf, e) != .src) return false;
-        if (self.localOf(self.facts.node(.calleeOf, e))) |local| if (local.stack_closure) return false;
-        const sym_id = self.facts.node(.symbolOf, self.facts.node(.calleeOf, e)) orelse return false;
-        return self.facts.refOf(sym_id) != self.facts.builtins.list and self.facts.refOf(sym_id) != self.facts.builtins.signal and self.facts.refOf(sym_id) != self.facts.builtins.box and self.facts.layout(.isTypeSym, sym_id);
+    fn isConstructorCall(self: *Emitter, e: Sexp) Error!bool {
+        return e.isKind(.call) and (try self.callRecord(e)).kind == .constructor;
     }
 
     /// Constructor call `Name(field: v, ...)`: a struct literal typed by
