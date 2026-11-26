@@ -47,7 +47,10 @@ pub const enabled = @import("build_options").self_check;
 pub const Module = struct {
     arena: std.heap.ArenaAllocator,
     /// Each frame owner of the module (`SemContext.frame_owners`), by its
-    /// index there, then each compile-time function.
+    /// index there, then each compile-time function. Lowered for the
+    /// checkers (`Options.checked`), then the closures of compile-time
+    /// functions, and last the module itself, whose body is its
+    /// constants and what its types declare by value.
     owners: []Owner = &.{},
     /// The index of each owner, by its root's key.
     roots: sema.FastMap(u64, u32) = .empty,
@@ -147,6 +150,12 @@ pub const Options = struct {
     /// Every object's optional is held as a tagged struct, so each lift
     /// into one is made (`RIG_STRICT_OPTIONALS`, `sema.optionalRouted`).
     strict_optionals: bool = false,
+    /// Lowered for the checkers, which walk every body: the module's
+    /// constants are a compile-time body of their own, the closures of
+    /// compile-time functions are owners, and the constructs emit's
+    /// lowering does not cover (`Lowerer.uncovered`) are lowered all the
+    /// same, since emit never reads this lowering.
+    checked: bool = false,
 };
 
 /// Lower module `tree`, which sema checked, into `ctx.lowered`: first
@@ -160,7 +169,7 @@ pub fn lowerChecked(ctx: *SemContext, tree: Sexp) !void {
     ctx.moved = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
     try markMoved(ctx, tree);
     for (ctx.diagnostics.items) |d| if (d.severity == .@"error" and !d.lint) return;
-    ctx.lowered = try lowerModule(ctx.allocator, ctx, tree, .{});
+    ctx.lowered = try lowerModule(ctx.allocator, ctx, tree, .{ .checked = true });
 }
 
 /// Record the symbols a name reads after its declaration (a later
@@ -270,15 +279,15 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
     // Each frame owner, then each compile-time function, whose body the
     // ownership checker walks though it never runs.
     const decls: []const Sexp = if (tree.isKind(.module)) ir.Module.decls(tree) else &.{};
-    var cts: usize = 0;
-    for (decls) |d| cts += @intFromBool(rig.isCtFun(d));
-    m.owners = try a.alloc(Module.Owner, ctx.frame_owners.items.len + cts);
-    for (ctx.frame_owners.items, m.owners[0..ctx.frame_owners.items.len]) |fo, *o| o.* = .{ .root = fo.root, .parent = fo.parent };
-    var next = ctx.frame_owners.items.len;
-    for (decls) |d| if (rig.isCtFun(d)) {
-        m.owners[next] = .{ .root = rig.unpub(d), .parent = null, .ct = true };
-        next += 1;
-    };
+    var owners: std.ArrayList(Module.Owner) = .empty;
+    for (ctx.frame_owners.items) |fo| try owners.append(a, .{ .root = fo.root, .parent = fo.parent });
+    for (decls) |d| if (rig.isCtFun(d)) try owners.append(a, .{ .root = rig.unpub(d), .parent = null, .ct = true });
+    if (opts.checked) {
+        const n = owners.items.len;
+        for (0..n) |i| if (owners.items[i].ct) try ctClosures(a, &owners, ir.get(owners.items[i].root, .body), @intCast(i));
+        if (tree.isKind(.module)) try owners.append(a, .{ .root = tree, .parent = null, .ct = true });
+    }
+    m.owners = owners.items;
     for (m.owners, 0..) |o, i| try m.roots.put(a, sema.decisionKeyOf(o.root).?, @intCast(i));
     var l: Lowerer = .{ .a = a, .gpa = gpa, .ctx = ctx, .module = &m, .opts = opts };
     defer l.deinit();
@@ -295,7 +304,10 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
         o.skip = if (o.parent) |p| m.owners[p].skip else null;
     };
     // A binding's flag is set by any use in the module that may move it.
+    // The module's constants are the checkers' alone: what emit reads
+    // stays as emit's lowering makes it.
     for (m.owners) |o| if (o.func) |f| {
+        if (o.root.isKind(.module)) continue;
         for (f.vars.items) |*v| switch (v.name) {
             .binding => |s| {
                 v.flag = ctx.mayMove(s);
@@ -306,6 +318,19 @@ pub fn lowerModule(gpa: std.mem.Allocator, ctx: *SemContext, tree: Sexp, opts: O
         for (f.regions.items) |r| if (r.kind == .call) try m.holders.put(a, sema.decisionKeyOf(r.node).?, {});
     };
     return m;
+}
+
+/// Each closure in `e`, the body of compile-time owner `parent` or a
+/// closure in it, as an owner of `owners`: no frame owner, since it
+/// never runs when the program does, but a body the checkers walk.
+fn ctClosures(a: std.mem.Allocator, owners: *std.ArrayList(Module.Owner), e: Sexp, parent: u32) !void {
+    if (e != .list) return;
+    var p = parent;
+    if (e.isKind(.lambda)) {
+        try owners.append(a, .{ .root = e, .parent = parent, .ct = true });
+        p = @intCast(owners.items.len - 1);
+    }
+    for (e.items()) |c| try ctClosures(a, owners, c, p);
 }
 
 /// Write module `tree`'s LIR (`rig check --facts=lir`), lowered again:
@@ -496,6 +521,12 @@ const Lowerer = struct {
         l.block = f.body;
         l.stmt_region = f.body;
         l.results = null;
+        if (decl.isKind(.module)) {
+            try l.constants(decl, f.body);
+            try l.seal(f);
+            l.module.owners[oi].func = f;
+            return;
+        }
         if (decl.isKind(.fun) or decl.isKind(.sub)) {
             if (storage.fnType(l.ctx, storage.typeOf(l.ctx, ir.get(decl, .name)))) |ft| l.results = sema.resultsOf(l.ctx, ft.returns);
         }
@@ -508,7 +539,7 @@ const Lowerer = struct {
                 // one is not lowered.
                 const before = f.vars.items.len;
                 _ = try l.expr(ir.get(par, .value));
-                if (f.vars.items.len != before) return l.uncovered(par, "default values");
+                if (f.vars.items.len != before and !l.opts.checked) return l.uncovered(par, "default values");
             }
         };
         const body = ir.get(decl, .body);
@@ -517,6 +548,23 @@ const Lowerer = struct {
         try l.heldHeaders(decl, body);
         try l.seal(f);
         l.module.owners[oi].func = f;
+    }
+
+    /// The statements of module `decl` that no function holds, into
+    /// region `r`, each its own: its constants, and what its types
+    /// declare by value, as the ownership checker walks them
+    /// (`walkDecl`).
+    fn constants(l: *Lowerer, decl: Sexp, r: RegionId) Error!void {
+        switch (decl.kind() orelse return) {
+            .module => {
+                for (ir.Module.decls(decl)) |d| if (rig.isModuleConst(d)) try l.constants(d, r);
+                for (ir.Module.decls(decl)) |d| if (!rig.isModuleConst(d)) try l.constants(d, r);
+            },
+            .@"struct", .@"enum", .errors, .generic_struct => for (ir.rest(decl, .members)) |c| try l.constants(c, r),
+            .@"pub" => try l.constants(ir.Pub.decl(decl), r),
+            .fun, .sub, .drop_decl, .@"test", .api, .api_add, .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
+            else => try l.stmt(decl, r),
+        }
     }
 
     /// Copy body `f`'s expressions to the arena at their final size, and
@@ -918,7 +966,7 @@ const Lowerer = struct {
                 l.as_match_scope = l.guarded;
                 return l.op(e);
             },
-            .matches => return l.uncovered(e, "match"),
+            .matches => return if (l.opts.checked) l.op(e) else l.uncovered(e, "match"),
             .lambda => return l.closure(e),
             .block => {
                 const b = try l.f.addRegion(l.a, e, .block);
