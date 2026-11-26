@@ -13,6 +13,7 @@ const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
 const live = @import("live.zig");
 const transfer = @import("transfer.zig");
+const lowered = @import("lowered.zig");
 const rules = @import("rules.zig");
 const notes = @import("notes.zig");
 const AfterValue = state.AfterValue;
@@ -350,7 +351,7 @@ pub fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
     const v: Value = if (value == .nil) .{} else if (moved) |id|
         (if (self.vars.items[id].payload_view) try transfer.movePayload(self, id, value.src.pos, "move") else try transfer.moveVar(self, id, value.src.pos, .move))
     else
-        try transfer.walkConsumedE(self, transfer.jumpValue(self, node, value), .brk);
+        try transfer.walkConsumedE(self, lowered.stepValue(self, node, value), .brk);
     self.value_reads = false;
     const t = target orelse {
         // The type checker resolves every jump of a module it accepts.
@@ -381,9 +382,19 @@ pub fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
     self.reachable = false;
 }
 
+/// Whether the walk of block statements `stmts` stops before statement
+/// `i`, which no path reaches; either way the statements it does not
+/// walk are checked as `checkAfterJump` and `checkRestAfterJump` check them.
+pub fn unreached(self: *Checker, stmts: []const Sexp, i: usize) Error!bool {
+    try checkAfterJump(self, stmts, i);
+    if (self.reachable) return false;
+    try checkRestAfterJump(self, stmts, i);
+    return true;
+}
+
 /// Code right after `return`, `break`, `continue`, or `panic` in the
 /// same block never runs; Zig rejects it, and so does Rig.
-pub fn checkAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void {
+fn checkAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void {
     if (i == 0) return;
     const prev = stmts[i - 1];
     if (!rig.leaves(prev)) return;
@@ -395,7 +406,7 @@ pub fn checkAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void 
 /// already). Emit still writes them, so a statement right after a
 /// jump among them, or in a block inside one, is reported as
 /// `checkAfterJump` reports it.
-pub fn checkRestAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void {
+fn checkRestAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void {
     if (i > 0 and rig.leaves(stmts[i - 1])) return;
     for (stmts[i..], i..) |s, j| {
         if (j > i) try checkAfterJump(self, stmts, j);

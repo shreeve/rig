@@ -934,7 +934,7 @@ pub const Checker = struct {
     /// view a var declared in it, and what else `v` views is in use while
     /// the scope's defers run (`ExitTo.result`). Gives what `v` keeps.
     pub fn leaveScope(self: *Checker, v: Value) Error!Value {
-        const kept = try rules.checkValueEscapesScope(self, v);
+        const kept = if (self.reachable) try rules.escapeVarsFrom(self, v, self.scopes.items[self.scopes.items.len - 1].start) else Value{};
         try self.popScopeWith(try self.withDerefs(kept, v));
         return kept;
     }
