@@ -464,6 +464,13 @@ serve no HTTP.
 
 ### Added
 
+- **`RIG_UNIT_LAUNCHER` runs each unit's compile under a command.** Set
+  to a command, split on spaces, it goes before each unit's `zig
+  build-obj` in a split build (`--units=N`, N above 1), so `cpuq run --`
+  runs `cpuq run -- zig build-obj ...`, and a pool that gives each
+  process one CPU gives one to each unit. The link, and a build of one
+  unit, run Zig directly; unset or empty, a build runs as before
+  ([INTERNALS "Split builds"](docs/internals/INTERNALS.md#split-builds)).
 - **Groups, spreads, object update, and the `name:` shorthand**
   ([SPEC "Functions"](SPEC.md#functions), [design/options.md](docs/design/options.md),
   sections 2 to 4). `..net: Net` among a function's parameters makes an

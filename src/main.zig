@@ -175,6 +175,12 @@ const usage =
     \\                   of everything the build reads, and build
     \\                   there, in place of RIG_OUT_DIR (or batch
     \\                   build's <dir>)
+    \\  RIG_UNIT_LAUNCHER
+    \\                   A command, split on spaces, that a split build
+    \\                   (--units=N, N > 1) runs each unit's Zig compile
+    \\                   under: `cpuq run --` runs `cpuq run -- zig
+    \\                   build-obj ...`. The link, and a build of one
+    \\                   unit, run Zig directly
     \\  RIG_RUN_STARTED  A file run and test delete at once, and create
     \\                   only once the program has started, which proves
     \\                   it ran. Any failure before the program starts
@@ -317,6 +323,17 @@ const Env = struct {
 
     fn zig(env: Env) []const u8 {
         return env.get("ZIG") orelse "zig";
+    }
+
+    /// The command `RIG_UNIT_LAUNCHER` names, split on spaces, which a
+    /// split build runs each unit's `zig build-obj` under
+    /// (`buildSplit`): empty when it is unset or empty.
+    fn unitLauncher(env: Env, allocator: std.mem.Allocator) ![]const []const u8 {
+        const value = env.get("RIG_UNIT_LAUNCHER") orelse return &.{};
+        var words: std.ArrayList([]const u8) = .empty;
+        var it = std.mem.tokenizeScalar(u8, value, ' ');
+        while (it.next()) |word| try words.append(allocator, word);
+        return words.items;
     }
 
     fn leakTrace(env: Env) bool {
@@ -1204,8 +1221,10 @@ fn splitCount(opts: Options, graph: *const modules.ModuleGraph) u16 {
 
 /// Build a split package (`splitFiles`) into the executable `exe`: every
 /// unit at once, each a `zig build-obj` with a Zig cache of its own, then
-/// the entry linked with their objects. An executable kept from the same
-/// package is copied instead (`keptBuild`). A unit Zig fails shows its
+/// the entry linked with their objects, each unit's compile run under
+/// `RIG_UNIT_LAUNCHER` when it is set (`Env.unitLauncher`) and the link
+/// not. An executable kept from the same package is copied instead
+/// (`keptBuild`). A unit Zig fails shows its
 /// errors, the first that failed; each unit's are in the package.
 fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, dir: []const u8, zig_cache: []const u8, pkg: *const Package, exe: []const u8) !void {
     const zig = env.zig();
@@ -1227,6 +1246,7 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return if (pkg.writesDsym()) keepDsym(allocator, io, exe);
 
     Ending.watch();
+    const launcher = try env.unitLauncher(allocator);
     const children = try allocator.alloc(std.process.Child, pkg.units);
     const logs = try allocator.alloc([]const u8, pkg.units);
     for (children, logs, objects, 0..) |*child, *log, object, k| {
@@ -1234,9 +1254,12 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
         const file = try std.Io.Dir.cwd().createFile(io, log.*, .{});
         defer file.close(io);
         const unit_cache = try std.fs.path.join(allocator, &.{ zig_cache, try allocator.print("u{d}", .{k}) });
-        const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", unit_cache, try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}.zig", .{k}) }), try allocator.print("-femit-bin={s}", .{object}) }, libc });
+        const argv = try std.mem.concat(allocator, []const u8, &.{ launcher, &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", unit_cache, try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}.zig", .{k}) }), try allocator.print("-femit-bin={s}", .{object}) }, libc });
         child.* = std.process.spawn(io, .{ .argv = argv, .stdin = .ignore, .stdout = .{ .file = file }, .stderr = .{ .file = file } }) catch |err| switch (err) {
-            error.FileNotFound => fatal("error: cannot run `{s}`: install Zig 0.17 and put it on PATH, or set ZIG", .{zig}),
+            error.FileNotFound => if (launcher.len > 0)
+                fatal("error: cannot run `{s}`, the command RIG_UNIT_LAUNCHER names", .{launcher[0]})
+            else
+                fatal("error: cannot run `{s}`: install Zig 0.17 and put it on PATH, or set ZIG", .{zig}),
             else => return err,
         };
     }
