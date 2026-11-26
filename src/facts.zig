@@ -944,6 +944,10 @@ pub const Facts = struct {
     pub fn viewHeldAsPointer(f: Facts, ty: TypeId) bool {
         return sema.viewHeldAsPointer(f.c(), ty);
     }
+    /// Whether dropping a `ty` releases anything (`sema.typeHasDropGlue`).
+    pub fn hasDropGlue(f: Facts, ty: TypeId) bool {
+        return sema.typeHasDropGlue(f.c(), ty);
+    }
     /// Whether a read view of `inner` is a copy, not an address
     /// (`sema.viewByValue`).
     pub fn viewByValue(f: Facts, inner: TypeId) bool {

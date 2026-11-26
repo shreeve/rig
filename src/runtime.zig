@@ -878,7 +878,7 @@ pub fn Opt(comptime T: type) type {
     if (comptime @typeInfo(T) == .@"struct" and (@hasDecl(T, "__rig_name") or @hasDecl(T, "__rig_niche"))) {
         if (comptime nicheOf(T)) |n| return Niche(T, n);
         // A 64-bit word keeps the four-byte alignment its halves had.
-        if (comptime @hasDecl(T, "__rig_word_sized") and @typeInfo(T).@"struct".layout == .@"packed" and @alignOf(T) > 4) return WordOpt(T);
+        if (comptime wordHeld(T)) return WordOpt(T);
     }
     // A box's (`^T?`) and a weak handle's (`~T?`) hold `none` as the
     // null address, a pointer's size, as a `*T?` does; every optional of
@@ -1038,10 +1038,10 @@ fn Strict(comptime T: type) type {
 
 /// The alignment a container holds a `T` at where it may hold it at four
 /// bytes: an object held as one 64-bit word (a packed struct of a
-/// word-sized object, `__rig_word_sized`) keeps the four-byte alignment of
+/// word-sized object, `Repr.word_sized`) keeps the four-byte alignment of
 /// the two halves it holds; any other `T`, its own.
 pub fn wordAlign(comptime T: type) comptime_int {
-    if (@typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_word_sized") and @typeInfo(T).@"struct".layout == .@"packed" and @alignOf(T) > 4) return 4;
+    if (comptime wordHeld(T)) return 4;
     return @alignOf(T);
 }
 
@@ -1053,7 +1053,7 @@ pub fn WritePtr(comptime T: type) type {
     return if (wordAlign(T) == @alignOf(T)) *T else *align(4) T;
 }
 
-/// `T?` for an object held as one 64-bit word (`__rig_word_sized`, a packed
+/// `T?` for an object held as one 64-bit word (`Repr.word_sized`, a packed
 /// struct) with no niche: the word at four-byte alignment beside a flag,
 /// twelve bytes, as the optional of the two 32-bit halves it holds would
 /// be. No write view reaches the word inside one
@@ -1253,6 +1253,41 @@ fn isShared(comptime T: type) bool {
     };
 }
 
+/// The compiler's classification of a type the program declares, which
+/// the emitted type carries as `__rig_repr` (`Emitter.emitRepr`): the
+/// runtime's mirrors of the compiler's classifiers (`needsDrop`,
+/// `ReadView`, `table.fillsWithZeros`, `Opt`) read it rather than walk the
+/// type again. A generic type's instances differ in what drops and how a
+/// read view holds them, so its marker leaves those null, and the mirrors
+/// walk each instance; Zig's own types and the runtime's carry none.
+pub const Repr = struct {
+    /// Dropping one releases something (`sema.typeHasDropGlue`).
+    drops: ?bool = null,
+    /// A read view of one is a copy (`sema.viewByValue`).
+    copied: ?bool = null,
+    /// `T()` is all zero bytes and owns nothing, so a table of them is
+    /// reserved as zeros (`sema.tableFill`).
+    zeros: bool = false,
+    /// A word-sized object (`sema.wordBits`): its read views copy it, and
+    /// held as one word it keeps its halves' alignment.
+    word_sized: bool = false,
+};
+
+/// The `Repr` `T` carries, or null for a type that carries none.
+pub fn reprOf(comptime T: type) ?Repr {
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"enum", .@"union" => if (@hasDecl(T, "__rig_repr")) T.__rig_repr else null,
+        else => null,
+    };
+}
+
+/// Whether `T` is an object held as one 64-bit word that keeps the
+/// four-byte alignment its halves had (`Repr.word_sized`).
+fn wordHeld(comptime T: type) bool {
+    const r = reprOf(T) orelse return false;
+    return r.word_sized and @typeInfo(T).@"struct".layout == .@"packed" and @alignOf(T) > 4;
+}
+
 /// True when dropping a `T` releases anything. A type owns resources
 /// when it declares `__rig_drop`, is a strong handle, or (for structs,
 /// tagged unions, arrays, and optionals) contains something that does.
@@ -1262,6 +1297,7 @@ fn isShared(comptime T: type) bool {
 /// function does (`eval_quota`).
 pub fn needsDrop(comptime T: type) bool {
     @setEvalBranchQuota(eval_quota);
+    if (comptime reprOf(T)) |r| if (r.drops) |d| return d;
     if (comptime isOptStruct(T)) return needsDrop(Payload(T));
     return switch (@typeInfo(T)) {
         .pointer => isShared(T),
@@ -1754,15 +1790,14 @@ fn ownsApi(comptime T: type, comptime decl: []const u8) bool {
 }
 
 fn copiedByReadView(comptime T: type) bool {
+    if (comptime reprOf(T)) |r| if (r.copied) |c| return c;
     if (comptime isOptStruct(T)) return copiedByReadView(Payload(T));
     return switch (@typeInfo(T)) {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer, .vector => true,
         .optional => |o| copiedByReadView(o.child),
         // A read view of an API object is a view, as `sema.copiedByReadView`
-        // says: its two words are passed as they are. A word-sized object
-        // (`sema.wordBits`, which emit marks `__rig_word_sized`) is copied, as a
-        // number is.
-        .@"struct" => isWideMask(T) or isReadApiView(T) or @hasDecl(T, "__rig_word_sized"),
+        // says: its two words are passed as they are.
+        .@"struct" => isWideMask(T) or isReadApiView(T),
         else => false,
     };
 }
@@ -3229,6 +3264,10 @@ pub fn Cell(comptime T: type) type {
         pub fn __rig_drop(self: *Self) void {
             dropElement(T, &self.value);
         }
+
+        /// It drops what its value drops (`sema.typeHasDropGlue`): a
+        /// Cell of plain data, whose drop does nothing, drops nothing.
+        pub const __rig_repr: Repr = .{ .drops = needsDrop(T) };
 
         // A `Cell(List(E))` answers its List's members. No user code runs
         // while the List is in use: `push`, `pop`, `len`, and the element

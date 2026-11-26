@@ -2120,8 +2120,8 @@ bits exactly, which names no none, has no `drop`, and gives `==`,
 order, hash, and print no meaning of its own, is **word-sized**
 (`sema.wordBits`). It is plain data no larger than a pointer, so a read
 view of it copies it, as one of a number does (`copiedByReadView`). Emit
-marks it `__rig_word_sized`, which the runtime's `ReadView` reads for a
-generic `?T`.
+marks it in its `Repr` (`word_sized`), which the runtime's `Opt` and
+`wordAlign` read.
 
 Emit holds a word-sized object as one word, a Zig `packed struct(uN)`,
 unless some view takes the address of one of its fields. A word has no
@@ -3160,9 +3160,20 @@ whose default is all zero bytes, decided from the type and its fields'
 defaults as written (integers and slots written `0`, `false`, a plain
 enum's variant of value 0, `T()` of such an object, `[n of x]` of
 these; never a float or an optional), and `.made` otherwise. Emit
-writes `pub const __rig_zeros = true;` into each object it fills with
-zeros (`emitRigName`), which `table.zig`'s `fillsWithZeros` reads, so a
+writes it into each object it fills with zeros (`Repr.zeros`,
+`emitRepr`), which `table.zig`'s `fillsWithZeros` reads, so a
 generic body's `Table[T, n]` is held as its instance's `T` says.
+
+Every type emit writes carries the checkers' classification of it, as
+`pub const __rig_repr: rig.Repr = .{ .drops = false, .copied = true };`
+(`emitRepr`): whether dropping it releases anything
+(`sema.typeHasDropGlue`), whether a read view of it is a copy
+(`sema.viewByValue`), and `zeros` and `word_sized` above. The runtime's
+mirrors of those classifiers (`needsDrop`, `ReadView`,
+`fillsWithZeros`, `Opt`) read the marker of a type that carries one
+(`rig.reprOf`), and walk only the rest: Zig's own types, the runtime's,
+and a generic type's instances, whose marker leaves `drops` and
+`copied` to the walk, since they differ by instance.
 
 The table owns its slots' memory (`symbolContents` gives it glue,
 `isHeapBuiltin` puts its slots behind it), so its slots are places

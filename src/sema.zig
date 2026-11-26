@@ -11251,7 +11251,7 @@ fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
 /// or print a meaning of its own, and names no API of a program's own.
 /// It is plain data no larger than a pointer, so a read view of it
 /// copies it, as one of a number does (`copiedByReadView`), and emit
-/// marks it (`__rig_word_sized`) so the runtime's `ReadView` agrees. Emit
+/// marks it (`rig.Repr.word_sized`) for the runtime's `Opt`. Emit
 /// holds it as one word, a Zig `packed struct`, unless the program views
 /// one of its fields by address (`program.decideWords`).
 pub fn wordBits(ctx: *const SemContext, ty: TypeId) ?u8 {
@@ -15946,7 +15946,7 @@ fn fillOf(ctx: *const SemContext, ty: TypeId, depth: u32) TableFill {
 /// How a table fills its slots with the object or enum `sym` declares
 /// (`tableFill`), the same for every instance of a generic one: a field
 /// whose type is a parameter is never taken for zeros, so no argument
-/// changes the answer. Emit writes it into the type (`__rig_zeros`).
+/// changes the answer. Emit writes it into the type (`rig.Repr.zeros`).
 pub fn declFill(ctx: *const SemContext, sym: SymbolId) TableFill {
     return declFillAt(ctx, sym, 0);
 }

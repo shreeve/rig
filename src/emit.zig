@@ -992,7 +992,6 @@ pub const Emitter = struct {
             // `exact`: its fields in declaration order, its bytes theirs.
             try self.w.print("pub const {f} = extern struct {{\n", .{ident(name)});
         } else try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
-        if (self.facts.wordBitsOfSym(sym) != null) try self.w.writeAll("    pub const __rig_word_sized = {};\n");
         if (self.facts.isCellObject(sym)) try self.w.writeAll("    pub const __rig_synced = {};\n");
         try self.emitFields(1);
         try self.emitRigName(1);
@@ -1847,12 +1846,35 @@ pub const Emitter = struct {
         try self.w.print("pub const __rig_name = .{{ .module = \"{s}\", .name = ", .{nameModule(self.facts)});
         try self.writeSpelling(spelling, .parts, null);
         try self.w.writeAll(" };\n");
-        // A table of the type reserves its slots, which the system gives
-        // as zeros (`sema.tableFill`, `rig.Table`).
-        if (self.facts.declFill(sym) == .zeros) {
-            try self.writeIndent(depth);
-            try self.w.writeAll("pub const __rig_zeros = true;\n");
+        try self.emitRepr(depth);
+    }
+
+    /// `pub const __rig_repr: rig.Repr = .{ ... };`: how the checkers
+    /// classify the type being emitted, which the runtime's mirrors read
+    /// (`rig.Repr`): whether it drops (`sema.typeHasDropGlue`), whether a
+    /// read view copies it (`sema.viewByValue`), whether a table of it is
+    /// reserved as zeros (`sema.tableFill`, `rig.Table`), and whether it is
+    /// word-sized (`sema.wordBits`). A generic type's instances differ in
+    /// the first two, which it leaves to the runtime.
+    fn emitRepr(self: *Emitter, depth: u32) Error!void {
+        const sym = self.nominal.?.sym;
+        const ty: ?TypeId = if (self.facts.symbols.items[sym].type_params == null) self.facts.types.find(.{ .nominal = self.facts.refOf(sym) }) else null;
+        const zeros = self.facts.declFill(sym) == .zeros;
+        const word = self.facts.wordBitsOfSym(sym) != null;
+        if (ty == null and !zeros and !word) return;
+        try self.writeIndent(depth);
+        try self.w.writeAll("pub const __rig_repr: " ++ rt(.Repr) ++ " = .{");
+        var sep: []const u8 = " ";
+        if (ty) |t| {
+            try self.w.print(" .drops = {}, .copied = {}", .{ self.facts.hasDropGlue(t), self.facts.viewByValue(t) });
+            sep = ", ";
         }
+        if (zeros) {
+            try self.w.print("{s}.zeros = true", .{sep});
+            sep = ", ";
+        }
+        if (word) try self.w.print("{s}.word_sized = true", .{sep});
+        try self.w.writeAll(" };\n");
     }
 
     fn emitFields(self: *Emitter, depth: u32) Error!void {
