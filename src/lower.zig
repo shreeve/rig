@@ -69,8 +69,12 @@ pub const Module = struct {
     /// The owning temporaries of each statement and header that makes
     /// any, by its key, in the order they are made.
     temps: sema.FastMap(u64, []const Sexp) = .empty,
-    /// The coercions of each node that has any, by its key.
-    coerced: sema.FastMap(u64, Coerced) = .empty,
+    /// Where emit reads each node's coercions (`chainOf`): the
+    /// expression at the place of each node coerced there, and the value
+    /// each node held in a var first is written with, by the node's key.
+    /// Kept for emit's lowering alone.
+    places: sema.FastMap(u64, Chain) = .empty,
+    held: sema.FastMap(u64, Chain) = .empty,
     /// The owning temporaries made before anything their statement does
     /// can act (`Lowerer.flatten`), by their keys: each is written into
     /// its slot ahead of the statement.
@@ -81,17 +85,6 @@ pub const Module = struct {
     answers: sema.FastMap(AnswerKey, u8) = .empty,
 
     pub const VarKey = struct { node: u64, kind: StorageKind };
-
-    /// Where a node's value is made the type its context takes, each
-    /// list outermost first. A node held in a var first (a part a call
-    /// holds, an assignment's new value) is coerced in part where the var
-    /// is written, `held`, and in part where it is read, `use`.
-    pub const Coerced = struct {
-        use: []const lir.Coercion = &.{},
-        held: []const lir.Coercion = &.{},
-        /// The node is held in a var first.
-        hoisted: bool = false,
-    };
 
     pub const Owner = struct {
         root: Sexp,
@@ -159,10 +152,34 @@ pub const Module = struct {
         };
     }
 
-    /// The coercions of `node`.
-    pub fn coercedOf(m: *const Module, node: Sexp) Coerced {
-        return m.coerced.get(sema.decisionKeyOf(node) orelse return .{}) orelse .{};
+    /// The coercions of `node` made where it is written: at its place,
+    /// or, for a node held in a var first (a part a call holds, an
+    /// assignment's new value) and written as the var is, `held`, in the
+    /// value the var is written with.
+    pub fn chainOf(m: *const Module, node: Sexp, held: bool) Chain {
+        const key = sema.decisionKeyOf(node) orelse return .{};
+        if (held) if (m.held.get(key)) |c| return c;
+        return m.places.get(key) orelse .{};
     }
+
+    /// The coercions of a node an expression makes, outermost first: the
+    /// `coerce` expressions at its top, through any `hold` around them.
+    pub const Chain = struct {
+        f: ?*const lir.Func = null,
+        at: ExprId = 0,
+
+        pub fn next(c: *Chain) ?lir.Coercion {
+            const f = c.f orelse return null;
+            while (true) switch (f.exprs.items[c.at]) {
+                .hold => |h| c.at = h.value,
+                .coerce => |x| {
+                    c.at = x.value;
+                    return x.how.*;
+                },
+                else => return null,
+            };
+        }
+    };
 
     /// The var of binding `sym`.
     pub fn bindingOf(m: *const Module, sym: SymbolId) ?*const lir.Var {
@@ -513,18 +530,11 @@ const Lowerer = struct {
         var e = l.exprOf(node) orelse return;
         // The coercions made where the var is read stay there; the rest
         // are made as it is written.
-        var kept: usize = 0;
-        while (l.f.exprs.items[e] == .coerce and readCoercion(held, l.f.exprs.items[e].coerce.how.*)) : (kept += 1) e = l.f.exprs.items[e].coerce.value;
+        while (l.f.exprs.items[e] == .coerce and readCoercion(held, l.f.exprs.items[e].coerce.how.*)) e = l.f.exprs.items[e].coerce.value;
         const moved = try l.addExpr(l.f.exprs.items[e]);
         l.f.exprs.items[e] = .{ .@"var" = .{ .v = v, .node = node } };
         try l.step(in, .{ .bind = .{ .v = v, .value = moved } });
-        if (l.inConstants()) return;
-        const gop = try l.module.coerced.getOrPut(l.a, sema.decisionKeyOf(node).?);
-        if (!gop.found_existing) gop.value_ptr.* = .{};
-        const c = gop.value_ptr;
-        c.held = c.use[kept..];
-        c.use = c.use[0..kept];
-        c.hoisted = true;
+        if (!l.opts.checked) try l.module.held.put(l.a, sema.decisionKeyOf(node).?, .{ .f = l.f, .at = moved });
     }
 
     /// Lowering the module's compile-time body, which only the checkers
@@ -1274,7 +1284,7 @@ const Lowerer = struct {
             const inner = try l.addExpr(l.f.exprs.items[id]);
             l.f.exprs.items[id] = .{ .coerce = .{ .node = e, .how = &kept[i], .value = inner } };
         }
-        if (!l.inConstants()) try l.module.coerced.put(l.a, key, .{ .use = kept });
+        if (!l.opts.checked) try l.module.places.put(l.a, key, .{ .f = l.f, .at = id });
     }
 
     /// The operation of `e` over its children, then the vars it makes.

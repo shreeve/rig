@@ -503,9 +503,6 @@ pub const Emitter = struct {
     /// is known, by the match (`partOfUse`), found once so that telling
     /// whether a value is one of them walks no arm.
     match_parts: std.AutoHashMapUnmanaged(PartKey, std.AutoHashMapUnmanaged(PartKey, void)) = .empty,
-    /// The next expression is emitted as the pointer it yields, even where
-    /// its context reads through it (`emitDeref`).
-    want_ptr: bool = false,
     /// Emitting an operand of arithmetic or an index: compile-time names
     /// (compile-time parameters, `=!` bindings) are read through `rig.rt` so Zig
     /// evaluates the operation at run time, as Rig checked it.
@@ -6039,19 +6036,25 @@ pub const Emitter = struct {
     /// its scope (return, break value): resource bindings in tail
     /// position are moved out.
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        return self.emitValueWant(sexp, tail, false);
+    }
+
+    /// `emitValue`; with `want_ptr`, as the pointer the value yields, even
+    /// where its context reads through it (`emitDeref`).
+    fn emitValueWant(self: *Emitter, sexp: Sexp, tail: bool, want_ptr: bool) Error!void {
         // The coercions the LIR makes of the value here, outermost first:
         // each not yet made is written around the value, which is
         // written inside it.
         var view: ?facts.View = null;
         var deref = false;
-        for (self.coercionsAt(sexp)) |c| switch (c) {
+        var chain = self.coercionsAt(sexp);
+        while (chain.next()) |c| switch (c) {
             // A scalar beside a vector stands for every lane: Zig splats
             // only where it is told to, and the vector is a run-time value
             // (`writeVectorOpen`).
             .splat => |vt| if (!self.made(sexp, .splat)) {
                 const saved = self.making(sexp, .splat);
                 defer self.coercing = saved;
-                self.want_ptr = false;
                 try self.writeVectorOpen(vt);
                 try self.w.writeAll("@splat(");
                 try self.emitBare(sexp);
@@ -6066,7 +6069,8 @@ pub const Emitter = struct {
                 defer self.coercing = saved;
                 if (d.unit_ns == 0) {
                     try self.w.writeAll(rt(.durationNs) ++ "(");
-                    try self.emitBare(sexp);
+                    self.bare = true;
+                    try self.emitValueWant(sexp, false, want_ptr);
                     return self.w.writeAll(")");
                 }
                 if (d.opt != facts.type_invalid) try self.w.print(rt(.pack) ++ "({s}, ", .{try self.typeText(d.opt)});
@@ -6074,7 +6078,8 @@ pub const Emitter = struct {
                 try self.w.print("{s}(", .{durationFn(if (d.float) .float else .int, d.how)});
                 if (d.part) try self.w.writeAll("i128") else if (d.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(d.ty);
                 try self.w.writeAll(", ");
-                try self.emitBare(sexp);
+                self.bare = true;
+                try self.emitValueWant(sexp, false, want_ptr);
                 try self.w.print(", {d}", .{d.unit_ns});
                 try self.writeFoldErrors(d.how, d.float);
                 try self.w.writeAll(")");
@@ -6096,7 +6101,7 @@ pub const Emitter = struct {
                 try self.emitTypeTy(e.view);
                 try self.w.writeAll(if (e.optional) ".ofSome(" else ".of(");
                 if (e.form == .box) try self.w.print("{s}, ", .{ty});
-                try self.emitValue(sexp, tail);
+                try self.emitValueWant(sexp, tail, want_ptr);
                 try self.w.writeAll(", ");
                 try self.writeTableName(e.api);
                 try self.w.print("_of({s}, ", .{ty});
@@ -6109,13 +6114,13 @@ pub const Emitter = struct {
                 const saved = self.making(sexp, .fail);
                 defer self.coercing = saved;
                 try self.w.print("@errorCast(" ++ rt(.failValue) ++ "({s}, ", .{self.fun.out_name});
-                try self.emitValue(sexp, tail);
+                try self.emitValueWant(sexp, tail, want_ptr);
                 return self.w.writeAll("))");
             },
             // A `T` or `none` that becomes an optional going through the
             // helpers is packed into it, unless its context takes the
             // pointer.
-            .lift => |lift| if (!self.want_ptr and !self.made(sexp, .lift)) return self.emitLift(sexp, lift, tail),
+            .lift => |lift| if (!want_ptr and !self.made(sexp, .lift)) return self.emitLift(sexp, lift, tail),
             // An error of a set without fields where one that carries
             // fields goes: a `rig.ErrorValue` of its code and none (inside
             // the optional it is lifted into).
@@ -6123,7 +6128,7 @@ pub const Emitter = struct {
                 const saved = self.making(sexp, .widen);
                 defer self.coercing = saved;
                 try self.w.writeAll(rt(.ErrorValue) ++ ".of(");
-                try self.emitValue(sexp, tail);
+                try self.emitValueWant(sexp, tail, want_ptr);
                 return self.w.writeAll(", .{})");
             },
             .view => |v| if (!self.made(sexp, .view)) {
@@ -6141,8 +6146,6 @@ pub const Emitter = struct {
         }
         if (!try self.partOfUse(sexp)) self.use = self.facts.useOf(sexp);
         self.use_node = sexp;
-        const want_ptr = self.want_ptr;
-        self.want_ptr = false;
         const bare = self.bare;
         self.bare = false;
         // An owning temporary is kept in its statement's slot, which
@@ -6222,11 +6225,10 @@ pub const Emitter = struct {
     }
 
     /// The coercions the LIR makes of `sexp` where it is being written:
-    /// where a var holding it is read, where that var is written, or where
-    /// it stands (`lower.Module.Coerced`).
-    fn coercionsAt(self: *Emitter, sexp: Sexp) []const facts.Coercion {
-        const c = self.lowered.?.coercedOf(sexp);
-        return if (c.hoisted and self.hoistedOf(sexp) == null) c.held else c.use;
+    /// where it stands, or, for a value held in a var first that is not
+    /// held yet, where that var is written (`lower.Module.chainOf`).
+    fn coercionsAt(self: *Emitter, sexp: Sexp) facts.Lowered.Chain {
+        return self.lowered.?.chainOf(sexp, self.hoistedOf(sexp) == null);
     }
 
     /// Whether coercion `k` of `sexp` is made around the point being
@@ -6248,7 +6250,8 @@ pub const Emitter = struct {
     /// is made around this point.
     fn viewAt(self: *Emitter, e: Sexp) ?facts.View {
         if (self.made(e, .view)) return null;
-        for (self.coercionsAt(e)) |c| if (c == .view) return c.view;
+        var chain = self.coercionsAt(e);
+        while (chain.next()) |c| if (c == .view) return c.view;
         return null;
     }
 
@@ -6912,8 +6915,7 @@ pub const Emitter = struct {
         defer self.ptr_tail = saved;
         self.ptr_tail = true;
         self.bare = true;
-        self.want_ptr = true;
-        try self.emitValue(e, true);
+        try self.emitValueWant(e, true, true);
     }
 
     /// `@as(T, `: the caller writes the value and the `)`.
