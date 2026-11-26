@@ -72,11 +72,7 @@ pub fn noteUse(self: *Checker, sym: SymbolId, written: u32, in_defer: bool) Erro
 /// statement, dropped after it, uses its views as any owner's drop
 /// does, only through a `drop` body (Core sentence 6), or through a
 /// live value that views it; any other holder as `holderLive` says.
-pub fn holdsPastDrop(self: *const Checker, holder: VarId) bool {
-    return holdsPastDropDepth(self, holder, 0);
-}
-
-pub fn holdsPastDropDepth(self: *const Checker, holder: VarId, depth: u8) bool {
+pub fn holdsPastDrop(self: *const Checker, holder: VarId, depth: u8) bool {
     if (!self.isStmtTemp(holder) or depth > 16) return holderLive(self, holder, null);
     const ctx = self.sema;
     const ty = self.vars.items[holder].ty orelse return true;
@@ -84,7 +80,7 @@ pub fn holdsPastDropDepth(self: *const Checker, holder: VarId, depth: u8) bool {
     if (self.isViewed(holder)) for (self.flows.items, 0..) |f, j| {
         if (j == holder) continue;
         for (f.loans) |l| if (l.root == holder and !l.ext) {
-            if (holdsPastDropDepth(self, @intCast(j), depth + 1)) return true;
+            if (holdsPastDrop(self, @intCast(j), depth + 1)) return true;
             break;
         };
     };
