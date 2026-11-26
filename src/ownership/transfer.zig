@@ -306,8 +306,10 @@ pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value 
     const walked = self.walked.items.len;
     defer self.walked.shrinkRetainingCapacity(@min(walked, self.walked.items.len));
     const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const v = if (sink) |k| try walkConsumedE(self, e, k) else try walkE(self, e);
     self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
+    try shadowEnds(self, stmt, lowered.stmtRegion(self, e), vars_mark, drops, false);
     try dropStmtTemps(self, drops);
     return v;
 }
@@ -1704,6 +1706,7 @@ fn addTempVar(self: *Checker, node: Sexp, loans: []const Loan) Error!VarId {
     const pos = notes.startOf(self, node);
     const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = pos, .ty = types.exprType(self, node), .kind = .hidden, .temp_value = true }, .{ .loans = loans });
     try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+    try lowered.noteMade(self, lowered.hiddenOf(self, node, .temp) orelse lowered.hiddenOf(self, node, .zig_temp), id);
     return id;
 }
 
@@ -1754,6 +1757,47 @@ pub fn dropStmtTemps(self: *Checker, start: usize) Error!void {
         try self.setFlow(d.id, .{ .status = .dropped, .at = d.pos });
     }
     self.stmt_drops.shrinkRetainingCapacity(start);
+}
+
+/// Self-check: leaving region `r` ends the vars `old`, newest first,
+/// that the statement temporaries held since `drops`, or the calls'
+/// storage held since `drops` (`call`), end today.
+pub fn shadowEnds(self: *Checker, node: Sexp, r: ?lir.RegionId, mark: VarId, drops: usize, call: bool) Error!void {
+    if (!self_check or self.lir_body == null) return;
+    var old: std.ArrayList(VarId) = .empty;
+    if (call) {
+        var i = self.call_held.items.len;
+        while (i > drops) {
+            i -= 1;
+            try old.append(self.arena(), self.call_held.items[i]);
+        }
+    } else {
+        var i = self.stmt_drops.items.len;
+        while (i > drops) {
+            i -= 1;
+            const d = self.stmt_drops.items[i];
+            if (isStmtTempVar(self, d.id, d.pos)) try old.append(self.arena(), d.id);
+        }
+    }
+    const new = try lowered.endsOf(self, r, mark, call);
+    if (std.mem.eql(VarId, old.items, new)) return;
+    const at = diag.lineCol(self.source, notes.startOf(self, node));
+    const rk = if (r) |x| @tagName(self.lir_body.?.f.regions.items[x].kind) else "none";
+    const same_set = blk: {
+        if (old.items.len != new.len) break :blk false;
+        for (old.items) |o| if (std.mem.findScalar(VarId, new, o) == null) break :blk false;
+        break :blk true;
+    };
+    std.debug.print("TRACE shadow {s} {s} r={s} new={d} old={d}{s} at {d}:{d}\n", .{ if (call) "call" else "stmt", if (node == .list) @tagName(node.kind() orelse .module) else "leaf", rk, new.len, old.items.len, if (same_set) " order" else "", at.line, at.col });
+    {
+        std.debug.print("  in {s}\n", .{self.sema.name});
+        for (old.items) |o| std.debug.print("  old {d} `{s}` decl {d}\n", .{ o, self.vars.items[o].name, self.vars.items[o].decl });
+        if (r) |x| for (self.lir_body.?.f.regions.items[x].decls.items) |lv| {
+            const lvar = self.lir_body.?.f.vars.items[lv];
+            const m = if (self.lir_body.?.made.len > 0) self.lir_body.?.made[lv] else 0;
+            std.debug.print("  decl %{d} {s} node@{d} made {d}\n", .{ lv, if (lvar.name == .hidden) @tagName(lvar.name.hidden) else "binding", notes.startOf(self, lvar.node), m });
+        };
+    }
 }
 
 /// A `holder`'s loans on hidden var `id` end, as `id` does: a
@@ -2246,6 +2290,7 @@ pub fn storeThroughCapture(self: *Checker, v: Var, pos: u32, value: Value) Error
 pub fn walkCall(self: *Checker, call: lowered.Expr) Error!Value {
     const node = call.node;
     const mark = self.call_held.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const once_mark = self.once_uses.items.len;
     const used = try rules.onceUses(self, node);
     const late = self.late.items.len;
@@ -2255,6 +2300,7 @@ pub fn walkCall(self: *Checker, call: lowered.Expr) Error!Value {
     self.once_uses.shrinkRetainingCapacity(once_mark);
     // A `once` parameter called, or passed to another, is used up.
     for (used) |u| if (self.flowLive(u.id)) try self.markInvalid(u.id, .moved, u.pos);
+    try shadowEnds(self, node, lowered.regionOf(self, call, .call), vars_mark, mark, true);
     const out = try endCallHeld(self, node, mark, v);
     // Each result keeps only what the call's value still carries.
     if (self.results_of) |r| if (sameNode(r.node, node) and out.loans.len != v.loans.len) {
@@ -2293,10 +2339,11 @@ fn holdLateOperands(self: *Checker, e: lowered.Expr, parts: []const Sexp, first:
 /// storage of its own (`storage.Var` of life `call`: a self, or
 /// a copied argument), in a hidden var the call views (`kind`), so
 /// a view of it is a view of that storage.
-pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind) Error!Value {
+pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind, sk: storage.StorageKind) Error!Value {
     const pos = notes.startOf(self, node);
     const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = pos, .ty = types.exprType(self, node), .kind = .hidden, .call_held = true }, .{ .loans = v.loans });
     try self.call_held.append(self.gpa, id);
+    try lowered.noteMade(self, lowered.hiddenOf(self, node, sk), id);
     return .{ .loans = try self.oneLoan(.{ .root = id, .kind = kind, .pos = pos }) };
 }
 
@@ -2455,7 +2502,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
                 // viewed from there; any other is viewed where its
                 // leaves are.
                 recv_value = if (heldForCall(self, obj, .self)) |held|
-                    try holdForCall(self, held, recv_value, kind)
+                    try holdForCall(self, held, recv_value, kind, .self)
                 else
                     try self.valueUnion(recv_value, try selfLeaves(self, obj, kind));
             }
@@ -2556,7 +2603,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         if (self.errors_found == found) try holdRead(self, a, .argument);
         // An argument the call copies into storage of its own is viewed
         // from the copy.
-        if (heldForCall(self, storage.argValue(a), .argument)) |held| v.* = try holdForCall(self, held, v.*, .read);
+        if (heldForCall(self, storage.argValue(a), .argument)) |held| v.* = try holdForCall(self, held, v.*, .read, .argument);
         // A value handed over that carries a write loan (a write view
         // a method's result keeps of its self) keeps its root under
         // a write view until the call returns, as a write view in the
@@ -2800,6 +2847,7 @@ pub fn walkDestructure(self: *Checker, node: Sexp) Error!void {
         }
     };
     try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+    try lowered.noteMade(self, lowered.hiddenOf(self, node, .results), id);
     const saved_part = self.part_value;
     defer self.part_value = saved_part;
     for (targets, 0..) |t, j| {
@@ -3569,10 +3617,12 @@ pub fn walkConditionPart(self: *Checker, ce: lowered.Expr, body: Sexp) Error!voi
     if (header == .held) try holdBase(self, cond, value);
     const temps_start = self.temps.items.len;
     const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const bound = if (header != null) try walkView(self, value, .read) else try walkConsumedE(self, value, .binding);
     self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
     try self.pushScopeFor(.block, body);
     try bindNew(self, ir.As.name(cond), false, false, bound);
+    try shadowEnds(self, cond, lowered.regionOf(self, value, .header), vars_mark, drops, false);
     try dropStmtTemps(self, drops);
 }
 
@@ -3816,6 +3866,7 @@ fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const
     }
     const scrut_temps = self.temps.items.len;
     const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const value = if (header == .viewed) try walkView(self, scrut_e, .read) else try walkE(self, scrut_e);
     const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
     for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
@@ -3829,6 +3880,7 @@ fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const
             break;
         };
     }
+    try shadowEnds(self, match, lowered.regionOf(self, scrut_e, .header), vars_mark, drops, false);
     try dropStmtTemps(self, drops);
     self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
     return .{ .info = info, .value = value, .header_temps = header_temps };
@@ -3985,10 +4037,12 @@ pub fn walkResultsBinding(self: *Checker, ce: lowered.Expr, body: Sexp) Error!vo
     const names = ir.AsResults.names(cond).items();
     const temps_start = self.temps.items.len;
     const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     const saved_results = self.results_of;
     defer self.results_of = saved_results;
     self.results_of = null;
-    const whole = try walkConsumedE(self, lowered.operand(self, ce, 0), .binding);
+    const value_e = lowered.operand(self, ce, 0);
+    const whole = try walkConsumedE(self, value_e, .binding);
     const parts: []const Value = blk: {
         if (self.results_of) |r| if (sameNode(r.node, value) and r.parts.len == names.len) break :blk r.parts;
         const all = try self.arena().alloc(Value, names.len);
@@ -4004,6 +4058,7 @@ pub fn walkResultsBinding(self: *Checker, ce: lowered.Expr, body: Sexp) Error!vo
         self.part_value = part;
         try walkSet(self, n);
     }
+    try shadowEnds(self, cond, lowered.regionOf(self, value_e, .header), vars_mark, drops, false);
     try dropStmtTemps(self, drops);
 }
 
@@ -4050,6 +4105,7 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
     // The source is a header: its temporaries end with it, before
     // the loop walks what it gives.
     const drops = self.stmt_drops.items.len;
+    const vars_mark: VarId = @intCast(self.vars.items.len);
     // A source the loop consumes (`storage.forConsumes`) is taken,
     // as emit hands its elements over.
     const consumes = storage.forConsumes(self.sema, node);
@@ -4104,6 +4160,7 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
             }
         };
     }
+    try shadowEnds(self, node, lowered.regionOf(self, source_e, .header), vars_mark, drops, false);
     try dropStmtTemps(self, drops);
     var v = try walkLoop(self, spec);
     // The value the loop held ends with it.
