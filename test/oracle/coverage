@@ -21,7 +21,7 @@
 # behind `*`, and a write view is never stored inside a value, so the
 # programs that hold either by value stop in sema, before either
 # checker decides them. A header whose subject makes a temporary and
-# reaches no place is rejected in sema (`rejectHeaderCopy`), so the
+# reaches no place is rejected as it is lowered (`lower.Lowerer.headerCopy`), so the
 # programs that have one stop there too, as do those whose generic owned
 # closure captures a `T` an instance makes a task (`hidesNoTask`). A call of
 # a generic body at an owner whose associated type may view what the

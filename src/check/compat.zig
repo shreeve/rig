@@ -220,33 +220,9 @@ pub fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return pn.args[0];
 }
 
-/// Whether `node` lies in the index of an element read in `tree`.
-pub fn inIndex(tree: Sexp, node: Sexp) bool {
-    if (tree != .list) return false;
-    if (tree.isKind(.index) and contains(ir.Index.index(tree), node)) return true;
-    for (tree.items()) |item| if (inIndex(item, node)) return true;
-    return false;
-}
-
-/// Whether `node` lies in an argument of a call in `tree`.
-pub fn inArgument(tree: Sexp, node: Sexp) bool {
-    if (tree != .list) return false;
-    if (tree.isKind(.call)) for (ir.Call.args(tree)) |a| if (contains(a, node)) return true;
-    for (tree.items()) |item| if (inArgument(item, node)) return true;
-    return false;
-}
-
-/// Whether `node` is `tree` or inside it.
-pub fn contains(tree: Sexp, node: Sexp) bool {
-    if (sameNode(tree, node)) return true;
-    if (tree != .list) return false;
-    for (tree.items()) |item| if (contains(item, node)) return true;
-    return false;
-}
-
 /// The element type of a Cell holding a List (`Cell[List[E]]`, `?Cell[List[E]]`, `*Cell[List[E]]`, ...).
 pub fn cellListElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    return listElementType(ctx, cellElementType(ctx, ty) orelse return null);
+    return sema.listElem(ctx, cellElementType(ctx, ty) orelse return null);
 }
 
 pub const slice_of_temporary = "only a named array, List, or String, or a field or element of one, can be sliced; bind this value to a name first";
@@ -256,16 +232,6 @@ pub const cell_list_handle = "cannot read or overwrite an element of a `{s}` in 
 /// The data field (not a method or variant) named `name`.
 pub fn findDataField(ctx: *SemContext, fields: []const Field, name: []const u8) Error!?Field {
     return fields[(try sema.findMember(ctx, fields, name, .data)) orelse return null];
-}
-
-/// The element type of a `List[T]`.
-pub fn listElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    const pn = switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| pn,
-        else => return null,
-    };
-    if (pn.sym != ctx.builtins.list or pn.args.len != 1) return null;
-    return pn.args[0];
 }
 
 /// An arithmetic operation: unary minus or a binary arithmetic,

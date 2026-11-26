@@ -3039,7 +3039,7 @@ pub fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method
             break :blk a.elem;
         },
         .string_view, .static => try ViewCheck.byteType(self),
-        else => CompatCheck.listElementType(self.ctx, peeled) orelse return null,
+        else => sema.listElem(self.ctx, peeled) orelse return null,
     };
     if (obj.isKind(.move) and ViewCheck.isSelfSigil(self, obj)) {
         try ViewCheck.misplacedSigil(self, obj, method, "does not consume `self`");
@@ -3101,7 +3101,7 @@ pub fn reduceCall(self: *Checker, obj: Sexp, obj_ty: TypeId, pos: u32, args: []c
     const elem: TypeId = switch (self.ctx.types.get(peeled)) {
         .slice => |sl| sl.elem,
         .array => |a| a.elem,
-        else => CompatCheck.listElementType(self.ctx, peeled) orelse return null,
+        else => sema.listElem(self.ctx, peeled) orelse return null,
     };
     const example = "`xs.reduce(0, |sum, x| sum + x)`";
     if (ct) |b| return try CallCheck.badCall(self, args, b, "`reduce` takes no compile-time arguments", .{});
@@ -4855,7 +4855,7 @@ pub fn sequenceGet(self: *Checker, obj_ty: TypeId, pos: u32, args: []const Sexp)
 pub fn hasBuiltinLen(self: *Checker, ty: TypeId) bool {
     return switch (self.ctx.types.get(ty)) {
         .array, .slice, .string_view, .static, .string => true,
-        .parameterized_nominal => CompatCheck.listElementType(self.ctx, ty) != null or CompatCheck.cellListElement(self.ctx, ty) != null,
+        .parameterized_nominal => sema.listElem(self.ctx, ty) != null or CompatCheck.cellListElement(self.ctx, ty) != null,
         else => false,
     };
 }

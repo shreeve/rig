@@ -203,15 +203,19 @@ pub const Options = struct {
 /// Lower module `tree`, which sema checked, into `ctx.lowered`: first
 /// the facts lowering and the ownership checker read that no checker
 /// records (`markUsed`, `markMoved`). A module with an error other than
-/// a lint is not lowered: nothing after sema reads it. The module graph
-/// frees it once the module's checks finish.
+/// a lint is not lowered: nothing after sema reads it, and its lowering
+/// rejections (`Lowerer.headerCopy`, `Lowerer.stepBindings`) are not
+/// reported with its errors. Nor is one kept that lowering rejects. The
+/// module graph frees it once the module's checks finish.
 pub fn lowerChecked(ctx: *SemContext, tree: Sexp) !void {
     try markUsed(ctx);
     ctx.moved.deinit(ctx.allocator);
     ctx.moved = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
     try markMoved(ctx, tree);
-    for (ctx.diagnostics.items) |d| if (d.severity == .@"error" and !d.lint) return;
-    ctx.lowered = try lowerModule(ctx.allocator, ctx, tree, .{ .checked = true });
+    if (diag.hasTypeErrorsIn(ctx.diagnostics.items)) return;
+    var m = try lowerModule(ctx.allocator, ctx, tree, .{ .checked = true });
+    if (diag.hasTypeErrorsIn(ctx.diagnostics.items)) return m.deinit();
+    ctx.lowered = m;
 }
 
 /// Record the symbols a name reads after its declaration (a later
@@ -1486,12 +1490,77 @@ const Lowerer = struct {
         if (points and sema.handsOver(l.ctx, e).kind == .branches and !storage.isPtrViewExpr(l.ctx, e)) try l.leaf(e);
     }
 
+    /// Header `node` (a `match`, a `for`, or an `as`) over `subject`,
+    /// whose temporaries (`sema.firstStmtTemp`) end with it, yields the
+    /// address of a place the subject reaches (`storage.headerPoints`),
+    /// and the construct binds the place's own. It yields the value of any
+    /// other subject, and what the construct binds is in that copy, which
+    /// is recorded (the storage fact `header_copy`). A header that copies
+    /// is rejected at the temporary, whatever it binds: a write, a Cell
+    /// change, or a view, a catch-all's of plain data included, would
+    /// reach the copy. A value made here, which no name holds, is the
+    /// construct's own: it binds plain data of it by copy, which is what
+    /// the copy holds. `bound` is the type the construct binds; null for a
+    /// byte.
+    fn headerCopy(l: *Lowerer, node: Sexp, subject: Sexp, bound: ?TypeId) Error!void {
+        const ctx = l.ctx;
+        if (!l.opts.checked) return;
+        const first = sema.firstStmtTemp(ctx, subject) orelse return;
+        if (storage.headerPoints(ctx, storage.headerSubject(node))) return;
+        try ctx.recordHeaderCopy(node);
+        if (sema.handsOver(ctx, subject).kind == .made and (if (bound) |b| sema.holdsNoLoanButText(ctx, sema.unwrapViews(ctx, b)) else true)) return;
+        const what = if (inPart(subject, first, .index)) "the index" else if (inPart(subject, first, .call)) "the argument" else try std.fmt.allocPrint(l.a, "`{s}`", .{diag.textOf(ctx.source, ctx.span(first))});
+        try ctx.errAt(first, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind {s} to a name first", .{what});
+    }
+
+    /// A step of `while` loop `w` that reads a binding of its condition
+    /// runs inside the `if`s that bind it, after the body
+    /// (`storage.StepPoint.after_body`, the same walk), so every binding there stays
+    /// until the step is done: each must be plain data (neither a view nor
+    /// owning), and no `continue` in the condition, which would go on past
+    /// the step, may skip binding one.
+    fn stepBindings(l: *Lowerer, w: Sexp) Error!void {
+        const ctx = l.ctx;
+        const cond = ir.While.cond(w);
+        if (!l.opts.checked) return;
+        const Parts = struct {
+            ctx: *const SemContext,
+            step: Sexp,
+            use: ?Sexp = null,
+            plain: ?SymbolId = null,
+            pub fn part(p: *@This(), c: Sexp) error{}!void {
+                if (!c.isKind(.as)) return;
+                const b = p.ctx.symbolOf(ir.As.name(c)) orelse return;
+                if (sema.findUse(p.ctx, p.step, b)) |u| p.use = u;
+                const ty = p.ctx.symbols.items[b].ty;
+                if (p.plain == null and (sema.isReadOrWriteView(p.ctx, ty) or sema.moves(p.ctx, ty) == .yes)) p.plain = b;
+            }
+        };
+        var parts: Parts = .{ .ctx = ctx, .step = ir.While.step(w) };
+        rig.eachGuardPart(cond, &parts) catch unreachable;
+        const use = parts.use orelse return;
+        const name = sema.identAt(ctx.source, use) orelse "";
+        if (continuesTo(ctx, cond, w)) return ctx.errAt(use, "the loop step reads `{s}`, a binding of the condition, which a `continue` in the condition leaves unbound", .{name});
+        const b = ctx.symbols.items[parts.plain orelse return];
+        try ctx.errAt(use, "the loop step reads `{s}`, a binding of the condition, so each binding there must be plain data; `{s}` is a `{s}`", .{ name, b.name, try sema.formatType(ctx, b.ty) });
+    }
+
     /// `if … as` or `while … as`.
     fn optional(l: *Lowerer, cond: Sexp, body: RegionId) Error!void {
         const ctx = l.ctx;
         const value = ir.As.value(cond);
         const name = ir.As.name(cond);
         const used = if (name == .src) (if (ctx.symbolOf(name)) |s| ctx.isUsed(s) else false) else false;
+        // What the binding views, unless it owns a value made here or one
+        // taken with `<`, may be a copy.
+        if (storage.typeOf(ctx, value)) |t| {
+            const peeled = sema.unwrapViews(ctx, t);
+            const owns = value.isKind(.move) or (sema.handsOver(ctx, value).kind == .made and peeled == t);
+            if (!owns) switch (ctx.types.get(peeled)) {
+                .optional => |inner| try l.headerCopy(cond, value, try boundOf(ctx, name, inner, ctx.types.get(t) == .write_view)),
+                else => {},
+            };
+        }
         if (ctx.headerOf(cond)) |how| {
             if (how == .held) _ = try l.hiddenVar(cond, .held, .owned, .construct, if (ctx.heldBaseOf(cond)) |b| storage.dropOf(ctx, b) else null, l.stmt_region);
             try l.subjectHeader(value);
@@ -1520,6 +1589,7 @@ const Lowerer = struct {
 
     /// `while cond: step` and its body.
     fn whileLoop(l: *Lowerer, w: Sexp, r: RegionId) Error!void {
+        try l.stepBindings(w);
         const scope = try l.f.addRegion(l.a, w, .guard);
         const body_r = try l.f.addRegion(l.a, ir.While.body(w), .block);
         const cond = try l.condition(ir.While.cond(w), scope);
@@ -1549,6 +1619,13 @@ const Lowerer = struct {
         // Each header that makes temporaries ends them in a region of its
         // own: a range's two ends, or the source.
         const range = source.isKind(.@"..");
+        // What the loop binds, unless it takes its source or walks a slice
+        // of it, may be a copy.
+        if (!range and !rig.isRangeIndex(source) and ir.For.mode(loop).tag != .move and ctx.headerOf(loop) != .taken) {
+            if (storage.typeOf(ctx, source)) |t| if (loopElem(ctx, t)) |e| {
+                try l.headerCopy(loop, source, try boundOf(ctx, ir.For.@"var"(loop), e, ir.For.mode(loop).tag == .write));
+            } else try l.headerCopy(loop, source, null);
+        }
         for ([_]Sexp{ if (range) ir.@"..".left(source) else source, if (range) ir.@"..".right(source) else .nil }) |h| {
             if (h != .nil and sema.firstStmtTemp(ctx, h) != null) try l.headers.put(l.gpa, sema.decisionKeyOf(h).?, null);
         }
@@ -1674,7 +1751,13 @@ const Lowerer = struct {
     fn matchRules(l: *Lowerer, m: Sexp, scope: RegionId) Error!void {
         const ctx = l.ctx;
         const mode = storage.matchMode(ctx, m);
-        const subject = storage.viewedPlace(ir.Match.subject(m));
+        const raw = ir.Match.subject(m);
+        const subject = storage.viewedPlace(raw);
+        // What the arms bind, unless the match takes its subject or
+        // matches a view a call returns where it points, may be a copy.
+        if (!raw.isKind(.move) and !ctx.takesSubject(m) and !storage.holdsView(ctx, m)) {
+            if (storage.typeOf(ctx, raw)) |t| try l.headerCopy(m, raw, try matchBound(ctx, raw, t));
+        }
         if (ctx.headerOf(m) == .held) _ = try l.hiddenVar(m, .held, .owned, .construct, if (ctx.heldBaseOf(m)) |b| storage.dropOf(ctx, b) else null, scope);
         var reread = false;
         var temp_subject = false;
@@ -1931,6 +2014,69 @@ const Lowerer = struct {
         }
     }
 };
+
+/// An element of the table, List, array, or slice a `for` over a source
+/// of type `ty` walks; null for a byte of text.
+fn loopElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    const walked = sema.loopWalks(ctx, ty);
+    if (sema.tableElem(ctx, walked) orelse sema.listElem(ctx, walked)) |e| return e;
+    return switch (ctx.types.get(walked)) {
+        .array => |a| a.elem,
+        .slice => |s| s.elem,
+        else => null,
+    };
+}
+
+/// The type binding `name` of a header has, binding a value of type
+/// `reached`: the type typecheck gave it, or for `_`, which keeps none,
+/// the view it makes, to write or, of a value that does not copy, to
+/// read, interned as typecheck's is (a read view of a `String` is
+/// `?String`).
+fn boundOf(ctx: *SemContext, name: Sexp, reached: TypeId, write: bool) Error!TypeId {
+    if (ctx.symbolOf(name)) |s| return ctx.symbols.items[s].ty;
+    if (write) return ctx.intern(.{ .write_view = reached });
+    return if (sema.copies(ctx, reached) == .no) ctx.intern(.{ .read_view = reached }) else reached;
+}
+
+/// What a `match` over `subject`, of type `ty`, binds through: the value
+/// it reaches, a value a shared handle holds viewed as `?h` or `!h`
+/// views it.
+fn matchBound(ctx: *SemContext, subject: Sexp, ty: TypeId) Error!TypeId {
+    const reached = sema.unwrapAccess(ctx, ty);
+    if (ctx.types.get(sema.unwrapViews(ctx, ty)) != .shared) return reached;
+    if (subject.isKind(.read)) return sema.unwrapAccess(ctx, try ctx.intern(.{ .read_view = reached }));
+    if (subject.isKind(.write) and sema.changesByMark(ctx, reached)) return sema.unwrapAccess(ctx, try ctx.intern(.{ .write_view = reached }));
+    return reached;
+}
+
+/// Whether `node` lies in an index (`.index`) or an argument (`.call`) of
+/// a node of kind `kind` in `tree`.
+fn inPart(tree: Sexp, node: Sexp, comptime kind: Tag) bool {
+    if (tree != .list) return false;
+    if (tree.isKind(kind)) switch (kind) {
+        .index => if (holds(ir.Index.index(tree), node)) return true,
+        .call => for (ir.Call.args(tree)) |a| if (holds(a, node)) return true,
+        else => comptime unreachable,
+    };
+    for (tree.items()) |c| if (inPart(c, node, kind)) return true;
+    return false;
+}
+
+/// Whether list node `node` is `tree` or inside it.
+fn holds(tree: Sexp, node: Sexp) bool {
+    if (tree != .list) return false;
+    if (tree.list.ptr == node.list.ptr) return true;
+    for (tree.items()) |c| if (holds(c, node)) return true;
+    return false;
+}
+
+/// Whether condition `e` of `while` loop `w` holds a `continue` to `w`.
+fn continuesTo(ctx: *const SemContext, e: Sexp, w: Sexp) bool {
+    if (e != .list) return false;
+    if (e.isKind(.@"continue")) if (ctx.jumpDestOf(e)) |d| if (d.target == .list and d.target.list.ptr == w.list.ptr) return true;
+    for (e.items()) |c| if (continuesTo(ctx, c, w)) return true;
+    return false;
+}
 
 // =============================================================================
 // Coercions

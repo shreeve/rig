@@ -1667,6 +1667,42 @@ fail "header temporary rejected", "36:5: this header binds a copy of its subject
   if opt(?String("abc")) as p
     print(p.x)
 
+fail "header copy after a type error", "type mismatch: expected `Int`, got `Static`", errors: 1
+  # Whether a header binds a copy of its subject is lowering's decision,
+  # and a module with a type error is not lowered: the headers that would
+  # bind a copy are not reported with it.
+
+  enum E
+    a(xs: [4]Int)
+    b
+
+  obj P
+    x: Int
+
+  obj H
+    e: E
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun opt(n: ?String) -> P?
+    if n.len > 0
+      return P(x: n.len)
+    none
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(xs: [n, n, n, n]))
+
+  if ?opt(?String("abc")) as p
+    print(p.x)
+  match mkh(4).e
+    .a(xs) => print(xs[0])
+    .b => pass
+  for x in [[1, 2], [3, 4]][idx(?String("ab"))]
+    print(x)
+  n: Int = "a"
+  print(n)
+
 fail "header temporary view bound", "20:5: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first", "22:8: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first", "25:8: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mke()` to a name first", errors: 3
   # What `if … as`, `while … as`, or `match` binds lives through the
   # body, past its header, so it may not view a temporary the header

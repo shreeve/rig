@@ -1056,7 +1056,7 @@ pub fn placeOf(self: *Checker, e: Sexp) Checker.Place {
         } else if (self.ctx.isEnumText(step)) {
             place.block(if (inner == self.t().symbol_id) .symbol_text else .text, self.startOf(ir.Member.name(step)));
             if (!crossed) place.leaf_blocked = true;
-        } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or CompatCheck.listElementType(self.ctx, inner) != null or sema.tableElem(self.ctx, inner) != null or CompatCheck.cellListElement(self.ctx, inner) != null or sema.isTaskSet(self.ctx, inner))) {
+        } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or sema.listElem(self.ctx, inner) != null or sema.tableElem(self.ctx, inner) != null or CompatCheck.cellListElement(self.ctx, inner) != null or sema.isTaskSet(self.ctx, inner))) {
             place.block(.len, self.startOf(ir.Member.name(step)));
             if (!crossed) place.leaf_blocked = true;
         }

@@ -927,7 +927,7 @@ pub const ModuleGraph = struct {
         // Ownership reads the types sema settled, so a module whose types
         // are wrong is not checked for ownership: its errors would follow
         // from the type errors, or be about code that means nothing yet.
-        if (hasTypeErrors(m.sema.diagnostics.items)) {
+        if (diag.hasTypeErrorsIn(m.sema.diagnostics.items)) {
             m.state = .failed;
             return;
         }
@@ -1146,16 +1146,6 @@ pub const ModuleGraph = struct {
         if (hidden > 0) try w.print("{d} more error{s} not shown\n", .{ hidden, if (hidden == 1) "" else "s" });
     }
 };
-
-/// Whether sema reported an error other than a local that is never
-/// read: that one is a lint on well-typed code, and the ownership errors
-/// of the same program are still worth reporting.
-fn hasTypeErrors(items: []const diag.Diagnostic) bool {
-    for (items) |d| {
-        if (d.severity == .@"error" and !d.lint) return true;
-    }
-    return false;
-}
 
 /// Whether a module's tree declares `main`, a program's entry.
 pub fn declaresMain(source: []const u8, tree: parser.Sexp) bool {

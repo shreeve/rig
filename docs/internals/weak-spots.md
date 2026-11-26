@@ -35,7 +35,7 @@ and run the suite after.
   through temporaries or a guard), so a view of it carries the subject's
   loan past the arm. Where a read match matches a copy, such a binding
   is usable within its arm only (`SymbolFlags.arm_view`); every such
-  subject with a header temporary is also rejected (`rejectHeaderCopy`).
+  subject with a header temporary is also rejected (`lower.Lowerer.headerCopy`).
   Tests: the cases `match payload view outlives arm` and
   `match payload view escapes` of `test/rig/ownership-match.rig.test`.
   - *Resolved:* a generic read view a field or an element holds
