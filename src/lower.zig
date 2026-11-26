@@ -2125,7 +2125,9 @@ const Lowerer = struct {
         if (rec.callee == .member) {
             const obj = ir.Member.object(callee);
             const explicit = obj.isKind(.write) or obj.isKind(.read);
-            rec.self = .{ .explicit = explicit, .mode = if (obj.isKind(.write)) .write else selfMode(ctx, if (explicit) ir.get(obj, .operand) else obj, callee) };
+            // A type or a module named before the function is no self:
+            // it has no value (`storage.isTypeCallee`).
+            if (!storage.isTypeCallee(ctx, obj)) rec.self = .{ .explicit = explicit, .mode = if (obj.isKind(.write)) .write else selfMode(ctx, if (explicit) ir.get(obj, .operand) else obj, callee) };
         }
         if (l.opts.checked) {
             rec.flags = .{

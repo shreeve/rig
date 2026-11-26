@@ -2472,6 +2472,9 @@ const Is = struct {
     fn member(c: *const lir.Call) bool {
         return c.callee == .member and c.self != null;
     }
+    fn no_self(c: *const lir.Call) bool {
+        return c.callee == .member and c.self == null;
+    }
     fn name(c: *const lir.Call) bool {
         return c.callee == .name;
     }
@@ -2535,7 +2538,10 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         field_call = true;
         if (self.errors_found == callee_found) try holdRead(self, callee, .callee);
     } else if (callee.isKind(.member)) {
-        expectCall(self, node, "calls a method", Is.member);
+        // A type or a module named before the function is no self: it
+        // has no value, and nothing of it is taken (`storage.isTypeCallee`).
+        const no_self = storage.isTypeCallee(self.sema, ir.Member.object(callee));
+        if (no_self) expectCall(self, node, "calls a type's or a module's function", Is.no_self) else expectCall(self, node, "calls a method", Is.member);
         const object_e = lowered.operand(self, callee_e, 0);
         var obj = ir.Member.object(callee);
         var obj_e = object_e;
@@ -2545,7 +2551,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
             obj = ir.get(obj, .operand);
             obj_e = lowered.operand(self, object_e, 0);
         }
-        recv_mode = if (explicit_write) .write else types.selfMode(self, obj, callee);
+        recv_mode = if (explicit_write) .write else if (no_self) .read else types.selfMode(self, obj, callee);
         recv_loan = if (explicit_write) loanOf(self, ir.Member.object(callee)) else if (recv_mode == .write) .write else .read;
         const place = if (recv_mode == .value) null else resolvePlace(self, obj);
         if (place) |p| {
