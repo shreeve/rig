@@ -357,6 +357,20 @@ PY
 out=$(emit long.rig)
 expect_has "$out" 'pub fn long(' "a long body"
 
+# A statement that is a call is one operation, the call: 40 of them fit.
+{
+    echo 'called sub tick(n: Int)'
+    echo '  print(n)'
+    echo
+    echo 'sub calls(n: Int)'
+    for i in $(seq 1 40); do echo '  tick(n)'; done
+    echo
+    echo 'sub main()'
+    echo '  calls(2)'
+} >calls.rig
+out=$(emit calls.rig)
+expect_has "$out" 'pub inline fn calls(' "a body of 40 calls"
+
 # A function holds at most 13 MiB of values on its stack, and Zig puts the
 # frame of an inlined call in its caller's: a function that keeps much,
 # and calls that add much to a frame, are not inlined.

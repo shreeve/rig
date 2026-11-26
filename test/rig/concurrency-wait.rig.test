@@ -126,6 +126,122 @@ test "wait set", seeds: 20, '''
   >vs
   print("done")
 
+test "wait result through a write view views only what its type could hold", seeds: 20, "3 3 3 2"
+  # What a wait gives is the task's call's result, which views an
+  # argument only where its type could hold what the argument views (Core
+  # s7), also where the argument is reached through a write view (`!@`, a
+  # `!Pool` parameter): a `Group` holds no view of a `List[Int]`, so the
+  # checker it gives back may be stored in the pool `?@slots` was viewed
+  # from. The same for a set's wait.
+  # oracle: Pool.run accept
+  # oracle: run_param accept
+  # oracle: Pool.run_set accept
+
+  obj Program
+    names: List[String]
+
+  obj Checker
+    program: ?Program
+    seen: Int
+
+  enum Group
+    Done(checker: Checker, files: List[Int])
+
+  obj Pool
+    program: ?Program
+    checkers: List[Checker]
+    slots: List[Int]
+
+  fun check(c: Checker, program: ?Program, slots: ?List[Int], k: Int) -> Group
+    new c = <c
+    files: List[Int] = List()
+    for s, f in slots
+      if s == k
+        !files.push(f)
+        c.seen += program.names.len
+    Group.Done(checker: <c, files: <files)
+
+  fun Pool.run(!@) -> Int
+    tasks: List[Task[Group]] = List()
+    k = @checkers.len
+    while (!@checkers).pop() as c
+      k -= 1
+      !tasks.push(check(<c, @program, ?@slots, k)&)
+    total = 0
+    for t in <tasks
+      match >t
+        .Done(checker: c, :files)
+          total += files.len
+          !@checkers.push(<c)
+    total
+
+  fun run_param(pool: !Pool) -> Int
+    tasks: List[Task[Group]] = List()
+    k = pool.checkers.len
+    while (!pool.checkers).pop() as c
+      k -= 1
+      !tasks.push(check(<c, pool.program, ?pool.slots, k)&)
+    total = 0
+    for t in <tasks
+      match >t
+        .Done(checker: c, :files)
+          total += files.len
+          !pool.checkers.push(<c)
+    total
+
+  fun Pool.run_set(!@) -> Int
+    ts = Tasks[Group]()
+    k = @checkers.len
+    while (!@checkers).pop() as c
+      k -= 1
+      !ts.add(check(<c, @program, ?@slots, k)&)
+    groups = >ts
+    total = 0
+    for g in <groups
+      match <g
+        .Done(checker: c, :files)
+          total += files.len
+          !@checkers.push(<c)
+    total
+
+  p = Program(names: List())
+  !p.names.push(String("x"))
+  cs: List[Checker] = List()
+  !cs.push(Checker(program: ?p, seen: 0))
+  !cs.push(Checker(program: ?p, seen: 0))
+  pool = Pool(program: ?p, checkers: <cs, slots: List([0, 1, 1]))
+  a = (!pool).run()
+  b = run_param(!pool)
+  c = (!pool).run_set()
+  print(a, b, c, pool.checkers.len)
+
+fail "wait result through a write view that could hold the view", "cannot let this call store a view of `@slots` in `@checkers`: a value never holds a view of itself"
+  # A `Checker` that could hold a view of a `List[Int]` could hold the
+  # view of `@slots` the task was given: the checker its wait gives back
+  # is not stored in the pool that view was made of.
+  # oracle: Pool.run reject C9
+
+  obj Checker
+    held: (?List[Int])?
+
+  obj Pool
+    checkers: List[Checker]
+    slots: List[Int]
+
+  fun check(c: Checker, slots: ?List[Int]) -> Checker
+    c
+
+  sub Pool.run(!@)
+    tasks: List[Task[Checker]] = List()
+    while (!@checkers).pop() as c
+      !tasks.push(check(<c, ?@slots)&)
+    for t in <tasks
+      !@checkers.push(>t)
+
+  pool = Pool(checkers: List(), slots: List())
+  (!pool).run()
+  print(pool.checkers.len)
+
 test "wait void and write view", seeds: 20, "[0, 1, 2]"
   # A task given as a write view is waited for where it is bound.
   sub fill(xs: !List[Int], n: Int)

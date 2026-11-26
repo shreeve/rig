@@ -33,7 +33,7 @@
 # .swarm/errors.log.
 
 import { swarm, init, todo, args } from 'rip/swarm'
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync, rmSync, renameSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync, rmSync, renameSync, statSync, symlinkSync } from 'fs'
 import { join, resolve, basename, dirname, relative } from 'path'
 import { claimWait, claimHeld } from './claim.rip'
 
@@ -457,9 +457,9 @@ put = (path, text) ->
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
 
-# A zig build's -j: inside a cpuq lease, the cores it granted (zig build
+# A zig build's -j: inside a cpuq task, one (it holds one CPU, and zig build
 # would otherwise start a thread for every CPU); elsewhere, Zig's own.
-zigJobs = -> if process.env.CPUQ_CORES then ["-j#{process.env.CPUQ_CORES.split('-')[0]}"] else []
+zigJobs = -> if process.env.CPUQ_CPU then ["-j1"] else []
 
 # This runner's hash: what it writes changes with it.
 runner = Bun.CryptoHasher.new('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
@@ -694,6 +694,11 @@ setup = ->
     for set in ['tests', 'docs']
       todo("oracle.#{set}", JSON.stringify({ file: 'test/oracle', name: set, verb: 'oracle', line: 1, path: join(work, 'oracle', "#{set}.list"), opts: { timeout: '900' } }))
     todo('oracle.matrix', JSON.stringify({ file: 'test/matrix.py', name: 'matrix', verb: 'matrix', line: 1, opts: { timeout: '900' } }))
+    # Trig, when TRIG names a checkout or the default one exists
+    # (checkTrig).
+    trig = process.env.TRIG ?? join(process.env.HOME ?? '/', 'Data', 'Code', 'trig')
+    if process.env.TRIG? or existsSync(join(trig, 'src'))
+      todo('oracle.trig', JSON.stringify({ file: 'test/oracle', name: 'trig', verb: 'oracle-trig', line: 1, path: resolve(trig), opts: { timeout: '300' } }))
     todo('oracle.lint', JSON.stringify({ file: 'test/oracle', name: 'lint', verb: 'lint', line: 1, opts: {} }))
   # The matrix's programs built and run, in shards: only those whose own
   # Zig changed since a run that passed (`--own --delta`), each built
@@ -745,7 +750,8 @@ setup = ->
     # a program any worktree has built is not built again.
     env = Object.fromEntries(sweeps.map((v) -> [v, '1']))
     env.RIG_BUILD_STORE = (if /^# builds:[ \t]*shared[ \t]*$/m.test(text) then store else '')
-    todo(id, JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, env, opts: { timeout: String(if full then Math.min(limit * 10, 3600) else limit) } }))
+    cpus = text.match(/^# cpus:[ \t]*(\d+)[ \t]*$/m)
+    todo(id, JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, env, opts: { timeout: String(if full then Math.min(limit * 10, 3600) else limit), cpus: (if cpus then Number(cpus[1]) else 1) } }))
   # Its id sorts before every other job's, as Swarm starts them in that
   # order: the slowest job, a compile of minutes when the compiler changed,
   # runs beside the rest instead of after them.
@@ -754,9 +760,16 @@ setup = ->
 
 # ---- Checking a case -------------------------------------------------------
 
+# Where cpuq is installed (and RIG_NO_CPUQ is not set), each command runs as
+# `cpuq run -- CMD`, so a running case holds one CPU of the pool. A script
+# marked `# cpus: N` measures work spread over several CPUs, which one
+# pooled CPU cannot show, so it runs directly.
+cpuq = if process.env.RIG_NO_CPUQ then null else Bun.which('cpuq')
+
 # Run a command; its status (null when the time limit ended it), stdout,
 # and stderr.
-run = (cmd, env, seconds, cwd = root) ->
+run = (cmd, env, seconds, cwd = root, pooled = true) ->
+  cmd = [cpuq, 'run', '--', ...cmd] if cpuq and pooled
   r = Bun.spawnSync({ cmd, cwd, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe', timeout: seconds * 1000 })
   { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() }
 
@@ -991,7 +1004,7 @@ checkScript = (c) ->
   mkdirSync(join(out, 'work'), { recursive: true })
   seconds = Number(c.opts.timeout)
   timeoutCmd = (Bun.which('timeout') ?? Bun.which('gtimeout')) ?? 'timeout'
-  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT_CMD: timeoutCmd, ...(c.env ?? {}) }, seconds, join(out, 'work'))
+  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT_CMD: timeoutCmd, ...(c.env ?? {}) }, seconds, join(out, 'work'), (c.opts.cpus ?? 1) <= 1)
   throw Error.new("timed out after #{seconds}s") unless r.code?
   unless r.code is 0
     all = r.out + r.err
@@ -1043,6 +1056,50 @@ checkOracle = (c) ->
   unless r.code is 0
     all = (r.out + r.err).split('\n')
     throw Error.new(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+  passedNow(c, key)
+
+# Trig (TRIG, default ~/Data/Code/trig, only read) under the reference
+# checker: its modules, linked into a folder of the run's own, with
+# tools/trig/main.rig as the program and two stubs in place of the
+# modules a Trig build generates (`buildinfo`, `libtrees`), held to the
+# same lists. Every function the compiler accepts and the oracle rejects
+# fails the job, and so does a Trig the compiler stops before its
+# ownership checks, which the oracle would then decide nothing of.
+trigStubs =
+  buildinfo: 'pub fun rig_commit() -> Static\n  "oracle"\n\npub fun trig_commit() -> Static\n  "oracle"\n'
+  libtrees: 'use ast\n\npub fun sections(name: ?String) -> List[Static]\n  List()\n\npub fun node_records(name: ?String) -> List[ast.NodeRec]\n  List()\n'
+
+checkTrig = (c) ->
+  src = join(c.path, 'src')
+  main = join(c.path, 'tools', 'trig', 'main.rig')
+  throw Error.new("no Trig at #{c.path} (TRIG names it)") unless existsSync(src) and existsSync(main)
+  mods = readdirSync(src).sort().filter((m) -> m not in ['buildinfo', 'libtrees'] and statSync(join(src, m)).isDirectory())
+  h = Bun.CryptoHasher.new('sha256')
+  h.update(readFileSync(main))
+  h.update(JSON.stringify(trigStubs))
+  for m in mods
+    for f in readdirSync(join(src, m), { recursive: true }).map(String).sort() when f.endsWith('.rig')
+      h.update("#{m}/#{f}\n").update(readFileSync(join(src, m, f)))
+  key = oracleInputs([c.name, h.digest('hex')], [])
+  return if passedBefore(c, key)
+  dir = join(work, 'oracle', 'trig')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  symlinkSync(join(src, m), join(dir, m)) for m in mods
+  writeFileSync(join(dir, 'main.rig'), readFileSync(main))
+  for name, text of trigStubs
+    mkdirSync(join(dir, name))
+    writeFileSync(join(dir, name, "#{name}.rig"), text)
+  r = run([join(root, 'bin', 'rig-oracle'), '--set', c.name, '--allow', 'test/oracle/differences', '--rejects', 'test/oracle/rejections', "trig=#{join(dir, 'main.rig')}"], {}, Number(c.opts.timeout))
+  throw Error.new('timed out') unless r.code?
+  all = (r.out + r.err).split('\n')
+  unless r.code is 0
+    # A function the compiler accepts and the oracle rejects comes first.
+    throw Error.new(all.find((l) -> l.startsWith('DIFF')) ?? all.find((l) -> /^(FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+  decided = Number(all.find((l) -> l.startsWith('oracle'))?.match(/(\d+) decided/)?[1] ?? 0)
+  if decided is 0
+    k = run([rig, 'check', join(dir, 'main.rig')], {}, Number(c.opts.timeout))
+    throw Error.new("the compiler stops Trig before its ownership checks: #{firstLine(k.out + k.err)}")
   passedNow(c, key)
 
 # The matrix's programs (test/matrix.py) under the reference checker,
@@ -1106,6 +1163,7 @@ perform = (task, ctx) ->
       when 'script' then checkScript(c)
       when 'unit' then checkUnit(c)
       when 'oracle' then checkOracle(c)
+      when 'oracle-trig' then checkTrig(c)
       when 'lint' then checkLint(c)
       when 'generated' then checkGenerated(c)
       when 'matrix' then checkMatrix(c)
@@ -1177,8 +1235,7 @@ leftBehind = ->
   process.stdout.write("\x1b[31mthe run left #{extra.length} file(s) in the checkout:\x1b[0m\n" + extra.slice(0, 20).map((l) -> "  #{l}\n").join(''))
   process.exit(1)
 
-# Inside a cpuq lease, as many workers as it granted cores; elsewhere,
-# Swarm's own default, one per CPU (`-w N` chooses either way).
-await swarm { setup, perform, workers: (if process.env.CPUQ_CORES then Number(process.env.CPUQ_CORES.split('-')[0]) else undefined) }
+# Swarm's own default workers, one per CPU (`-w N` chooses another number).
+await swarm { setup, perform }
 verdict()
 leftBehind()

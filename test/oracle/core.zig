@@ -106,6 +106,10 @@ pub const Var = struct {
     /// A temporary that holds a task only for its wait or cancel, which
     /// takes it (`>t`, `<t.cancel()`).
     waits: bool = false,
+    /// What a task's wait gives (`>t`, `>ts`): the result of the task's
+    /// call, which views only what its type could hold (Core s7), a view
+    /// reached through a write view included.
+    waited: bool = false,
     pos: u32,
 };
 
