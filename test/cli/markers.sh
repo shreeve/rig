@@ -44,7 +44,7 @@ marked=$(awk '$2 == "`near`" { print $(NF - 1) }' <<<"$facts")
 [[ -n $marked && $marked -ge 320000 ]] || fail "near's account lacks huge's 320000 bytes: $facts"
 
 # Calls of marked `inline` functions nest at most 256 deep
-# (`typecheck.max_inline_depth`); the case "markers inline nest 256 deep"
+# (`accounts.max_inline_depth`); the case "markers inline nest 256 deep"
 # runs a chain 256 deep.
 python3 "$gen" chain-257 >deep257.rig || fail "write deep257.rig"
 out=$(rig check deep257.rig 2>&1) && fail "a chain of 257 marked calls is accepted"
