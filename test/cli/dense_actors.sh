@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# timeout: 180
+# timeout: 600
+# (Eight release builds on the one CPU a case holds: 95 to 140 s on burst
+# alone, 300 to 370 s beside two busy loops.)
 # A panic in an actor's method while tasks it started run on dense stacks
 # (#1044's cases). The suite's own builds seal no guard into their
 # executables, so they run every task on a large stack: these are release
