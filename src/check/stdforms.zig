@@ -3023,8 +3023,8 @@ pub fn misreachedWrite(self: *Checker, sigil: ?Sexp, place: Sexp, method: []cons
 
 /// `copy`, `fill`, and `swap`: built-in methods on the elements of a
 /// slice, an array, or a List, which write them in place; `sum`,
-/// which reads them (`sumCall`); `prefetch`, which asks for one
-/// (`prefetchCall`); and `read` and `write` on bytes
+/// which reads them (`sumCall`); `prefetch`, which asks for one, or for
+/// a byte of text (`prefetchCall`); and `read` and `write` on bytes
 /// (`bytesCall`). Null when `method` is none of them or self
 /// has no elements.
 pub fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
@@ -3039,6 +3039,8 @@ pub fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method
             break :blk a.elem;
         },
         .string_view, .static => try ViewCheck.byteType(self),
+        // A `String`'s bytes are asked for by `prefetch` alone.
+        .string => if (op == .prefetch) try ViewCheck.byteType(self) else return null,
         else => sema.listElem(self.ctx, peeled) orelse return null,
     };
     if (obj.isKind(.move) and ViewCheck.isSelfSigil(self, obj)) {
@@ -3046,7 +3048,7 @@ pub fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method
         return try CallCheck.skipCall(self, args);
     }
     if (op == .sum) return try sumCall(self, callee, obj, obj_ty, peeled, elem, pos, args, ct);
-    if (op == .prefetch) return try prefetchCall(self, callee, obj, obj_ty, peeled, elem, pos, args, ct);
+    if (op == .prefetch) return try prefetchCall(self, callee, obj, peeled, elem, pos, args, ct);
     if (op == .read or op == .write) return try bytesCall(self, callee, obj, obj_ty, elem, len, op, pos, args, ct);
     if (ct) |b| return try CallCheck.badCall(self, args, b, "`{s}` takes no compile-time arguments", .{method});
     if (!try writesElements(self, obj, obj_ty, peeled, method)) return try CallCheck.skipCall(self, args);
@@ -3586,14 +3588,11 @@ pub fn sumCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, peeled: 
 }
 
 /// `xs.prefetch(i)`: a hint that element `i` of a slice, an array, or a
-/// List will be read soon, which does nothing a program can see, so
-/// its index is any integer, never checked against the length. It
-/// reads its self for the call and gives nothing.
-pub fn prefetchCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, peeled: TypeId, elem: TypeId, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
-    switch (self.ctx.types.get(peeled)) {
-        .string_view, .static => return CallCheck.badCall(self, args, obj, "`prefetch` asks for an element of a List, an array, or a slice, and `{s}` is text", .{try self.tyName(obj_ty)}),
-        else => {},
-    }
+/// List, or byte `i` of text (a `String`, a `?String`, or a `Static`),
+/// will be read soon, which does nothing a program can see, so its
+/// index is any integer, never checked against the length. It reads its
+/// self for the call and gives nothing.
+pub fn prefetchCall(self: *Checker, callee: Sexp, obj: Sexp, peeled: TypeId, elem: TypeId, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
     if (ct) |b| return CallCheck.badCall(self, args, b, "`prefetch` takes no compile-time arguments", .{});
     if (ViewCheck.isSelfSigil(self, obj) and !obj.isKind(.read)) try ViewCheck.misplacedSigil(self, obj, "prefetch", "only reads its elements");
     if (args.len != 1 or args[0].isKind(.kwarg)) {

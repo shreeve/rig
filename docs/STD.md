@@ -2883,8 +2883,9 @@ touched and copied for the List when first written, so a large table
 the program loads and only reads costs neither the copy nor the memory
 of the pages it never touches.
 
-`xs.prefetch(i)` asks for element `i` of a List, an array, or a slice
-ahead of its read, and does nothing a program can see: an `i` out of
+`xs.prefetch(i)` asks for element `i` of a List, an array, or a slice,
+or for byte `i` of a `String`, a `?String`, or a `Static`, ahead of its
+read, and does nothing a program can see: an `i` out of
 range is no error ([SPEC](../SPEC.md#slices)). It pays where the core
 cannot overlap the misses on its own, as when each lookup ends in a
 branch on what it read: bench/prefetch measures it.
