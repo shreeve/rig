@@ -474,6 +474,12 @@ serve no HTTP.
 
 ### Added
 
+- **`!v.fit()` on a List** ([SPEC "List"](SPEC.md#list)): the buffer
+  cut to the elements the List holds, freed when it holds none, and for
+  a List with inline room moved back into the List when they fit there.
+  A large buffer is cut where it lies with no copy (below); a small one
+  is copied into the smallest block that holds it. A List built in a
+  scratch buffer can so be kept at its length without a clone.
 - **`task.poll(name: arm, ...)`, a select that never waits**
   ([SPEC "Channels"](SPEC.md#channels), [std.task](docs/STD.md#stdtask)).
   It takes the named select's receive, send, and task-end arms, commits
@@ -492,6 +498,17 @@ serve no HTTP.
   of the select's union. A loop takes each result that is ready and
   does other work between them, as Trig's file loader interns names
   between results.
+- **`!t.grow(k)` pushes `k` slots of a Table at once**
+  ([SPEC "Table"](SPEC.md#table), [STD "Table and Slot"](docs/STD.md#table-and-slot)),
+  each holding what it reads as, `T()` unless written by slot, and gives
+  nothing. It panics as `push` does when `len + k` would pass `n`
+  ("a table of 4 slots is full"), and on a negative `k`; `k = 0` does
+  nothing. On Linux a reserved table then faults in the grown slots'
+  pages for writing with one `MADV_POPULATE_WRITE` (Linux 5.14; ignored
+  where refused), so a slot read before it is written finds a page of its
+  own rather than the shared zero page, whose first write copies it and
+  flushes every other core's TLB of it. Trig grows its link indexes this
+  way when it makes a checker.
 - **`cost:` on `par.map`, `par.each`, `par.workers`, and `par.push`**
   ([SPEC "Each element on several tasks"](SPEC.md#each-element-on-several-tasks),
   [std.par](docs/STD.md#stdpar)). It gives each element's cost, an
@@ -719,6 +736,7 @@ serve no HTTP.
 
 ### Compiler
 
+- **`prefetch` asks for a byte of text** ([SPEC "Slices"](SPEC.md#slices)): `s.prefetch(i)` of a `String`, a `?String`, or a `Static` asks for byte `i` by the rules of a List's: one prefetch instruction, no range test, nothing on a target without one. It was rejected ("`prefetch` asks for an element of a List, an array, or a slice, and `Static` is text"); a `String`'s other element methods (`sum`, `fill`, ...) stay unknown.
 - **A signed integer narrowed to an unsigned type is tested once.** `U32(x)` of an `Int` is `@as(u32, @intCast(@as(u64, @bitCast(@as(i64, x)))))`, in place of an `@intCast` to `u64` first: a negative value's bits are above the target's largest value, so the one unsigned compare of the narrowing rejects it, with the same panic ("integer does not fit in destination type"), where the sign was tested apart. `$fromBackingInt` keeps both tests, as an enum's backing type may be as wide as the value. Only those conversions' emitted Zig changes.
 - **A call evaluates its arguments in the order it writes them** (CORE §6, "Evaluation order"; CORE sentence 6 and §7 "Defer" state the drop and the defer orders the checker already kept). A fixed view binding (`r =! ?v[0]`) read as an argument is copied where it stands, as a plain binding is, where emit read it late (`lower.isPureArg` no longer counts it pure), and the checker's rule that read a call's pure arguments after the others is gone, so the checker checks the order emit runs. A held write view read as plain data by a parameter of a plain type is copied there and passes no view on (`sema.copiedOut`). These are accepted now, and run clean: a keyword argument `f(b: r, a: bump(!v))`, a write view one `f(b: w, a: bump(!v))`, a hoisted argument beside a fallible one `g(String("x"), r, bump(!v)!)`, an argument beside a closure literal `apply(r, |x| x + 1, bump(!v))`, an assigned value before its index `xs[bump(!v)] = r`, and a compound one `xs[bump(!v)] += w`, with `r =! ?v[0]` and `w =! !v[0]`; and a held write view given twice as a constructor's plain fields, `Q(p: w, o: w)`. The reference checker drops the old value of a reassigned name whose `drop` body reads views after the new value is made, and keeps a write-view `break` value's loan through the loop body's defers, as the compiler does; nothing is newly rejected.
 - **A view ends at its last use on the paths the code runs** (Core sentences 5 and 6; INTERNALS "Liveness"). The ownership checker finds a binding's last use on its body's LIR, in the order it runs, in place of its source positions: deferred code counts where it runs, at its scope's exits, and not where it is written; a `while` step and a later arm's guard count only on the paths that reach them; a name re-pointed by a store holds its old view only up to the store; a value that fails or is `none` holds no view in its `catch` handler or the right of its `??`, which ends the views it carried and never an equal view another part of the statement holds; an exit that leaves a statement unfinished ends the statement's temporary views before its defers run; and a write view that no result of a call with several results carries ends as the call returns. The checker accepts programs it rejected and nothing it accepted before is rejected; two kinds stay rejected for how emit holds their values (a value with a `drop` body uses its views where it is dropped, a loop's `break` value keeps its views while the body's defers run). The positional machinery (`uses`, `walked`, `late`, `after_value`, `useBranchesAfter`, `defer_used`) is gone. The emitted Zig of every program accepted before is the same.
@@ -1222,6 +1240,14 @@ arms.
 
 ### Runtime
 
+- **A large block that shrinks keeps its place** (`alloc.shrinkLarge`):
+  a span gives the units past its new length back to its heap as a free
+  span, joined with the free span after it, and a mapping of its own
+  gives its pages past the new length back to the system, where the
+  release allocator copied every shrink into a new block. `List.fit`
+  and `String.fit` (a file read into room it did not fill) so cut a
+  large buffer with no copy.
+- **std.text's search compares 32 bytes at a time past a text's first 256 places on x86-64 with AVX2, and 64 with AVX-512BW** (`step_lanes`, one step routine whose width std/text.zig chooses by target from bench/text/sweep.zig's measurements; bench/text/README.md, "The sweep"). Shorter texts and aarch64 run the code they ran. On pup's E-core a 3- or 12-byte search is 9 to 11% faster over 1 KiB, 25 to 30% over a 4 KiB miss, and 21 to 34% over the whole of lib.dom.d.ts; one of 320 bytes is 6 to 13% slower.
 - **An actor's method run from its mailbox is stopped by a signal:** the
   runtime's functions that run a method (`callAs`, `actorCall`, the
   mailbox's `Call.run`, and `actorSpawn`'s task) lie in the program's

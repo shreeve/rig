@@ -5556,6 +5556,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id, null),
             try method(ctx, "keep", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
             try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
+            try method(ctx, "fit", .write, &.{write_self}, ctx.types.void_id, null),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t, &list_get),
             // It compares, so it keeps nothing it is given.
             copiesArgs(try method(ctx, "index_of", .read, &.{ read_self, try ctx.intern(.{ .read_view = t }) }, try ctx.intern(.{ .optional = ctx.types.int_id }), &list_index_of)),
@@ -5736,7 +5737,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
 
     // Table[T, n: Int]: `n` slots from the start, each `T()` until
     // written (`tableElementError`); `!t.push(x)` writes slot `len` and
-    // gives it as a `Slot[n]`. Typing knows `len`, `t[s]`, and `for`, as
+    // gives it as a `Slot[n]`, and `!t.grow(k)` pushes `k` slots at once,
+    // each as it reads. Typing knows `len`, `t[s]`, and `for`, as
     // a List's. Slot[n: Int]: a number below `n`, a type of its own kind
     // (`slotInstance`), whose `of` typing knows. Neither name is reserved:
     // a module's own `Table` or `Slot` hides the built-in one.
@@ -5752,6 +5754,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const slot = try ctx.intern(.{ .slot = n_ty });
         try setFields(ctx, g.sym, &.{
             try method(ctx, "push", .write, &.{ write_self, g.params[0] }, slot, null),
+            try method(ctx, "grow", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
         });
         const s = try addGeneric(ctx, module_scope, module_scope, "Slot", &.{"n"});
         b.slot = ctx.ref(s.sym);
@@ -6122,7 +6125,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const list = ctx.lookup(scope, "List").?;
     try std.testing.expectEqual(ctx.builtins.list, ctx.ref(list));
-    try std.testing.expectEqual(@as(usize, 14), ctx.symbols.items[list].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 15), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 

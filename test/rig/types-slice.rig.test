@@ -563,7 +563,7 @@ code "slice prefetch emits", "rig.prefetch(xs.items(), i)", "rig.prefetch(&a, 2)
   a.prefetch(2)
   print(f(?a, i))
 
-fail "slice prefetch rejects", "3:3: no method `prefetch` on type `Map`", "4:12: an index must be an integer; got `Float`", "`prefetch` takes one argument, the index of the element to fetch; got 2 arguments", "6:1: `prefetch` only reads its elements; remove the `!`", "7:7: `prefetch` is a method of `[3]Int`, only called: `xs.prefetch(i)`", "`prefetch` takes no compile-time arguments", "`prefetch` asks for an element of a List, an array, or a slice, and `Static` is text", errors: 7
+fail "slice prefetch rejects", "3:3: no method `prefetch` on type `Map`", "4:12: an index must be an integer; got `Float`", "`prefetch` takes one argument, the index of the element to fetch; got 2 arguments", "6:1: `prefetch` only reads its elements; remove the `!`", "7:7: `prefetch` is a method of `[3]Int`, only called: `xs.prefetch(i)`", "`prefetch` takes no compile-time arguments", errors: 6
   m = Map[Int, Int]()
   a = [1, 2, 3]
   m.prefetch(0)
@@ -572,7 +572,56 @@ fail "slice prefetch rejects", "3:3: no method `prefetch` on type `Map`", "4:12:
   !a.prefetch(0)
   f = a.prefetch
   a.prefetch[Int](0)
-  "abc".prefetch(0)
+
+test "text prefetch", "abc 3"
+  # `prefetch` asks for byte `i` of a `String`, a `?String`, or a
+  # `Static` by the rules of a List: one prefetch, no range test, so an
+  # `i` out of range does nothing.
+  K = "static text"
+
+  obj Name
+    text: String
+
+    fun warm(?@, i: Int) -> Int
+      @text.prefetch(i)
+      @text.len
+
+  fun look(s: ?String, i: Int) -> U8
+    s.prefetch(i)
+    s[i]
+
+  fun make() -> String
+    String("tmp")
+
+  s = String("abc")
+  n = Name(text: String("xyz"))
+  for i in [-1, 0, 2, 3, 100, Int.min, Int.max]
+    s.prefetch(i)
+    ?s[1..].prefetch(i)
+    K.prefetch(i)
+    "lit".prefetch(i)
+    n.warm(i)
+  make().prefetch(0)
+  s.prefetch(U64.max)
+  print(s, n.warm(0) + Int(look(?s, 0)) - 97)
+
+code "text prefetch emits", "rig.prefetch(s.bytes(), i)", "rig.prefetch(v, i + 1)"
+  fun f(v: ?String, i: Int) -> U8
+    v.prefetch(i + 1)
+    v[i]
+
+  s = String("abc")
+  i = 1
+  s.prefetch(i)
+  print(f(?s, i))
+
+fail "text prefetch only", "4:3: type `String` has no method `sum`", "5:4: type `!String` has no method `fill`", "6:1: `prefetch` only reads its elements; remove the `!`", errors: 3
+  s = String("abc")
+  v = ?s[..]
+  print(v.len)
+  s.sum()
+  !s.fill(0)
+  !s.prefetch(0)
 
 test "slice prefetch kernels", "45 12", release: true
   # The kernels test/cli/prefetch.sh reads the assembly of: `warm` is one
