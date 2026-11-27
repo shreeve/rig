@@ -4454,19 +4454,21 @@ test "on Linux a Table dropped while another worker is awake keeps its pages and
     const d = reserveTable(5 * mib + 4096).?;
     try std.testing.expectEqual(a, d);
     for (d[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
-    // Two that touch wait as one range. One more whose Table wrote past
-    // `table_pending_most` gives them all back at once, with a `madvise`
-    // each where `process_madvise` is refused.
+    // Three that touch wait as one range. One more whose Table pushed
+    // past `table_pending_most` gives them all back at once, with a
+    // `madvise` each where `process_madvise` is refused.
     @memset(d[0 .. 6 * mib], 7);
     @memset(b[0 .. 4 * mib], 7);
+    @memset(c[0 .. 6 * mib], 7);
+    const big = reserveTable(table_pending_most + mib).?;
     try std.testing.expect(unreserveTable(d, 5 * mib + 4096, mib));
     try std.testing.expect(unreserveTable(b, 4 * mib, mib));
+    try std.testing.expect(unreserveTable(c, 5 * mib + 4096, mib));
     try std.testing.expectEqual(@as(usize, 1), table_pending_count.*);
     try std.testing.expectEqual(@as(usize, 10 * mib), try residentForTest(a, 10 * mib));
     process_madvise_fails_for_test = true;
     defer process_madvise_fails_for_test = false;
-    @memset(c[0 .. 6 * mib], 7);
-    try std.testing.expect(unreserveTable(c, 5 * mib + 4096, table_pending_most));
+    try std.testing.expect(unreserveTable(big, table_pending_most + mib, table_pending_most + mib));
     try std.testing.expect(!tablesPending());
     try std.testing.expectEqual(gives + 2, table_give_backs_for_test);
     try std.testing.expectEqual(@as(usize, 0), try residentForTest(a, 10 * mib));
