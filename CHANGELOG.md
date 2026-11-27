@@ -1240,6 +1240,7 @@ arms.
 
 ### Runtime
 
+- **An allocation fetches the line of its class's next free block** (`alloc.prefetchNext`): the free list's new head is prefetched for writing as a block is handed out, so the next allocation of the class does not wait on memory for its link. On Trig at four checkers (pup, P-cores) the allocator's own cycles are 6 to 17% fewer.
 - **A large block that shrinks keeps its place** (`alloc.shrinkLarge`):
   a span gives the units past its new length back to its heap as a free
   span, joined with the free span after it, and a mapping of its own
