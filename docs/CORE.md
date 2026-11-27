@@ -432,7 +432,10 @@ view of it,** wherever that view went: a field, an array, an optional,
 a closure, a result. Dropping a value uses the views it holds only when
 its drop runs a `drop` body, which could read them, so the views a
 `List[[]Int]` holds end at its last use, not where it is dropped.
-*(built)*
+When a value's drop runs a `drop` body, its own or one of a value it
+holds, that drop is the last use of every view the value holds: where
+an assignment replaces the value, after the new value is made (§6),
+where its scope ends, or where its statement ends (§3). *(built)*
 
 ```rig reject
 sub main()
@@ -477,6 +480,24 @@ sub main()
 
 ```error
 cannot assign to `a[0]` while a read view of `a` is still in use
+```
+
+```rig reject
+obj Guard
+  s: ?String
+
+  drop(!@)
+    print(@s)
+
+sub main()
+  b = String("old")
+  a = Guard(s: ?b)
+  b = String("new")
+  a = Guard(s: ?b)
+```
+
+```error
+cannot reassign `b` while a read view of it is still in use
 ```
 
 **7. A call passes on only the views its signature shows.** A function
@@ -2114,9 +2135,10 @@ write view of `m`; and
 
 ## 6. Bindings and assignment
 
-**Evaluation order.** `x = e` evaluates `e` first, then the indexes in
-`x` from left to right, then finds `x`'s place, then stores. This
-matches Rust for `=`. *(built)*
+**Evaluation order.** `x = e` evaluates `e`, then the indexes in `x`
+from left to right, then finds `x`'s place, then drops the value the
+place held, then stores. `x op= e` is `x = e` with `x` read just before
+the store. This matches Rust for `=`. *(built)*
 
 ```rig
 fun next(i: !Int) -> Int
@@ -2134,11 +2156,12 @@ sub main()
 [0, 1, 0]
 ```
 
-A call evaluates its self and arguments left to right, then runs; an
-operator evaluates its operands left to right, then yields. Plain data
-read as a value (an operand, a field or element read, an argument to a
-parameter of a plain type) is copied where it stands, through a view
-too, and keeps nothing limited there. Whatever else an earlier argument
+A call evaluates its self, then its arguments in the order the call
+writes them, never the parameters' order, named or positional, fallible
+or not; then it runs. An operator evaluates its operands left to right,
+then yields. Plain data read as a value (an operand, a field or element
+read, an argument to a parameter of a plain type) is copied where it
+stands, through a view too, and keeps nothing limited there. Whatever else an earlier argument
 or operand hands over (a view, which `print` and `String` arguments are;
 a value that shares storage its place owns; what a write view reaches)
 stays read-only until the call returns or the operator yields, so a
@@ -2171,6 +2194,25 @@ sub main()
 
 ```error
 while an earlier argument's read of it is still in use
+```
+
+```rig
+fun bump(v: !List[Int]) -> Int
+  !v.push(9)
+  0
+
+fun f(a: Int, b: Int) -> Int
+  a + b
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  r =! ?v[0]
+  print(f(b: r, a: bump(!v)))
+```
+
+```output
+1
 ```
 
 A field copied out of a view keeps nothing limited, so the view's last
@@ -2396,7 +2438,11 @@ sub main()
 
 **Defer.** `defer` and `errdefer` run where their scope ends. They may
 read and write what is live there; they never keep a view in use past it.
-What their scope gives back is live while they run. No failure leaves
+What their scope gives back is live while they run. What leaves their
+scope, its value or a `return` or `break` value, is live while they
+run, with every view it holds, a write view included, so the place it
+views stays read-only or unusable (sentence 6) until the last of them
+ends. No failure leaves
 one: a fallible call in it is caught there, so the error a failing
 scope is leaving with is never replaced. *(built)*
 
@@ -2409,6 +2455,20 @@ sub main()
 ```output
 first
 last
+```
+
+```rig reject
+sub main()
+  xs: List[Int] = List()
+  !xs.push(5)
+  r = loop
+    defer xs = List()
+    break ?xs[0]
+  print(r)
+```
+
+```error
+cannot reassign `xs` while a read view of it is still in use
 ```
 
 ## 8. Outside the core: syntax, not ownership

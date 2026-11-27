@@ -2593,7 +2593,7 @@ fn viewsElems(view: sema.View) bool {
 fn passesWriteView(ctx: *const SemContext, e: Sexp) bool {
     const ty = ctx.typeOf(e) orelse return false;
     if (ty == ctx.types.unknown_id or ty == ctx.types.invalid_id) return false;
-    if (!sema.holdsWriteView(ctx, ty)) return false;
+    if (!sema.holdsWriteView(ctx, ty) or sema.copiedOut(ctx, e)) return false;
     return switch (sema.handsOver(ctx, e).kind) {
         .place, .part_of_made => true,
         else => false,
@@ -3008,6 +3008,14 @@ fn ownsValue(ctx: *const SemContext, e: Sexp) bool {
     return owns(ctx, typeOf(ctx, e) orelse return false);
 }
 
+/// Whether name `e` holds a view of a value, `?T` or `!T`.
+fn isViewBinding(ctx: *const SemContext, e: Sexp) bool {
+    return switch (ctx.types.get(typeOf(ctx, e) orelse return false)) {
+        .read_view, .write_view => true,
+        else => false,
+    };
+}
+
 fn isPtrViewExpr(ctx: *const SemContext, e: Sexp) bool {
     return sema.viewHeldAsPointer(ctx, typeOf(ctx, e) orelse return false);
 }
@@ -3095,7 +3103,9 @@ pub fn laneChecked(ctx: *const SemContext, e: Sexp) bool {
 
 /// A value whose evaluation has no side effect and reads nothing a
 /// later argument could change: a literal, a constant, a function,
-/// or a view or move of a name.
+/// a fixed binding that is no view, or a view or move of a name. A
+/// fixed view binding (`r =! ?v[0]`) is read where the call writes
+/// it, as a plain binding is (Core §6).
 pub fn isPureArg(ctx: *const SemContext, e: Sexp) bool {
     switch (e) {
         .src => {
@@ -3103,7 +3113,7 @@ pub fn isPureArg(ctx: *const SemContext, e: Sexp) bool {
             const sym = ctx.symbolOf(e) orelse return false;
             const s = ctx.symbols.items[sym];
             return switch (s.kind) {
-                .local, .param, .capture => s.flags.fixed or s.flags.comptime_known,
+                .local, .param, .capture => s.flags.comptime_known or (s.flags.fixed and !isViewBinding(ctx, e)),
                 else => true,
             };
         },

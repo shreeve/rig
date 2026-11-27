@@ -593,12 +593,92 @@ fail "last use drop of a reassigned value reads a List a match arm grew", "canno
     _ => H(v: ?u)
   print("end")
 
-# A fixed view binding (`r =! ?v[0]`) of a value emit holds by address
-# is read where its consumer runs, after the operands emit evaluates
-# before it, as ownership-last.rig.test's `last ... read after a later
-# one writes` cases show.
+fail "last use drop of a reassigned value reads a place its new value writes", "cannot change `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
 
-fail "last use fixed read view of an object read after a keyword argument grows its List", "cannot change `v` while a read view of it is still in use"
+    drop(!@)
+      print("guard", @tag, @s)
+
+  fun grow(s: !String) -> Int
+    for _ in 0..64
+      !s.add("xxxxxxxx")
+    1
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 1)
+  print(a.tag)
+  a = Guard(s: "lit", tag: grow(!b))
+  print(a.tag)
+
+fail "last use drop of an optional set to none reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  b = String("oldb")
+  o: Guard? = Guard(s: ?b, tag: 1)
+  print(b.len)
+  b = String("newb")
+  o = none
+  print(b)
+
+fail "last use drop of a value moved on one path reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 1)
+  if b.len > 9
+    c = <a
+    print(c.tag)
+  b = String("newb")
+  a = Guard(s: "lit", tag: 2)
+  print(b, a.tag)
+
+fail "last use drop of a value reassigned in a loop reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 0)
+  for i in 0..2
+    b = String("x")
+    a = Guard(s: "lit", tag: i)
+  print(b, a.tag)
+
+fail "last use drop of a value a defer reassigns reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 0)
+  if a.tag == 0
+    defer a = Guard(s: "lit", tag: 1)
+    b = String("x")
+  print(b, a.tag)
+
+# A fixed view binding (`r =! ?v[0]`) of a value held by address is
+# read where it is written, before a later operand grows its List
+# (Core §6), as a plain binding is.
+
+test "last use fixed read view of an object read before a keyword argument grows its List", "2"
   obj Item
     n: Int
     m: Int
@@ -618,7 +698,7 @@ fail "last use fixed read view of an object read after a keyword argument grows 
   r =! ?v[0]
   print(f(b: r, a: bump(!v)))
 
-fail "last use fixed read view of an object read after its index grows its List", "cannot change `v` while a read view of it is still in use"
+test "last use fixed read view of an object read before its index grows its List", "1"
   obj Item
     n: Int
     m: Int
@@ -658,6 +738,60 @@ fail "last use break value's write view while the body's defer replaces its List
   !t.xs.push(Slot(key: 1))
   w = (!t).broke()
   print(w.key)
+
+fail "last use break value's write view while the body's defer clears its List", "cannot use `xs` while a write view of it is still in use"
+  xs: List[Int] = List()
+  !xs.push(1)
+  r = loop
+    defer !xs.clear()
+    break !xs[0]
+  r = 5
+  print(xs.len)
+
+fail "last use break value's write view of a parameter while the body's defer clears it", "cannot use `xs` while a write view of it is still in use"
+  fun local(xs: !List[Int]) -> !Int from xs
+    loop
+      defer !xs.clear()
+      break !xs[0]
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  print(local(!xs))
+
+fail "last use break value's write view in an if while its defer clears the List", "cannot use `xs` while a write view of it is still in use"
+  fun inif(xs: !List[Int]) -> !Int from xs
+    r = loop
+      if xs.len > 0
+        defer !xs.clear()
+        break !xs[0]
+      !xs.push(1)
+    r
+
+  xs: List[Int] = List()
+  print(inif(!xs))
+
+fail "last use break value's write view of a String while the body's defer clears its List", "cannot use `xs` while a write view of it is still in use"
+  fun localstr(xs: !List[String]) -> !String from xs
+    r = loop
+      defer !xs.clear()
+      break !xs[0]
+    r
+
+  xs: List[String] = List()
+  !xs.push(String("a"))
+  print(localstr(!xs))
+
+fail "last use break value moving a write view while the body's defer clears its List", "cannot use `xs` while a write view of it is still in use"
+  fun pick(xs: !List[String]) -> !String from xs
+    r = loop
+      defer !xs.clear()
+      w = !xs[0]
+      break <w
+    r
+
+  xs: List[String] = List()
+  !xs.push(String("a"))
+  print(pick(!xs))
 
 # Where a `catch` handler or the right of `??` runs, the value before it
 # holds nothing, so the views it carried, and only those, have had their

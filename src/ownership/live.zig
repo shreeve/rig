@@ -618,16 +618,7 @@ const Builder = struct {
             if (s) |q| try bd.edge(q, p);
             return p;
         }
-        if (o.kind == .call and latePure(bd, o)) {
-            // A call that passes its keyword arguments in its
-            // parameters' order, or evaluates the rest first, reads its
-            // pure arguments where it runs, after the others.
-            const parts = ir.Call.args(node);
-            const first = o.args.len - parts.len;
-            for (o.args[0..first]) |x| try bd.expr(x);
-            for (parts, o.args[first..]) |part, x| if (!lowering.isPureArg(bd.c.sema, lowering.argValue(part))) try bd.expr(x);
-            for (parts, o.args[first..]) |part, x| if (lowering.isPureArg(bd.c.sema, lowering.argValue(part))) try bd.expr(x);
-        } else if (o.kind == .as) {
+        if (o.kind == .as) {
             // `v as name` gives the names it binds new values.
             for (o.args, 0..) |x, i| switch (bd.f.exprs.items[x]) {
                 .@"var" => |u| if (i > 0 and bd.f.vars.items[u.v].name == .binding) {
@@ -645,19 +636,6 @@ const Builder = struct {
             else => {},
         }
         return p;
-    }
-
-    /// Whether call `o`, whose parts no region holds first, reads its
-    /// pure parts after the others (`live.holdLateParts` once): it
-    /// passes keyword arguments, or is an element operation that
-    /// evaluates the rest first.
-    fn latePure(bd: *Builder, o: lir.Expr.Op) bool {
-        const ctx = bd.c.sema;
-        if (bd.b.calls.contains(sema.decisionKeyOf(o.node) orelse return false)) return false;
-        const parts = ir.Call.args(o.node);
-        if (parts.len > o.args.len) return false;
-        for (parts) |a| if (a.isKind(.kwarg)) return true;
-        return ctx.elemCallOf(ctx.calleeOf(o.node)) != null and lowering.hoistsArgs(ctx, o.node);
     }
 };
 

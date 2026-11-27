@@ -1041,6 +1041,10 @@ const Lowerer = struct {
                 return;
             }
             const v = try self.eval(rhs, .take, xv.ty);
+            // Reassigning a name drops its old value after the new one
+            // is made (Core §6): a `drop` body reads the views the old
+            // value holds there (Core s6).
+            if (xv.drop_reads) try self.emit(.{ .pos = pos, .what = .kill, .kill = x });
             // Reassigning a name drops its old value: no loan of it may
             // be live (Core s5, s6).
             try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .def = x, .access = .{ .root = x, .kind = .whole }, .binds_task = madeTask(rhs) });
@@ -2166,7 +2170,19 @@ const Lowerer = struct {
                 const moves = !(try self.kinds.of(self.f.vars.items[x].ty)).kind.copies();
                 break :blk if (in_loop and moves and !self.f.vars.items[x].alias) x else null;
             } else null;
-            if (local) |x| try self.store(lv, try self.moveWhole(x, self.posOf(v)), self.posOf(v)) else try self.storeTaken(v, lv);
+            // A write view leaving is live, with its loan, until the
+            // scope's defers end (Core §7), as a returned one is: it is
+            // held as the view, and read through past them.
+            const vty = try self.typeOf(v);
+            const held: ?VarId = if (self.ctx.types.get(vty) == .write_view and self.f.vars.items[lv].kind != .write_view) try self.newVar("the break value", vty, true, self.posOf(v)) else null;
+            const into = held orelse lv;
+            if (local) |x| try self.store(into, try self.moveWhole(x, self.posOf(v)), self.posOf(v)) else try self.storeTaken(v, into);
+            if (held) |h| {
+                try self.unwind(lp.depth, pos, false);
+                try self.store(lv, h, pos);
+                try self.goto(lp.brk);
+                return;
+            }
         }
         try self.unwind(lp.depth, pos, false);
         try self.goto(lp.brk);

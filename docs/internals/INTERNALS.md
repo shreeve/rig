@@ -3602,11 +3602,10 @@ and step back to its head, a `match` arm whose guard fails on to the
 later arms, `and`, `or`, `??` and a `catch` handler on a path that
 skips them, and a jump, a `return`, and a failure (`e!`, `e?`) to
 where they go, through the defers of the scopes they leave, which run
-there and not where they are written. A pure part of a call that passes
-keyword arguments in its parameters' order, or of an element operation
-that evaluates the rest first, is read after the other parts, and a
-pure value stored after the target's base and indexes
-(`lower.isPureArg`), as emit reads them. A binding is used at each
+there and not where they are written. A call's parts are read in the
+order the call writes them, as emit evaluates them, and a pure value
+stored is read after the target's base and indexes
+(`lower.isPureArg`), as emit reads it. A binding is used at each
 read, at a capture that names it, and at a store that combines with it
 or writes through it; a store that points it elsewhere, entering the
 region that declares it, and `v as name` give it a new value. A var is
@@ -5579,8 +5578,10 @@ that is a recorded fact.
   leaves, or indexes; a name or a field path off one is read where the
   call is, which the ownership checker holds for the call. An argument is left where it stands (`isPureArg`) only if
   evaluating it early or late reads nothing a later-written argument
-  could change: a literal, a constant, or a view held as a pointer to a
-  name. A view held by value (a `?String`'s bytes, a slice, a copy of a
+  could change: a literal, a constant, a fixed binding that is no view,
+  or a view held as a pointer to a name. A fixed view binding (`r =!
+  ?v[0]`) reads through its view, so it is evaluated in its turn, as a
+  plain binding is. A view held by value (a `?String`'s bytes, a slice, a copy of a
   number) reads the name where the call runs, so it is not pure, and a
   call that reorders it with an argument that has an effect evaluates
   both into temporaries in source order (`hoistsArgs`). The ownership

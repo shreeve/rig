@@ -13879,6 +13879,16 @@ pub fn viewParam(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// Whether `e`, a view read through (`SemContext.readsThrough`), is
+/// copied out for what it reaches: plain data that holds no view and no
+/// type parameter's value, copied where `e` stands, which keeps nothing
+/// viewed (Core §6).
+pub fn copiedOut(ctx: *const SemContext, e: Sexp) bool {
+    if (!ctx.readsThrough(e)) return false;
+    const reached = copiedThrough(ctx, ctx.typeOf(e) orelse return false) orelse return false;
+    return !mayHoldView(ctx, reached) and !containsTypeVar(ctx, reached);
+}
+
 /// Whether `ty` is a view: a `?T`, `!T`, `[]T` (a `![]T` is a `!T`),
 /// or `?String`.
 pub fn isViewType(ctx: *const SemContext, ty: TypeId) bool {
