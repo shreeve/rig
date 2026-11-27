@@ -1,9 +1,10 @@
-//! `std.text`: searching text (`?String`s) 16 bytes at a time (32 on x86-64 with AVX2), comparing
+//! `std.text`: searching text (`?String`s) 16 bytes at a time, comparing
 //! it on Zig's `std.mem`, and parsing numbers with `std.fmt`. A parse fails with the errors of
 //! `std.text.ParseError`, which the emitter names
 //! `error.@"std.text.ParseError.name"`.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const rig = @import("../runtime.zig");
 
 const ParseError = error{
@@ -84,9 +85,8 @@ inline fn countIn(s: []const u8, pat: []const u8) i64 {
 // is a candidate when two bytes of the needle match there, the bytes at
 // its indexes `a` and `b`: two compares of 16 bytes, read at `i + a` and
 // `i + b`, give the candidates among the places `i` to `i + 15`, and each
-// candidate is confirmed by comparing the whole needle (on x86-64 with
-// AVX2, two compares of 32 bytes give the places `i` to `i + 31`;
-// `wide`). `many` tests the
+// candidate is confirmed by comparing the whole needle. Their steps
+// compare 32 bytes at a time on x86-64 with AVX2 (`step_lanes`). `many` tests the
 // first 256 places 32 at a time; `far` tests the rest 64 at a time, out
 // of line, so a match near the start pays for none of its frame. Each
 // asks first whether any place of the step is a candidate, and ends by
@@ -217,19 +217,8 @@ inline fn many(h: []const u8, n: []const u8) ?usize {
     if (places < 16) return head(h, n, places);
     const p = pairAt(n, 0, n.len - 1);
     var i: usize = 0;
-    if (comptime wide) {
-        const w = widePair(p);
-        while (i < near_places and i + 32 <= places) : (i += 32) {
-            const c = rig.maskTrueLanes(Lanes, wideCandidates(h, i, w));
-            if (c.bits != 0) if (confirm(h, n, i, c)) |at| return at;
-        }
-    } else while (i < near_places and i + 32 <= places) : (i += 32) {
-        const c0 = candidates(h, i, p);
-        const c1 = candidates(h, i + 16, p);
-        if (rig.maskAny(c0 | c1)) {
-            if (confirm(h, n, i, rig.maskTrueLanes(Lanes, c0))) |at| return at;
-            if (confirm(h, n, i + 16, rig.maskTrueLanes(Lanes, c1))) |at| return at;
-        }
+    while (i < near_places and i + 32 <= places) : (i += 32) {
+        if (step(h, n, i, 32, @min(step_lanes, 32), p)) |at| return at;
     }
     if (i + 32 <= places) return found(far(h, n, i));
     if (i + 16 <= places) {
@@ -263,22 +252,8 @@ inline fn farFrom(h: []const u8, n: []const u8, start: usize) ?usize {
     const places = h.len - n.len + 1;
     const p = if (places - start >= rare_from) rarest(n) else pairAt(n, 0, n.len - 1);
     var i = start;
-    if (comptime wide) {
-        const w = widePair(p);
-        while (i + 64 <= places) : (i += 64) {
-            const bits = rig.maskBits(wideCandidates(h, i, w)) | rig.maskBits(wideCandidates(h, i + 32, w)) << 32;
-            if (bits != 0) if (confirm(h, n, i, .{ .bits = bits, .shift = 0 })) |at| return at;
-        }
-    } else while (i + 64 <= places) : (i += 64) {
-        const c0 = candidates(h, i, p);
-        const c1 = candidates(h, i + 16, p);
-        const c2 = candidates(h, i + 32, p);
-        const c3 = candidates(h, i + 48, p);
-        if (rig.maskAny((c0 | c1) | (c2 | c3))) {
-            inline for (.{ c0, c1, c2, c3 }, 0..) |c, j| {
-                if (confirm(h, n, i + 16 * j, rig.maskTrueLanes(Lanes, c))) |at| return at;
-            }
-        }
+    while (i + 64 <= places) : (i += 64) {
+        if (step(h, n, i, 64, step_lanes, p)) |at| return at;
     }
     while (i + 16 <= places) : (i += 16) {
         if (confirm(h, n, i, rig.maskTrueLanes(Lanes, candidates(h, i, p)))) |at| return at;
@@ -290,31 +265,6 @@ inline fn farFrom(h: []const u8, n: []const u8, start: usize) ?usize {
 /// index `a`, and `y`, the byte at index `b`.
 const Pair = struct { a: usize, b: usize, x: Block, y: Block };
 
-/// Whether `many` and `far` test 32 places a compare, not 16: on x86-64
-/// with AVX2, where a compare of 32 bytes costs what one of 16 does, so
-/// a step of 64 places takes 4 loads, not 8. Every other target, and the
-/// ends of a search (`tail`, `head`, `short`), test 16.
-const wide = @import("builtin").cpu.arch == .x86_64 and
-    std.Target.x86.featureSetHas(@import("builtin").cpu.features, .avx2);
-
-const Wide = @Vector(32, u8);
-
-/// A pair's bytes, 32 of each.
-const WidePair = struct { a: usize, b: usize, x: Wide, y: Wide };
-
-inline fn widePair(p: Pair) WidePair {
-    return .{ .a = p.a, .b = p.b, .x = @splat(p.x[0]), .y = @splat(p.y[0]) };
-}
-
-/// The places `i` to `i + 31` where the pair matches; each is a place,
-/// so `i + 31 + b < h.len`.
-inline fn wideCandidates(h: []const u8, i: usize, p: WidePair) @Vector(32, bool) {
-    @setRuntimeSafety(rig.proven_checks);
-    const x: Wide = h[i + p.a ..][0..32].*;
-    const y: Wide = h[i + p.b ..][0..32].*;
-    return (x == p.x) & (y == p.y);
-}
-
 fn pairAt(n: []const u8, a: usize, b: usize) Pair {
     return .{ .a = a, .b = b, .x = @splat(n[a]), .y = @splat(n[b]) };
 }
@@ -324,6 +274,56 @@ fn pairAt(n: []const u8, a: usize, b: usize) Pair {
 inline fn candidates(h: []const u8, i: usize, p: Pair) @Vector(16, bool) {
     @setRuntimeSafety(rig.proven_checks);
     return (load(h, i + p.a) == p.x) & (load(h, i + p.b) == p.y);
+}
+
+/// The search's tiers, by target, as bench/text/sweep.zig measured them
+/// (bench/text/README.md, "The sweep"): a text of fewer than 8 bytes is
+/// walked a byte at a time, one of 8 to 15 bytes is compared 8 bytes at a
+/// time (`short`), and a longer one 16 at a time, or `step_lanes` at a
+/// time while that many places are left: 32 on x86-64 with AVX2, 64 with
+/// AVX-512BW in `far`'s steps, and 16 elsewhere.
+const step_lanes = if (x86 and hasX86(.avx512bw)) 64 else if (x86 and hasX86(.avx2)) 32 else 16;
+
+const x86 = builtin.cpu.arch == .x86_64;
+
+fn hasX86(comptime f: std.Target.x86.Feature) bool {
+    return std.Target.x86.featureSetHas(builtin.cpu.features, f);
+}
+
+/// Whether a mask's bits are one per lane (`rig.maskTrueLanes`'s shift
+/// 0), so a step's masks join into one `u64`: on x86-64.
+const flat_masks = x86;
+
+/// The places `i` to `i + width - 1`, `lanes` a compare: whether any of
+/// them is a candidate, asked once, then each compare's candidates
+/// confirmed in order. They are places.
+inline fn step(h: []const u8, n: []const u8, i: usize, comptime width: usize, comptime lanes: usize, p: Pair) ?usize {
+    @setRuntimeSafety(rig.proven_checks);
+    const V = @Vector(lanes, u8);
+    const k = width / lanes;
+    var c: [k]@Vector(lanes, bool) = undefined;
+    inline for (0..k) |j| {
+        const at = i + lanes * j;
+        c[j] = if (lanes == 16) candidates(h, at, p) else (@as(V, h[at + p.a ..][0..lanes].*) == @as(V, @splat(p.x[0]))) &
+            (@as(V, h[at + p.b ..][0..lanes].*) == @as(V, @splat(p.y[0])));
+    }
+    if (comptime flat_masks) {
+        var bits: u64 = 0;
+        inline for (0..k) |j| bits |= rig.maskBits(c[j]) << (lanes * j);
+        if (bits == 0) return null;
+        return confirm(h, n, i, .{ .bits = bits, .shift = 0 });
+    }
+    const any = switch (k) {
+        1 => c[0],
+        2 => c[0] | c[1],
+        4 => (c[0] | c[1]) | (c[2] | c[3]),
+        else => @compileError("a step of 1, 2, or 4 compares"),
+    };
+    if (!rig.maskAny(any)) return null;
+    inline for (0..k) |j| {
+        if (confirm(h, n, i + lanes * j, rig.maskTrueLanes(Lanes, c[j]))) |at| return at;
+    }
+    return null;
 }
 
 /// The first of the candidates `c`, places from `i`, where the whole
