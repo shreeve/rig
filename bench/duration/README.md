@@ -28,7 +28,7 @@ and what a call gives is kept with `hint.keep`, so it is computed.
 ```sh
 D=$(mktemp -d)
 bin/rig build --release bench/duration/duration.rig -o $D/duration
-tools/mac-claim duration $D/duration       # the Mac
+cpuq drain --max 20m --label rig:duration -- $D/duration       # the Mac
 taskset -c 6 $D/duration                   # pup, on a P-core, in a slot
 $D/duration check                          # each loop at N and 2N: the ratio of their times
 ```

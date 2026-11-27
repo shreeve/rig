@@ -1114,23 +1114,15 @@ arms.
   start while the first, which makes no yield check, still runs. It
   replaces `test/cli/spawn_wake.sh`, which required them to start
   within 300 µs, a bound a loaded machine's late threads miss.
-- `tools/mac-claim LABEL CMD` runs one timing job holding the Mac's
-  claim line, with `TRIG_MAC_CLAIMED=1` and `RIG_MAC_CLAIMED=1` set for
-  it, so a tool that waits on the claim does not wait on its own: it waits while another claim holds the Mac or a
-  correctness job holds or waits for a heavy slot, gives up after 45
-  minutes (exit 75), stops the job at its limit (19 minutes, at most 20;
-  exit 124), and clears the line however the job ends
-  (`test/cli/mac_claim.sh`).
-- A timing claim pauses work between jobs, never during one: a job
-  stopped mid-run is killed by its own timeout the moment it resumes.
-  While a live claim holds, `tools/heavy` starts no job but a correctness
-  one, `test/rig.rip` starts no new job (`test/claim.rip`), and
-  `tools/mac-claim` starts its command once every process on the
-  machine together uses under one and a half cores for 30 seconds (a
-  build started outside heavy loads the Mac just the same), giving the
-  claim up after 10 minutes if it never does (exit 75) and naming the
-  busiest processes. A claim line whose mac-claim has died holds
-  no one (`test/cli/claim_gate.sh`, `heavy_class.sh`, `mac_claim.sh`).
+- Builds, Swarm runs, and timing share each machine through cpuq,
+  which replaces `tools/heavy`, `tools/mac-claim`, and `tools/low`
+  (AGENTS.md, "Machine-specific practice"): a build is a `cpuq run`, a
+  suite runs under `cpuq run --driver` with each case a `cpuq run` of
+  its own, and timing on the Mac runs under `cpuq drain`. Every command
+  `test/rig.rip` and `tools/baseline` start runs with none of git's
+  variables that name a repository (`GIT_DIR`, `GIT_WORK_TREE`, and the
+  rest), so a script that makes a scratch repository of its own never
+  writes into Rig's.
 - `pup-slot state` prints `running=R`, the builds not paused, and
   `late=L`, the builds its guard paused after the slot opened, beside
   `paused=K`; a board race with any running is void (decision 14). A
@@ -1148,12 +1140,6 @@ arms.
   gives up after 45 minutes (exit 75); each open and close is a line in
   `/zfs/trig-pup/slot-tools/slots.log` (`test/cli/pup_slot.sh`, which
   runs on Linux).
-- `tools/heavy --class correctness CMD` puts a gate a merge waits on
-  ahead of every other waiter. A waiter names each holder (PID, minutes
-  held, command) after a minute and every ten minutes, and gives up
-  after `RIG_HEAVY_WAIT` seconds (45 minutes) with exit status 75;
-  `tools/heavy --status` shows the holders and the queue and takes no
-  slot (`test/cli/heavy_class.sh`).
 - `test/cli/agree.sh` fails on macOS when `lake` is missing, and says
   it skipped on stderr elsewhere; it fails, too, when fewer programs
   than its floor (22) are in λRig's scope, or when lrig writes a line it
@@ -1240,6 +1226,8 @@ arms.
 
 ### Runtime
 
+- **An allocation fetches the line of its class's next free block** (`alloc.prefetchNext`): the free list's new head is prefetched for writing as a block is handed out, so the next allocation of the class does not wait on memory for its link. On Trig at four checkers (pup, P-cores) the allocator's own cycles are 6 to 17% fewer.
+- **A dropped Table's range keeps its advice for huge pages** (`alloc.unreserveTable`): on Linux it is no longer advised for small pages again as it is given back, which changed the region's mapping under the lock every running thread's faults wait on; a Table that takes the range when no 2 MiB blocks are spare asks for small pages then (`reserveTable`). On Trig at eight checkers the advice calls at a drop fall from 380 a run to 2.
 - **A large block that shrinks keeps its place** (`alloc.shrinkLarge`):
   a span gives the units past its new length back to its heap as a free
   span, joined with the free span after it, and a mapping of its own

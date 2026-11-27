@@ -239,8 +239,8 @@ def package_listing(rig, path, tmp, own=False):
 
 
 # The RIG_ variables that name where things go, or how runs share the
-# machine (tools/heavy's); every other one is a setting of the run.
-RIG_LOCATIONS = re.compile(r"RIG_(RESULTS_CACHE|BUILD_STORE|OUT_DIR|RUN_STARTED|PROGRAM_STARTED|HEAVY_HELD|HEAVY_SLOTS)$")
+# machine; every other one is a setting of the run.
+RIG_LOCATIONS = re.compile(r"RIG_(RESULTS_CACHE|BUILD_STORE|OUT_DIR|RUN_STARTED|PROGRAM_STARTED)$")
 
 
 def fixed_inputs():

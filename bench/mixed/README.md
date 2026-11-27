@@ -119,15 +119,15 @@ the machine first (`# bench-mixed ...`).
 
 ## Timing on the Mac
 
-Timing runs only under `tools/mac-claim`, with builds through
-`tools/heavy` (AGENTS.md, "Timing on the Mac"); each claim is at most
-20 minutes, so a run of more rounds is several claims appending to one
+Timing runs only under `cpuq drain`, with builds as `cpuq run`s
+(AGENTS.md, "Timing on the Mac"); each drain is at most 20 minutes,
+so a run of more rounds is several drains appending to one
 `--raw` file, then `--summary`:
 
 ```sh
 O=/tmp/bench-mixed; R=$O/raw.jsonl
-tools/heavy bench/mixed/bench-mixed --out $O --build-only
-tools/mac-claim bench-mixed bench/mixed/bench-mixed --out $O --time-only --rounds 5 --raw $R
+cpuq run --label rig:bench-mixed-build -- bench/mixed/bench-mixed --out $O --build-only
+cpuq drain --max 20m --label rig:bench-mixed -- bench/mixed/bench-mixed --out $O --time-only --rounds 5 --raw $R
 bench/mixed/bench-mixed --summary $R
 ```
 
