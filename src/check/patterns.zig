@@ -66,7 +66,14 @@ pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expe
         matchable = true;
     }
     if (!matchable) {
-        try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, Bool, Symbol, and text", .{try self.tyName(scrutinee)});
+        // An optional, as `task.poll` gives: its `none` is no pattern of
+        // the type it holds, so the value is taken out first, and the
+        // arms are not checked against the optional.
+        if (!self.isPoison(scrutinee) and self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee)) == .optional) {
+            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`, which may be `none`: take the value out first, `if {s} as v`, and match `v`", .{ try self.tyName(scrutinee), CallCheck.sourceText(self, subject) });
+            scrutinee = self.t().invalid_id;
+            matchable = true;
+        } else try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, Bool, Symbol, and text", .{try self.tyName(scrutinee)});
     }
 
     // The place a binding that cannot be written views, for the

@@ -108,6 +108,7 @@ pub const sendArm = tasks.sendArm;
 pub const afterArm = tasks.afterArm;
 pub const endArm = tasks.endArm;
 pub const selectValue = tasks.selectValue;
+pub const pollValue = tasks.pollValue;
 pub const Select = tasks.Select;
 pub const actorSupervised = tasks.actorSupervised;
 pub const actorCall = tasks.actorCall;

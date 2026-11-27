@@ -9640,6 +9640,18 @@ pub const Emitter = struct {
                 }
                 return self.w.writeAll(" })");
             },
+            // `task.poll(name: arm, ...)`: the select's value, of the
+            // winner's variant, or none when no arm can complete now.
+            .poll_value => {
+                try self.w.writeAll(rt(.pollValue) ++ "(");
+                try self.emitTypeTy(self.facts.types.get(self.typeOf(sexp).?).optional);
+                try self.w.writeAll(", .{ ");
+                for (args, 0..) |arm, i| {
+                    if (i > 0) try self.w.writeAll(", ");
+                    try self.emitExpr(argValue(arm));
+                }
+                return self.w.writeAll(" })");
+            },
             // `task.select(arm, ...)`: each arm a channel operation and the
             // function the runtime calls with the slot when it is the one
             // that commits.

@@ -2342,19 +2342,7 @@ fn selectArms(arms: anytype) anyerror!u32 {
     if (canceledHere()) return dropAll(arms, canceled_error);
     if (pastDeadline()) return dropAll(arms, timeout_error);
     lockAll(arms);
-    const start = rotation() % n;
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
-        const at = (start + i) % n;
-        var done = false;
-        inline for (0..n) |k| if (k == at) {
-            done = arms[k].now();
-        };
-        if (done) {
-            unlockAll(arms);
-            return finishAll(arms, @intCast(at));
-        }
-    }
+    if (armNow(arms)) |winner| return winner;
     const f = rt.sched.current() orelse {
         unlockAll(arms);
         @panic("a channel waited outside a task");
@@ -2394,6 +2382,28 @@ fn selectArms(arms: anytype) anyerror!u32 {
     const winner: u32 = state - 1;
     inline for (0..n) |k| if (k == winner) arms[k].won();
     return finishAll(arms, winner);
+}
+
+/// With every channel of `arms` locked, the one that completes now,
+/// tried from a place that turns, so none starves: its index, the locks
+/// let go and every other arm lost (`finishAll`). Null, still locked,
+/// when none can.
+inline fn armNow(arms: anytype) ?u32 {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    const start = rotation() % n;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const at = (start + i) % n;
+        var done = false;
+        inline for (0..n) |k| if (k == at) {
+            done = arms[k].now();
+        };
+        if (done) {
+            unlockAll(arms);
+            return finishAll(arms, @intCast(at));
+        }
+    }
+    return null;
 }
 
 var select_turn_var: std.atomic.Value(u32) = .init(0);
@@ -2511,6 +2521,34 @@ pub fn selectValue(comptime U: type, arms_in: anytype) anyerror!U {
         return @unionInit(U, names[k], {});
     };
     unreachable;
+}
+
+/// `task.poll(name: arm, ...)`: commit whichever of `arms_in` can
+/// complete now, trying them from a place that turns, as a select does,
+/// and give the value of `U` (`Select`) whose variant is that arm's; or
+/// none, every arm lost, when none can. It never parks the task, so it
+/// is no waiting point: a canceled task polls as any other.
+pub fn pollValue(comptime U: type, arms_in: anytype) rt.Opt(U) {
+    var arms = arms_in;
+    const n = @typeInfo(@TypeOf(arms)).@"struct".field_types.len;
+    const names = @typeInfo(U).@"union".field_names;
+    const winner = pollArms(&arms) orelse return rt.pack(rt.Opt(U), null);
+    inline for (0..n) |k| if (k == winner) {
+        if (@hasDecl(@TypeOf(arms[k]), "Value")) return rt.pack(rt.Opt(U), @unionInit(U, names[k], .{ .value = arms[k].got }));
+        return rt.pack(rt.Opt(U), @unionInit(U, names[k], {}));
+    };
+    unreachable;
+}
+
+/// The index of the one of `arms` that completes now, as `selectArms`
+/// finds it before it would wait, or null, every arm lost.
+fn pollArms(arms: anytype) ?u32 {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    lockAll(arms);
+    if (armNow(arms)) |winner| return winner;
+    unlockAll(arms);
+    inline for (0..n) |k| arms[k].lost();
+    return null;
 }
 
 /// The value `task.select(name: arm, ...)` gives: a tagged union whose
