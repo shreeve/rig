@@ -1223,6 +1223,16 @@ arms.
 
 ### Runtime
 
+- **Frees of another thread's small blocks go to their heap a batch at a
+  time** (`alloc.freeHere`): a block of at most 1 KiB freed on a thread
+  whose heap did not make it waits on the freeing thread's heap with
+  others of its heap and class, and up to 16 go onto the owner's remote
+  list with one compare-and-swap, when the batch is full, when a block
+  of another heap or class takes its slot, or when the thread ends. A
+  value made on one worker and dropped on another, as a parsed file's
+  records or a checker's, took a compare-and-swap per block, each
+  draining the store buffer with the block's missed link in it.
+
 - **std.text's search compares 32 bytes at a time past a text's first 256 places on x86-64 with AVX2, and 64 with AVX-512BW** (`step_lanes`, one step routine whose width std/text.zig chooses by target from bench/text/sweep.zig's measurements; bench/text/README.md, "The sweep"). Shorter texts and aarch64 run the code they ran. On pup's E-core a 3- or 12-byte search is 9 to 11% faster over 1 KiB, 25 to 30% over a 4 KiB miss, and 21 to 34% over the whole of lib.dom.d.ts; one of 320 bytes is 6 to 13% slower.
 - **An actor's method run from its mailbox is stopped by a signal:** the
   runtime's functions that run a method (`callAs`, `actorCall`, the

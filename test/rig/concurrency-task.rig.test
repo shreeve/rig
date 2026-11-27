@@ -401,6 +401,35 @@ test "task many", seeds: 20, release: true, '''
     sum += >t
   print(sum)
 
+test "task drops another task's values", seeds: 20, release: true, "1677400"
+  # Values made on one worker and dropped on another: each task builds a
+  # List of Strings, a second task takes it and drops it, so its blocks
+  # go back to the heap that made them, a batch at a time
+  # (`alloc.freeHere`), and are taken again by the next round.
+  fun make(k: Int) -> List[String]
+    out = List[String]()
+    for i in 0..300
+      !out.push(`a value made by task {k}, number {i}`)
+    out
+
+  fun eat(xs: List[String]) -> Int
+    total = 0
+    for s in ?xs
+      total += s.len
+    total
+
+  sum = 0
+  for round in 0..20
+    made: List[Task[List[String]]] = List()
+    for k in 0..8
+      !made.push(make(round * 8 + k)&)
+    eaten: List[Task[Int]] = List()
+    for t in <made
+      !eaten.push(eat(>t)&)
+    for t in <eaten
+      sum += >t
+  print(sum)
+
 test "task dropped waits", seeds: 20, '''
   started
   end
