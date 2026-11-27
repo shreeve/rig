@@ -2022,7 +2022,8 @@ fn mapOwnSegment() ?*Segment {
 /// pages back to the system, with `MADV_DONTNEED` on Linux and by
 /// mapping its range again in place on the Mac (`MAP_FIXED`), which
 /// leaves the range reading as zeros, and its range to the next Table
-/// (`unreserveTable`). Under Linux's `always`, a region asks for nothing,
+/// (`unreserveTable`); on Linux one dropped while other workers are
+/// awake waits to be given back with others (`table_pending`). Under Linux's `always`, a region asks for nothing,
 /// and each Table's first 2 MiB ask for small pages; a Table dropped is
 /// mapped afresh, as on the Mac, which gives its pages back and leaves
 /// the range asking for nothing again, as no advice does. A region is
@@ -2254,8 +2255,10 @@ fn askTableHuge(at: usize, bytes: usize) void {
 }
 
 /// Give back the range of a Table of `bytes` at `p`, if it is one
-/// `reserveTable` handed out: its pages to the system, and the range,
-/// advised for small pages again on Linux, to the next Table. Under
+/// `reserveTable` handed out, `written` bytes of it pushed: its pages to
+/// the system, and the range, advised for small pages again on Linux, to
+/// the next Table; on Linux, while another worker is awake, later, with
+/// the others waiting (`table_pending`, `giveBackTables`). Under
 /// Linux's `always`, where its first 2 MiB asked for small pages, and on
 /// the Mac, it is mapped afresh, which asks for nothing. A range that
 /// cannot be is not used again: on Linux it is set aside
