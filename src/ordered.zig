@@ -336,7 +336,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// test nothing; a debug build, which `rig run` and the suite
         /// make, tests that `j` is written and, where `live`, not gone,
         /// so a bug in the table panics there rather than reading past
-        /// the entries (the panel's decision 10).
+        /// the entries (the panel's decision 10). The prelude's `Int`
+        /// index reaches it by `@bitCast`, so a negative one is past the
+        /// entries there.
         inline fn entryOf(self: *const Self, j: usize, comptime live: bool) *E {
             if (builtin.mode == .debug) {
                 if (j >= self.len) @panic("ordered: an entry index past the entries written");
@@ -368,9 +370,10 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         /// Whether entry `j` is gone: its bit in `gone`; in a small table,
-        /// whose gone bits stay clear, its tag is 0.
+        /// whose gone bits stay clear, its tag is 0 (`j` is below `len`,
+        /// at most `small_lanes`, so the mask keeps it).
         inline fn isGone(self: *const Self, j: usize) bool {
-            if (self.isSmall()) return self.u.small[j] == 0;
+            if (self.isSmall()) return self.u.small[j & (small_lanes - 1)] == 0;
             return self.has_gone and (self.u.ix.gone[j >> 6] >> @intCast(j & 63)) & 1 != 0;
         }
 
@@ -439,7 +442,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         /// The first free lane from `g`'s group on takes entry `j`; each
-        /// full group on the way marks the tag's class as overflowed.
+        /// full group on the way marks the tag's class as overflowed. The
+        /// walk's sums wrap with no test: the groups are a power of two,
+        /// so a wrapped sum masked is the same group (`probeFrom`).
         inline fn place(self: *Self, start: usize, tag: u8, j: usize) void {
             const mask = self.groupMask();
             var g = start;
@@ -454,8 +459,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
                     return;
                 }
                 writeLane(grp, 15, grp[15] | classBit(tag));
-                step += 1;
-                g = (g + step) & mask;
+                step +%= 1;
+                g = (g +% step) & mask;
             }
         }
 
@@ -633,7 +638,10 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return null;
         }
 
-        /// The probe from group `start`, `step` groups walked.
+        /// The probe from group `start`, `step` groups walked. `g` is at
+        /// most the mask and `step` at most one more, so the sums cannot
+        /// wrap; and as the groups are a power of two, a wrapped sum
+        /// masked would be the same group.
         inline fn probeFrom(self: *const Self, k: KeyView, h: u64, tag: u8, start: usize, start_step: usize) ?Found {
             const mask = self.groupMask();
             const bit = classBit(tag);
@@ -648,16 +656,16 @@ fn Ordered(comptime K: type, comptime V: type) type {
                     if (keyMatch(self.entryOf(j, false), k, h)) return .{ .g = g, .lane = lane, .j = j };
                 }
                 if (grp[15] & bit == 0) return null;
-                step += 1;
+                step +%= 1;
                 if (step > mask) return null;
-                g = (g + step) & mask;
+                g = (g +% step) & mask;
             }
         }
 
         /// The walk past the home group `home_g`, out of line.
         noinline fn probePastHome(self: *const Self, k: KeyView, h: u64, tag: u8, home_g: usize) ?Found {
             @branchHint(.cold);
-            return self.probeFrom(k, h, tag, (home_g + 1) & self.groupMask(), 1);
+            return self.probeFrom(k, h, tag, (home_g +% 1) & self.groupMask(), 1);
         }
 
         /// The entry of `k`, whose hash is `h`, in the index: the home
@@ -678,7 +686,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             }
             if (grp[15] & classBit(tag) != 0) {
                 @branchHint(.unlikely);
-                if (walk_inline) return self.probeFrom(k, h, tag, (g + 1) & (self.groupMask()), 1);
+                if (walk_inline) return self.probeFrom(k, h, tag, (g +% 1) & self.groupMask(), 1);
                 return self.probePastHome(k, h, tag, g);
             }
             return null;
@@ -705,16 +713,21 @@ fn Ordered(comptime K: type, comptime V: type) type {
                     self.entries[j] = makeEntry(k, v, h);
                     self.setSmallTag(j, tagOf(h));
                     self.len = @intCast(j + 1);
-                    self.live += 1;
+                    self.live +%= 1;
                     return j;
                 }
                 return self.insertSmallSlow(k, v, h);
             }
             if (self.len == self.cap or self.live >= self.u.ix.max_load) self.reserveOne();
+            // Room made: `len` is below `cap`, at most `max_entries`, and
+            // `live` at most `len`, so neither count can wrap.
+            if (builtin.mode == .debug) {
+                if (self.len >= self.cap) @panic("ordered: an insert with no room");
+            }
             const j: usize = self.len;
             self.entries[j] = makeEntry(k, v, h);
-            self.len = @intCast(j + 1);
-            self.live += 1;
+            self.len +%= 1;
+            self.live +%= 1;
             // The home group's first free lane, inline; a full home group
             // walks on out of line.
             const g = self.home(h);
@@ -780,7 +793,12 @@ fn Ordered(comptime K: type, comptime V: type) type {
             const f = self.findIndexed(k, h, true) orelse return null;
             const grp = &self.u.ix.tags[f.g];
             writeLane(grp, f.lane, 0);
-            if (grp[15] & classBit(tagOf(h)) != 0) self.u.ix.max_load -= 1;
+            // The entry is live, and the live entries at most the maximum
+            // load, so it is at least 1 (a debug build tests it).
+            if (builtin.mode == .debug) {
+                if (self.u.ix.max_load < self.live) @panic("ordered: a take with the maximum load below the live entries");
+            }
+            if (grp[15] & classBit(tagOf(h)) != 0) self.u.ix.max_load -%= 1;
             return f.j;
         }
 
@@ -788,17 +806,23 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// handed on or dropped, leaves the live entries: marked gone; or
         /// cut off, with the gone entries before it, when it is the last
         /// written; or, when it was the last live entry, the table emptied.
+        /// Entry `j` was live, so `live` is at least 1; and with another
+        /// still live, below `j`, the walk down stops above 0 and `n`
+        /// stays below `len`: no count wraps (a debug build tests `live`).
         inline fn dropEntry(self: *Self, j: usize) void {
-            self.live -= 1;
+            if (builtin.mode == .debug) {
+                if (self.live == 0) @panic("ordered: a take from no live entry");
+            }
+            self.live -%= 1;
             if (self.live == 0) {
                 self.reset();
             } else if (j + 1 == self.len) {
                 var n = j;
-                while (self.isGone(n - 1)) {
-                    n -= 1;
+                while (self.isGone(n -% 1)) {
+                    n -%= 1;
                     if (!self.isSmall()) self.u.ix.gone[n >> 6] &= ~(@as(u64, 1) << @intCast(n & 63));
                 }
-                self.len = @intCast(n);
+                self.len = @truncate(n);
             } else if (!self.isSmall()) {
                 self.markGone(j);
             }
@@ -814,7 +838,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// `find(?@, k: ?K) -> Int?`: the entry of `k`.
         pub inline fn find(self: *const Self, k: KeyView) ?i64 {
             const j = self.findHashed(k, hashKey(k)) orelse return null;
-            return @intCast(j);
+            // An entry index, below 2^32.
+            return @bitCast(j);
         }
 
         /// `get(?@, k: ?K) -> (?V)? from @`: the value of `k`, viewed
@@ -843,17 +868,17 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// `key(?@, j: Int) -> ?K`.
         pub inline fn key(self: *const Self, j: i64) KeyView {
-            return rt.readView(&self.entryOf(@intCast(j), true).key);
+            return rt.readView(&self.entryOf(@bitCast(j), true).key);
         }
 
         /// `value(?@, j: Int) -> ?V`.
         pub inline fn value(self: *const Self, j: i64) rt.ReadView(V) {
-            return rt.readView(&self.entryOf(@intCast(j), true).value);
+            return rt.readView(&self.entryOf(@bitCast(j), true).value);
         }
 
         /// `value_mut(!@, j: Int) -> !V`.
         pub inline fn value_mut(self: *Self, j: i64) ValPtr {
-            return &self.entryOf(@intCast(j), true).value;
+            return &self.entryOf(@bitCast(j), true).value;
         }
 
         /// `put(!@, k: K, v: V) -> Bool`: `v` under `k`; a key already
