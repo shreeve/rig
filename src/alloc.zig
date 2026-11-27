@@ -417,7 +417,7 @@ pub const Heap = struct {
     /// Blocks of other heaps its thread freed, by class, that wait to go
     /// onto their heap's remote list a batch at a time (`freeSmall`):
     /// its own thread's alone, on lines of their own.
-    outgoing: [out_class + 1]Outgoing align(64) = @splat(.{}),
+    outgoing: [16]Outgoing align(64) = @splat(.{}),
 
     /// `n` more bytes taken from the system.
     fn took(h: *Heap, n: usize) void {
@@ -577,15 +577,16 @@ pub const Heap = struct {
             return;
         }
         if (c > out_class) return pushRemote(owner, c, b, b);
-        const o = &h.outgoing[c];
-        if (o.owner != owner) {
-            o.flush(c);
-            o.* = .{ .owner = owner, .last = b };
+        const k = (@intFromPtr(owner) >> 12) *% 0x9E3779B97F4A7C15 +% c *% 0xC2B2AE3D27D4EB4F;
+        const o = &h.outgoing[k >> 60];
+        if (o.owner != owner or o.class != c) {
+            o.flush(o.class);
+            o.* = .{ .owner = owner, .last = b, .class = @intCast(c) };
         }
         b.next = o.first;
         o.first = b;
         o.count += 1;
-        if (o.count == out_batch) o.flush(c);
+        if (o.count == out_batch) o.flush(o.class);
     }
 };
 
@@ -607,6 +608,7 @@ const Outgoing = struct {
     first: ?*Block = null,
     last: ?*Block = null,
     count: u8 = 0,
+    class: Class = 0,
 
     fn flush(o: *Outgoing, c: usize) void {
         if (o.first) |f| pushRemote(o.owner.?, c, f, o.last.?);
@@ -667,7 +669,7 @@ fn trimGrowth(at_trim: usize) usize {
 
 fn trimHeap(h: *Heap) usize {
     mustOwn(h);
-    for (&h.outgoing, 0..) |*o, c| o.flush(c);
+    for (&h.outgoing) |*o| o.flush(o.class);
     h.taken_at_trim = h.taken;
     var given: usize = 0;
     while (lastHeld(&h.kept)) |j| {
@@ -2648,7 +2650,7 @@ pub fn wakeIdle() void {
 /// again.
 pub noinline fn threadExit() void {
     const h = my_heap().* orelse return;
-    for (&h.outgoing, 0..) |*o, c| o.flush(c);
+    for (&h.outgoing) |*o| o.flush(o.class);
     if (counts) h.flush();
     my_heap().* = null;
     spare_lock.lock();
@@ -4926,7 +4928,7 @@ test "an idle heap gives back its kept large blocks' pages and, on Linux, its wh
     const first = @intFromPtr(blocks[0]);
     for (blocks[0 .. 2 * per - 1]) |p| h.freeSmall(p, c);
     other.freeSmall(blocks[2 * per - 1], c);
-    other.outgoing[c].flush(c);
+    for (&other.outgoing) |*o| o.flush(o.class);
     for (blocks[2 * per + 1 ..]) |p| h.freeSmall(p, c);
     const given = trimHeap(&h);
     try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes);
@@ -4956,7 +4958,7 @@ test "a trim gives away a free list whole, in its order, with the blocks other t
     for (blocks[0..6]) |p| h.freeSmall(p, c);
     _ = trimHeap(&h);
     other.freeSmall(blocks[6], c);
-    other.outgoing[c].flush(c);
+    for (&other.outgoing) |*o| o.flush(o.class);
     // Its list as the first trim gave it away, with the block another
     // thread freed since on top: the second trim keeps its order, as it
     // rewrites no block's link but a list's last.
@@ -4966,7 +4968,7 @@ test "a trim gives away a free list whole, in its order, with the blocks other t
     // thread freed meanwhile: that block follows the list.
     try std.testing.expectEqual(@intFromPtr(blocks[6]), @intFromPtr(h.alloc(c).?));
     other.freeSmall(blocks[7], c);
-    other.outgoing[c].flush(c);
+    for (&other.outgoing) |*o| o.flush(o.class);
     _ = trimHeap(&h);
     try expectRemote(&h, c, &blocks, &.{ 5, 4, 3, 2, 1, 0, 7 });
     h.donor.store(false, .monotonic);
