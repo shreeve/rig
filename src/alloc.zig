@@ -867,11 +867,11 @@ const Batch = struct {
 
     fn flush(b: *Batch) void {
         const vs = b.ranges[0..b.count];
-        const bytes = b.bytes;
-        b.* = .{};
+        defer b.count = 0;
+        defer b.bytes = 0;
         if (vs.len == 0) return;
         const self: usize = @bitCast(@as(isize, -10000));
-        if (std.os.linux.syscall5(.process_madvise, self, @intFromPtr(vs.ptr), vs.len, std.os.linux.MADV.DONTNEED, 0) == bytes) return;
+        if (std.os.linux.syscall5(.process_madvise, self, @intFromPtr(vs.ptr), vs.len, std.os.linux.MADV.DONTNEED, 0) == b.bytes) return;
         for (vs) |v| std.posix.madvise(@ptrFromInt(@intFromPtr(v.base)), v.len, std.os.linux.MADV.DONTNEED) catch {};
     }
 };
