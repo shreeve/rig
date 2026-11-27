@@ -16,7 +16,10 @@
 # whose type has a `drop` body uses its views where it is dropped, a
 # fixed view binding is read where emit reads it, after the operands
 # emit evaluates first, and a loop's `break` value keeps its views in
-# force while the body's defers run.
+# force while the body's defers run. The last ones are unsafe, and the
+# reference checker rejects them: a failed or `none` value ends only the
+# views it carried, never an equal view another part of the statement
+# holds.
 
 # Deferred code runs at its scope's exit, after the views declared after
 # it were last used.
@@ -655,3 +658,146 @@ fail "last use break value's write view while the body's defer replaces its List
   !t.xs.push(Slot(key: 1))
   w = (!t).broke()
   print(w.key)
+
+# Where a `catch` handler or the right of `??` runs, the value before it
+# holds nothing, so the views it carried, and only those, have had their
+# last use (Core §4). A view of the same place that another part of the
+# statement holds stays in use.
+
+fail "last use ends only a none's own views where another argument views its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(both(?v[..], pick(?v[..], false) ?? grow(!v)))
+
+fail "last use ends only a failure's own views where another argument views its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  error E
+    bad
+
+  fun first(v: []Int, ok: Bool) -> ([]Int)!
+    return E.bad if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(both(?v[..], first(?v[..], false) catch grow(!v)))
+
+fail "last use ends only a failure's own views where another argument passes the same name", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  error E
+    bad
+
+  fun first(v: []Int, ok: Bool) -> ([]Int)!
+    return E.bad if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  a = ?v[..]
+  print(both(a, first(a, false) catch grow(!v)))
+
+fail "last use ends only a none's own views where another argument passes the same name", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  a = ?v[..]
+  print(both(a, pick(a, false) ?? grow(!v)))
+
+fail "last use ends only a none's own views of a field another argument views", "cannot change `o.items` while a read view of it is still in use"
+  # oracle: main reject C4
+  obj O
+    items: List[Int]
+
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  o = O(items: List())
+  !o.items.push(1)
+  print(both(?o.items[..], pick(?o.items[..], false) ?? grow(!o.items)))
+
+fail "last use ends only a none's own views where two arguments view its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun three(a: []Int, b: []Int, c: []Int) -> Int
+    a.len + b.len + c.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(three(?v[..], ?v[..], pick(?v[..], false) ?? grow(!v)))
+
+fail "last use ends only a branching none's own views where another argument views its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  c = false
+  print(both(?v[..], (pick(?v[..], false) if c else pick(?v[..], true)) ?? grow(!v)))

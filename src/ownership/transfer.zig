@@ -565,7 +565,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             // nothing while it runs.
             .@"and", .@"or" => blk: {
                 _ = try walkE(self, lowered.operand(self, ex, 0));
-                _ = try walkMayRun(self, lowered.operand(self, ex, 1), null, ex, &.{});
+                _ = try walkMayRun(self, lowered.operand(self, ex, 1), null, ex, .{});
                 break :blk .{};
             },
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
@@ -2723,9 +2723,10 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
 /// A call that gives several results, `-> (A, B)`: each carries the
 /// loans its own type can hold of what the call passes on, as one
 /// result does (`carryResult` of each), recorded for the targets that
-/// take them (`results_of`). An argument's write view ends at the
-/// return only when no result keeps it to write; while one may, every
-/// view lasts to the statement's end, as for a `!T` result. The
+/// take them (`results_of`). A write view an argument made ends as
+/// the call returns when no result carries a loan on its place and the
+/// call stored none (`stored`), as for one result; every other view
+/// lasts to the statement's end (Core §2, "Several results"). The
 /// results are views of one call, so no two may break sentence 5: a
 /// write loan one carries and a loan another carries on the same place
 /// are reported (the declaration rejects them first, `sema`'s
@@ -3328,13 +3329,15 @@ pub fn mayFail(self: *const Checker, e: Sexp) bool {
 pub fn walkCatch(self: *Checker, ex: lowered.Expr) Error!Value {
     const node = ex.node;
     const t = takeTail(self, node);
+    const from = self.temps.items.len;
     const v1 = try walkPayloadHolder(self, node, lowered.operand(self, ex, 0));
+    const carried = Carried.of(self, v1, from);
     const handler = ir.Catch.handler(node);
     try holdPartTemps(self, handler);
     const base = try self.here();
     // The handler runs once the value failed: an error views nothing,
     // so the views the value carried have ended there.
-    endCarried(self, v1.loans);
+    endCarried(self, carried);
     try self.pushScopeFor(.block, handler);
     const name = ir.Catch.name(node);
     if (name != .nil) {
@@ -3347,12 +3350,32 @@ pub fn walkCatch(self: *Checker, ex: lowered.Expr) Error!Value {
     return self.valueUnion(v1, v2);
 }
 
-/// End the statement's temporary loans that `loans`, what a value
-/// carried, has: on a path where the value holds nothing.
-fn endCarried(self: *Checker, loans: []const Loan) void {
-    var n: usize = 0;
-    for (self.temps.items) |l| {
-        if (containsLoan(loans, l)) continue;
+/// The views a value carried, as the statement's temporaries that
+/// walking it added: `temps[from..to]`, of which those the value holds.
+/// Equal loans elsewhere in `temps` belong to other parts of the
+/// statement, which still hold them.
+pub const Carried = struct {
+    loans: []const Loan = &.{},
+    from: usize = 0,
+    to: usize = 0,
+
+    /// What `v`, walked from `temps[from..]` to now, carried.
+    pub fn of(self: *const Checker, v: Value, from: usize) Carried {
+        const to = self.temps.items.len;
+        return .{ .loans = v.loans, .from = @min(from, to), .to = to };
+    }
+};
+
+/// End the temporaries `c` names that its value held: on a path where
+/// the value holds nothing (Core §4, `a ?? b` and `a catch b`). Only
+/// those: an equal view another part of the statement holds stays in
+/// use.
+fn endCarried(self: *Checker, c: Carried) void {
+    const to = @min(c.to, self.temps.items.len);
+    if (c.loans.len == 0 or c.from >= to) return;
+    var n = c.from;
+    for (self.temps.items[c.from..], c.from..) |l, i| {
+        if (i < to and containsLoan(c.loans, l)) continue;
         self.temps.items[n] = l;
         n += 1;
     }
@@ -3364,8 +3387,9 @@ fn endCarried(self: *Checker, loans: []const Loan) void {
 pub fn walkNullish(self: *Checker, ex: lowered.Expr) Error!Value {
     const node = ex.node;
     const t = takeTail(self, node);
+    const from = self.temps.items.len;
     const v1 = try walkPayloadHolder(self, node, lowered.operand(self, ex, 0));
-    return self.valueUnion(v1, try walkMayRun(self, lowered.operand(self, ex, 1), t, ex, v1.loans));
+    return self.valueUnion(v1, try walkMayRun(self, lowered.operand(self, ex, 1), t, ex, Carried.of(self, v1, from)));
 }
 
 // -----------------------------------------------------------------------------
@@ -3618,7 +3642,7 @@ pub fn walkConditionPart(self: *Checker, ce: lowered.Expr, body: Sexp) Error!voi
 /// join of the state before it with the state after it. The value
 /// before it, which carried `ended`, holds nothing where it runs: a
 /// `none`, or a `Bool`.
-pub fn walkMayRun(self: *Checker, part: lowered.Expr, t: ?Tail, e: lowered.Expr, ended: []const Loan) Error!Value {
+pub fn walkMayRun(self: *Checker, part: lowered.Expr, t: ?Tail, e: lowered.Expr, ended: Carried) Error!Value {
     const base = try self.here();
     endCarried(self, ended);
     const v = try walkTailPartE(self, part, t);
