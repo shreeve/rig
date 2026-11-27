@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# timeout: 180
+# timeout: 600
+# (Eight release builds on the one CPU a case holds: 95 to 140 s on burst
+# alone, 300 to 370 s beside two busy loops.)
 # A panic in an actor's method while tasks it started run on dense stacks
 # (#1044's cases). The suite's own builds seal no guard into their
 # executables, so they run every task on a large stack: these are release
@@ -211,7 +213,8 @@ fun later(a: *Actor[S]) -> Int
 sub main()
   # The task views the value the panic abandoned, in the place the new
   # value is made, so the value is made again only once the task has
-  # ended.
+  # ended. The first call after the panic makes it, `later`'s or, when
+  # `later` came first, the last `get`.
   a = *Actor.supervised(*|| mk())
   t = first(+a)&
   time.sleep(ms: 5)!
@@ -219,8 +222,8 @@ sub main()
   time.sleep(ms: 2)!
   u = task.isolate(|+a| a.work()) catch -1
   >t
-  print(u, >v)
+  print(u, >v, a.get())
 RIG
-check restarts 'made/read 5/made/-1 5'
+check restarts 'made/read 5/made/-1 5 5'
 
 echo ok

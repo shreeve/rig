@@ -15605,9 +15605,10 @@ for its first value, and calls it again for a new value each time a
 panic ends the old one, which is abandoned as a dead actor's is. The
 call that panicked still panics in its caller; the calls queued, and
 those after, run against the new value, which `make` makes just before
-the next method runs. On the actor's own task it starts again only once
-the tasks the method started have ended, and a call one of them makes
-to it until then panics as a call to a dead actor does. `restarts: n, per: s` allows at most `n` restarts
+the next method runs. Its methods run on its own task, never inline
+in a caller that finds it idle, so it starts again only once the tasks
+the method started have ended, and a call one of them makes to it until
+then panics as a call to a dead actor does. `restarts: n, per: s` allows at most `n` restarts
 within `s` seconds ([Durations](#durations)), or `n` in all without `per:`; past that, or at
 a panic in `make` itself, the actor dies for good. What `make` captures
 moves to the tasks that run the actor. `mailbox:` is as `*Actor(x)`

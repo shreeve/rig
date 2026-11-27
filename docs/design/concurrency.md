@@ -455,6 +455,9 @@ one sender run in the order sent.
 **The idle path** (built). When an actor is idle (not running, not
 scheduled, and with an empty mailbox), a caller takes it with one atomic
 step and runs the method on its own core, with no queue and no switch.
+A supervised actor is never taken so: its methods run on its own task,
+which lists the tasks a method starts apart from its caller's, so after
+a panic its value is made again only once they have ended.
 The method still runs as the actor:
 - its cancel state, deadline, and isolate are the actor's, not the
   caller's, so a canceled caller cannot interrupt it;
