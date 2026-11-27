@@ -429,3 +429,64 @@ code "apis object a small optional result returned", "near: *const fn (rig.Erase
     c: Int
 
   print(1)
+
+test "apis object an API of another module", "9.0"
+  # An object viewed as another module's API names that module's table:
+  # `lib.__rig_table_Shape`.
+
+  use lib
+
+  obj Square: lib.Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{lib.Shape}) -> Float
+    s.area()
+
+  sub main()
+    print(area_of(Square(side: 3.0)))
+
+  file "lib.rig"
+    pub api Shape
+      fun area(?@) -> Float
+
+test "apis a task through a witness", seeds: 20, '''
+  9.0
+  8.0
+  10.0
+'''
+  # A task spawned through a bound's witness, `Shape.area(x)&` with self
+  # as the first argument and `<x.twice()&` with a self taken by value, is
+  # `spawn(W.method, ...)`, where `x.area()&` is `spawnWitness`.
+  api Shape
+    fun area(?@) -> Float
+
+    fun twice(<@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    fun twice(<@) -> Float
+      @side * 2.0
+
+  fun by_arg[T: Shape](x: ?T) -> Float
+    t = Shape.area(x)&
+    >t
+
+  fun by_value[T: Shape](x: T) -> Float
+    t = <x.twice()&
+    >t
+
+  fun by_name[T: Shape](x: T) -> Float
+    t = Shape.twice(<x)&
+    >t
+
+  s = Square(side: 3.0)
+  print(by_arg(?s))
+  print(by_value(Square(side: 4.0)))
+  print(by_name(Square(side: 5.0)))

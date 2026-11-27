@@ -1851,3 +1851,57 @@ fail "header ternary view outlives the place it views", "11:6: `r` does not live
   o = Res(n: 0, s: String("z"))
   v = ?r if make(1) as r else ?o
   print(v.n)
+
+test "header over a view of an optional beside a temporary", '''
+  6
+  u
+  6
+  u
+'''
+  # `if pick(!h, ?mk()) as t` over a view of an optional held by address,
+  # where the header makes a temporary (`?mk()`), binds the value inside
+  # the optional, which the view reaches in `h`.
+  obj X
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+    e: Int
+
+  obj B
+    o: X?
+
+  fun mk() -> B
+    B(o: X(a: 1, b: 2, c: 3, d: 4, e: 5))
+
+  fun pick(b: !B, k: ?B) -> !(X?) from b
+    !b.o
+
+  fun peek(b: ?B, k: ?B) -> ?(X?) from b
+    ?b.o
+
+  h = mk()
+  if pick(!h, ?mk()) as t
+    print(t.a + t.e)
+  if pick(!h, ?mk()) as _
+    print("u")
+  if peek(?h, ?mk()) as t
+    print(t.a + t.e)
+  if peek(?h, ?mk()) as _
+    print("u")
+
+test "header over a branch of write views of a String", '''
+  3 bc
+  3 bc
+'''
+  # `if (?a if c else ?b) as t`, a branch of views of `(!String)?`, binds
+  # the String's bytes where `t` is only read.
+  s1 = String("abc")
+  s2 = String("wxyz")
+  a: (!String)? = !s1
+  b: (!String)? = !s2
+  c = true
+  if (?a if c else ?b) as t
+    print(t.len, t[1..])
+  if (!a if c else !b) as u
+    print(u.len, u[1..])
