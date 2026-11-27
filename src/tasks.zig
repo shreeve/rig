@@ -1278,7 +1278,9 @@ fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime 
     const want: usize = if (limit > 0) @intCast(limit) else if (rt.sched.deterministic.*) 4 else workers;
     const count = @min(want, n);
     const chunk = @max(1, n / (count * 8));
-    if (count <= 1 or chunk >= n) {
+    // Given costs, even one task claims the costliest first, so the order
+    // the elements run in is the same on every machine.
+    if (!by_cost and (count <= 1 or chunk >= n)) {
         if (comptime !fallible) return callChunk(body, ctx, 0, n, undefined) catch unreachable;
         var slot: rt.ErrData = undefined;
         callChunk(body, ctx, 0, n, rt.failSlot(&slot)) catch |err| {

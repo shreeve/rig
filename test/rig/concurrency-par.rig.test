@@ -977,9 +977,9 @@ test "par map cost", seeds: 20, '''
   print(par.map(?xs, |x| x * 2, cost: ?weights).sum())
   print(par.map(?xs, |x| x, cost: ?weights[..], limit: 2).sum())
 
-test "par cost takes the costliest first", seeds: 20, "999 999 999 9"
+test "par cost takes the costliest first", seeds: 20, "999 999 999 9 999"
   # The first claim is the costliest element, whichever task takes it,
-  # and costs given once serve several calls.
+  # one task too, and costs given once serve several calls.
   use std.par
 
   xs: List[Int] = List(capacity: 1000)
@@ -1001,7 +1001,9 @@ test "par cost takes the costliest first", seeds: 20, "999 999 999 9"
   par.push(!t, ?sizes, cost: ?sizes, |+c, run, k|
     _ = (!c).compare_swap(-1, run.len)
   )
-  print(first.get(), a.get(), b.get(), c.get())
+  one = *Cell(-1)
+  _ = par.map(?xs, |+one, x| (!one).compare_swap(-1, x), cost: |x| x, limit: 1)
+  print(first.get(), a.get(), b.get(), c.get(), one.get())
 
 test "par each cost", seeds: 20, '''
   10 10000
