@@ -1312,6 +1312,7 @@ same waiting points fail with `Stop.timeout`.
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `supervise(f, restarts: n, per: s)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `s` seconds, an `Int` or a `Float` (`per: 0.5`); past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `select(name: arm, ...)` | wait until one arm, `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, `name: ?t.on_end()`, or `name: time.after(ms: 50)`, can complete, commit it alone, and give a value whose variant is the winner's name, matched by `match`: a receive's carries the value as `T?`, none once the channel is closed and empty; a task's end carries nothing, and the body takes the task's result with `>t`, at once ([SPEC §18](../SPEC.md#channels)) |
+| `poll(name: arm, ...)` | a select's arms, but never waiting: commit whichever arm can complete now and give the select's value as an optional, `none` when no arm can, taken out with `if task.poll(...) as r` and matched; a send arm that does not complete drops its value. It is no waiting point, so it cannot fail, and takes no deadline arm ([SPEC §18](../SPEC.md#channels)) |
 
 A long computation calls `task.check()!` where stopping is safe:
 

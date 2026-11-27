@@ -302,15 +302,15 @@ pub fn conflictingLoan(self: *Checker, id: VarId, path: PathId, access: Access, 
         .write => if (path == whole_path and notes.holdsCellHandle(self, id)) "make a write view of the handle" else "change",
         .consume => |v| v,
     };
-    // Every arm of `task.select` is made before it runs one, so the
-    // views two arms make live at once: the fix moves the use out of
-    // one.
-    if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none and notes.selectWith(self, self.cur_stmt, pos, l.pos) != null) {
-        try notes.err(self, pos, "cannot change `{s}` while {s} is still in use: `task.select` makes every arm before it runs one, so two arms cannot each hold a write view of `{s}`; let one arm write it, or have each arm give a value and write `{s}` after the select", .{ name, view, name, name });
+    // Every arm of `task.select` (or `task.poll`) is made before it
+    // runs one, so the views two arms make live at once: the fix moves
+    // the use out of one.
+    if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none) if (notes.selectWith(self, self.cur_stmt, pos, l.pos)) |sel| {
+        try notes.err(self, pos, "cannot change `{s}` while {s} is still in use: `{s}` makes every arm before it runs one, so two arms cannot each hold a write view of `{s}`; let one arm write it, or have each arm give a value and write `{s}` after the {s}", .{ name, view, notes.selectName(self, sel), name, name, if (self.sema.isPoll(sel)) "poll" else "select" });
         try notes.noteLoan(self, l);
         try notes.noteStillUsed(self, l, pos);
         return l;
-    }
+    };
     if (access != .read and l.place_hold)
         try notes.err(self, pos, "cannot {s} `{s}` in an index of a view being made of {s}", .{ verb, name, viewed })
     else if (access != .read and l.held_read != .none)

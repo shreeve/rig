@@ -271,7 +271,7 @@ pub fn noteStmtUse(self: *Checker, l: Loan, at_sigil: u32) Error!void {
     var at = at_sigil;
     while (at < self.source.len and std.mem.findScalar(u8, "!?<+~>*^-", self.source[at]) != null) at += 1;
     if (selectWith(self, stmt, at, l.pos)) |sel|
-        return note(self, startOf(self, sel), "still used here: `task.select` makes every arm before it runs one, and each arm's views last until it returns", .{});
+        return note(self, startOf(self, sel), "still used here: `{s}` makes every arm before it runs one, and each arm's views last until it returns", .{selectName(self, sel)});
     const sp = span(self, stmt);
     const inside = l.pos >= sp.start and l.pos < sp.end;
     const made = if (inside) l.pos else carrierIn(self, stmt, l) orelse return;
@@ -489,8 +489,13 @@ pub fn holdsCellHandle(self: *const Checker, id: VarId) bool {
     };
 }
 
-/// The `task.select` in `node` that has positions `a` and `b` in two
-/// of its arms.
+/// How select call `sel` is written: `task.select`, or `task.poll`.
+pub fn selectName(self: *const Checker, sel: Sexp) []const u8 {
+    return if (self.sema.isPoll(sel)) "task.poll" else "task.select";
+}
+
+/// The `task.select` or `task.poll` in `node` that has positions `a`
+/// and `b` in two of its arms.
 pub fn selectWith(self: *const Checker, node: Sexp, a: u32, b: u32) ?Sexp {
     const ctx = self.sema;
     if (node != .list) return null;

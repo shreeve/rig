@@ -67,7 +67,7 @@ pub const Name = enum {
     okNonneg, onOwnStack, Opt, Order, orderOf, outPlace, pack, packOut, panic,
     parEachCostInto, parEachInto, parMapCostInto, parMapInto,
     parPushCostInto, parPushInto, parWorkersCostInto, parWorkersInto,
-    Payload, poison,
+    Payload, poison, pollValue,
     preempt_section, prefetch, print, Printer, printErased, readInt,
     readIntProven, ReadView, readView, Repr, recvArm, reduceInto, rem, reportFailure,
     rt, Select, selectInto, selectValue, selfArg, sendArm, Shared, shared,
