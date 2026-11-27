@@ -25,9 +25,9 @@
 //! and checks it (flow.zig), which accepts, rejects, or abstains. Each
 //! function both decide differently is a difference. One the compiler
 //! accepts and the oracle rejects always fails the run: it may be a
-//! soundness hole. One the compiler rejects is reported, and listed in
-//! the allowlist with its class once classified. The run also fails on
-//! a stale allowlist entry, and on fewer decided functions than the
+//! soundness hole. One the compiler rejects and the oracle accepts
+//! fails too unless the allowlist lists it with its class (`STRICTER`).
+//! The run also fails on a stale allowlist entry (`FIXED`), and on fewer decided functions than the
 //! set's floor.
 //!
 //! With `--rejects`, the run also fails where the oracle's own rejections
@@ -423,11 +423,12 @@ fn checkProgram(
                     totals.allowed += 1;
                 }
             };
-            // Only the compiler accepting what the oracle rejects fails the
-            // run; a stricter compiler is reported, and listed once classified.
+            // The compiler accepting what the oracle rejects fails the run,
+            // and so does a stricter compiler whose difference is not listed.
             const fails = differs and prod == .accept;
-            if (fails) totals.failures += 1;
-            const mark = if (!differs) "" else if (fails) "DIFF " else if (allowed) "allowed " else "stricter ";
+            const unlisted = differs and prod == .reject and !allowed;
+            if (fails or unlisted) totals.failures += 1;
+            const mark = if (!differs) "" else if (fails) "DIFF " else if (allowed) "allowed " else "STRICTER ";
             try out.print("{s}{s} {s} prod={s} ref={s}", .{ mark, name, qualified, @tagName(prod), @tagName(verdict) });
             switch (verdict) {
                 .reject => |f| {
@@ -438,6 +439,7 @@ fn checkProgram(
                 .accept => {},
             }
             try out.writeAll("\n");
+            if (unlisted) try out.print("  ^ unlisted: add `{s} {s} prod-rejects CLASS NOTE` to the allowlist, or fix the compiler or the oracle\n", .{ name, qualified });
         }
     }
 }

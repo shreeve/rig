@@ -1072,7 +1072,9 @@ checkOracle = (c) ->
   throw Error.new(r.ended) unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
-    throw Error.new(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+    bad = all.filter((l) -> /^(DIFF|STRICTER|FIXED|FAIL|LOST|UNLISTED)/.test(l))
+    throw Error.new(bad.slice(0, 40).join('\n')) if bad.length > 0
+    throw Error.new(all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
   passedNow(c, key)
 
 # Trig (TRIG, default ~/Data/Code/trig, only read) under the reference
@@ -1112,7 +1114,7 @@ checkTrig = (c) ->
   all = (r.out + r.err).split('\n')
   unless r.code is 0
     # A function the compiler accepts and the oracle rejects comes first.
-    throw Error.new(all.find((l) -> l.startsWith('DIFF')) ?? all.find((l) -> /^(FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+    throw Error.new(all.find((l) -> l.startsWith('DIFF')) ?? all.find((l) -> /^(STRICTER|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
   decided = Number(all.find((l) -> l.startsWith('oracle'))?.match(/(\d+) decided/)?[1] ?? 0)
   if decided is 0
     k = run([rig, 'check', join(dir, 'main.rig')], {}, Number(c.opts.timeout))
@@ -1128,7 +1130,9 @@ checkMatrix = (c) ->
   throw Error.new(r.ended) unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
-    throw Error.new(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+    bad = all.filter((l) -> /^(DIFF|STRICTER|FIXED|FAIL|LOST|UNLISTED)/.test(l))
+    throw Error.new(bad.slice(0, 40).join('\n')) if bad.length > 0
+    throw Error.new(all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
   passedNow(c, key)
 
 # The matrix's programs built and run (test/matrix.py `--own --delta`),
