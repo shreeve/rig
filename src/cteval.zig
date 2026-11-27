@@ -1249,19 +1249,31 @@ fn intLimitBy(ctx: *const SemContext, e: Sexp, names: anytype) ?TypedInt {
     return null;
 }
 
-/// The integer type `e` names: a built-in one (`U8`), or an alias of
-/// one, this module's (`Byte`) or an imported one (`lib.Byte`).
+/// The integer type `e` names (`numberTypeBy`), or null.
 fn intTypeBy(ctx: *const SemContext, e: Sexp, names: anytype) ?IntInfo {
+    const n = numberTypeBy(ctx, e, names) orelse return null;
+    return if (n == .int) n.int else null;
+}
+
+/// The number type `e` names: a built-in one (`U8`, `F32`), or an alias
+/// of one, this module's (`Byte`) or an imported one (`lib.Byte`).
+fn numberTypeBy(ctx: *const SemContext, e: Sexp, names: anytype) ?sema.NumberType {
     switch (e) {
-        .src => return if (names.symbol(e)) |id| sema.aliasIntType(ctx, id) else sema.intTypeNamed(identAt(ctx.source, e) orelse return null),
+        .src => return if (names.symbol(e)) |id| sema.aliasNumberType(ctx, id) else sema.numberTypeNamed(identAt(ctx.source, e) orelse return null),
         .list => {
             if (!e.isKind(.member) or ir.Member.object(e) != .src) return null;
             const f = ctx.foreignMember(names.symbol(ir.Member.object(e)) orelse return null, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
             if (!f.ctx.symbols.items[f.id].flags.is_public) return null;
-            return sema.aliasIntType(f.ctx, f.id);
+            return sema.aliasNumberType(f.ctx, f.id);
         },
         else => return null,
     }
+}
+
+/// The float type `e` names (`numberTypeBy`), as its bits, or null.
+fn floatTypeOf(ctx: *const SemContext, e: Sexp) ?u8 {
+    const n = numberTypeBy(ctx, e, CheckedNames{ .ctx = ctx }) orelse return null;
+    return if (n == .float) n.float else null;
 }
 
 /// A constant float folded in type `F` (`foldFloat`): its value, a
@@ -1297,8 +1309,8 @@ pub fn foldFloat(comptime F: type, ctx: *const SemContext, e: Sexp, bindings: bo
     }
     const h = e.kind() orelse return .unknown;
     switch (h) {
-        .member => return if (floatLimit(F, ctx.source, e)) |v| .{ .value = v } else .unknown,
-        .call => return if (isNotFinite(ctx.source, e)) .not_finite else .unknown,
+        .member => return if (floatLimit(F, ctx, e)) |v| .{ .value = v } else .unknown,
+        .call => return if (isNotFinite(ctx, e)) .not_finite else .unknown,
         .neg => return switch (foldFloat(F, ctx, ir.Neg.operand(e), bindings)) {
             .value => |v| .{ .value = -v },
             else => |o| o,
@@ -1337,28 +1349,23 @@ fn floatOp(comptime F: type, h: Tag, a: F, b: F) F {
     };
 }
 
-/// `F32.max`, `Float.min`: a float type's limit, in `F`; null for any
-/// other member.
-fn floatLimit(comptime F: type, source: []const u8, e: Sexp) ?F {
-    const name = identAt(source, ir.Member.object(e)) orelse return null;
-    const max: f64 = if (std.mem.eql(u8, name, "F32"))
-        std.math.floatMax(f32)
-    else if (std.mem.eql(u8, name, "F64") or std.mem.eql(u8, name, "Float"))
-        std.math.floatMax(f64)
-    else
-        return null;
-    const field = identAt(source, ir.Member.name(e)) orelse return null;
+/// `F32.max`, `Float.min`: a float type's limit, in `F`, named through
+/// the type or an alias of it (`floatTypeOf`); null for any other member.
+fn floatLimit(comptime F: type, ctx: *const SemContext, e: Sexp) ?F {
+    const bits = floatTypeOf(ctx, ir.Member.object(e)) orelse return null;
+    const max: f64 = if (bits == 32) std.math.floatMax(f32) else std.math.floatMax(f64);
+    const field = identAt(ctx.source, ir.Member.name(e)) orelse return null;
     const v: F = @floatCast(if (std.mem.eql(u8, field, "max")) max else if (std.mem.eql(u8, field, "min")) -max else return null);
     return if (std.math.isFinite(v)) v else null;
 }
 
-/// `Float.inf()` or `Float.nan()`, of any float type.
-fn isNotFinite(source: []const u8, e: Sexp) bool {
+/// `Float.inf()` or `Float.nan()`, of any float type, named through the
+/// type or an alias of it.
+fn isNotFinite(ctx: *const SemContext, e: Sexp) bool {
     if (ir.Call.args(e).len != 0 or !ir.Call.callee(e).isKind(.member)) return false;
-    const name = identAt(source, ir.Member.name(ir.Call.callee(e))) orelse return false;
-    const owner = identAt(source, ir.Member.object(ir.Call.callee(e))) orelse return false;
-    const float = std.mem.eql(u8, owner, "Float") or std.mem.eql(u8, owner, "F64") or std.mem.eql(u8, owner, "F32");
-    return float and (std.mem.eql(u8, name, "inf") or std.mem.eql(u8, name, "nan"));
+    const name = identAt(ctx.source, ir.Member.name(ir.Call.callee(e))) orelse return false;
+    if (floatTypeOf(ctx, ir.Member.object(ir.Call.callee(e))) == null) return false;
+    return std.mem.eql(u8, name, "inf") or std.mem.eql(u8, name, "nan");
 }
 
 /// The value of a float literal in `F` (`inf` when it is out of `F`'s
