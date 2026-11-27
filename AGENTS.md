@@ -256,6 +256,13 @@ until its rule is built. docs/internals/tests.md has the rest.
   instructions on one checker, with peak memory no higher (memory from
   a larger executable excepted); a change under it waits as a draft to
   be measured stacked with others.
+- **A better algorithm lands anyway.** A change that is measurably
+  faster in its own code, or does strictly less work (fewer cycles
+  where it runs, fewer system calls, fewer atomics), lands even when
+  Trig's total does not move, if it adds little code, costs no memory,
+  and passes every gate. Rig keeps no slow or sloppy algorithm because
+  its share is small. Policy tunings and memory trades are not better
+  algorithms: they meet the bar above.
 - **One vocabulary.** A sigil on a place makes a view, a read view or a
   write view; any view leaves its place read-only until its last use,
   and a write view of an ordinary value leaves it unusable; a cell is a
