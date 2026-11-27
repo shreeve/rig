@@ -14,7 +14,8 @@
 //!   pages and the rest asks for huge ones while the system has free
 //!   2 MiB blocks to spare (`reserve`). The system gives each page as
 //!   zeros when it is first touched, so a slot never written costs no
-//!   memory. It is never one of `alloc.zig`'s blocks, which are reused
+//!   memory, but for a table's first 64 KiB, which on Linux are faulted
+//!   in for writing as it is made (`readyHead`). It is never one of `alloc.zig`'s blocks, which are reused
 //!   unzeroed and faulted in ahead.
 //! - **Made.** Any other `T`: `n` slots on the heap, each `T()`, dropped
 //!   all `n` when the table is, since `t[s] = x` may write past `len`.
@@ -138,6 +139,33 @@ fn reserve(bytes: usize) [*]align(page) u8 {
     return p;
 }
 
+/// The bytes at a reserved table's start faulted in for writing as it is
+/// made, on Linux (`readyHead`).
+const head_ready: usize = 64 << 10;
+
+/// Linux's `MADV_POPULATE_WRITE` (5.14).
+const madv_populate_write: u32 = 23;
+
+/// Fault in, for writing, the first `head_ready` of the `bytes` at `p`,
+/// a table just reserved, with one call on Linux. A read of a slot never
+/// written maps the system's shared zero page, and the first write to
+/// that page then copies it and flushes the TLB of every other CPU the
+/// program runs on: in Trig's check at four and eight checkers about
+/// 2,200 pages a run, each stopping every running checker. A third of
+/// them lie in a table's first 64 KiB (slot 0, a nil id, read first; ids
+/// read just ahead of their writes), most of the rest in a few tables
+/// read by id across their first 600 KiB (Trig's link indexes), which a
+/// table cannot know to fault in, and which their owner fills with
+/// `!t.grow(n)`. The pages faulted in here are mostly those a table
+/// writes first, faulted in with no trap each; those it never touches
+/// cost their memory (about 1.5 MiB a checker on Trig).
+/// Elsewhere, or where the system cannot (before 5.14), the pages fault
+/// as they are touched.
+fn readyHead(p: [*]align(page) u8, bytes: usize) void {
+    if (builtin.os.tag != .linux) return;
+    std.posix.madvise(p, @min(bytes, head_ready), madv_populate_write) catch {};
+}
+
 fn unreserve(p: [*]align(page) u8, bytes: usize) void {
     if (comptime !leak_checked) if (rt.fast_alloc.unreserveTable(p, bytes)) return;
     std.posix.munmap(p[0..bytes]);
@@ -184,6 +212,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             switch (how) {
                 .reserved => {
                     const p = reserve(bytes);
+                    readyHead(p, bytes);
                     var t: Self = .{ .slots = @ptrCast(@alignCast(p)) };
                     if (comptime leak_checked) t.token = (rt.allocSlice(u8, 1)).ptr;
                     return t;
@@ -320,4 +349,31 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             }
         }
     };
+}
+
+/// Test only: the bytes of the `len` at `p` resident (`mincore`), on Linux.
+fn residentForTest(p: [*]const u8, len: usize) !usize {
+    var vec: [1024]u8 = undefined;
+    const pages = len / page;
+    if (pages > vec.len) return error.TooLong;
+    const rc: isize = @bitCast(std.os.linux.syscall3(.mincore, @intFromPtr(p), len, @intFromPtr(&vec)));
+    if (rc < 0) return error.NoMincore;
+    var in: usize = 0;
+    for (vec[0..pages]) |v| in += v & 1;
+    return in * page;
+}
+
+test "on Linux a reserved table's first 64 KiB are faulted in as it is made" {
+    if (builtin.os.tag != .linux or page != 4096) return error.SkipZigTest;
+    var t = Table(u32, 1 << 22).init();
+    defer t.__rig_drop();
+    const base: [*]const u8 = @ptrCast(t.slots);
+    try std.testing.expectEqual(head_ready, try residentForTest(base, 4 * head_ready));
+    try std.testing.expectEqual(@as(u32, 0), t.at(5));
+    t.slot(5).* = 7;
+    try std.testing.expectEqual(@as(u32, 7), t.at(5));
+    // A table smaller than 64 KiB is faulted in whole.
+    var small = Table(u64, 100).init();
+    defer small.__rig_drop();
+    try std.testing.expectEqual(@as(usize, page), try residentForTest(@ptrCast(small.slots), page));
 }
