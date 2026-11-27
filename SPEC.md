@@ -15756,7 +15756,7 @@ starves. It is a fallible waiting point too: a canceled task fails it
 with `task.Stop.canceled`, and past its deadline with
 `task.Stop.timeout`. An arm with no name is rejected, as is
 `on_recv`, `on_send`, `on_end`, or `time.after` anywhere but in a
-select.
+select (or, but for `time.after`, a poll, below).
 
 ```rig
 use std.task
@@ -15826,6 +15826,66 @@ sub main()!
 
 ```output
 near 10
+```
+
+`task.poll(name: arm, ...)` takes a select's arms but never waits: it
+commits whichever arm can complete now, trying them in the order that
+turns, and gives the select's value as an optional, `none` when no arm
+can. The value is taken out as any optional's is, `if task.poll(...)
+as r`, and `r` matched. An arm that does not complete changes nothing,
+and a send arm's value is dropped, as a losing arm's is. A poll parks
+no task, so it is no waiting point: it cannot fail, a canceled task's
+poll takes what is ready as any other's, and the task stops at its
+next waiting point. A deadline arm could never complete in it, and is
+rejected. The arms are checked as a select's: each is made before the
+poll tries any, and what an arm views stays limited, and what it sends
+stays taken, until the poll returns.
+
+```rig
+use std.task
+
+sub produce(ch: *Chan[Int], n: Int)!
+  for i in 1..n + 1
+    !ch.send(i)!
+  !ch.close()
+
+sub main()!
+  ch = *Chan[Int](4)
+  print(task.poll(got: !ch.on_recv()) == none)
+  p = produce(+ch, 4)&
+  sum = 0
+  open = true
+  while open
+    if task.poll(got: !ch.on_recv()) as r
+      match r
+        .got(v?) => sum += v
+        .got(none) => open = false
+    else
+      if !ch.recv()! as n
+        sum += n
+      else
+        open = false
+  >p!
+  print(sum)
+```
+
+```output
+true
+10
+```
+
+Matching the poll's value at once, with `none =>` beside the arms'
+variants, waits on `match` taking an optional subject:
+
+```rig pending
+use std.task
+
+sub main()!
+  ch = *Chan[Int](1)
+  match task.poll(got: !ch.on_recv())
+    .got(v?) => print(v)
+    .got(none) => print("closed")
+    none => print("nothing yet")
 ```
 
 The old spelling of a select, still accepted, gives each arm a

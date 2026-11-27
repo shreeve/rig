@@ -244,6 +244,14 @@ A new session, human or agent, takes these steps in order:
   slower on random and small 16-valued Ints.
   Waits on the core suite, the Trig and loco light gates, and the
   owner. Records: `docs/history/records/2026-11/std-sort/drift.md`.
+- **`task.poll(...)`** (branch `task-poll`; owner, 2026-11-27): the
+  named select's receive, send, and task-end arms, committed only if
+  one can complete now, else `none`, taken out with `if ... as r`; no
+  waiting point, so it cannot fail, and no deadline arm. `match` on
+  the poll with `none =>` waits on `match` of an optional subject, a
+  decision for the owner. Lowers to
+  `rig.pollValue`. For Trig's file loader, which interns names between
+  results (hotspot-webpack item 1b). Waits on the gates and the owner.
 - **`task.all` of tasks that give no value** (branch `task-all-subs`;
   owner, 2026-11-03): `task.all(f()&, g()&)!` waits for several `sub`s
   and gives nothing; a mix of tasks that give values and tasks that

@@ -1403,3 +1403,232 @@ test "chan takes an addition", seeds: 20, "1"
 
   c = *Chan[Int](1)
   print(look(?c))
+
+test "chan poll receive", seeds: 20, '''
+  none
+  got 7
+  closed
+'''
+  # oracle: main accept
+  # `task.poll` takes a receive that can complete now, and gives `none`
+  # when none can; a closed, empty channel's receive completes with none.
+  a = *Chan[Int](1)
+  for step in 0..3
+    if step == 1
+      !a.send(7)!
+    if step == 2
+      !a.close()
+    if task.poll(got: !a.on_recv()) as r
+      match r
+        .got(v?) => print("got", v)
+        .got(none) => print("closed")
+    else
+      print("none")
+
+test "chan poll send", seeds: 20, '''
+  put
+  none
+  first
+'''
+  # oracle: main accept
+  # A send arm completes when the channel has room; when it has none the
+  # poll gives `none` and drops the value the arm took.
+  c = *Chan[String](1)
+  print("put" if task.poll(put: !c.on_send(String("first"))) != none else "none")
+  print("put" if task.poll(put: !c.on_send(String("lost"))) != none else "none")
+  print(!c.recv()! ?? String("empty"))
+
+bomb "chan poll send closed", seeds: 20, "send on a closed channel", prints: "before"
+  c = *Chan[Int](1)
+  !c.close()
+  print("before")
+  _ = task.poll(put: !c.on_send(1))
+
+test "chan poll end", seeds: 20, timeout: 10, '''
+  running
+  done 10
+'''
+  # oracle: main accept
+  # A task's end completes once the task has ended; until then the poll
+  # gives `none`, and the task stays its holder's.
+  use std.time
+
+  fun slow(g: *Chan[Int]) -> Int!
+    (!g).recv()! ?? 0
+
+  g = *Chan[Int](1)
+  t = slow(+g)&
+  if task.poll(done: ?t.on_end()) == none
+    print("running")
+  !g.send(10)!
+  while task.poll(done: ?t.on_end()) == none
+    time.sleep(ms: 1)!
+  print("done", >t!)
+
+test "chan poll many arms", seeds: 20, '''
+  none
+  b 2
+  put
+'''
+  # oracle: main accept
+  # Of several arms, the poll takes one that can complete now; with none
+  # ready, it gives `none` and takes nothing.
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  full = *Chan[Int](1)
+  !full.send(0)!
+  for step in 0..3
+    if step == 1
+      !b.send(2)!
+    if step == 2
+      _ = !full.recv()!
+    if task.poll(a: !a.on_recv(), b: !b.on_recv(), put: !full.on_send(9)) as r
+      match r
+        .a(v?) => print("a", v)
+        .b(v?) => print("b", v)
+        .a(none), .b(none) => print("closed")
+        .put => print("put")
+    else
+      print("none")
+
+test "chan poll canceled", seeds: 20, timeout: 10, '''
+  got 5
+  none
+  Stop.canceled
+'''
+  # A poll never waits, so it is no waiting point: a canceled task's poll
+  # still takes what is ready, or gives `none`, and the task stops at its
+  # next waiting point.
+  fun drain(ch: *Chan[Int], ready: *Chan[Int], go: *Chan[Int]) -> Int!
+    !ready.send(1)!
+    _ = !go.recv() catch 0
+    for 0..2
+      if task.poll(got: !ch.on_recv()) as r
+        match r
+          .got(v?) => print("got", v)
+          .got(none) => print("closed")
+      else
+        print("none")
+    task.check()!
+    0
+
+  ch = *Chan[Int](1)
+  ready = *Chan[Int](1)
+  go = *Chan[Int](1)
+  t = drain(+ch, +ready, +go)&
+  _ = !ready.recv()!
+  !ch.send(5)!
+  !go.send(1)!
+  r = <t.cancel() catch |e|
+    print(e)
+    -1
+  _ = r
+
+test "chan poll in a loop", seeds: 20, timeout: 10, "4950 100"
+  # oracle: main accept
+  # A loop takes each result that is ready and does other work between
+  # them, waiting only when it has nothing else to do.
+  sub produce(ch: *Chan[Int], n: Int)!
+    for i in 0..n
+      !ch.send(i)!
+    !ch.close()
+
+  ch = *Chan[Int](4)
+  p = produce(+ch, 100)&
+  sum = 0
+  count = 0
+  open = true
+  while open
+    if task.poll(got: !ch.on_recv()) as r
+      match r
+        .got(v?)
+          sum += v
+          count += 1
+        .got(none) => open = false
+    else
+      if !ch.recv()! as n
+        sum += n
+        count += 1
+      else
+        open = false
+  >p!
+  print(sum, count)
+
+test "chan poll spins with check", seeds: 20, timeout: 10, "4950"
+  # Polling until a value comes, other tasks get turns at `task.check()`.
+  sub produce(ch: *Chan[Int], n: Int)!
+    for i in 0..n
+      !ch.send(i)!
+    !ch.close()
+
+  ch = *Chan[Int](2)
+  p = produce(+ch, 100)&
+  sum = 0
+  open = true
+  while open
+    r = task.poll(got: !ch.on_recv())
+    if r == none
+      task.check()!
+    else if r as w
+      match w
+        .got(v?) => sum += v
+        .got(none) => open = false
+  >p!
+  print(sum)
+
+test "chan poll moves a received value", seeds: 20, "hi true"
+  # A received value moves out of the poll's value as out of a select's.
+  c = *Chan[String](1)
+  !c.send(String("hi"))!
+  if task.poll(got: !c.on_recv()) as r
+    match <r
+      .got(v?) => print(<v, task.poll(got: !c.on_recv()) == none)
+      .got(none) => print("closed")
+
+code "chan poll emits", "rig.pollValue(", seeds: 20
+  c = *Chan[Int](1)
+  print(task.poll(got: !c.on_recv()) == none)
+
+fail "chan poll matched directly", "2:7: cannot `match` on a value of type `select(got)?`, which may be `none`: take the value out first, `if task.poll(got: !c.on_recv()) as v`, and match `v`", errors: 1
+  c = *Chan[Int](1)
+  match task.poll(got: !c.on_recv())
+    .got(v?) => print(v)
+    .got(none) => print("closed")
+
+fail "chan poll arms", "5:16: each arm of `task.poll` has a name, the variant its value matches in a `match`: `c: !c.on_recv()`", "6:32: two arms of `task.poll` are named `x`", "7:21: `task.poll` does not wait, so the deadline arm `late` could never complete in it: drop it; the poll gives `none` when no arm can complete now", "8:10: `task.poll` takes the arms to try", errors: 4
+  use std.time
+
+  c = *Chan[Int](1)
+  d = *Chan[Int](1)
+  _ = task.poll(!c.on_recv())
+  _ = task.poll(x: !c.on_recv(), x: !d.on_recv())
+  _ = task.poll(late: time.after(1))
+  _ = task.poll()
+
+fail "chan poll cannot fail", "2:5: `!` needs a fallible operand; this expression has type `select(got)?` and cannot fail", errors: 1
+  c = *Chan[Int](1)
+  _ = task.poll(got: !c.on_recv())!
+
+fail "chan poll through a read view", "cannot make a write view through a read view `?*Chan[Int]`", errors: 1
+  # A poll's arm changes its channel as a select's does.
+  sub take(ch: ?*Chan[Int])
+    _ = task.poll(got: !ch.on_recv())
+
+fail "chan poll sends what it moves", "5:7: use of `s` after move", errors: 1
+  # oracle: main reject C1
+  c = *Chan[String](1)
+  s = String("a")
+  _ = task.poll(put: !c.on_send(<s))
+  print(s)
+
+fail "chan poll arms hold their channels", "cannot change `xs` while a write view of it is still in use", errors: 1
+  # oracle: main reject C4
+  # Each arm is made before the poll tries any, so an argument may not
+  # grow what holds an arm's handle.
+  fun grow(xs: !List[*Chan[Int]]) -> Int
+    !xs.push(*Chan[Int](1))
+    8
+
+  xs = List[*Chan[Int]]()
+  !xs.push(*Chan[Int](1))
+  _ = task.poll(put: !xs[0].on_send(grow(!xs)))
