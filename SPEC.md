@@ -10801,6 +10801,7 @@ owns one), and read views.
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.swap_remove(i)` | remove the element at `i` and hand it over, moving the last element into its place: one element moves, not the rest, and the order of what is left changes; panics out of range |
 | `!v.clear()` | drop every element |
+| `!v.fit()` | give back the room past the elements, so the List's buffer holds exactly `v.len` of them (none when it is empty, and its inline room when they fit there); the elements, their order, and `v.len` are unchanged, and the List grows again as before. A large buffer is cut where it lies, a small one copied |
 | `!v.extend(s)` | append a copy of each element of `s`, a `[]T` (`?ys[a..b]`, an array, or a List), in one copy, growing once; `T` copies and holds no view (below), and `s` may not view `v`, which is unusable meanwhile |
 | `!v.extend_from_bytes(s)` | append the records the bytes of `s`, a `?String` (or a `Static`), hold, in one copy, growing once; `T` is a type whose every bit pattern is a value, or with `Bool`s and enums when `s` is written `$embed(path)` (below); panics unless `s.len` is a whole number of `$size(T)` |
 
@@ -11141,6 +11142,7 @@ are; a slot is plain data.
 |---|---|
 | `Table()`, `Table[T, n]()` | a table of `n` slots, each `T()` (typed by context or by brackets); made as the program runs, so it is never a field's default |
 | `!t.push(x)` | write slot `len`, add one to `len`, and give that slot as a `Slot[n]`; panics with "a table of `n` slots is full" when all `n` are pushed |
+| `!t.grow(k)` | push `k` slots at once, each holding what it reads as (`T()` unless written by slot), and give nothing; panics as `push` does when `len + k` would pass `n`, and on a negative `k`; `k = 0` does nothing |
 | `t.len` | the number of slots pushed |
 | `t[s]`, `t[s] = x` | slot `s`, a `Slot[n]`, a place as a List's element is: read in place, viewed with `?t[s]` or `!t[s]`, and assigned, which drops the old value; no test |
 | `t[i]` | with an integer `i`, the slot tested `0 <= i < n` (not `len`) |
@@ -11225,9 +11227,29 @@ sub main()
 type mismatch: expected `Slot[8]`, got `Int`
 ```
 
-A table grows only by `push` and never shrinks: it has no `pop`,
-`clear`, or `keep`, and no clone (`+t`). An id read from data enters
-with `of`, its one test.
+A table grows only by `push` and `grow` and never shrinks: it has no
+`pop`, `clear`, or `keep`, and no clone (`+t`). An id read from data
+enters with `of`, its one test.
+
+`!t.grow(k)` readies slots that are read by slot before they are
+written, such as an index from one store's ids to another's. On Linux a
+reserved table gives the grown slots' pages to the program at once, for
+writing, so the first read of such a slot finds a page of its own: a
+page first touched by a read is the system's shared page of zeros,
+which the first write copies.
+
+```rig
+sub main()
+  links: Table[Int, 8] = Table()
+  !links.grow(3)
+  links[1] = 5
+  s = !links.push(9)
+  print(links.len, links[0], links[1], s, links[s])
+```
+
+```output
+4 0 5 3 9
+```
 
 ### Boxes, `^T`
 

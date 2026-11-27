@@ -474,6 +474,12 @@ serve no HTTP.
 
 ### Added
 
+- **`!v.fit()` on a List** ([SPEC "List"](SPEC.md#list)): the buffer
+  cut to the elements the List holds, freed when it holds none, and for
+  a List with inline room moved back into the List when they fit there.
+  A large buffer is cut where it lies with no copy (below); a small one
+  is copied into the smallest block that holds it. A List built in a
+  scratch buffer can so be kept at its length without a clone.
 - **`task.poll(name: arm, ...)`, a select that never waits**
   ([SPEC "Channels"](SPEC.md#channels), [std.task](docs/STD.md#stdtask)).
   It takes the named select's receive, send, and task-end arms, commits
@@ -492,6 +498,17 @@ serve no HTTP.
   of the select's union. A loop takes each result that is ready and
   does other work between them, as Trig's file loader interns names
   between results.
+- **`!t.grow(k)` pushes `k` slots of a Table at once**
+  ([SPEC "Table"](SPEC.md#table), [STD "Table and Slot"](docs/STD.md#table-and-slot)),
+  each holding what it reads as, `T()` unless written by slot, and gives
+  nothing. It panics as `push` does when `len + k` would pass `n`
+  ("a table of 4 slots is full"), and on a negative `k`; `k = 0` does
+  nothing. On Linux a reserved table then faults in the grown slots'
+  pages for writing with one `MADV_POPULATE_WRITE` (Linux 5.14; ignored
+  where refused), so a slot read before it is written finds a page of its
+  own rather than the shared zero page, whose first write copies it and
+  flushes every other core's TLB of it. Trig grows its link indexes this
+  way when it makes a checker.
 - **`cost:` on `par.map`, `par.each`, `par.workers`, and `par.push`**
   ([SPEC "Each element on several tasks"](SPEC.md#each-element-on-several-tasks),
   [std.par](docs/STD.md#stdpar)). It gives each element's cost, an
@@ -1223,6 +1240,13 @@ arms.
 
 ### Runtime
 
+- **A large block that shrinks keeps its place** (`alloc.shrinkLarge`):
+  a span gives the units past its new length back to its heap as a free
+  span, joined with the free span after it, and a mapping of its own
+  gives its pages past the new length back to the system, where the
+  release allocator copied every shrink into a new block. `List.fit`
+  and `String.fit` (a file read into room it did not fill) so cut a
+  large buffer with no copy.
 - **std.text's search compares 32 bytes at a time past a text's first 256 places on x86-64 with AVX2, and 64 with AVX-512BW** (`step_lanes`, one step routine whose width std/text.zig chooses by target from bench/text/sweep.zig's measurements; bench/text/README.md, "The sweep"). Shorter texts and aarch64 run the code they ran. On pup's E-core a 3- or 12-byte search is 9 to 11% faster over 1 KiB, 25 to 30% over a 4 KiB miss, and 21 to 34% over the whole of lib.dom.d.ts; one of 320 bytes is 6 to 13% slower.
 - **An actor's method run from its mailbox is stopped by a signal:** the
   runtime's functions that run a method (`callAs`, `actorCall`, the

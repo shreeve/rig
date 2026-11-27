@@ -2836,7 +2836,10 @@ main.rig:4:3: panic: lost ["a\tb"]
 for `n` more elements without changing the length, so the next `n`
 pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
 first `n` elements and drops the rest, so a List can be rewound to a
-length saved earlier.
+length saved earlier. `!v.fit()` gives back the room past the elements,
+so a List built by pushes into a large buffer is kept at its length
+without a copy: the allocator cuts a large buffer where it lies and
+copies only a small one.
 
 `!v.extend(?ys[a..b])` appends a copy of each element of a slice, an
 array, or a List, growing once and copying them with one `@memcpy`: the
@@ -3031,6 +3034,26 @@ sub main()
 
 ```output
 7 42 2
+```
+
+A Table read by id before it is written, such as an index kept beside
+the store that gives the ids, is grown first: `!t.grow(k)` pushes `k`
+slots at once, each `T()`, and on Linux a reserved table takes their
+pages for writing then, so a read of one finds a page of its own and
+never the system's shared page of zeros, whose first write copies it.
+
+```rig
+NODES = 1 << 20
+
+sub main()
+  parent: Table[Slot[NODES], NODES] = Table()
+  !parent.grow(4)
+  parent[3] = 1
+  print(parent.len, parent[2], parent[3])
+```
+
+```output
+4 0 1
 ```
 
 Keep one store per owner of many records, such as a parser or a
