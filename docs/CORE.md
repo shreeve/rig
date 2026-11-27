@@ -788,9 +788,9 @@ until then only when its drop runs a `drop` body (sentence 6). Each
 result counts as the views its own type could hold, so a `Bool` beside
 a view counts as none, and a result may be a write view, as `-> !T` is,
 beside results whose types could view nothing it views (sentence 5).
-When no result holds a write view, every write view passed to the call
-ends as it returns, as for one result. *(built; two write-view results are
-planned)*
+A write view passed to the call that no result counts as a view of, and
+that the call does not keep, ends as the call returns, as for one
+result. *(built; two write-view results are planned)*
 
 ```rig
 obj Counter
@@ -1165,11 +1165,40 @@ b)` moves nothing.
 no name: a call's result, a constructor, `+x`, or a block or `match`
 value. Its statement is its scope, so it is a *temporary*, dropped when
 the statement ends, the last made first, also when the statement fails
-or leaves early. A temporary may be given a read view or a write view
-(sentence 4), and a view of it may be used only within its statement. A value
-made to be called (`(+h.f)(x)`) is a temporary too *(planned)*, and so
+or leaves early. A statement that a failure or a jump leaves ends there,
+before the defers of the scopes the exit leaves run: its temporaries
+drop, and a view made for an operation that never runs, as `!v` is in
+`f(!v, g()!)`, has had its last use. What the exit carries, a returned
+or `break` value, lives while those defers run (§7). A temporary may be
+given a read view or a write view (sentence 4), and a view of it may be
+used only within its statement. A value made to be called (`(+h.f)(x)`) is a temporary too *(planned)*, and so
 is a template where a `?String` is expected, built in 256 bytes of the
 statement's stack, then on the heap.
+
+```rig
+error E
+  bad
+
+fun num(ok: Bool) -> Int!
+  return E.bad if not ok
+  1
+
+fun total(a: []Int, n: Int) -> Int
+  a.len + n
+
+fun work(nums: !List[Int], ok: Bool) -> Int!
+  errdefer !nums.push(0)
+  total(?nums[..], num(ok)!)
+
+sub main()
+  v: List[Int] = List()
+  n = work(!v, false) catch -1
+  print(n, v.len)
+```
+
+```output
+-1 1
+```
 
 **Headers are their own statements:** an `if` or `while` condition, a
 guard, and the subject of a `match` or `for`. A header's temporaries
@@ -1366,7 +1395,10 @@ A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
 copy limits nothing but what the views it holds limit, as with a call's
 `?Int` result. `a ?? b` is `v` when `a` holds a view `v`, and `b`
-otherwise; `a catch b` is the same over a failure (§8). So when `b` is
+otherwise; `a catch b` is the same over a failure (§8). Where `b` runs,
+`a` holds nothing, so the views it carried, and only those, have had
+their last use there: `w = pick(!v) ?? !v` works, and a view of the same
+place that another part of the statement holds stays in use. When `b` is
 a `T`, the type the view sees, `v` is copied out to match it, as above:
 `m.get(k) ?? 0` is an `Int`, and `m` stays free to change. A fallback
 that is a view or a jump leaves the view, and so does `none` where an
@@ -1397,6 +1429,44 @@ sub main()
 
 ```error
 only a value that copies is copied out of a view, and a `String` owns a resource: make the fallback a view, so the result is one, and clone that for a `String` of its own: `+(m.get("a") ?? ?String("none"))`
+```
+
+```rig
+fun pick(v: !List[Int], ok: Bool) -> (!List[Int])?
+  return none if not ok
+  !v
+
+sub main()
+  v: List[Int] = List()
+  w = pick(!v, false) ?? !v
+  !w.push(3)
+  print(v.len)
+```
+
+```output
+1
+```
+
+```rig reject
+fun pick(v: []Int, ok: Bool) -> ([]Int)?
+  return none if not ok
+  v
+
+fun grow(v: !List[Int]) -> []Int
+  !v.push(2)
+  ?v[..]
+
+fun both(a: []Int, b: []Int) -> Int
+  a.len + b.len
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  print(both(?v[..], pick(?v[..], false) ?? grow(!v)))
+```
+
+```error
+cannot change `v` while a read view of it is still in use
 ```
 
 A slice `x[a..b]` is the same view, of

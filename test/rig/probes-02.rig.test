@@ -556,7 +556,7 @@ fail "R16-d3", "cannot reassign `x` while a write view of it is still in use"
   x = 5
   print(x)
 
-fail "R16-d4", "cannot drop `v` while a read view of it is still in use"
+test "R16-d4", "1"
   v: List[Int] = List()
   !v.push(1)
   f = |?v| print(v.len)
@@ -564,7 +564,7 @@ fail "R16-d4", "cannot drop `v` while a read view of it is still in use"
   <v
   print(1)
 
-fail "R16-d5", "cannot use `x` while a write view of it is still in use"
+test "R16-d5", "3"
   x = 1
   f = |!x|
     x += 1

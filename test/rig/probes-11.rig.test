@@ -1944,11 +1944,10 @@ test "r3-or-defer-sound", '''
   print(errdefer_propagate(4) catch -1, errdefer_propagate(3) catch -1)
   declares_and_moves()
 
-fail "r3-or-defer-strict", "cannot use `v` while a write view of it is still in use"
+test "r3-or-defer-strict", "1"
   # A `defer` written before a view runs after the view is done: the
   # view `w` is declared after it, so it is dropped before the deferred
-  # code runs (Core §7; SPEC "defer and errdefer"). The compiler checks
-  # deferred code where it is written as well, and rejects this.
+  # code runs (Core §7; SPEC "defer and errdefer").
   #
   # oracle: main accept
 

@@ -1,16 +1,3 @@
-# Every function the reference ownership checker (bin/rig-oracle) and the
-# compiler's own decide differently, one a line:
-#
-#   <program> <function> prod-rejects <class> <note>
-#
-# Only prod-rejects differences are listed: the compiler rejects what
-# the oracle accepts. A prod-accepts difference (the compiler accepts
-# what the oracle rejects) always fails the run and cannot be listed.
-# Classes: prod-strict (the compiler rejects what the Core allows),
-# ref-gap (the oracle is wrong or less precise), core-gap (docs/CORE.md
-# does not decide it). A program is its test path, a doc
-# example's doc and a hash of its text (doc/CORE/0f3c9a1b2d4e), or
-# a matrix cell (vec.print.place).
 
 # A `for x in ?v` element is a read view; a bare read view copies (Core
 # s1), so binding it inside the loop, or returning one that views only
@@ -57,25 +44,6 @@ test/reject/probes/review-payload-view-3-f04b_for_write_break_move.rig main prod
 # alternate.
 test/reject/probes/review-payload-view-4-e15_loop_hold_across.rig main prod-rejects prod-strict `keep = ?r.v[..]` held across passes of `match (!e if i % 2 == 0 else !d)`
 
-# A call whose write arguments can hold views may store one in another
-# (Core s7), so `f(!h1, !h2, true)` keeps `h1` unusable while the result
-# of the call could hold what `h2` views.
-
-# A `defer` runs at its scope's exits, after the values declared after
-# it are dropped (Core §7, SPEC "defer and errdefer"). The compiler also
-# checks deferred code where it is written, and its liveness counts
-# every use in deferred code, so a view whose last use comes before the
-# deferred code runs still holds its loan there.
-test/reject/probes/r3-or-defer-strict.rig main prod-rejects prod-strict `defer !v.push(3)` before `w = !v`, whose last use precedes the exit
-test/reject/probes/review-payload-view-1-p15_defer_write_after_view.rig main prod-rejects prod-strict `defer !t.add("x")` of a `match !e` binding before `s = ?t[1..]`, whose last use precedes the exit
-test/reject/probes/review-payload-view-1-v15_defer_param.rig f prod-rejects prod-strict `defer !t.add("x")` of a `!String` parameter before `s = ?t[1..]`, whose last use precedes the exit
-test/reject/probes/review-payload-view-1-v15b_defer_ifas.rig main prod-rejects prod-strict `defer !t.add("x")` of an `if !o as t` binding before `s = ?t[1..]`, whose last use precedes the exit
-test/reject/probes/review-step45-k04_defer_elem_write.rig main prod-rejects prod-strict `defer !v[0].add("!")` before `x = ?v[0]`, whose last use precedes the exit
-test/reject/probes/review-step45-k04b_defer_push_plain.rig main prod-rejects prod-strict `defer !v.push(2)` before `x = ?v`, whose last use precedes the exit
-test/reject/probes/review-step45-r2-d08_repoint_defer_uses_w.rig main prod-rejects prod-strict the deferred `!w.add("d")` runs at the inner block's end, before `print(b)`
-test/reject/probes/review-take-p53.rig main prod-rejects prod-strict deferred `<s.a` after `print(r)`, the last use of `r = ?s`
-test/reject/probes/review-take-p54.rig main prod-rejects prod-strict deferred `<s.a` runs after the deferred `print(w)`, the last use of `w = !s`
-
 # A loop body's defers run as `break` leaves it, after its value is
 # formed, and what that value views is live while they run (Core §7,
 # Defer). The oracle does not keep the `break` value's loans in force
@@ -96,22 +64,8 @@ test/reject/probes/R16-c6.rig outer prod-rejects prod-strict `|<f|` of a `?fun` 
 test/reject/ownership/move_capture_view_param_lambda.rig f prod-rejects prod-strict `|<rc|` of a `?*Wrap` parameter
 test/reject/types/closure_view_hints_ownership.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
 
-# A closure's loans end with its last use, deferred code included; the
-# compiler holds them wherever deferred code mentions the closure, or
-# where its environment needs a drop.
-test/reject/probes/R16-d4.rig main prod-rejects prod-strict `errdefer f()` never runs in `main`, so `-v` meets no view in use
-test/reject/probes/R16-d5.rig main prod-rejects prod-strict the deferred `f()` is the last use of `f`'s write view before `print(x)`
-
 # `-cb` of a `for cb in ?subs` element ends a read view (SPEC "Drop").
 test/reject/ownership/vec_for_drop_elem.rig main prod-rejects prod-strict `-cb` of a `for cb in ?subs` element view
-
-# A clone is a new owner (Core s2): through a view, `+r` of a `?T`
-# carries the loans of the views its value holds, not the loan on what
-# `r` sees (Core s7).
-
-# A result carries no loan when it is plain data (Core s7), and the
-# loans it carries only while it is used (Core s6); a call whose write
-# arguments can hold no view stores none in them (Core s6).
 
 # A view reached through a slice or a write view carries that view's
 # loans, not a loan on what holds it (Core s7).
@@ -130,12 +84,6 @@ test/reject/probes/r3-s36-reads-f06_for_array_write_in_body.rig main prod-reject
 # emitted body copies the payload, and it rejects the instance.
 test/reject/probes/audit-emit-q2.rig main prod-rejects prod-strict `peek(^R(n: 1))` at `T = ^R`
 test/reject/probes/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o)` at `T = String`, whose body reads `if x as y` of a loop element where it stands
-
-# A write view in an argument lasts until its statement ends where the
-# call's result is or holds a write view, or the call may store it, and
-# a read view the result
-# keeps lasts through a `match`'s arms, though the view's last use comes
-# before (Core s6): the compiler's statement temporaries (Core §3).
 
 # A bare variant literal whose enum comes from a view held by address
 # (`keep(.dot)` where `keep(v: ?S) -> ?S`) is a constant, which lives for
@@ -176,42 +124,11 @@ test/reject/probes/review-copies-p25b-write-view-int-struct-literal-field.rig ma
 test/reject/probes/review-copies-2-q06a-catch-handler-block-local-copyout.rig main prod-rejects prod-strict a handler block ending in `?loc`, copied out after the block
 test/reject/probes/review-copies-2-q06f-catch-handler-block-int-copyout.rig main prod-rejects prod-strict a handler block ending in `?loc` of an Int, copied out after the block
 
-# A write view in a call, then a write view of the same place in its
-# `catch` handler, which runs only once the call failed and its view
-# ended. The same on v0.2.2.
-test/reject/probes/review-copies-2-q07l-write-catch-same-owner.rig main prod-rejects prod-strict `f(!vs) catch !vs`: the handler's write view after the call's
-
-# Liveness is textual (INTERNALS "Liveness"): a `while` step's use of
-# what the condition binds counts after the whole body, where the step
-# runs, and a name declared before a loop is live anywhere in it, so a
-# view the step reads keeps its loan also on a path that leaves the loop
-# with `break` or `return` and never reaches the step, or that re-points
-# the view before the step reads it.
-test/reject/probes/review-while-step-w48-grow-then-return-ok.rig run prod-rejects prod-strict `!v.push(2)` before a `return`, while the step reads `h`, a view of `v`
-test/reject/probes/review-while-step-w32-outer-repoint-after-grow-ok.rig main prod-rejects prod-strict `!v.push(2)` before `s` is re-pointed, where the step reads `s`
-step.vec.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`
-test/reject/probes/review-payload-view-1-v10_loop_outer_var.rig main prod-rejects prod-strict `!t.add("!")` in a loop, while `s`, declared before it, holds a view of `t` from the same pass
-test/reject/ownership/field_loop_carried.rig main prod-rejects prod-strict `!p.items.push(i)` in a loop, while `prev`, declared before it, holds a view of `p.items` it re-points before its next use
-step.vec.field.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.r`, a view of `v`
-step.vec.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.get()`, a view of `v`
-step.text.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`
-step.text.field.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.r`, a view of `v`
-step.text.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.get()`, a view of `v`
-
-# Whether a field copied out of a read view (`id(?s).n`, a plain value)
-# keeps the read view of `s` until the call returns, so a later argument
-# cannot make a write view of `s` (Core §6: what an earlier argument
-# hands over "stays read-only until the call returns").
-
-# An assignment is `{ __v = value; place op= __v }` (INTERNALS
-# "Assignments"). Liveness is textual, so a later arm's guard keeps the
-# subject's view live in an earlier arm, and a view re-pointed by the
-# assignment keeps its old loan through the value. A reassigned owner's
-# old value is dropped after the value: a `drop` that reads a slice of a
-# List the value grew reads freed memory, which the oracle does not model.
-test/reject/probes/review-arm-temps-l07_subject_viewed_by_guard_after.rig main prod-rejects prod-strict `grow(!v)` in arm 0 while a later arm's guard reads `x`, a view of `v`
-test/reject/probes/review-arm-temps-2-m15_readview_repoint_overreject.rig main prod-rejects prod-strict `grow(!v)` in the value of `r = match`, which re-points `r` from a view of `v`
-test/reject/probes/review-arm-temps-2-m21_name_target_old_drop_reads_view.rig main prod-rejects prod-strict `grow(!v)` in the value of `h = match`, whose old value's `drop` reads `v` through a `?List[Int]`
+# A reassigned owner's old value is dropped after the new value is made
+# (INTERNALS "Assignments"): a `drop` that reads what the value changed,
+# a slice of a List it grew among them, reads it changed or freed, which
+# the oracle does not model.
+test/reject/probes/review-arm-temps-2-m21_name_target_old_drop_reads_view.rig main prod-rejects ref-gap `grow(!v)` in the value of `h = match`, whose old value's `drop` reads `v` through a `?List[Int]`
 test/reject/probes/review-arm-temps-2-m33_slice_holder_drop_reads.rig main prod-rejects ref-gap `grow(!v)` in the value of `h = match`, whose old value's `drop` reads a slice of `v`
 test/reject/probes/review-arm-temps-2-m34_slice_holder_drop_reads_plain.rig main prod-rejects ref-gap `h = growh(!v, ?u)`, whose old value's `drop` reads a slice of `v`
 
@@ -226,25 +143,11 @@ test/reject/probes/review-results-f10.rig main prod-rejects ref-gap `b = String(
 test/reject/probes/review-results-z04.rig main prod-rejects ref-gap `g, n = mk(!x, 1)` after `g = Guard(s: ?x, ...)`: `mk` replaces `x`, which the old `g`'s drop then reads
 test/reject/probes/review-results-z05.rig main prod-rejects ref-gap `g = mk(!x, 1)` after `g = Guard(s: ?x, ...)`: `mk` replaces `x`, which the old `g`'s drop then reads
 
-# A result taken into a name ends its loan where that name's last use
-# does, as `x = e` does (Core sentence 6); the compiler keeps a result's
-# loan through its statement.
-
 # A `for x in !l` element's write view stores a view of a local of the
 # body into the List, which outlives the iteration; the oracle does not
 # carry the store into the List's loans through the loop's element.
 test/reject/probes/review-results-p02_for_write.rig main prod-rejects ref-gap `!x.put(?d)` of a `for x in !l` element, with `d` local to the body
 test/reject/probes/review-results-p03_for_write_chain.rig main prod-rejects ref-gap `!w.put(?d)` through `w = !x`, a write view of the element
-
-# Reassigning a binding whose old value holds a write view, with a new
-# value that views the same place again: the compiler checks the new
-# view while the old value, dropped after it, still holds its loan
-# (INTERNALS "Assignments").
-
-# A `for` over a plain array part of a branch of write views copies the
-# part in its header; the compiler keeps the branch's write views live
-# through the loop, though nothing reads them there.
-test/reject/probes/review-header-paths-1-t05_for_read_plain_array_part_local.rig main prod-rejects prod-strict `!xs.push` in a loop over `(a if c else b).arr`, a copied plain part, with `a = !xs[0]`
 
 # A `(!T)?` parameter holds the caller's write view: every unwrapping of
 # it (`w?`, `w ?? e`, `if <w as x`, a call's `!` or `catch`, a local or
@@ -327,15 +230,6 @@ test/reject/ownership/write_view_held_by_a_loop_value_stays_in_use_while_it_live
 # more write views than its bound is rejected, never accepted unchecked
 # (AGENTS.md, North Star 1); the oracle has no bound.
 test/reject/ownership/write_view_chain_past_the_checker_bound.rig main prod-rejects prod-strict a store through 17 write views in a chain passes the checker's bound
-
-# A view an argument has already made (`!nums`, or the write view a call
-# returned) stays in force while the defers of a failure in a later
-# argument run; the compiler ends there only the holds that wait for the
-# call to start (self's reservation, a place found up to an index, a
-# value read for a later consumer). The call never runs, so Core §7
-# allows the defer to write what the view reaches.
-test/reject/ownership/defer_at_a_failure_after_a_view_in_the_call.rig viewed prod-rejects prod-strict `keep(!nums, g()!)` under an `errdefer` that writes `nums`
-test/reject/ownership/defer_at_a_failure_after_a_view_in_the_call.rig started prod-rejects prod-strict `keep(!b.slot(), g()!)` under an `errdefer` that writes `b.v`
 
 # A group's field read in its body, `j.name`, is a field of an object
 # parameter (Core s5, "A spread gives an object's fields one by one"),

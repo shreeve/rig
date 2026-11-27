@@ -18,7 +18,6 @@ const lowered = @import("lowered.zig");
 const lir = @import("../lir.zig");
 const rules = @import("rules.zig");
 const notes = @import("notes.zig");
-const AfterValue = state.AfterValue;
 const Checker = state.Checker;
 const Loan = state.Loan;
 const LoopCtx = state.LoopCtx;
@@ -54,19 +53,6 @@ pub const Exit = union(enum) {
     }
 };
 
-/// Whether `l` holds a place only until a pending operation runs
-/// (`Checker.dropPendingHolds`).
-pub fn pendingHold(l: Loan) bool {
-    return l.kind == .read and (l.reserved or l.place_hold or l.held_read != .none);
-}
-
-/// Whether loop (or labeled block) `outer` is `inner` or encloses it.
-pub fn encloses(outer: *const LoopCtx, inner: ?*const LoopCtx) bool {
-    var l = inner;
-    while (l) |ctx| : (l = ctx.parent) if (ctx == outer) return true;
-    return false;
-}
-
 // -----------------------------------------------------------------------------
 // Core section 9: per path, one exit primitive
 // -----------------------------------------------------------------------------
@@ -81,9 +67,9 @@ pub const ExitTo = struct {
     to: ?Point = null,
     /// The exit, whose defers run first; null where none run.
     exit: ?Exit = null,
-    /// Where the path goes on, for liveness: a source position, or
-    /// after the current statement when null.
-    resume_at: ?u32 = null,
+    /// Where the path goes on, for liveness: a point of the body's
+    /// flow, or after the walk's point when null.
+    resume_at: ?live.Loc = null,
     /// The loans of the value the path leaves with: a result, a
     /// `break` value, a block's value. It is formed before the
     /// defers run and lives after them, so they run while it views
@@ -102,6 +88,8 @@ pub fn exitTo(self: *Checker, x: ExitTo) Error!State {
         const back: ?Point = if (e.goesOn()) try self.here() else null;
         const top = self.scopes.items.len - 1;
         const held = if (e == .scope_end) null else try dropPendingHolds(self, x.to);
+        const at = self.point;
+        defer self.point = at;
         switch (e) {
             .scope_end => try runDefers(self, top, false, x.result),
             .jump => |depth| try runDefersTo(self, depth, false, x.result),
@@ -126,20 +114,17 @@ pub fn exitTo(self: *Checker, x: ExitTo) Error!State {
 }
 
 /// Before the defers of an exit that leaves the statement it is in
-/// run (a `return`, `e!`, `e?`, a jump), drop from the temporaries
-/// the read loans that hold a place only until an operation the
-/// exit abandons runs: a write self's reservation, which is read
-/// until its call starts (`reserved`), a place found up to an index
-/// (`place_hold`), and a value read in place for a consumer that
-/// runs after the later operands (`held_read`). The exit leaves
-/// before that operation, so it never runs: no call starts, nothing
-/// reads the value, and none of them holds a value to drop. Each
-/// other loan stays, a write view already made among them (`f(!v,
-/// g()!)`), and so does every hold the point a jump goes to keeps
-/// (`to`). Returns the temporaries to restore after.
+/// run (a `return`, `e!`, `e?`, a jump), drop the statement's
+/// temporary loans: the values that carry them are left unfinished,
+/// and the operations that would take them never run (a call after
+/// its arguments, `f(!v, g()!)`; a write self's call; a consumer of a
+/// value read in place). Those views have had their last use; none
+/// holds a value with a `drop` body, which is a var of its own. Each
+/// hold the point a jump goes to keeps stays (`to`). Returns the
+/// temporaries to restore after.
 pub fn dropPendingHolds(self: *Checker, to: ?Point) Error!?[]const Loan {
     var any = false;
-    for (self.temps.items) |l| if (pendingHold(l) and !(if (to) |p| containsLoan(p.temps, l) else false)) {
+    for (self.temps.items) |l| if (!(if (to) |p| containsLoan(p.temps, l) else false)) {
         any = true;
         break;
     };
@@ -147,7 +132,7 @@ pub fn dropPendingHolds(self: *Checker, to: ?Point) Error!?[]const Loan {
     const held = try self.arena().dupe(Loan, self.temps.items);
     var n: usize = 0;
     for (held) |l| {
-        if (pendingHold(l) and !(if (to) |p| containsLoan(p.temps, l) else false)) continue;
+        if (!(if (to) |p| containsLoan(p.temps, l) else false)) continue;
         self.temps.items[n] = l;
         n += 1;
     }
@@ -178,11 +163,11 @@ pub fn checkDeferBody(self: *Checker, body: Sexp, r: ?lir.RegionId, report_chang
     const snap = try self.here();
     const saved_loop = self.loop;
     const saved_in_defer = self.in_defer;
-    try self.defer_loops.append(self.gpa, self.loop);
+    const saved_point = self.point;
     self.loop = null;
     self.in_defer = true;
     _ = try transfer.walkStmtValueE(self, if (r) |dr| lowered.bodyStmt(self, body, dr) else lowered.uncovered(self, body), null);
-    _ = self.defer_loops.pop();
+    self.point = saved_point;
     self.loop = saved_loop;
     self.in_defer = saved_in_defer;
     if (!report_changes) return;
@@ -362,20 +347,13 @@ pub fn walkJump(self: *Checker, e: lowered.Expr, jump: Jump) Error!void {
         break :blk try transfer.walkConsumedE(self, value_e, .brk);
     };
     self.value_reads = false;
+    live.atJump(self, lowered.stepsIn(self, e));
     const t = target orelse {
         // The type checker resolves every jump of a module it accepts.
         try notes.errSpan(self, stmtSpan(self, node), "internal error: this `{s}` goes to no construct the checker is walking", .{if (jump == .brk) "break" else "continue"});
         self.reachable = false;
         return;
     };
-    // A jump out of an assignment's value never reaches its
-    // target: what the target reads is not used on this path.
-    const pinned = self.after_value.items.len;
-    const left = for (self.after_value.items, 0..) |a, i| {
-        if (encloses(t, a.loop)) break i;
-    } else pinned;
-    const kept = try self.arena().dupe(AfterValue, self.after_value.items[left..]);
-    self.after_value.shrinkRetainingCapacity(left);
     const left_with = try rules.escapeVarsFrom(self, v, t.point.vars);
     t.value = try self.valueUnion(t.value, left_with);
     // A `continue` to a step that runs in the condition's bindings'
@@ -387,7 +365,6 @@ pub fn walkJump(self: *Checker, e: lowered.Expr, jump: Jump) Error!void {
         .exit => try t.breaks.append(self.arena(), s),
         .step, .head => try (if (to_step != null) &t.step_conts else &t.conts).append(self.arena(), s),
     }
-    try self.after_value.appendSlice(self.gpa, kept);
     self.reachable = false;
 }
 

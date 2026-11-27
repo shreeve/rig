@@ -2,7 +2,11 @@
 
 use std.text
 
-fail "review-take-p53", "cannot change `s.a` while a read view of `s` is still in use"
+test "review-take-p53", '''
+S(a: R(n: 1))
+deferred R(n: 1)
+drop 1
+'''
   obj R
     n: Int
     drop(!@)
@@ -18,7 +22,12 @@ fail "review-take-p53", "cannot change `s.a` while a read view of `s` is still i
     print("deferred", x)
   print(r)
 
-fail "review-take-p54", "cannot change `s.a` while a write view of `s` is still in use"
+test "review-take-p54", '''
+end
+S(a: R(n: 1))
+R(n: 1)
+drop 1
+'''
   obj R
     n: Int
     drop(!@)
@@ -2499,9 +2508,9 @@ fail "review-while-step-w31-repoint-write-view-local", "`y` is dropped here, at 
     i += 1
   print(x)
 
-fail "review-while-step-w32-outer-repoint-after-grow-ok", "cannot change `v` while a read view of it is still in use"
+test "review-while-step-w32-outer-repoint-after-grow-ok", "5"
   # Valid: the body grows the List, then re-points the outer slice at it
-  # before the step reads it. (Textual liveness may over-reject.)
+  # before the step reads it.
   #
   # oracle: main accept
   v: List[Int] = List()

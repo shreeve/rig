@@ -332,10 +332,9 @@ test "results write view ends", "1 [0] 1"
   a, n = grab(!v)
   print(v.len, a, n)
 
-fail "results write view per call", "cannot reassign `y` while a write view of it is still in use", errors: 1
-  # While a result holds a write view, every write view of the call lasts
-  # to the statement's end, as for a `!T` result: the first version
-  # decides it per call, not per argument (SPEC "Several results").
+test "results write view per call", "3 2"
+  # While a result holds a write view, a write view of the call that no
+  # result carries ends as the call returns (SPEC "Several results").
 
   fun pair(a: !Int, b: !Int) -> (!Int, Int) from a
     b += 1

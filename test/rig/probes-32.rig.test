@@ -451,7 +451,7 @@ fail "review-step45-k03 defer elem", "use of `v` after move"
   defer print(v[0])
   print(take(<v))
 
-fail "review-step45-k04 defer elem write", "cannot change `v` while a read view of it is still in use"
+test "review-step45-k04 defer elem write", "a"
   # defer writes an element; a view of the element is still live at defer? 
   v: List[String] = List()
   !v.push(String("a"))
@@ -459,7 +459,7 @@ fail "review-step45-k04 defer elem write", "cannot change `v` while a read view 
   x = ?v[0]
   print(x)
 
-fail "review-step45-k04b defer push plain", "cannot change `v` while a read view of it is still in use"
+test "review-step45-k04b defer push plain", "[1]"
   # defer writes v (plain List[Int]) while a later read view is used before scope end
   v: List[Int] = List()
   !v.push(1)

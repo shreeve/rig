@@ -321,7 +321,7 @@ fail "review-step45-r2-d07 repoint branch then old used", "cannot reassign `a` w
   !w.add("!")
   print(a, b)
 
-fail "review-step45-r2-d08 repoint defer uses w", "cannot use `b` while a write view of it is still in use"
+test "review-step45-r2-d08 repoint defer uses w", "bd"
   # defer writes through w; w re-pointed after; old target dropped before scope end
   b = String("b")
   w = !b
