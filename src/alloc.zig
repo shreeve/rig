@@ -118,6 +118,13 @@ comptime {
         table_holes,
         table_hole_count,
         table_live,
+        table_pending,
+        table_pending_count,
+        table_pending_tables,
+        table_pending_written,
+        table_pending_any,
+        table_giving,
+        table_iovecs,
         total_live,
         total_peak,
         total_allocs,
@@ -1950,6 +1957,14 @@ const SpinLock = struct {
         while (self.held.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
     }
 
+    /// `lock`, unless another holds it: false, and not held.
+    fn tryLock(self: *SpinLock) bool {
+        if (sched.preempting) sched.holdOff();
+        if (self.held.cmpxchgStrong(false, true, .acquire, .monotonic) == null) return true;
+        if (sched.preempting) sched.holdOn();
+        return false;
+    }
+
     fn unlock(self: *SpinLock) void {
         self.held.store(false, .release);
         if (sched.preempting) sched.holdOn();
@@ -2088,6 +2103,43 @@ const table_waiting_count = split.cell(&table_waiting_count_var, "alloc.table_wa
 var table_live_var: std.atomic.Value(usize) = .init(0);
 const table_live = split.cell(&table_live_var, "alloc.table_live");
 
+/// The ranges of dropped Tables waiting to be given back
+/// (`unreserveTable`), by address, joined where they touch: dirty, and
+/// handed to no Table until given back (`giveBackTables`). On Linux,
+/// `MADV_DONTNEED` flushes the TLB of every core running the program, and
+/// so stops each that is: while other workers are awake, a dropped
+/// Table's range waits. It is given back with the others once no other
+/// worker is awake (`sched.sleep`), or once `table_pending_max` ranges
+/// wait or their Tables had written past `table_pending_most`, or never,
+/// if the program ends first: `os.exit` unmaps their regions whole
+/// (`exitRanges`), and the system takes the rest as the process ends.
+/// Trig's checkers drop 43 Tables each, as each checker ends, while the
+/// others still check.
+const table_pending_max = 256;
+/// The bytes the waiting ranges' Tables had pushed, past which they are
+/// given back while other workers are awake: the memory waiting costs.
+/// A slot written past those pushed is not counted.
+const table_pending_most: usize = 256 << 20;
+var table_pending_var: [table_pending_max]Range = undefined;
+const table_pending = split.cell(&table_pending_var, "alloc.table_pending");
+var table_pending_count_var: usize = 0;
+const table_pending_count = split.cell(&table_pending_count_var, "alloc.table_pending_count");
+/// The Tables whose ranges wait, counted live (`table_live`) until given
+/// back, and the bytes they had pushed.
+var table_pending_tables_var: usize = 0;
+const table_pending_tables = split.cell(&table_pending_tables_var, "alloc.table_pending_tables");
+var table_pending_written_var: usize = 0;
+const table_pending_written = split.cell(&table_pending_written_var, "alloc.table_pending_written");
+/// Whether any range waits, read with no lock (`tablesPending`).
+var table_pending_any_var: std.atomic.Value(bool) = .init(false);
+const table_pending_any = split.cell(&table_pending_any_var, "alloc.table_pending_any");
+/// Held by the thread giving the waiting ranges back, which it took into
+/// `table_iovecs`.
+var table_giving_var: SpinLock = .{};
+const table_giving = split.cell(&table_giving_var, "alloc.table_giving");
+var table_iovecs_var: [table_pending_max]std.posix.iovec_const = undefined;
+const table_iovecs = split.cell(&table_iovecs_var, "alloc.table_iovecs");
+
 /// Whether Tables take their ranges from the regions here: on Linux and
 /// the Mac.
 const tables_here = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
@@ -2209,20 +2261,29 @@ fn askTableHuge(at: usize, bytes: usize) void {
 /// cannot be is not used again: on Linux it is set aside
 /// (`loseTableRange`); on the Mac, where its old mapping stays, it keeps
 /// its pages and stays the region's.
-pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
+pub fn unreserveTable(p: [*]u8, bytes: usize, written: usize) bool {
     if (!tables_here) return false;
     const at = @intFromPtr(p);
     const len = std.mem.alignForward(usize, bytes, huge_page);
+    const defers = builtin.os.tag == .linux and adviceFor(thpMode(), .small) != .small;
     tables_lock.lock();
     var mine = false;
     for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
     for (table_holes[0..table_hole_count.*]) |r| mine = mine and !(r.start <= at and at < r.start + r.len);
     if (mine) stopWaitingTable(at);
+    const pending = mine and defers and addPendingTable(at, len, written);
+    const room = table_pending_written.* < table_pending_most and table_pending_count.* < table_pending_max;
     tables_lock.unlock();
     if (!mine) return false;
+    if (pending) {
+        // Given back with the others once no other worker is awake, or
+        // once they are too many or hold too much (`giveBackTables`).
+        if (!room or !othersAwake()) giveBackTables();
+        return true;
+    }
     _ = table_live.fetchSub(1, .monotonic);
     const range: [*]align(huge_page) u8 = @alignCast(p);
-    if (builtin.os.tag == .linux and adviceFor(thpMode(), .small) != .small) {
+    if (defers) {
         std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
         if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
     } else if (!mapTableRangeAfresh(range, len)) {
@@ -2234,6 +2295,104 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     tables_lock.unlock();
     return true;
 }
+
+/// Whether a worker other than this thread's is awake (`sched.othersAwake`),
+/// or a test says one is.
+fn othersAwake() bool {
+    if (comptime builtin.is_test) if (others_awake_for_test) return true;
+    return sched.othersAwake();
+}
+
+/// Test only: whether `unreserveTable` takes another worker to be awake.
+var others_awake_for_test = false;
+
+/// Record the dropped Table's range of `len` at `at`, `written` bytes of
+/// it written, as waiting to be given back, joined to a waiting range it
+/// touches; false if `table_pending_max` wait already. Under
+/// `tables_lock`.
+fn addPendingTable(at: usize, len: usize, written: usize) bool {
+    var i: usize = 0;
+    while (i < table_pending_count.* and table_pending.*[i].start < at) i += 1;
+    const joins_before = i > 0 and table_pending.*[i - 1].start + table_pending.*[i - 1].len == at;
+    const joins_after = i < table_pending_count.* and at + len == table_pending.*[i].start;
+    if (joins_before and joins_after) {
+        table_pending.*[i - 1].len += len + table_pending.*[i].len;
+        std.mem.copyForwards(Range, table_pending.*[i .. table_pending_count.* - 1], table_pending.*[i + 1 .. table_pending_count.*]);
+        table_pending_count.* -= 1;
+    } else if (joins_before) {
+        table_pending.*[i - 1].len += len;
+    } else if (joins_after) {
+        table_pending.*[i].start = at;
+        table_pending.*[i].len += len;
+    } else if (table_pending_count.* < table_pending_max) {
+        std.mem.copyBackwards(Range, table_pending.*[i + 1 .. table_pending_count.* + 1], table_pending.*[i..table_pending_count.*]);
+        table_pending.*[i] = .{ .start = at, .len = len };
+        table_pending_count.* += 1;
+    } else return false;
+    table_pending_tables.* += 1;
+    table_pending_written.* += @min(written, len);
+    table_pending_any.store(true, .release);
+    return true;
+}
+
+/// Whether dropped Tables' ranges wait to be given back
+/// (`giveBackTables`): a load, for a worker going to sleep (`sched.sleep`).
+pub fn tablesPending() bool {
+    return table_pending_any.load(.acquire);
+}
+
+/// Give back the ranges of dropped Tables that wait (`unreserveTable`):
+/// their pages to the system, with `MADV_DONTNEED` for them all in one
+/// `process_madvise` (Linux 6.13 and later; one `madvise` each before),
+/// and, advised for small pages again, each range to the next Table.
+/// Until then no Table is handed one, so a new Table still reads zeros.
+/// A thread that finds another giving them back leaves the rest to it,
+/// or to the next. Called with no other worker awake (`sched.sleep`,
+/// `unreserveTable`), or once they are too many or hold too much.
+pub fn giveBackTables() void {
+    if (builtin.os.tag != .linux) return;
+    if (!table_giving.tryLock()) return;
+    defer table_giving.unlock();
+    while (true) {
+        tables_lock.lock();
+        const n = table_pending_count.*;
+        const tables = table_pending_tables.*;
+        for (table_pending.*[0..n], table_iovecs.*[0..n]) |r, *v| v.* = .{ .base = @ptrFromInt(r.start), .len = r.len };
+        table_pending_count.* = 0;
+        table_pending_tables.* = 0;
+        table_pending_written.* = 0;
+        table_pending_any.store(false, .release);
+        tables_lock.unlock();
+        if (n == 0) return;
+        const vs = table_iovecs.*[0..n];
+        if (!dontNeedAll(vs)) for (vs) |v| std.posix.madvise(@ptrCast(@alignCast(@constCast(v.base))), v.len, std.os.linux.MADV.DONTNEED) catch {};
+        if (tables_asked_huge.load(.monotonic)) for (vs) |v| if (v.len > huge_page) std.posix.madvise(@ptrCast(@alignCast(@constCast(v.base))), v.len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+        tables_lock.lock();
+        for (vs) |v| giveTableRange(@intFromPtr(v.base), v.len);
+        tables_lock.unlock();
+        _ = table_live.fetchSub(tables, .monotonic);
+        if (comptime builtin.is_test) table_give_backs_for_test += 1;
+    }
+}
+
+/// `MADV_DONTNEED` for every range of `vs`, in one `process_madvise` of
+/// this process (`PIDFD_SELF`, Linux 6.15; the advice for oneself, 6.13),
+/// which flushes each core's TLB once for them all where a `madvise`
+/// each flushes it once a range. False unless every byte was advised, as
+/// an older Linux refuses: the caller then advises each range.
+fn dontNeedAll(vs: []const std.posix.iovec_const) bool {
+    if (comptime builtin.is_test) if (process_madvise_fails_for_test) return false;
+    var total: usize = 0;
+    for (vs) |v| total += v.len;
+    const pidfd_self: usize = @bitCast(@as(isize, -10000));
+    const rc = std.os.linux.syscall5(.process_madvise, pidfd_self, @intFromPtr(vs.ptr), vs.len, std.os.linux.MADV.DONTNEED, 0);
+    return std.os.linux.errno(rc) == .SUCCESS and rc == total;
+}
+
+/// Test only: whether `dontNeedAll` takes the system to refuse, as one
+/// before Linux 6.13 does, and how many batches `giveBackTables` gave.
+var process_madvise_fails_for_test = false;
+var table_give_backs_for_test: usize = 0;
 
 /// Map the `len` bytes at `range` afresh (`MAP_FIXED`), which gives its
 /// pages back and leaves it asking for nothing. False if the system
@@ -4236,9 +4395,9 @@ test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with
     try std.testing.expect(table_region_count.* >= 1);
     // Given back in another order than taken, they join one another and
     // then the region's rest.
-    for (got, 0..) |g, i| if (i % 2 == 1) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096));
+    for (got, 0..) |g, i| if (i % 2 == 1) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096, 0));
     try std.testing.expect(table_free_count.* > 0);
-    for (got, 0..) |g, i| if (i % 2 == 0) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096));
+    for (got, 0..) |g, i| if (i % 2 == 0) try std.testing.expect(unreserveTable(g, (i + 1) * (3 << 20) + 4096, 0));
     try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
     if (next != 0) try std.testing.expectEqual(next, table_next.*);
 }
@@ -4253,17 +4412,67 @@ test "on Linux a Table's range given back has its pages back with the system, an
     @memset(a[0 .. 6 * mib], 7);
     try std.testing.expectEqual(@as(usize, 6 * mib), try residentForTest(a, 6 * mib));
     // `a` is not at the region's rest, so its range is kept apart.
-    try std.testing.expect(unreserveTable(a, 6 * mib));
+    try std.testing.expect(unreserveTable(a, 6 * mib, 0));
     try std.testing.expectEqual(@as(usize, 0), try residentForTest(a, 6 * mib));
     const c = reserveTable(5 * mib + 4096).?;
     try std.testing.expectEqual(a, c);
     for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
-    try std.testing.expect(unreserveTable(c, 5 * mib + 4096));
-    try std.testing.expect(unreserveTable(b, 4 * mib));
+    try std.testing.expect(unreserveTable(c, 5 * mib + 4096, 0));
+    try std.testing.expect(unreserveTable(b, 4 * mib, 0));
     try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
     // A mapping of its own is not the Tables'.
     var own: [4096]u8 align(4096) = undefined;
-    try std.testing.expect(!unreserveTable(&own, own.len));
+    try std.testing.expect(!unreserveTable(&own, own.len, 0));
+}
+
+test "on Linux a Table dropped while another worker is awake keeps its pages and its range from the next Table until the ranges waiting are given back together, and the next Table to take it then reads zeros" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
+    const mib: usize = 1 << 20;
+    const live = table_live.load(.monotonic);
+    const gives = table_give_backs_for_test;
+    const a = reserveTable(6 * mib).?;
+    const b = reserveTable(4 * mib).?;
+    @memset(a[0 .. 6 * mib], 7);
+    others_awake_for_test = true;
+    defer others_awake_for_test = false;
+    try std.testing.expect(unreserveTable(a, 6 * mib, 6 * mib));
+    // Dirty, still counted live, and handed to no Table.
+    try std.testing.expect(tablesPending());
+    try std.testing.expectEqual(@as(usize, 6 * mib), try residentForTest(a, 6 * mib));
+    try std.testing.expectEqual(live + 2, table_live.load(.monotonic));
+    const c = reserveTable(5 * mib + 4096).?;
+    try std.testing.expect(c != a);
+    for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    // Given back: its pages to the system, and its range to the next.
+    giveBackTables();
+    try std.testing.expect(!tablesPending());
+    try std.testing.expectEqual(gives + 1, table_give_backs_for_test);
+    try std.testing.expectEqual(@as(usize, 0), try residentForTest(a, 6 * mib));
+    try std.testing.expectEqual(live + 2, table_live.load(.monotonic));
+    const d = reserveTable(5 * mib + 4096).?;
+    try std.testing.expectEqual(a, d);
+    for (d[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    // Two that touch wait as one range. One more whose Table wrote past
+    // `table_pending_most` gives them all back at once, with a `madvise`
+    // each where `process_madvise` is refused.
+    @memset(d[0 .. 6 * mib], 7);
+    @memset(b[0 .. 4 * mib], 7);
+    try std.testing.expect(unreserveTable(d, 5 * mib + 4096, mib));
+    try std.testing.expect(unreserveTable(b, 4 * mib, mib));
+    try std.testing.expectEqual(@as(usize, 1), table_pending_count.*);
+    try std.testing.expectEqual(@as(usize, 10 * mib), try residentForTest(a, 10 * mib));
+    process_madvise_fails_for_test = true;
+    defer process_madvise_fails_for_test = false;
+    @memset(c[0 .. 6 * mib], 7);
+    try std.testing.expect(unreserveTable(c, 5 * mib + 4096, table_pending_most));
+    try std.testing.expect(!tablesPending());
+    try std.testing.expectEqual(gives + 2, table_give_backs_for_test);
+    try std.testing.expectEqual(@as(usize, 0), try residentForTest(a, 10 * mib));
+    try std.testing.expectEqual(@as(usize, 0), try residentForTest(c, 6 * mib));
+    try std.testing.expectEqual(live, table_live.load(.monotonic));
+    try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
 }
 
 test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, and keeps small pages once given back" {
@@ -4278,13 +4487,13 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     const small = reserveTable(2 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
-    try std.testing.expect(unreserveTable(t, 24 * mib));
+    try std.testing.expect(unreserveTable(t, 24 * mib, 0));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     useBuddyinfoForTest(buddyinfo_partly);
     const u = reserveTable(24 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u) + 2 * mib));
-    try std.testing.expect(unreserveTable(u, 24 * mib));
-    try std.testing.expect(unreserveTable(small, 2 * mib));
+    try std.testing.expect(unreserveTable(u, 24 * mib, 0));
+    try std.testing.expect(unreserveTable(small, 2 * mib, 0));
     try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
 }
 
@@ -4309,7 +4518,7 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     const gone = reserveTable(24 * mib).?;
     try std.testing.expect(me.tables_wait);
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
-    try std.testing.expect(unreserveTable(gone, 24 * mib));
+    try std.testing.expect(unreserveTable(gone, 24 * mib, 0));
     me.took(prefault_big);
     try std.testing.expect(!me.tables_wait);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
@@ -4319,8 +4528,8 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     const now = reserveTable(24 * mib).?;
     try std.testing.expect(!me.tables_wait);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(now) + 2 * mib));
-    try std.testing.expect(unreserveTable(now, 24 * mib));
-    try std.testing.expect(unreserveTable(t, 24 * mib));
+    try std.testing.expect(unreserveTable(now, 24 * mib, 0));
+    try std.testing.expect(unreserveTable(t, 24 * mib, 0));
 
     // Memory fragmented when the heap comes to do much: no ask.
     me.taken = 0;
@@ -4330,7 +4539,7 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     me.took(prefault_big);
     try std.testing.expect(!me.tables_wait);
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(late) + 2 * mib));
-    try std.testing.expect(unreserveTable(late, 24 * mib));
+    try std.testing.expect(unreserveTable(late, 24 * mib, 0));
 
     // One Table past those that may wait asks at once.
     me.taken = 0;
@@ -4344,8 +4553,8 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     me.took(prefault_big);
     try std.testing.expectEqual(@as(usize, 0), table_waiting_count.*);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(waiting[0]) + 2 * mib));
-    for (waiting) |w| try std.testing.expect(unreserveTable(w, 3 * mib));
-    try std.testing.expect(unreserveTable(over, 3 * mib));
+    for (waiting) |w| try std.testing.expect(unreserveTable(w, 3 * mib, 0));
+    try std.testing.expect(unreserveTable(over, 3 * mib, 0));
     try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
 }
 
@@ -4506,7 +4715,7 @@ test "on Linux under `never` nothing asks for huge pages and /proc/buddyinfo is 
     trimAllForTest(&h);
     const t = reserveTable(24 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
-    try std.testing.expect(unreserveTable(t, 24 * mib));
+    try std.testing.expect(unreserveTable(t, 24 * mib, 0));
     try std.testing.expectEqual(before, buddyinfo_reads);
 }
 
@@ -4535,7 +4744,7 @@ test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, s
     const t = reserveTable(24 * mib).?;
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
-    try std.testing.expect(unreserveTable(t, 24 * mib));
+    try std.testing.expect(unreserveTable(t, 24 * mib, 0));
     try std.testing.expectEqual(before, buddyinfo_reads);
 }
 
@@ -4580,7 +4789,7 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     try std.testing.expect(try advisedSmallForTest(@intFromPtr(t)));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     @memset(t[0 .. 24 * mib], 7);
-    try std.testing.expect(unreserveTable(t, 24 * mib));
+    try std.testing.expect(unreserveTable(t, 24 * mib, 0));
     try std.testing.expectEqual(@as(usize, 0), try residentForTest(t, 8 * mib));
     for ([_]usize{ 0, 2 * mib, 23 * mib }) |off| {
         try std.testing.expect(!try advisedSmallForTest(@intFromPtr(t) + off));
@@ -4591,7 +4800,7 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     const v = reserveTable(24 * mib).?;
     try std.testing.expect(try advisedSmallForTest(@intFromPtr(v)));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(v) + 2 * mib));
-    try std.testing.expect(unreserveTable(v, 24 * mib));
+    try std.testing.expect(unreserveTable(v, 24 * mib, 0));
     try std.testing.expectEqual(before, buddyinfo_reads);
     // A span of 8 MiB grown to 32 MiB is copied into a mapping of its
     // own, which asks for nothing, as a new one does.
@@ -4618,7 +4827,7 @@ test "on Linux under `always` a Table's range that cannot be mapped afresh is fi
     const t = reserveTable(4 * mib).?;
     @memset(t[0 .. 4 * mib], 7);
     const holes = table_hole_count.*;
-    try std.testing.expect(unreserveTable(t, 4 * mib));
+    try std.testing.expect(unreserveTable(t, 4 * mib, 0));
     try std.testing.expect(!try vmFlagForTest(@intFromPtr(t), "rd"));
     try std.testing.expect(!try vmFlagForTest(@intFromPtr(t) + 4 * mib - 1, "wr"));
     try std.testing.expectEqual(holes, table_hole_count.*);
@@ -4627,12 +4836,12 @@ test "on Linux under `always` a Table's range that cannot be mapped afresh is fi
     table_remap_fails_for_test = .and_plug;
     const u = reserveTable(4 * mib).?;
     try std.testing.expect(u != t);
-    try std.testing.expect(unreserveTable(u, 4 * mib));
+    try std.testing.expect(unreserveTable(u, 4 * mib, 0));
     try std.testing.expectEqual(holes + 1, table_hole_count.*);
     // The hole is empty: a mapping that may not replace another fits.
     const other = try std.posix.mmap(u, 4096, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .FIXED_NOREPLACE = true }, -1, 0);
     defer std.posix.munmap(other);
-    try std.testing.expect(!unreserveTable(other.ptr, other.len));
+    try std.testing.expect(!unreserveTable(other.ptr, other.len, 0));
     // Neither range is handed out again.
     table_remap_fails_for_test = .no;
     var got: [4][*]u8 = undefined;
@@ -4651,7 +4860,7 @@ test "on Linux under `always` a Table's range that cannot be mapped afresh is fi
         for (ex.ranges[ex.dense..]) |r| covered = covered or (r.start <= @intFromPtr(g) and @intFromPtr(g) + 4 * mib <= r.start + r.len);
         try std.testing.expect(covered);
     }
-    for (got) |g| try std.testing.expect(unreserveTable(g, 4 * mib));
+    for (got) |g| try std.testing.expect(unreserveTable(g, 4 * mib, 0));
     try std.testing.expectEqual(live, table_live.load(.monotonic));
 }
 
@@ -4668,7 +4877,7 @@ test "on the Mac Tables take ranges of one region, and a range given back reads 
     b[24 * mib - 1] = 9;
     // `a` is not at the region's rest, so its range is kept apart, and
     // the next Table that fits takes it, as zeros.
-    try std.testing.expect(unreserveTable(a, 6 * mib));
+    try std.testing.expect(unreserveTable(a, 6 * mib, 0));
     const c = reserveTable(5 * mib + 4096).?;
     try std.testing.expectEqual(a, c);
     for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
@@ -4681,11 +4890,11 @@ test "on the Mac Tables take ranges of one region, and a range given back reads 
         if (r.start <= @intFromPtr(b) and @intFromPtr(b) + 24 * mib <= r.start + r.len) covered += 1;
     }
     try std.testing.expectEqual(@as(usize, 2), covered);
-    try std.testing.expect(unreserveTable(c, 5 * mib + 4096));
-    try std.testing.expect(unreserveTable(b, 24 * mib));
+    try std.testing.expect(unreserveTable(c, 5 * mib + 4096, 0));
+    try std.testing.expect(unreserveTable(b, 24 * mib, 0));
     try std.testing.expectEqual(live, table_live.load(.monotonic));
     var own: [4096]u8 align(4096) = undefined;
-    try std.testing.expect(!unreserveTable(&own, own.len));
+    try std.testing.expect(!unreserveTable(&own, own.len, 0));
 }
 
 /// The bytes of the `len` at `p` resident in memory (`mincore`).

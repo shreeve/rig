@@ -760,6 +760,19 @@ fn workersIdle() bool {
     return sleepers.count.load(.seq_cst) != 0 or searching.load(.seq_cst) != 0;
 }
 
+/// Whether a worker other than this thread's is awake: running fibers or
+/// looking for them, as one popped from the sleepers' list to look is.
+/// A dropped Table's range waits to be given back while one is
+/// (`alloc.unreserveTable`): giving pages back flushes the TLB of each
+/// core running the program, and so stops it.
+pub fn othersAwake() bool {
+    const n = workers_len.load(.acquire);
+    if (n < 2) return false;
+    const asleep = sleepers.count.load(.seq_cst);
+    const mine: usize = if (me()) |w| @intFromBool(w.idle.load(.monotonic) == 0) else 0;
+    return n > asleep + mine;
+}
+
 /// On the worker's stack, after a yield check's stop (`tick`): service
 /// the worker's timers and poller (`serviceBusy`), then go on as the
 /// check would: behind the work that waits (`yield`), or else run `f`
@@ -4830,6 +4843,9 @@ fn wakeWorker(w: *Worker) void {
 /// the fibers whose timers come due on any worker, and those its
 /// poller's events make ready, and goes back to running them.
 fn sleep(w: *Worker) void {
+    // The ranges of Tables dropped while other workers were awake are
+    // given back once none is (`alloc.giveBackTables`).
+    if (rt.fast_alloc.tablesPending() and !othersAwake()) rt.fast_alloc.giveBackTables();
     w.watch_owed = false;
     w.slept.store(w.slept.raw + 1, .monotonic);
     _ = takeWaiting(w);
