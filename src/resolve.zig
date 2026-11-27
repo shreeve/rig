@@ -6123,7 +6123,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const list = ctx.lookup(scope, "List").?;
     try std.testing.expectEqual(ctx.builtins.list, ctx.ref(list));
-    try std.testing.expectEqual(@as(usize, 14), ctx.symbols.items[list].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 15), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 
