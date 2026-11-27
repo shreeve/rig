@@ -2070,8 +2070,9 @@ const table_hole_count = split.cell(&table_hole_count_var, "alloc.table_hole_cou
 /// that can be filled, or leaving one that cannot. Test only, so never
 /// in a split build, and a plain variable rather than a cell.
 var table_remap_fails_for_test: enum { no, remap, and_plug } = .no;
-/// Whether any range has asked for huge pages, so a range given back is
-/// advised for small pages again before the next Table takes it.
+/// Whether any range has asked for huge pages, so a Table that takes a
+/// range with no 2 MiB blocks to spare asks for small pages for it
+/// (`reserveTable`).
 var tables_asked_huge_var: std.atomic.Value(bool) = .init(false);
 const tables_asked_huge = split.cell(&tables_asked_huge_var, "alloc.tables_asked_huge");
 /// A Table that has not asked for huge pages yet, and the heap it waits
@@ -2118,7 +2119,17 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
     tables_lock.unlock();
     const at = p orelse return null;
     _ = table_live.fetchAdd(1, .monotonic);
-    if (wants and !waiting and hugeFree()) askTableHuge(at, bytes);
+    if (wants) {
+        const spare = hugeFree();
+        if (!waiting and spare) {
+            askTableHuge(at, bytes);
+        } else if (!spare and tables_asked_huge.load(.monotonic)) {
+            // A range a dropped Table asked huge pages for keeps the
+            // advice (`unreserveTable`): with no 2 MiB blocks to spare,
+            // its faults would compact memory.
+            std.posix.madvise(@ptrFromInt(at + huge_page), len - huge_page, std.os.linux.MADV.NOHUGEPAGE) catch {};
+        }
+    }
     _ = ask(at, huge_page, .small);
     return @ptrFromInt(at);
 }
@@ -2204,8 +2215,13 @@ fn askTableHuge(at: usize, bytes: usize) void {
 }
 
 /// Give back the range of a Table of `bytes` at `p`, if it is one
-/// `reserveTable` handed out: its pages to the system, and the range,
-/// advised for small pages again on Linux, to the next Table. Under
+/// `reserveTable` handed out: its pages to the system, and the range to
+/// the next Table. On Linux the range keeps any advice for huge pages:
+/// advising it again changes the region's mapping, under the lock every
+/// thread's faults in it wait on, as each of Trig's checkers drops its
+/// 46 Tables while the last checkers still run; the next Table there
+/// asks for small pages for its first 2 MiB, and for the rest when no
+/// 2 MiB blocks are spare (`reserveTable`). Under
 /// Linux's `always`, where its first 2 MiB asked for small pages, and on
 /// the Mac, it is mapped afresh, which asks for nothing. A range that
 /// cannot be is not used again: on Linux it is set aside
@@ -2226,7 +2242,6 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     const range: [*]align(huge_page) u8 = @alignCast(p);
     if (builtin.os.tag == .linux and adviceFor(thpMode(), .small) != .small) {
         std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
-        if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
     } else if (!mapTableRangeAfresh(range, len)) {
         if (builtin.os.tag == .linux) loseTableRange(range, len);
         return true;
@@ -4281,7 +4296,7 @@ test "on Linux a Table's range given back has its pages back with the system, an
     try std.testing.expect(!unreserveTable(&own, own.len));
 }
 
-test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, and keeps small pages once given back" {
+test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, keeps the advice once given back, and asks for small pages again for a Table that takes it with none to spare" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
@@ -4294,9 +4309,10 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     const small = reserveTable(2 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
     try std.testing.expect(unreserveTable(t, 24 * mib));
-    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     useBuddyinfoForTest(buddyinfo_partly);
     const u = reserveTable(24 * mib).?;
+    try std.testing.expectEqual(@intFromPtr(t), @intFromPtr(u));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u) + 2 * mib));
     try std.testing.expect(unreserveTable(u, 24 * mib));
     try std.testing.expect(unreserveTable(small, 2 * mib));
