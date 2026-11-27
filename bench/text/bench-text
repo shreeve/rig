@@ -10,8 +10,8 @@ usage: bench/text/bench-text BASE_RIG NEW_RIG FILE [ROUNDS]
        bench/text/bench-text --rivals RIG FILE [ROUNDS]
 
 FILE is a text of 8 KiB or more (lib.dom.d.ts from TypeScript's lib
-files, 2.4 MB, for the numbers in README.md). Run it through tools/low
-on a quiet machine.
+files, 2.4 MB, for the numbers in README.md). Run it under `cpuq drain`,
+which empties the machine first.
 """
 import os
 import shutil
