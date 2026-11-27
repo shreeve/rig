@@ -1,0 +1,32 @@
+probes base: 11
+probes slim: 11
+probes hash: 11
+webpack c4 base r1 cas=287326 locks=2298554 1035
+webpack c4 slim r1 cas=85895 locks=212911 1035
+webpack c4 hash r1 cas=58793 locks=165690 1035
+nuxt c4 base r1 cas=371604 locks=680534 1
+nuxt c4 slim r1 cas=126445 locks=427424 1
+nuxt c4 hash r1 cas=116102 locks=403037 1
+nuxt c8 base r1 cas=300525 locks=870990 1
+nuxt c8 slim r1 cas=119062 locks=421927 1
+nuxt c8 hash r1 cas=107725 locks=407946 1
+webpack c4 base r2 cas=527851 locks=691755 1035
+webpack c4 slim r2 cas=75858 locks=190045 1035
+webpack c4 hash r2 cas=54596 locks=161498 1035
+nuxt c4 base r2 cas=298932 locks=618246 1
+nuxt c4 slim r2 cas=119346 locks=411254 1
+nuxt c4 hash r2 cas=110715 locks=406903 1
+nuxt c8 base r2 cas=324479 locks=878046 1
+nuxt c8 slim r2 cas=116927 locks=416521 1
+nuxt c8 hash r2 cas=107440 locks=397110 1
+webpack c4 base r3 cas=310273 locks=437388 1035
+webpack c4 slim r3 cas=69259 locks=183938 1035
+webpack c4 hash r3 cas=60090 locks=188149 1035
+nuxt c4 base r3 cas=284061 locks=600552 1
+nuxt c4 slim r3 cas=121987 locks=417068 1
+nuxt c4 hash r3 cas=102459 locks=393635 1
+nuxt c8 base r3 cas=321597 locks=894720 1
+nuxt c8 slim r3 cas=120172 locks=417057 1
+nuxt c8 hash r3 cas=109044 locks=407315 1
+
+[exited with code 0]
