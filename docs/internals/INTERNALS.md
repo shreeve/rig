@@ -3638,7 +3638,10 @@ the value owns, which reads none of the views it holds. The
 conflict checks and the checks that a view does not outlive its root at
 scope ends and jumps skip loans whose holder is not live. A value that
 fails or is `none` views nothing, so the views it carried end on the
-path that handles it (a `catch` handler, the right of `??`), and an
+path that handles it (a `catch` handler, the right of `??`): the
+statement's temporaries that walking the value added (`Carried`, by
+their place in the list), never an equal loan another part of the
+statement holds (`Loan.sameAs` compares places, not views). An
 exit that leaves a statement unfinished ends the statement's temporary
 views before its defers run (`dropPendingHolds`).
 
