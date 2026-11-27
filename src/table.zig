@@ -15,8 +15,8 @@
 //!   2 MiB blocks to spare (`reserve`). The system gives each page as
 //!   zeros when it is first touched, so a slot never written costs no
 //!   memory. With `RIG_TABLE_FAULT_AHEAD=1` set as a program starts on
-//!   Linux, a push into the first 2 MiB faults in 64 KiB at a time
-//!   (`fault_ahead`). It is never one of `alloc.zig`'s blocks, which are reused
+//!   Linux, a table that has filled its first 64 KiB by pushes faults in
+//!   the rest of its first 2 MiB 64 KiB at a time (`fault_ahead`). It is never one of `alloc.zig`'s blocks, which are reused
 //!   unzeroed and faulted in ahead.
 //! - **Made.** Any other `T`: `n` slots on the heap, each `T()`, dropped
 //!   all `n` when the table is, since `t[s] = x` may write past `len`.
@@ -103,15 +103,18 @@ const huge: usize = 2 << 20;
 
 /// What a reserved table's push faults in at once inside its first 2 MiB
 /// while `fault_ahead` is on: 16 small pages, one system call where each
-/// would take its own fault.
+/// would take its own fault. A table takes no step until it has filled
+/// its first 64 KiB page by page, so a small table costs what it would
+/// with `fault_ahead` off.
 const ahead_step: usize = 64 << 10;
 
 /// Linux's `MADV_POPULATE_WRITE` (5.14 and later), as `alloc.zig` names
 /// it. An older kernel refuses it, and the pages fault in as touched.
 const madv_populate_write: u32 = 23;
 
-/// Whether a reserved table's push faults in the next 64 KiB of its first
-/// 2 MiB as it reaches them (`Table.reach`): an experiment, on only when
+/// Whether a reserved table's push, once the table has filled its first
+/// 64 KiB, faults in the next 64 KiB of its first 2 MiB as it reaches
+/// them (`Table.reach`): an experiment, on only when
 /// `RIG_TABLE_FAULT_AHEAD=1` is set as the program starts on Linux
 /// (`runtime.start`), so one build is measured both ways. Past the first
 /// 2 MiB a table asks for huge pages and takes no step.
@@ -192,10 +195,15 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// The leak checker's record of the mapping (`token`).
         token: if (how == .reserved and leak_checked) [*]u8 else void = undefined,
         /// The `len` at which `push` takes its slow path (`reach`): `n`,
-        /// or below it the slots faulted in ahead so far (`fault_ahead`).
+        /// or below it, with `fault_ahead`, the slots of the first 64 KiB
+        /// (`first_limit`) and then the slots faulted in ahead so far.
         limit: if (steps) u64 else void = if (steps) n else {},
 
         const Self = @This();
+        /// With `fault_ahead`, the slots `push` fills by ordinary faults
+        /// before its first step: those wholly in the first 64 KiB, at
+        /// least one, at most `n`.
+        const first_limit: u64 = if (steps) @min(n, @max(1, ahead_step / @sizeOf(T))) else n;
         pub const __rig_args = .{ T, n };
         pub const __rig_table = {};
         /// `Slot[n]`.
@@ -211,7 +219,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
                     var t: Self = .{ .slots = @ptrCast(@alignCast(p)) };
                     if (comptime leak_checked) t.token = (rt.allocSlice(u8, 1)).ptr;
                     if (comptime steps) if (fault_ahead.*) {
-                        t.limit = 0;
+                        t.limit = first_limit;
                     };
                     return t;
                 },
@@ -242,7 +250,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         }
 
         /// `push` at `limit`: panics when all `n` are pushed, and otherwise
-        /// faults in the 64 KiB step of the first 2 MiB that slot `len`
+        /// (the table has filled its first 64 KiB) faults in the 64 KiB step of the first 2 MiB that slot `len`
         /// ends in, from its first page, with one `MADV_POPULATE_WRITE`,
         /// and moves `limit` to the step's end, or to `n` past the first
         /// 2 MiB. Pages already in, by a plain `t[s] = x`, are left as
@@ -389,7 +397,7 @@ fn residentForTest(p: [*]const u8, len: usize) !usize {
     return in * page;
 }
 
-test "on Linux with fault_ahead a push faults in the first 2 MiB 64 KiB at a time, and past it a page at a time" {
+test "on Linux with fault_ahead a push fills the first 64 KiB page by page, then the first 2 MiB 64 KiB at a time, and past it a page at a time" {
     if (builtin.os.tag != .linux or page != 4096) return error.SkipZigTest;
     const T = Table(u64, 1 << 20);
     const step = ahead_step / @sizeOf(u64);
@@ -404,8 +412,11 @@ test "on Linux with fault_ahead a push faults in the first 2 MiB 64 KiB at a tim
     var t = T.init();
     defer t.__rig_drop();
     const base: [*]const u8 = @ptrCast(t.slots);
+    try std.testing.expectEqual(@as(u64, step), t.limit);
     _ = t.push(1);
-    try std.testing.expectEqual(ahead_step, try residentForTest(base, 4 * ahead_step));
+    try std.testing.expectEqual(@as(usize, page), try residentForTest(base, 4 * ahead_step));
+    while (t.len < step / 2) _ = t.push(@intCast(t.len + 1));
+    try std.testing.expectEqual(ahead_step / 2, try residentForTest(base, 4 * ahead_step));
     while (t.len < step) _ = t.push(@intCast(t.len + 1));
     try std.testing.expectEqual(ahead_step, try residentForTest(base, 4 * ahead_step));
     _ = t.push(@intCast(t.len + 1));
