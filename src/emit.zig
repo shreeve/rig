@@ -12277,6 +12277,8 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "tasks.zig", .call = "else c.f.call(.{ run, i })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "c.out[i] = c.f.call(.{ s, x })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "} else c.f.call(.{ s, x })", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "return self.cost.call(.{rt.readView(&self.xs[i])})", .why = "a `cost:` closure gives an `Int` and cannot fail (`parCost`)" },
+        .{ .file = "tasks.zig", .call = "return self.cost.call(.{@as(Int, @intCast(k))})", .why = "a `cost:` closure gives an `Int` and cannot fail (`parCost`)" },
         .{ .file = "tasks.zig", .call = "self.value = self.make.?.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },
         .{ .file = "tasks.zig", .call = "const value = make.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },
         .{ .file = "tasks.zig", .call = "c.result = c.actor.invoke(name, c.args)", .why = method },
