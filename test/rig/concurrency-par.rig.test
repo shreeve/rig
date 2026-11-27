@@ -529,7 +529,7 @@ fail "par workers function takes two", "`par.workers` calls `double` with a task
   states = List([Count()])
   ys = par.workers(!states, ?[1, 2], double)
 
-fail "par workers takes three", "`par.workers` runs one task for each state, and takes the states, the items, and a function: `par.workers(!states, ?items, |s, x| ...)`", errors: 1
+fail "par workers takes three", "`par.workers` runs one task for each state, and takes the states, the items, a function, and at most `cost:`, each item's cost: `par.workers(!states, ?items, |s, x| ...)`", errors: 1
   use std.par
 
   obj Count
@@ -949,3 +949,236 @@ code "par push emits", "rig.parPushInto("
   t: Table[Int, 64] = Table()
   sizes = List([2, 2])
   par.push(!t, ?sizes, |run, k| run[0] = k)
+
+test "par map cost", seeds: 20, '''
+  0 2 1998 999000
+  1 1000
+  999000
+  499500
+'''
+  # With `cost:`, the tasks take the costliest elements first; the values
+  # stay in the order of the elements, given a closure, a function's
+  # name, or the costs themselves.
+  use std.par
+
+  fun weigh(x: Int) -> Int
+    x % 13
+
+  xs: List[Int] = List(capacity: 1000)
+  for i in 0..1000
+    !xs.push(i)
+  ys = par.map(?xs, |x| x * 2, cost: |x| x % 7)
+  print(ys[0], ys[1], ys[999], ys.sum())
+  zs = par.map(?xs, cost: weigh, limit: 3, |x| x + 1)
+  print(zs[0], zs[999])
+  weights: List[Int] = List(capacity: 1000)
+  for i in 0..1000
+    !weights.push(1000 - i)
+  print(par.map(?xs, |x| x * 2, cost: ?weights).sum())
+  print(par.map(?xs, |x| x, cost: ?weights[..], limit: 2).sum())
+
+test "par cost takes the costliest first", seeds: 20, "999 999 999 9 999"
+  # The first claim is the costliest element, whichever task takes it,
+  # one task too, and costs given once serve several calls.
+  use std.par
+
+  xs: List[Int] = List(capacity: 1000)
+  for i in 0..1000
+    !xs.push(i)
+  first = *Cell(-1)
+  _ = par.map(?xs, |+first, x| (!first).compare_swap(-1, x), cost: |x| x)
+  costs = par.map(?xs, |x| x)
+  a = *Cell(-1)
+  par.each(!xs, cost: ?costs, |+a, x|
+    _ = (!a).compare_swap(-1, x)
+  )
+  states = [0, 0, 0]
+  b = *Cell(-1)
+  _ = par.workers(!states, ?xs, |+b, s, x| (!b).compare_swap(-1, x), cost: ?costs)
+  t: Table[Int, 64] = Table()
+  sizes = List([3, 1, 4, 1, 5, 9, 2, 6])
+  c = *Cell(-1)
+  par.push(!t, ?sizes, cost: ?sizes, |+c, run, k|
+    _ = (!c).compare_swap(-1, run.len)
+  )
+  one = *Cell(-1)
+  _ = par.map(?xs, |+one, x| (!one).compare_swap(-1, x), cost: |x| x, limit: 1)
+  print(first.get(), a.get(), b.get(), c.get(), one.get())
+
+test "par each cost", seeds: 20, '''
+  10 10000
+  50005000
+'''
+  # Each element is written once, by one task, whatever its cost; a
+  # negative cost counts as 0.
+  use std.par
+
+  xs: List[Int] = List(capacity: 1000)
+  for _ in 0..1000
+    !xs.push(1)
+  par.each(!xs, cost: |x| -5, |x| x += 9)
+  print(xs[0], xs.sum())
+  ys: List[Int] = List(capacity: 10000)
+  for i in 0..10000
+    !ys.push(i)
+  par.each(!ys, cost: |x| (x * 7919) % 101 - 50, limit: 4, |x| x += 1)
+  print(ys.sum())
+
+test "par workers cost", seeds: 20, '''
+  0 2997 1498500
+  1000
+'''
+  # The values stay in the order of the items, whichever state made
+  # them, and each item is taken once.
+  use std.par
+
+  obj Count
+    n: Int = 0
+
+  xs: List[Int] = List(capacity: 1000)
+  for i in 0..1000
+    !xs.push(i)
+  states = [Count(), Count(), Count(), Count()]
+  ys = par.workers(!states, ?xs, cost: |x| x % 17, |s, x|
+    s.n += 1
+    x * 3
+  )
+  print(ys[0], ys[999], ys.sum())
+  print(states[0].n + states[1].n + states[2].n + states[3].n)
+
+test "par push cost", seeds: 20, "true 3289"
+  # Run `k` is the same slots whichever task takes it, costliest first.
+  use std.par
+
+  obj Rec
+    file: U32 = 0
+    local: U32 = 0
+
+  big = List[Int]()
+  for k in 0..300
+    !big.push((k * 7) % 23)
+  a: Table[Rec, 65536] = Table()
+  b: Table[Rec, 65536] = Table()
+  for n, k in big
+    for l in 0..n
+      !a.push(Rec(file: U32(k), local: U32(l)))
+  par.push(!b, ?big, cost: |?big, k| big[k], |run, k|
+    for r, l in !run
+      r = Rec(file: U32(k), local: U32(l))
+  )
+  same = a.len == b.len
+  for i in 0..a.len
+    same = same and a[i].file == b[i].file and a[i].local == b[i].local
+  print(same, b.len)
+
+test "par cost fails", seeds: 20, release: true, "Bad.odd true"
+  # A failing call cancels the others as it does without `cost:`.
+  use std.par
+  use std.time
+
+  error Bad
+    odd
+
+  fun slow(n: Int) -> Int!
+    return Bad.odd if n == 500
+    time.sleep(ms: 20)!
+    n
+
+  xs: List[Int] = List(capacity: 1000)
+  for i in 0..1000
+    !xs.push(i)
+  start = time.monotonic()
+  r = par.map(?xs, |x| slow(x)!, cost: |x| x, limit: 1000) catch |e|
+    print(e, start.elapsed() < time.duration(ms: 500))
+    List[Int]()
+
+test "par cost one task", seeds: 20, "[30, 21, 12, 3]"
+  # With one task, the calls run in turn on the calling task, costliest
+  # first, as on any number of tasks.
+  use std.par
+
+  t: Table[Int, 8] = Table()
+  c = *Cell(0)
+  ones = List([1, 1, 1, 1])
+  par.push(!t, ?ones, cost: |k| k, limit: 1, |+c, run, k|
+    run[0] = c.get() * 10 + k
+    _ = (!c).add(1)
+  )
+  print(t)
+
+bomb "par cost list length", seeds: 20, "par.map's `cost:` gives 2 costs for 3 elements: give one for each element"
+  # The costs given as a list hold one for each element.
+  use std.par
+  xs = List([1, 2, 3])
+  costs = List([5, 6])
+  print(par.map(?xs, |x| x, cost: ?costs))
+
+bomb "par push cost list length", seeds: 20, "par.push's `cost:` gives 1 costs for 2 runs: give one for each run"
+  use std.par
+  t: Table[Int, 8] = Table()
+  sizes = List([1, 2])
+  costs = List([5])
+  par.push(!t, ?sizes, cost: ?costs, |run, k|
+    run[0] = k
+  )
+
+fail "par cost gives an Int", "`cost:` gives an `Int` for each element; this closure gives a `Float`", errors: 1
+  use std.par
+  xs = List([1.5, 2.5])
+  print(par.map(?xs, |x| x * 2.0, cost: |x| x))
+
+fail "par cost list holds Ints", "`cost:` takes an `Int` for each item, a `List[Int]` of the costs or a closure that gives one; `?ws` holds `Float`", errors: 1
+  use std.par
+  states = [0, 0]
+  ws = List([1.5, 2.5])
+  print(par.workers(!states, ?[1, 2], |s, x| x, cost: ?ws))
+
+fail "par cost is neither", "`cost:` takes an `Int` for each run, a `List[Int]` of the costs or a closure that gives one; `5` is a `Int`", errors: 1
+  use std.par
+  t: Table[Int, 8] = Table()
+  sizes = List([1, 2])
+  par.push(!t, ?sizes, cost: 5, |run, k|
+    run[0] = k
+  )
+
+fail "par cost cannot fail", "`cost:` gives an `Int` for each element, and this closure can fail: give a cost that cannot fail", errors: 1
+  use std.par
+
+  error Bad
+    odd
+
+  fun weigh(x: Int) -> Int!
+    return Bad.odd if x == 2
+    x
+
+  xs = List([1, 2])
+  par.each(!xs, cost: |x| weigh(x)!, |x| x += 1)
+
+fail "par cost only reads", "`cost:` only reads, to give each element's cost, and `|!n|` makes a write view of `n`: capture it `|?n|`", errors: 1
+  use std.par
+  n = 0
+  xs = List([1, 2])
+  print(par.map(?xs, |x| x, cost: |!n, x|
+    n += 1
+    x
+  ))
+  print(n)
+
+fail "par cost function takes the element", "`cost:` of `par.map` calls `weigh` with each element as `?Float` and takes an `Int`, and `weigh` is a `fun(Int) -> Int`", errors: 1
+  use std.par
+
+  fun weigh(x: Int) -> Int
+    x
+
+  xs = List([1.5, 2.5])
+  print(par.map(?xs, |x| x * 2.0, cost: weigh))
+
+fail "par cost closure takes one", "this closure takes 2 parameters, but `cost:` of `par.map` passes one, each element", errors: 1
+  use std.par
+  xs = List([1, 2])
+  print(par.map(?xs, |x| x, cost: |a, b| a + b))
+
+fail "par takes cost and limit", "`par.map` takes the elements, a function, and at most `cost:`, each element's cost, and `limit:`, how many tasks run at once: `par.map(?xs, |x| x * 2)`", errors: 1
+  use std.par
+  xs = List([1, 2])
+  print(par.map(?xs, |x| x, order: 1))

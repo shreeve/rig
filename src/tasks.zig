@@ -1095,12 +1095,14 @@ fn EachOut(comptime F: type) type {
 }
 
 /// What the tasks of a `par.map` or `par.each` share: where the next
-/// chunk of the elements starts, how long a chunk is, and the first
-/// failure, which stops the others taking more.
+/// chunk of the elements starts, how long a chunk is, the claims of a
+/// run given `cost:`, and the first failure, which stops the others
+/// taking more.
 const ParState = struct {
     next: std.atomic.Value(usize) = .init(0),
     n: usize,
     chunk: usize,
+    claims: ?*CostClaims = null,
     failed: std.atomic.Value(bool) = .init(false),
     failure: anyerror = undefined,
     /// The first failure's fields.
@@ -1121,16 +1123,154 @@ const ParState = struct {
     }
 };
 
+/// The claims of a `par` run given `cost:`: the indices of its elements,
+/// costliest first (in their order on a tie), cut in turn into claims
+/// that each hold about the cost left over `shares` times the tasks, and
+/// no more than that share of the elements left. So the costliest go out
+/// one to a claim, and cheap ones together at the end; that is LPT list
+/// scheduling, with the tail's claims batched. A task takes the next
+/// claim with one atomic add (`claim`).
+const CostClaims = struct {
+    /// The indices, costliest first.
+    order: []usize,
+    /// Where each claim ends in `order`: claim `k` starts where claim
+    /// `k - 1` ends. Only the first `count` are claims.
+    ends: []usize,
+    count: usize,
+    next: std.atomic.Value(usize) = .init(0),
+
+    const shares = 4;
+
+    /// The claims of `n` elements on `tasks` tasks, each element's cost
+    /// `costs.at(i)`, a negative one counted as 0.
+    fn init(n: usize, tasks: usize, costs: anytype) CostClaims {
+        const a = defaultAllocator();
+        const order = a.alloc(usize, n) catch oom();
+        const ends = a.alloc(usize, n) catch oom();
+        const weights = a.alloc(u64, n) catch oom();
+        defer a.free(weights);
+        var left: u64 = 0;
+        for (weights, order, 0..) |*w, *o, i| {
+            const c = costs.at(i);
+            w.* = if (c > 0) @intCast(c) else 0;
+            left +|= w.*;
+            o.* = i;
+        }
+        std.mem.sortUnstable(usize, order, weights, costlier);
+        var count: usize = 0;
+        var i: usize = 0;
+        while (i < n) : (count += 1) {
+            const goal = left / (shares * tasks);
+            const most = @max(1, (n - i) / (shares * tasks));
+            var held = weights[order[i]];
+            var j = i + 1;
+            while (j < n and j - i < most and held +| weights[order[j]] <= goal) : (j += 1) held += weights[order[j]];
+            left -|= held;
+            ends[count] = j;
+            i = j;
+        }
+        return .{ .order = order, .ends = ends, .count = count };
+    }
+
+    fn deinit(self: *CostClaims) void {
+        defaultAllocator().free(self.order);
+        defaultAllocator().free(self.ends);
+    }
+
+    /// Whether element `x` costs more than `y`, or as much and comes
+    /// first: a total order, so the sort's result is one.
+    fn costlier(weights: []const u64, x: usize, y: usize) bool {
+        return weights[x] > weights[y] or weights[x] == weights[y] and x < y;
+    }
+
+    /// The indices of the next claim, or null when none is left.
+    fn claim(self: *CostClaims) ?[]const usize {
+        const k = self.next.fetchAdd(1, .monotonic);
+        if (k >= self.count) return null;
+        return self.order[if (k == 0) 0 else self.ends[k - 1]..self.ends[k]];
+    }
+};
+
+/// What a `par` call's `costs` argument is given `cost:`, for the call
+/// `shown` over `xs`: the costs themselves, a slice holding one for each
+/// element, which must be as long as `xs`, or a function of each.
+fn elemCosts(comptime shown: []const u8, xs: anytype, cost: anytype) if (isCostList(@TypeOf(cost))) ListCosts else ElemCosts(@TypeOf(xs), @TypeOf(cost)) {
+    if (comptime isCostList(@TypeOf(cost))) return listCosts(shown, "element", cost, xs.len);
+    return .{ .xs = xs, .cost = cost };
+}
+
+/// What `par.push`'s `costs` argument is given `cost:`: the costs of the
+/// `n` runs, or a function of each run's index.
+fn runCosts(n: usize, cost: anytype) if (isCostList(@TypeOf(cost))) ListCosts else RunCosts(@TypeOf(cost)) {
+    if (comptime isCostList(@TypeOf(cost))) return listCosts("par.push", "run", cost, n);
+    return .{ .cost = cost };
+}
+
+/// Whether `cost:` is given as the costs themselves, a slice of `Int`s.
+fn isCostList(comptime C: type) bool {
+    return @typeInfo(C) == .pointer and @typeInfo(C).pointer.size == .slice;
+}
+
+/// The costs given as a slice, which must hold one for each of the `n`
+/// elements: a panic says so when it does not.
+fn listCosts(comptime shown: []const u8, comptime what: []const u8, costs: anytype, n: usize) ListCosts {
+    if (costs.len != n) wrongCostCount(shown, what, costs.len, n);
+    return .{ .costs = costs };
+}
+
+fn wrongCostCount(comptime shown: []const u8, comptime what: []const u8, given: usize, n: usize) noreturn {
+    @branchHint(.cold);
+    var buf: [160]u8 = undefined;
+    @panic(std.fmt.bufPrint(&buf, shown ++ "'s `cost:` gives {d} costs for {d} " ++ what ++ "s: give one for each " ++ what, .{ given, n }) catch shown ++ "'s `cost:` gives one cost for each " ++ what);
+}
+
+/// The costs of a `par` call given as a slice: element `i`'s is `costs[i]`.
+const ListCosts = struct {
+    costs: []const Int,
+
+    fn at(self: ListCosts, i: usize) Int {
+        return self.costs[i];
+    }
+};
+
+/// What a `par` call's `costs` argument is given a function as `cost:`:
+/// the cost of element `i` of `xs`, `cost(?xs[i])`.
+fn ElemCosts(comptime Xs: type, comptime C: type) type {
+    return struct {
+        xs: Xs,
+        cost: C,
+
+        fn at(self: @This(), i: usize) Int {
+            return self.cost.call(.{rt.readView(&self.xs[i])});
+        }
+    };
+}
+
+/// What `par.push`'s `costs` argument is given `cost:`: the cost of run
+/// `k`, `cost(k)`.
+fn RunCosts(comptime C: type) type {
+    return struct {
+        cost: C,
+
+        fn at(self: @This(), k: usize) Int {
+            return self.cost.call(.{@as(Int, @intCast(k))});
+        }
+    };
+}
+
 /// Run `body(ctx, lo, hi)` over the chunks of `0..n`, on up to `limit`
 /// tasks, or one per worker when `limit` is not positive: the calling
 /// task and the ones it starts each take the next chunk in turn until
 /// none is left. About eight chunks go to each task, so one that ends
 /// early takes more, and a chunk holds at least one element. With one
-/// task, or one chunk, the calling task runs them all. The first chunk
+/// task, or one chunk, the calling task runs them all. Given `costs`
+/// (`cost:`; `{}` when not), the tasks take `CostClaims` instead, each
+/// element's chunk its own. The first chunk
 /// to fail stops the tasks taking more and cancels them, and once all
 /// have ended, the run fails with its error, whose fields go into the
 /// caller's slot `out`, or are dropped where it has none.
-fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime body: anytype, out: anytype) if (fallible) anyerror!void else void {
+fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime body: anytype, out: anytype, costs: anytype) if (fallible) anyerror!void else void {
+    const by_cost = @TypeOf(costs) != void;
     if (n == 0) return;
     const workers: usize = if (rt.scheduled) rt.sched.workersRunning() else 1;
     // Deterministic, on one thread, the elements are still split among
@@ -1138,7 +1278,9 @@ fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime 
     const want: usize = if (limit > 0) @intCast(limit) else if (rt.sched.deterministic.*) 4 else workers;
     const count = @min(want, n);
     const chunk = @max(1, n / (count * 8));
-    if (count <= 1 or chunk >= n) {
+    // Given costs, even one task claims the costliest first, so the order
+    // the elements run in is the same on every machine.
+    if (!by_cost and (count <= 1 or chunk >= n)) {
         if (comptime !fallible) return callChunk(body, ctx, 0, n, undefined) catch unreachable;
         var slot: rt.ErrData = undefined;
         callChunk(body, ctx, 0, n, rt.failSlot(&slot)) catch |err| {
@@ -1148,21 +1290,39 @@ fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime 
         return;
     }
     var state: ParState = .{ .n = n, .chunk = chunk };
+    var claims: if (by_cost) CostClaims else void = if (by_cost) CostClaims.init(n, count, costs) else {};
+    defer if (by_cost) claims.deinit();
+    if (by_cost) state.claims = &claims;
     const Ctx = @TypeOf(ctx);
     const Worker = struct {
         fn run(s: *ParState, c: Ctx) void {
+            if (comptime by_cost) {
+                while (!s.failed.load(.acquire)) {
+                    const claim = s.claims.?.claim() orelse return;
+                    for (claim) |i| if (!take(s, c, i, i + 1)) return;
+                }
+                return;
+            }
             while (!s.failed.load(.acquire)) {
                 const lo = s.next.fetchAdd(s.chunk, .monotonic);
                 if (lo >= s.n) return;
-                const hi = @min(lo + s.chunk, s.n);
-                if (comptime fallible) {
-                    // Each chunk fails into a slot of its own, which the
-                    // run keeps if it fails first.
-                    var slot: rt.ErrData = undefined;
-                    const start = rt.traceIndex();
-                    callChunk(body, c, lo, hi, rt.failSlot(&slot)) catch |err| return s.fail(err, &slot, start);
-                } else callChunk(body, c, lo, hi, undefined) catch unreachable;
+                if (!take(s, c, lo, @min(lo + s.chunk, s.n))) return;
             }
+        }
+
+        /// Run the chunk `lo..hi`; false when it fails.
+        inline fn take(s: *ParState, c: Ctx, lo: usize, hi: usize) bool {
+            if (comptime fallible) {
+                // Each chunk fails into a slot of its own, which the
+                // run keeps if it fails first.
+                var slot: rt.ErrData = undefined;
+                const start = rt.traceIndex();
+                callChunk(body, c, lo, hi, rt.failSlot(&slot)) catch |err| {
+                    s.fail(err, &slot, start);
+                    return false;
+                };
+            } else callChunk(body, c, lo, hi, undefined) catch unreachable;
+            return true;
         }
     };
     const helpers = defaultAllocator().alloc(Task(void), count - 1) catch oom();
@@ -1192,6 +1352,18 @@ fn callChunk(comptime body: anytype, ctx: anytype, lo: usize, hi: usize, slot: r
 /// marked as they are made. A failure's fields go into the caller's slot
 /// `out_slot`, or are dropped where it has none (`rt.no_slot`).
 pub fn parMapInto(xs: anytype, f: anytype, limit: Int, out_slot: anytype) MapOut(@TypeOf(f)) {
+    return parMap(xs, f, limit, out_slot, {});
+}
+
+/// `par.map(?xs, f, cost: c, limit: n)`: `parMapInto`, the tasks taking
+/// the elements costliest first by `c` (`CostClaims`); the values stay
+/// in the order of `xs`.
+pub fn parMapCostInto(xs: anytype, f: anytype, cost: anytype, limit: Int, out_slot: anytype) MapOut(@TypeOf(f)) {
+    return parMap(xs, f, limit, out_slot, elemCosts("par.map", xs, cost));
+}
+
+/// `parMapInto`, given `costs` as `parRun` is.
+fn parMap(xs: anytype, f: anytype, limit: Int, out_slot: anytype, costs: anytype) MapOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const R = ReturnOf(F);
     const fallible = @typeInfo(R) == .error_union;
@@ -1222,13 +1394,13 @@ pub fn parMapInto(xs: anytype, f: anytype, limit: Int, out_slot: anytype) MapOut
     }
     defer if (comptime marked) defaultAllocator().free(ctx.made);
     if (comptime fallible) {
-        parRun(true, xs.len, limit, &ctx, Ctx.chunk, out_slot) catch |err| {
+        parRun(true, xs.len, limit, &ctx, Ctx.chunk, out_slot, costs) catch |err| {
             if (comptime marked) for (ctx.out, ctx.made) |*v, m| if (m) dropElement(V, v);
             rt.drop(&out);
             // Every failure is `f`'s, or a wait's `task.Stop` in it.
             return @errorCast(err);
         };
-    } else parRun(false, xs.len, limit, &ctx, Ctx.chunk, out_slot);
+    } else parRun(false, xs.len, limit, &ctx, Ctx.chunk, out_slot, costs);
     out.len = xs.len;
     return out;
 }
@@ -1237,6 +1409,17 @@ pub fn parMapInto(xs: anytype, f: anytype, limit: Int, out_slot: anytype) MapOut
 /// slice `xs`, each call on one of up to `limit` tasks (`parRun`). A
 /// failure's fields go into the caller's slot `out`, as `parMapInto`'s do.
 pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@TypeOf(f)) {
+    return parEach(xs, f, limit, out, {});
+}
+
+/// `par.each(!xs, f, cost: c, limit: n)`: `parEachInto`, the tasks
+/// taking the elements costliest first by `c` (`CostClaims`).
+pub fn parEachCostInto(xs: anytype, f: anytype, cost: anytype, limit: Int, out: anytype) EachOut(@TypeOf(f)) {
+    return parEach(xs, f, limit, out, elemCosts("par.each", xs, cost));
+}
+
+/// `parEachInto`, given `costs` as `parRun` is.
+fn parEach(xs: anytype, f: anytype, limit: Int, out: anytype, costs: anytype) EachOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const fallible = @typeInfo(ReturnOf(F)) == .error_union;
     const Ctx = struct {
@@ -1250,9 +1433,9 @@ pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@T
         }
     };
     const ctx: Ctx = .{ .xs = xs, .f = f };
-    if (comptime !fallible) return parRun(false, xs.len, limit, &ctx, Ctx.chunk, out);
+    if (comptime !fallible) return parRun(false, xs.len, limit, &ctx, Ctx.chunk, out, costs);
     // Every failure is `f`'s, or a wait's `task.Stop` in it.
-    return parRun(true, xs.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
+    return parRun(true, xs.len, limit, &ctx, Ctx.chunk, out, costs) catch |err| @errorCast(err);
 }
 
 /// `par.push(!t, ?sizes, f, limit: n)`: push `sizes.sum()` slots onto
@@ -1264,6 +1447,18 @@ pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@T
 /// holding what it held unless `f` wrote it. A failure's fields go into
 /// the caller's slot `out`, as `parMapInto`'s do.
 pub fn parPushInto(t: anytype, sizes: anytype, f: anytype, limit: Int, out: anytype) EachOut(@TypeOf(f)) {
+    return parPush(t, sizes, f, limit, out, {});
+}
+
+/// `par.push(!t, ?sizes, f, cost: c, limit: n)`: `parPushInto`, the
+/// tasks taking the runs costliest first by `c(k)` (`CostClaims`); each
+/// run is still the same slots.
+pub fn parPushCostInto(t: anytype, sizes: anytype, f: anytype, cost: anytype, limit: Int, out: anytype) EachOut(@TypeOf(f)) {
+    return parPush(t, sizes, f, limit, out, runCosts(sizes.len, cost));
+}
+
+/// `parPushInto`, given `costs` as `parRun` is.
+fn parPush(t: anytype, sizes: anytype, f: anytype, limit: Int, out: anytype, costs: anytype) EachOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const fallible = @typeInfo(ReturnOf(F)) == .error_union;
     const T = @typeInfo(@TypeOf(t.slots)).pointer.child;
@@ -1293,9 +1488,9 @@ pub fn parPushInto(t: anytype, sizes: anytype, f: anytype, limit: Int, out: anyt
         }
     };
     const ctx: Ctx = .{ .slots = t.slots + @as(usize, @intCast(first)), .starts = starts, .f = f };
-    if (comptime !fallible) return parRun(false, sizes.len, limit, &ctx, Ctx.chunk, out);
+    if (comptime !fallible) return parRun(false, sizes.len, limit, &ctx, Ctx.chunk, out, costs);
     // Every failure is `f`'s, or a wait's `task.Stop` in it.
-    return parRun(true, sizes.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
+    return parRun(true, sizes.len, limit, &ctx, Ctx.chunk, out, costs) catch |err| @errorCast(err);
 }
 
 fn negativeRun(k: usize, size: Int) noreturn {
@@ -1324,6 +1519,19 @@ fn WorkersOut(comptime F: type) type {
 /// made dropped; its fields go into the caller's slot `out_slot`, as
 /// `parMapInto`'s do.
 pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: anytype) WorkersOut(@TypeOf(f)) {
+    return parWorkers(states, items, f, out_slot, {});
+}
+
+/// `par.workers(!states, ?items, f, cost: c)`: `parWorkersInto`, the
+/// tasks taking the items costliest first by `c` (`CostClaims`), when
+/// more than one runs; the values stay in the order of the items.
+pub fn parWorkersCostInto(states: anytype, items: anytype, f: anytype, cost: anytype, out_slot: anytype) WorkersOut(@TypeOf(f)) {
+    return parWorkers(states, items, f, out_slot, elemCosts("par.workers", items, cost));
+}
+
+/// `parWorkersInto`, given `costs` as `parRun` is.
+fn parWorkers(states: anytype, items: anytype, f: anytype, out_slot: anytype, costs: anytype) WorkersOut(@TypeOf(f)) {
+    const by_cost = @TypeOf(costs) != void;
     const F = @TypeOf(f);
     const R = ReturnOf(F);
     const fallible = @typeInfo(R) == .error_union;
@@ -1339,6 +1547,8 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
         out: if (gives) []V else void,
         made: if (marked) []bool else void,
         next: std.atomic.Value(usize) = .init(0),
+        /// The claims, given `cost:` and more than one state.
+        claims: ?*CostClaims = null,
         failed: std.atomic.Value(bool) = .init(false),
         failure: anyerror = undefined,
         failure_data: rt.ErrData = undefined,
@@ -1347,33 +1557,46 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
         const marked = fallible and gives and rt.needsDrop(V);
         const Ctx = @This();
 
-        /// The worker of state `s`: the next item, until none is left
-        /// or a call has failed.
+        /// The worker of state `s`: the next item, or the next claim's,
+        /// until none is left or a call has failed.
         fn run(c: *Ctx, s: @TypeOf(&states[0])) void {
+            if (comptime by_cost) if (c.claims) |claims| {
+                while (!c.failed.load(.acquire)) {
+                    const claim = claims.claim() orelse return;
+                    for (claim) |i| if (!c.take(s, i)) return;
+                }
+                return;
+            };
             while (!c.failed.load(.acquire)) {
                 const i = c.next.fetchAdd(1, .monotonic);
                 if (i >= c.items.len) return;
-                const x = rt.readView(&c.items[i]);
-                if (comptime fallible) {
-                    // Each call fails into a slot of its own, which the
-                    // run keeps if it fails first.
-                    var slot: rt.ErrData = undefined;
-                    const start = rt.traceIndex();
-                    const v = c.f.call(rt.argsWithSlot(F, .{ s, x }, rt.failSlot(&slot))) catch |err| {
-                        // A flag set once, not a lock: uncounted for preemption.
-                        if (c.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
-                            c.failure = err;
-                            c.failure_data = slot;
-                            c.trace.keep(@as(anyerror!void, err), start, false);
-                        } else rt.dropErrorData(err, &slot);
-                        return;
-                    };
-                    if (comptime gives) c.out[i] = v;
-                    if (comptime marked) c.made[i] = true;
-                } else if (comptime gives) {
-                    c.out[i] = c.f.call(.{ s, x });
-                } else c.f.call(.{ s, x });
+                if (!c.take(s, i)) return;
             }
+        }
+
+        /// Call `f` with state `s` on item `i`; false when it fails.
+        inline fn take(c: *Ctx, s: @TypeOf(&states[0]), i: usize) bool {
+            const x = rt.readView(&c.items[i]);
+            if (comptime fallible) {
+                // Each call fails into a slot of its own, which the
+                // run keeps if it fails first.
+                var slot: rt.ErrData = undefined;
+                const start = rt.traceIndex();
+                const v = c.f.call(rt.argsWithSlot(F, .{ s, x }, rt.failSlot(&slot))) catch |err| {
+                    // A flag set once, not a lock: uncounted for preemption.
+                    if (c.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
+                        c.failure = err;
+                        c.failure_data = slot;
+                        c.trace.keep(@as(anyerror!void, err), start, false);
+                    } else rt.dropErrorData(err, &slot);
+                    return false;
+                };
+                if (comptime gives) c.out[i] = v;
+                if (comptime marked) c.made[i] = true;
+            } else if (comptime gives) {
+                c.out[i] = c.f.call(.{ s, x });
+            } else c.f.call(.{ s, x });
+            return true;
         }
     };
     const marked = Ctx.marked;
@@ -1383,6 +1606,12 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
         @memset(ctx.made, false);
     }
     defer if (comptime marked) defaultAllocator().free(ctx.made);
+    var claims: if (by_cost) CostClaims else void = undefined;
+    if (by_cost and states.len > 1 and n > 1) {
+        claims = CostClaims.init(n, states.len, costs);
+        ctx.claims = &claims;
+    }
+    defer if (by_cost) if (ctx.claims) |cl| cl.deinit();
     if (states.len > 0) {
         // The other states' tasks start first, so each takes items as
         // soon as it runs; the calling task works with the first state.
@@ -3360,7 +3589,7 @@ test "a par run keeps its first chunk's failure data and drops every later one's
             G.drops.store(0, .seq_cst);
             const ctx: Ctx = .{};
             var slot: rt.ErrData = undefined;
-            parRun(true, 64, 4, &ctx, chunk, rt.failSlot(&slot)) catch {
+            parRun(true, 64, 4, &ctx, chunk, rt.failSlot(&slot), {}) catch {
                 failed = true;
                 kept = slot.bytes[0];
             };

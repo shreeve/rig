@@ -9729,21 +9729,26 @@ pub const Emitter = struct {
             // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`, and
             // `par.push(!t, ?sizes, f, limit: n)`: run by the runtime, with no
             // limit but the workers' count when none is given;
-            // `par.workers(!states, ?items, f)`, one task a state.
+            // `par.workers(!states, ?items, f)`, one task a state. Given
+            // `cost:`, each is the runtime's form that takes it, before
+            // the limit (`typecheck`'s parameters, in that order).
             .isolate, .par_map, .par_each, .par_workers, .par_push => {
                 const out = self.slotOf(sexp);
+                const costed = kind != .isolate and for (args) |a| {
+                    if (a.isKind(.kwarg) and std.mem.eql(u8, self.srcText(ir.Kwarg.name(a)), "cost")) break true;
+                } else false;
                 try self.w.writeAll(switch (kind) {
                     .isolate => rt(.isolateInto) ++ "(",
-                    .par_map => rt(.parMapInto) ++ "(",
-                    .par_each => rt(.parEachInto) ++ "(",
-                    .par_workers => rt(.parWorkersInto) ++ "(",
-                    else => rt(.parPushInto) ++ "(",
+                    .par_map => if (costed) rt(.parMapCostInto) ++ "(" else rt(.parMapInto) ++ "(",
+                    .par_each => if (costed) rt(.parEachCostInto) ++ "(" else rt(.parEachInto) ++ "(",
+                    .par_workers => if (costed) rt(.parWorkersCostInto) ++ "(" else rt(.parWorkersInto) ++ "(",
+                    else => if (costed) rt(.parPushCostInto) ++ "(" else rt(.parPushInto) ++ "(",
                 });
                 try self.emitArgs(sexp);
                 // With no `limit:`, one task per worker.
                 const no_limit = switch (kind) {
-                    .par_map, .par_each => args.len == 2,
-                    .par_push => args.len == 3,
+                    .par_map, .par_each => args.len == @as(usize, 2) + @intFromBool(costed),
+                    .par_push => args.len == @as(usize, 3) + @intFromBool(costed),
                     else => false,
                 };
                 if (no_limit) try self.w.writeAll(", 0");
@@ -12272,6 +12277,8 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "tasks.zig", .call = "else c.f.call(.{ run, i })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "c.out[i] = c.f.call(.{ s, x })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "} else c.f.call(.{ s, x })", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "return self.cost.call(.{rt.readView(&self.xs[i])})", .why = "a `cost:` closure gives an `Int` and cannot fail (`parCost`)" },
+        .{ .file = "tasks.zig", .call = "return self.cost.call(.{@as(Int, @intCast(k))})", .why = "a `cost:` closure gives an `Int` and cannot fail (`parCost`)" },
         .{ .file = "tasks.zig", .call = "self.value = self.make.?.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },
         .{ .file = "tasks.zig", .call = "const value = make.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },
         .{ .file = "tasks.zig", .call = "c.result = c.actor.invoke(name, c.args)", .why = method },

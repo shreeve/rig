@@ -15916,6 +15916,17 @@ each task a state of its own (below):
   the calls run in turn on the calling task.
 - The tasks take chunks of the elements in turn, about eight for each
   task, so one that finishes early takes more.
+- `cost:` gives each element's cost, an `Int`: a closure, `cost: |x|
+  x.len`, or a function's name, called on each element as `?T` before
+  the tasks start, or the costs themselves, a List, an array, or a slice
+  of `Int`s, one for each element, `cost: ?weights`. A negative cost
+  counts as 0, and costs of another length panic. With it, the tasks
+  take the costliest elements first, and each takes its share of the
+  cost left, so the costliest go one at a time and cheap ones together
+  at the end; with one task, the calls run in turn in order. The values,
+  and the elements written, are the same: `cost:` changes only which
+  task makes each and when. The closure only reads: none of its
+  captures is a write view, and it cannot fail.
 - When `f` can fail, so can the call: the first failure stops the tasks
   taking more elements and cancels them, and the call fails with its
   error once all have ended. `par.map` drops the values already made.
@@ -15942,12 +15953,18 @@ sub main()
   print(par.map(?xs, square, limit: 2))
   par.each(!xs, |x| x += 1)
   print(xs)
+  words = List(["a", "bbbb", "cc"])
+  print(par.map(?words, |w| w.len * 2, cost: |w| w.len))
+  costs = List([1, 4, 2])
+  print(par.map(?words, |w| w.len, cost: ?costs))
 ```
 
 ```output
 [10, 20, 30, 40]
 [1, 4, 9, 16]
 [2, 3, 4, 5]
+[2, 8, 4]
+[1, 4, 2]
 ```
 
 ```rig reject
@@ -15967,7 +15984,10 @@ sub main()
 calling task among them. Each task holds its own state, as `!S`, and
 calls `f(!s, x)` on the next item it takes, as `?T`, until none is
 left; the items are taken one at a time in their order, so a caller
-that puts the heaviest first balances an uneven load.
+that puts the heaviest first balances an uneven load. `cost:` is as for
+`par.map`, of each item: with it, and more than one state, the tasks
+take the costliest items first, in claims of their share of the cost
+left, `par.workers(!states, ?items, f, cost: |x| x.len)`.
 
 - It gives a `List` of each call's value in the order of the items,
   whichever task made each, or nothing when `f` gives nothing.
@@ -16021,9 +16041,11 @@ time: run `k` is the next `sizes[k]` slots, in order from the table's
   as a loop of `!t.push(x)` in the order of the runs leaves it. Until
   `f` writes a slot, it holds what it held, `T()` unless written by
   slot.
-- `limit:`, the chunks the tasks take, and failure are as for
+- `limit:`, the chunks the tasks take, `cost:`, and failure are as for
   `par.each`, over the runs: with one task, or one run, the calling
-  task writes the runs in order. A failure leaves the slots pushed.
+  task writes the runs in order. A cost closure takes the run's index,
+  `cost: |k| sizes[k]`, and listed costs hold one for each run. A
+  failure leaves the slots pushed.
 
 `t` is unusable for the call, as any `!` argument is, and the
 runs are disjoint slices of its slots, each passed to one task, as
