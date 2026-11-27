@@ -6,19 +6,17 @@
 //! LIR step (`controlOf`), and each of its parts the region made for it
 //! (`exprIn`). Liveness reads the LIR's flow (`live.Flow`).
 //! The checkers' lowering lowers every body the checker walks
-//! (`lower.Options.checked`).
+//! (`lower.Options.checked`), so a node the walk reaches with no LIR
+//! is an internal error (`uncovered`).
 
 const std = @import("std");
 const parser = @import("../parser.zig");
 const sema = @import("../sema.zig");
 const lir = @import("../lir.zig");
-const lower = @import("../lower.zig");
 const diag = @import("../diag.zig");
 const rig = @import("../rig.zig");
 const self_check = @import("build_options").self_check;
 const Sexp = parser.Sexp;
-const ir = parser.ir;
-const SymbolId = sema.SymbolId;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
 const live = @import("live.zig");
@@ -52,9 +50,9 @@ pub const Body = struct {
     outer_point: live.Loc = .{},
 };
 
-/// An expression the walk reaches: its tree node, and, in a lowered
-/// body, the LIR expression made for it (`id`), whose operands the
-/// walk takes as the operands of the node.
+/// An expression the walk reaches: its tree node, and the LIR
+/// expression made for it (`id`), whose operands the walk takes as the
+/// operands of the node.
 pub const Expr = struct {
     node: Sexp,
     id: ?lir.ExprId = null,
@@ -206,14 +204,10 @@ pub fn stmtEnds(self: *Checker, e: Expr, mark: state.VarId) Error![]const state.
 
 /// Node `node`, which the walk reaches with no LIR expression made for
 /// it: the checkers' lowering lowers every body the checker walks, and
-/// each part of it, so a self-checking build panics. Its operands are
-/// then read from the tree.
-pub fn uncovered(self: *const Checker, node: Sexp) Expr {
-    if (self_check) {
-        const at = diag.lineCol(self.source, self.sema.startOf(node));
-        std.debug.panic("{s}:{d}:{d}: internal error: the ownership checker walks a `{s}` with no LIR", .{ self.sema.name, at.line, at.col, if (node == .list) @tagName(node.kind() orelse .module) else "leaf" });
-    }
-    return .{ .node = node };
+/// each part of it, so none is reached.
+pub fn uncovered(self: *const Checker, node: Sexp) noreturn {
+    const at = diag.lineCol(self.source, self.sema.startOf(node));
+    std.debug.panic("{s}:{d}:{d}: internal error: the ownership checker walks a `{s}` with no LIR", .{ self.sema.name, at.line, at.col, if (node == .list) @tagName(node.kind() orelse .module) else "leaf" });
 }
 
 /// Statement region `r` as the walk reaches it (`exprIn`).
@@ -436,8 +430,7 @@ pub fn argRegion(self: *const Checker, e: Expr, i: usize) ?lir.RegionId {
     };
 }
 
-/// Node `node` as LIR expression `id` holds it, where `id` is made for
-/// it; else as the walk looks it up (`uncovered`).
+/// Node `node` as LIR expression `id`, made for it, holds it.
 pub fn exprFor(self: *const Checker, node: Sexp, id: lir.ExprId) Expr {
     const b = self.lir_body.?;
     if (sema.decisionKeyOf(nodeOf(b, id)) != sema.decisionKeyOf(node)) return uncovered(self, node);
@@ -461,8 +454,7 @@ pub fn nodeOf(b: *const Body, id: lir.ExprId) Sexp {
 
 /// The operation `e` is, under the coercions and holds of its node, a
 /// var that holds it first, and the region that holds its parts or
-/// ends its temporaries; null for any other expression, and outside a
-/// lowered body.
+/// ends its temporaries; null for any other expression.
 pub fn opOf(self: *const Checker, e: Expr) ?lir.Expr.Op {
     const b = self.lir_body orelse return null;
     var id = e.id orelse return null;
@@ -485,11 +477,9 @@ pub fn opOf(self: *const Checker, e: Expr) ?lir.Expr.Op {
 /// The record lowering made of call `call` (`lower.checkedCall`): how
 /// its callee is written, how it takes its self, and its flags.
 pub fn callOf(self: *const Checker, call: Expr) lir.Call {
-    if (opOf(self, call)) |o| if (o.kind == .call) return self.lir_body.?.f.calls.items[o.aux];
-    const node = uncovered(self, call.node).node;
-    var rec = lower.checkedCall(self.sema, node);
-    rec.wrap.held = lower.holdsParts(self.sema, node);
-    return rec;
+    const o = opOf(self, call) orelse uncovered(self, call.node);
+    if (o.kind != .call) uncovered(self, call.node);
+    return self.lir_body.?.f.calls.items[o.aux];
 }
 
 /// The view operand `e` is made where a view is expected with no sigil
@@ -521,8 +511,7 @@ pub fn implicitView(self: *const Checker, e: Expr) ?sema.View {
     return view;
 }
 
-/// Operand `i` of `e`: the LIR's, where `e` is an operation of a
-/// lowered body, else the tree's child `i`.
+/// Operand `i` of `e`, an operation: the LIR's.
 pub fn operand(self: *const Checker, e: Expr, i: usize) Expr {
     const o = opOf(self, e) orelse return uncovered(self, rig.children(e.node)[i]);
     const id = o.args[i];
@@ -539,21 +528,14 @@ pub fn operandCount(e: Expr) usize {
     return rig.children(e.node).len;
 }
 
-/// The lowered body `root` declares; null when the body was not
-/// lowered.
-pub fn enter(self: *Checker, root: Sexp) Error!?*Body {
-    const m = &(self.sema.lowered orelse return null);
+/// The lowered body `root` declares: the checkers' lowering lowers
+/// every body they walk.
+pub fn enter(self: *Checker, root: Sexp) Error!*Body {
     const f = blk: {
+        const m = &(self.sema.lowered orelse break :blk null);
         const i = m.roots.get(sema.decisionKeyOf(root) orelse break :blk null) orelse break :blk null;
         break :blk m.owners[i].func;
-    } orelse {
-        // The checkers' lowering lowers every body they walk.
-        if (self_check) {
-            const at = diag.lineCol(self.source, self.sema.startOf(root));
-            std.debug.panic("{s}:{d}:{d}: internal error: the ownership checker walks a `{s}` with no LIR", .{ self.sema.name, at.line, at.col, @tagName(root.kind() orelse .module) });
-        }
-        return null;
-    };
+    } orelse uncovered(self, root);
     // A function's record lives while its walk does: the function arena
     // is reset after each module-level function. The module's own body
     // lives until it is walked (`dropConstants`).

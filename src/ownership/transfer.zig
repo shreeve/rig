@@ -12,7 +12,6 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const Tag = rig.Tag;
 const TypeId = sema.TypeId;
-const SymbolId = sema.SymbolId;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
 const live = @import("live.zig");
@@ -114,7 +113,7 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
 /// A statement of the module's compile-time body: its next statement,
 /// as lowering made them in the order `walkDecl` walks them.
 fn walkConstant(self: *Checker, sexp: Sexp) Error!void {
-    const st = lowered.stmtsOf(self, (self.lir_body orelse return).f.body);
+    const st = lowered.stmtsOf(self, self.lir_body.?.f.body);
     const i = self.const_at;
     self.const_at += 1;
     _ = try walkStmtValueE(self, if (i < st.len()) lowered.stmtAt(self, st.at(i)) else lowered.uncovered(self, sexp), null);
@@ -194,7 +193,7 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
     for (tparams.items()) |p| if (p != .src) try bindParam(self, p);
     try bindParams(self, params);
     try origins.bindSelfPaths(self);
-    const result = try walkBody(self, body, returns_value);
+    const result = try walkBody(self, returns_value);
     try self.popScopeWith(result.loans);
     if (name != .nil) try origins.checkOrigins(self, name, params);
     try self.rewind(outer);
@@ -205,12 +204,8 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
 /// Walk a function body in the current scope. When the function
 /// returns a value, its last expression is the return value, whose
 /// loans it gives.
-pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
-    const b = self.lir_body orelse {
-        try notes.errAt(self, body, "internal error: this block has no lowered statements", .{});
-        return .{};
-    };
-    const st = lowered.stmtsOf(self, b.f.body);
+pub fn walkBody(self: *Checker, returns_value: bool) Error!Value {
+    const st = lowered.stmtsOf(self, self.lir_body.?.f.body);
     var result: Value = .{};
     for (0..st.len()) |i| {
         if (try exits.unreached(self, st, i)) break;
@@ -321,10 +316,7 @@ pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value 
 /// its last statement, which may not view the block's own locals.
 pub fn walkBlock(self: *Checker, e: lowered.Expr) Error!Value {
     const block = e.node;
-    const st = lowered.stmtsOf(self, lowered.blockOf(self, e) orelse {
-        _ = lowered.uncovered(self, block);
-        return .{};
-    });
+    const st = lowered.stmtsOf(self, lowered.blockOf(self, e) orelse lowered.uncovered(self, block));
     const t = takeTail(self, block);
     try self.pushScopeFor(.block, block);
     var v: Value = .{};
@@ -2259,7 +2251,7 @@ pub fn storeThroughCapture(self: *Checker, v: Var, pos: u32, value: Value) Error
 // Sentence 7: a call passes on only the views its signature shows
 // -----------------------------------------------------------------------------
 
-/// A call. What it holds in storage of its own lives only while it
+/// A call. A self it holds in storage of its own lives only while it
 /// runs (`holdForCall`), so a view of that ends with it.
 pub fn walkCall(self: *Checker, call: lowered.Expr) Error!Value {
     const node = call.node;
@@ -2288,28 +2280,25 @@ pub fn walkCall(self: *Checker, call: lowered.Expr) Error!Value {
 /// mark and its callee.
 const first_arg = 2;
 
-/// Hold `v`, the value of `node`, which the emitted call keeps in
-/// storage of its own (`storage.Var` of life `call`: a self, or
-/// a copied argument), in a hidden var the call views (`kind`), so
-/// a view of it is a view of that storage.
-pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind, sk: lir.StorageKind) Error!Value {
+/// Hold `v`, the value of self `node`, which the emitted call keeps
+/// in storage of its own (a hidden var of life `call`), in a hidden
+/// var the call views (`kind`), so a view of it is a view of that
+/// storage.
+pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind) Error!Value {
     const pos = notes.startOf(self, node);
     const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = pos, .ty = types.exprType(self, node), .kind = .hidden, .call_held = true }, .{ .loans = v.loans });
-    try lowered.noteMade(self, lowered.hiddenOf(self, node, sk), id);
+    try lowered.noteMade(self, lowered.hiddenOf(self, node, .self), id);
     return .{ .loans = try self.oneLoan(.{ .root = id, .kind = kind, .pos = pos }) };
 }
 
-/// The node a call holds in storage of its own that lives only while
-/// it runs, and that it views (a copy, or a value the storage owns),
-/// when the storage facts record one of `kind` for it: a self
-/// without its view sigils, an argument as written.
-pub fn heldForCall(self: *const Checker, e: Sexp, kind: lir.StorageKind) ?Sexp {
-    const ctx = self.sema;
-    const node = if (kind == .self) lowering.viewedPlace(e) else e;
-    const s = (ctx.lowered orelse return null).varOf(node, kind) orelse return null;
+/// The self, without its view sigils, a call holds in storage of its
+/// own that lives only while it runs, and that it views (a copy, or a
+/// value the storage owns). An argument the call holds is held by
+/// pointer or owned by the callee, never viewed from such storage.
+pub fn heldForCall(self: *const Checker, e: Sexp) ?Sexp {
+    const node = lowering.viewedPlace(e);
+    const s = (self.sema.lowered orelse return null).varOf(node, .self) orelse return null;
     if (s.life != .call or s.by == .pointer) return null;
-    // An owned argument is the callee's own value, not a view of it.
-    if (kind == .argument and s.by != .copy) return null;
     return node;
 }
 
@@ -2360,7 +2349,6 @@ pub const Role = struct {
     implicit: ?bool = null,
     elems: ?bool = null,
     read_only: ?bool = null,
-    held: ?bool = null,
     /// Consumed as it is: no view passed on, none made with no sigil.
     as_is: bool = false,
 };
@@ -2373,7 +2361,7 @@ pub fn expectRole(self: *const Checker, e: lowered.Expr, want: Role) void {
     const o = b.f.roleOf(e.id orelse return);
     const ok = (want.use == null or want.use.? == o.use) and (want.sink == null or want.sink.? == o.sink) and
         (want.implicit == null or want.implicit.? == o.implicit) and (want.elems == null or want.elems.? == o.elems) and
-        (want.read_only == null or want.read_only.? == o.read_only) and (want.held == null or want.held.? == o.held) and
+        (want.read_only == null or want.read_only.? == o.read_only) and
         (!want.as_is or (o.use != .pass_view and !o.implicit));
     if (ok) return;
     const at = diag.lineCol(self.sema.source, self.sema.startOf(e.node));
@@ -2482,8 +2470,8 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
                 // A self the call holds in storage of its own is
                 // viewed from there; any other is viewed where its
                 // leaves are.
-                recv_value = if (if (rec.wrap.held) heldForCall(self, obj, .self) else null) |held|
-                    try holdForCall(self, held, recv_value, kind, .self)
+                recv_value = if (if (rec.wrap.held) heldForCall(self, obj) else null) |held|
+                    try holdForCall(self, held, recv_value, kind)
                 else
                     try self.valueUnion(recv_value, try selfLeaves(self, obj, kind));
             }
@@ -2580,14 +2568,8 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         self.in_rejected_call = types.rejected(self, node);
         const found = self.errors_found;
         if (self_check) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .sink = .argument });
-        if (self_check and sameNode(a, lowering.argValue(a)) and heldForCall(self, a, .argument) != null) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .held = true });
         v.* = try walkConsumedE(self, lowered.operand(self, call, first_arg + i), .argument);
         if (self.errors_found == found) try holdRead(self, a, .argument);
-        // An argument the call copies into storage of its own is viewed
-        // from the copy.
-        if (rec.wrap.held) if (heldForCall(self, lowering.argValue(a), .argument)) |held| {
-            v.* = try holdForCall(self, held, v.*, .read, .argument);
-        };
         // A value handed over that carries a write loan (a write view
         // a method's result keeps of its self) keeps its root under
         // a write view until the call returns, as a write view in the
@@ -3220,7 +3202,7 @@ pub fn walkLambda(self: *Checker, le: lowered.Expr, owned: bool) Error!Value {
         }, .{ .loans = cv.loans });
     }
     try bindParams(self, params);
-    const result = try walkBody(self, body, returns_value);
+    const result = try walkBody(self, returns_value);
     try self.popScopeWith(result.loans);
     try origins.checkOrigins(self, .nil, params);
     self.func = saved_func;

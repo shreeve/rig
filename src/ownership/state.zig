@@ -251,9 +251,9 @@ pub const Var = struct {
     /// The name `match <name` would take, for a read match whose subject
     /// is an owner's name (`arm_of`); empty when no take would compile.
     arm_take: []const u8 = "",
-    /// A value a call holds in storage of its own, which lives only
-    /// while the call runs (`storage.Var` of life `call`): self
-    /// or argument it is given (`holdForCall`).
+    /// A self a call holds in storage of its own, which lives only
+    /// while the call runs (a hidden var of life `call`,
+    /// `holdForCall`).
     call_held: bool = false,
     /// An owning temporary its statement holds (`holdTemp`): in use while
     /// a value in flight views it, or its drop runs a `drop` body.
