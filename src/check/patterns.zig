@@ -6,7 +6,7 @@ const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const diag = @import("../diag.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const Wide = sema.Wide;
 const resolve = @import("../resolve.zig");
 const Sexp = parser.Sexp;
@@ -76,7 +76,7 @@ pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expe
     else if (subject_hands.hasStorage()) .{ .place = subject, .kind = .match_copy, .pattern = tested } else null;
     const saved_arm_local = self.expect.arm_local;
     defer self.expect.arm_local = saved_arm_local;
-    self.expect.arm_local = mode == .read and !self.isPoison(scrutinee) and !storage.matchesInPlace(self.ctx, node);
+    self.expect.arm_local = mode == .read and !self.isPoison(scrutinee) and !lowering.matchesInPlace(self.ctx, node);
     const saved_matching = self.expect.matching;
     defer self.expect.matching = saved_matching;
     self.expect.matching = node;
@@ -124,7 +124,7 @@ pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expe
         if (viewed) |v| {
             if (pattern.isKind(.variant_pattern) or pattern.isKind(.alt_pattern)) {
                 for (self.ctx.armPayloadBindings(pattern)) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
-            } else if (storage.isCatchAll(self.ctx, pattern)) if (self.ctx.symbolOf(pattern)) |sym| {
+            } else if (lowering.isCatchAll(self.ctx, pattern)) if (self.ctx.symbolOf(pattern)) |sym| {
                 var whole = v;
                 whole.whole = true;
                 try self.copied_from.put(self.ctx.allocator, sym, whole);
@@ -200,7 +200,7 @@ pub fn alwaysHolds(self: *Checker, pattern: Sexp, scrutinee: TypeId) Error!void 
 /// `_` or a name after `matches`, alone or among alternatives, matches
 /// every value: rejected, and its name given no type.
 pub fn testCatchAll(self: *Checker, subject: Sexp, alts: []const Sexp, cov: *Checker.MatchCoverage) Error!void {
-    for (alts) |alt| if (storage.isCatchAll(self.ctx, alt)) {
+    for (alts) |alt| if (lowering.isCatchAll(self.ctx, alt)) {
         const name = self.text(alt);
         const compare = if (std.mem.eql(u8, name, "_")) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to compare with `{s}`, write `{s} == {s}`", .{ name, try ViewCheck.plainText(self, CompatCheck.stripSigil(subject)), name });
         try self.errAt(alt, "`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value{s}", .{ name, compare });
@@ -518,7 +518,7 @@ pub fn armsBind(self: *Checker, match: Sexp) bool {
         const pattern = ir.Arm.pattern(arm);
         const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
         for (alts) |alt| {
-            if (storage.isCatchAll(self.ctx, alt) and viewsMatched(self, alt)) return true;
+            if (lowering.isCatchAll(self.ctx, alt) and viewsMatched(self, alt)) return true;
             if (alt.isKind(.variant_pattern)) for (self.ctx.payloadBindings(alt) orelse &.{}) |b| if (b == .src and viewsMatched(self, b)) return true;
         }
     }
@@ -546,7 +546,7 @@ pub fn checkAlternatives(self: *Checker, alts: []const Sexp, in_test: bool) Erro
     // After `matches`, a catch-all is reported as the test it makes
     // (`testCatchAll`).
     for (alts) |alt| {
-        if (!in_test and storage.isCatchAll(self.ctx, alt)) {
+        if (!in_test and lowering.isCatchAll(self.ctx, alt)) {
             try self.errAt(alt, "`{s}` matches every value, so the other alternatives never matter; give it an arm of its own", .{self.text(alt)});
             try poisonBinding(self, alt);
         }
@@ -764,7 +764,7 @@ pub fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *Chec
                     // subject, or captured as a copy, is usable in its
                     // arm only.
                     const ty = try bindMatchView(self, pattern, mode, scrutinee);
-                    const copied = self.expect.arm_local or (mode == .read and !storage.catchAllCaptured(self.ctx, pattern, self.expect.matching));
+                    const copied = self.expect.arm_local or (mode == .read and !lowering.catchAllCaptured(self.ctx, pattern, self.expect.matching));
                     if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) (try self.ctx.symbolMut(sym)).flags.arm_view = true;
                     try self.ctx.recordType(pattern, ty);
                 }

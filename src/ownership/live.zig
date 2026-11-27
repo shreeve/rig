@@ -4,7 +4,7 @@
 const std = @import("std");
 const parser = @import("../parser.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SymbolId = sema.SymbolId;
@@ -185,7 +185,7 @@ pub fn holdLate(self: *Checker, e: Sexp) Error!void {
 }
 
 /// The parts of a call or an array literal that it reads
-/// where it runs (`storage.isPureArg`), after the others: where it
+/// where it runs (`lower.isPureArg`), after the others: where it
 /// evaluates the rest into temporaries first (`hoists`), or passes its
 /// keyword arguments in its parameters' order.
 pub fn holdLateParts(self: *Checker, parts: []const Sexp, hoists: bool) Error!void {
@@ -197,8 +197,8 @@ pub fn holdLateParts(self: *Checker, parts: []const Sexp, hoists: bool) Error!vo
         } else return;
     }
     for (parts) |a| {
-        const v = storage.argValue(a);
-        if (storage.isPureArg(ctx, v)) try holdLate(self, v);
+        const v = lowering.argValue(a);
+        if (lowering.isPureArg(ctx, v)) try holdLate(self, v);
     }
 }
 

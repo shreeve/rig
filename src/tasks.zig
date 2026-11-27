@@ -2415,7 +2415,8 @@ pub fn Actor(comptime T: type) type {
         /// Gives the call the runner ran, which `dieRunner` answers once
         /// the tasks its method started, listed under `stops`, have ended,
         /// since they may view its frames or its caller's. `stops` is null
-        /// on a fiber that ran the method inline. Until then a supervised
+        /// on a fiber that ran the method inline, as a supervised actor's
+        /// never is (`claim`). Until then a supervised
         /// actor stays busy, and a call from one of those tasks fails as
         /// one to a dead actor, since waiting for it would never end.
         fn kill(self: *Self, in: *const rt.sched.Label, stops: ?*Isolate) ?*Message {
@@ -2430,10 +2431,8 @@ pub fn Actor(comptime T: type) type {
                 rt.abandonValue(T, &self.value);
                 self.stale = true;
                 self.died_in = in;
-                const iso = stops orelse {
-                    self.reopen();
-                    return running;
-                };
+                // A supervised actor's method runs on its runner (`claim`).
+                const iso = stops.?;
                 self.stopping = iso;
                 var refused = self.withdrawFrom(iso);
                 self.lock.unlock();
@@ -2648,8 +2647,9 @@ pub fn Actor(comptime T: type) type {
         /// the call fails with `task.Stop.canceled` or `.timeout`; one
         /// that started runs to its end, and the caller waits for it.
         ///
-        /// An idle actor's method runs inline, on the caller's stack, as
-        /// the actor, with no message and no switch: under no cancel or
+        /// An idle actor's method runs inline, unless the actor is
+        /// supervised (`claim`), on the caller's stack, as the actor,
+        /// with no message and no switch: under no cancel or
         /// deadline, as its runner runs one, so a canceled caller cannot
         /// stop it partway. What arrived meanwhile goes to a runner after
         /// it (`release`), when the caller's stack has the room the method
@@ -2680,7 +2680,6 @@ pub fn Actor(comptime T: type) type {
                     self.release(box);
                     if (slotted) self.freeSlot();
                 }
-                if (self.stale) self.remake(&held);
                 return self.runInline(t, name, args);
             }
             const Call = struct {
@@ -2767,11 +2766,19 @@ pub fn Actor(comptime T: type) type {
         /// means its mailbox is empty, and the caller's stack has the room
         /// the method needs (`roomInline`).
         ///
+        /// A supervised actor's method runs on its own task, never inline:
+        /// the runner lists the tasks a method starts apart from its
+        /// caller's, so after a panic the value is made again only once
+        /// they have ended (`kill`). Inline they would be the caller's,
+        /// which waits for them only once the actor is open again, and a
+        /// call from another task could make the new value in the place
+        /// they still view.
+        ///
         /// A caller that finds it running inline with no mail spins a
         /// little first (`claim_spins`), as a mutex does, since a short
         /// method is soon done and sleeping costs more than the wait.
         fn claim(self: *Self, t: *rt.TaskState, comptime depth: u64) bool {
-            if (!roomInline(t, depth)) return false;
+            if (self.make != null or !roomInline(t, depth)) return false;
             if (self.state.cmpxchgStrong(0, busy, .acquire, .monotonic) == null) return true;
             return claimSpinning(&self.state);
         }

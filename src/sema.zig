@@ -22,7 +22,7 @@
 //!                   `sema.zig`       then every local must be read
 //!   7. generics     `sema.zig`,      the instances generic bodies reach,
 //!                   `typecheck.zig`  and each instance's requirements
-//!   8. storage      `storage.zig`    the hidden storage emit makes
+//!   8. storage      `lower.zig`      the hidden storage emit makes
 //!
 //! ## The facts table
 //!
@@ -56,7 +56,7 @@ const rig = @import("rig.zig");
 pub const diag = @import("diag.zig");
 const resolve = @import("resolve.zig");
 const typecheck = @import("typecheck.zig");
-const storage = @import("storage.zig");
+const lir = @import("lir.zig");
 const lowering = @import("lower.zig");
 const accounts = @import("accounts.zig");
 const timing = @import("timing.zig");
@@ -1102,7 +1102,7 @@ pub const SymbolFlags = packed struct(u64) {
     unique: bool = false,
     /// A read match's binding of a payload, or the whole value, that is
     /// not plain data, of a subject the match reads as a copy (not
-    /// `storage.matchesInPlace`): usable within its arm only
+    /// `lower.matchesInPlace`): usable within its arm only
     /// (docs/internals/INTERNALS.md, "Header subjects").
     arm_view: bool = false,
     /// A `!T` or `![]T` local assigned a view somewhere
@@ -2507,7 +2507,7 @@ pub const JumpDest = struct {
         /// The loop's step, which runs before the next iteration: a
         /// `continue` from the body of a `while` with a step, or from its
         /// condition when the step is the loop's continue expression
-        /// (`storage.StepPoint`).
+        /// (`lir.StepPoint`).
         step,
         /// The loop's head, the next iteration's condition: a `continue`
         /// in a loop with no step, from a step, or from a condition whose
@@ -3169,10 +3169,10 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
     while (stack.pop()) |n| {
         if (n == .list) try stack.appendSlice(a, n.list.items());
         if (n != .src and !(n == .list and n.list.id != 0)) continue;
-        inline for (@typeInfo(storage.StorageKind).@"enum".field_names) |name| {
-            const kind = @field(storage.StorageKind, name);
+        inline for (@typeInfo(lir.StorageKind).@"enum".field_names) |name| {
+            const kind = @field(lir.StorageKind, name);
             if (kind == .discard) continue;
-            const s: ?struct { by: storage.StorageBy, life: storage.StorageLife } = switch (kind) {
+            const s: ?struct { by: lir.StorageBy, life: lir.StorageLife } = switch (kind) {
                 // A `header_copy` is the header's value, no var of its own.
                 .header_copy => if (ctx.copiesHeader(n)) .{ .by = .copy, .life = .construct } else null,
                 else => if (lowered.varOf(n, kind)) |v| .{ .by = v.by, .life = v.life } else null,
@@ -17420,9 +17420,9 @@ test "storage: a header points at a place its temporaries reach, never into one"
     const points = [_]bool{ true, true, false, false, false, true, false, false, true, false };
     try std.testing.expectEqual(points.len, headers.items.len);
     for (headers.items, points) |h, want| {
-        try std.testing.expectEqual(want, storage.headerPoints(&r.ctx, storage.headerSubject(h)));
+        try std.testing.expectEqual(want, lowering.headerPoints(&r.ctx, lowering.headerSubject(h)));
         try std.testing.expectEqual(!want, r.ctx.copiesHeader(h));
-        if (h.isKind(.match) and storage.matchMode(&r.ctx, h) == .read) try std.testing.expectEqual(want, storage.matchesInPlace(&r.ctx, h));
+        if (h.isKind(.match) and lowering.matchMode(&r.ctx, h) == .read) try std.testing.expectEqual(want, lowering.matchesInPlace(&r.ctx, h));
     }
 }
 

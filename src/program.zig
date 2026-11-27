@@ -22,7 +22,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const modules = @import("modules.zig");
-const storage = @import("storage.zig");
+const lowering = @import("lower.zig");
 const fastmap = @import("fastmap.zig");
 
 const Sexp = parser.Sexp;
@@ -30,7 +30,7 @@ const ir = parser.ir;
 const SemContext = sema.SemContext;
 const TypeId = sema.TypeId;
 const SymbolId = sema.SymbolId;
-const typeOf = storage.typeOf;
+const typeOf = lowering.typeOf;
 
 /// A place in module `module`: a name's position, a node, or a symbol.
 pub const Key = struct { module: u32, at: u32 };

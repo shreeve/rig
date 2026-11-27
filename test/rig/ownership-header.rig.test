@@ -175,7 +175,7 @@ test "header branch points", release: true, '''
 '''
   # A header whose subject branches, each leaf a place, one reached through
   # a statement temporary the header makes (an index), binds the place of
-  # the leaf it takes (`storage.headerPoints`): a write through the binding
+  # the leaf it takes (`lower.headerPoints`): a write through the binding
   # lands there, whichever branch is taken.
 
   obj S
@@ -742,7 +742,7 @@ fail "header place inside temporary", "32:7: this header binds a copy of its sub
   # A header subject that is a place inside a view of a value the header
   # makes (`id(?mk()).e`, `mk().e`) lives in a temporary the header
   # ends, so emit evaluates the header as a copy, never as a pointer into
-  # the temporary (`storage.headerPoints`), and the header is rejected at
+  # the temporary (`lower.headerPoints`), and the header is rejected at
   # the temporary, in every header form, plain data bound or not. Lifting
   # the header rejection (B4b) must keep these rejected: pointing into the
   # header's own temporary reads it after the header drops it (review of
@@ -963,7 +963,7 @@ test "header points through temporary", release: true, '''
   # A header whose subject makes a statement temporary (an index or an
   # argument on the path to a place) and reaches a place outside it is
   # evaluated in a block that ends the temporary and yields the place's
-  # address (`storage.headerPoints`): what `match`, `if … as`,
+  # address (`lower.headerPoints`): what `match`, `if … as`,
   # `while … as`, and `for` bind is the place's own, so a write, a Cell
   # change, and a view through a binding reach the place, after the
   # header's temporary is gone.

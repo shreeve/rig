@@ -5,7 +5,7 @@
 const std = @import("std");
 const parser = @import("../parser.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const Sexp = parser.Sexp;
 const ir = parser.ir;
 const TypeId = sema.TypeId;
@@ -639,11 +639,11 @@ pub fn calledValueType(self: *Checker, node: Sexp, callee: Sexp, field_call: boo
 
 /// `p.f(...)` where `f` is a data field holding a plain function or
 /// an owned closure (not a method): the call has no self
-/// (`storage.hasSelf`), and neither can keep a view of an
+/// (`lower.hasSelf`), and neither can keep a view of an
 /// argument in `p`.
 pub fn callsFunctionField(self: *const Checker, call: Sexp, callee: Sexp) bool {
     const ctx = self.sema;
-    return !storage.isTypeCallee(ctx, ir.Member.object(callee)) and !storage.hasSelf(ctx, call);
+    return !lowering.isTypeCallee(ctx, ir.Member.object(callee)) and !lowering.hasSelf(ctx, call);
 }
 
 /// Whether method call `callee` reaches a built-in table's method

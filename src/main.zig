@@ -24,7 +24,6 @@ const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
-const storage = @import("storage.zig");
 const lower = @import("lower.zig");
 const proofs = @import("proofs.zig");
 const lsp = @import("lsp.zig");

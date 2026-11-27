@@ -235,7 +235,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary. It holds the `Checker`, its context (`Checker.Expect`), the module's walk, declarations, groups, and the checks after it (compatibility, generic requirements, APIs); the rest of the walk is in `src/check/` |
 | `src/check/*.zig` | the expression pass by concern, each a file of functions over `*Checker`: `stmt` (statements, bindings, the check of a statement again in its rewritten form), `flow` (conditions, `if`, loops, jumps), `patterns` (`match`), `expr` (names, operators, literals), `views` (views, loans, temporaries, checking against an expected type), `calls`, `stdforms` (the std forms typed by hand, where the compiler knows std by name), `builtins` (error names, enum literals, list construction, `$`-calls), `closures` |
 | `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
-| `src/storage.zig` | the storage deciders: pure functions of the typing facts that say which hidden storage emit makes, and how, which lowering and emit ask |
+| `src/lower.zig`, `src/lir.zig` | lowering: each body to its LIR ([LIR](#lir)), and the storage deciders, pure functions of the typing facts that say which hidden storage emit makes, and how, which lowering and the checkers ask |
 | `src/ownership.zig`, `src/ownership/` | the ownership checker, one file per part of the Core ([Ownership](#ownership)) |
 | `src/program.zig` | the program table: every decision made once for the whole program after every module is checked (inlined functions and calls, entry checks, dense calls, functions that never return, split units, word-held objects, exact enums' tags, text tables), keyed by module and place, which the graph owns (`ModuleGraph.table`), every module's context points at, and `Facts` reads; `ModuleGraph.decide` runs the deciders in order, and the word-held and exact-enum deciders live here |
 | `src/accounts.zig` | each frame owner's account: the values its frame keeps, its reach, and its operations, counted by one walk of its LIR once the module is lowered |
@@ -1318,9 +1318,9 @@ Core sentence 6). A self that branches views each leaf where it is instead
 holds one is made only under `*` (Core sentence 9, `Checker.cellMadeAway`
 below), so a Cell a temporary reaches is behind a handle, and a marked
 change to it lands in the shared value, never in a statement's slot. A value
-that branches, reached where its leaves are (`storage.reachesLeaf`), is
+that branches, reached where its leaves are (`lower.reachesLeaf`), is
 reached through the address of the leaf it takes, one step at a time
-(`storage.leafStep`, through every branching form inside the value; a
+(`lower.leafStep`, through every branching form inside the value; a
 part of a value made here reaches that value), which emit's
 `emitLeafPtr` and lowering follow step by step. A literal
 leaf (`none`, the one an optional branch may have) is no made value:
@@ -1386,7 +1386,7 @@ operand lives, a call the join over the inputs its recorded origins
 say its result carries, a value made of parts the join of its parts),
 and a value whose type sema does not know, or a call it checked against
 no signature, counts as made. `sema.livesIn` gives where the memory a
-loop's source reads in place lives (`storage.livesIn`), and `sema.madeIn` the made value a message
+loop's source reads in place lives, and `sema.madeIn` the made value a message
 names. Whether the value lives for the whole program is not classified
 yet (Core §9). The list is an
 exhaustive switch over the IR's kinds (`shapeOf`), so a new kind does
@@ -1575,13 +1575,13 @@ itself a view, at the matched instance (`Opt[?T]`'s `v: T`,
 ([Binding access](#binding-access)). (A payload of a
 type parameter is a copy, which each instance must allow; emit binds it
 by pointer where the match reads its subject in place,
-`storage.payloadByAddress`, and copies it out otherwise.)
+`lower.payloadByAddress`, and copies it out otherwise.)
 
 A read match's binding that is no plain data, a payload or the binding
 of a catch-all arm, views the subject where the match reads it, and
 carries the subject's loan as any view does: a view of it may be
 returned, stored, or yielded as the match's value while that loan
-allows. Emit matches such a subject in place (`storage.matchesInPlace`):
+allows. Emit matches such a subject in place (`lower.matchesInPlace`):
 a subject that reaches a place, a guarded match through `__rig_subject`
 holding its address, a header with temporaries through the address its
 block yields, a part of a value the match holds, a view a call returns
@@ -1592,7 +1592,7 @@ copies; one whose type moves or may, a type parameter's included, is
 read in place, so `headerViewsBranch` rejects it, as a view of the
 branch.) Emit captures a payload, or a catch-all's
 value, of a type parameter by pointer there, guarded or not
-(`storage.payloadByAddress`, `storage.catchAllByAddress`), and such a
+(`lower.payloadByAddress`, `lower.catchAllByAddress`), and such a
 binding copies nothing, so it puts no requirement on the instance. One rule
 covers the rest: where a read match matches a copy (not
 `matchesInPlace`), or captures a catch-all's value as a copy, a binding
@@ -1614,7 +1614,7 @@ iteration. Each says to bind the value to a name first.
 A header whose subject makes a statement temporary
 (`sema.firstStmtTemp`, which emit's header blocks use too) is evaluated
 in a block that ends the temporary. When the subject reaches a place
-(`storage.headerPoints`: a place whose path starts at a name, or at a
+(`lower.headerPoints`: a place whose path starts at a name, or at a
 view whose evaluation makes no temporary, its indexes evaluated in the
 block; a view of one held as a pointer; or an `if` value each leaf of
 which is one of those), the block yields the place's address, `(hdr: { slots break :hdr &v.slot(i).*; }).*`, and the
@@ -1700,9 +1700,9 @@ instead of re-deriving it by name:
 | `isMemberTest(node)` | whether `x == K.name` or `x == .name` tests which variant or member `x` holds, so emit tests the tag alone and needs no `==` on the payloads |
 | `isFrozenMake(call)`, `isLocalTask(call)` | whether a call is `Frozen(x)` under `*`, which emit writes as `rig.frozen(x)`; and whether the task a call makes is local, pinned to one thread ([What crosses to a task](#what-crosses-to-a-task)) |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
-| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`lower.Lowerer.headerCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
+| `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`lower.Lowerer.headerCopy`, `lower.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
-| `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?String]` binds a `?String`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `storage.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
+| `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?String]` binds a `?String`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `lower.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
 | `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary viewed for reading or to write. The ownership checker holds it in a hidden var named by its source, that what reads it views (to write, under `!`: `writeViewTemp`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, or, for a temporary lowering found made before anything its statement does can act (`lower.Module.isFlat`: every part before it only reads, and its value changes nothing they read), `slot = value; flag = true;` ahead of the statement, which reads `slot`; and it drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
 | `writesTemp(node)` | whether the node is a temporary viewed for writing, or the value a part viewed for writing starts from (`!mk()`, `!(a if c else b).f`, recorded by `checkWriteView`): its statement's slot is written, so emit reaches it there at every site that views it (`emitMemberBase`), never through a copy |
 | `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or view sigil that is one. Kept beside the table, not in `check --facts=sema` |
@@ -1737,13 +1737,13 @@ the `?String`, and emit writes each as the String's `.bytes()`:
   table, recorded on the view (`readViewOf`);
 - `for x in ?v` over a String element is `for e in ?v` with `x = ?e[..]` in
   the body: the loop walks the elements by address and binds each one's
-  bytes (`storage.bindsStringBytes`, the loop's `element` storage);
+  bytes (`lower.bindsStringBytes`, the loop's `element` storage);
 - a payload binding of a String field, `.full(t)`, is `t = ?payload.t[..]`,
-  bound by address (`viewsStringBytes`, `storage.payloadByAddress`), and
+  bound by address (`viewsStringBytes`, `lower.payloadByAddress`), and
   the ownership checker gives it the `read` ref a view of a field has,
   so it views the matched value (`bindPayload`);
 - `if o as p` over an optional String, or a `(!String)?`, is `p = ?inner[..]`
-  (`storage.bindsStringBytes`, `bindOptionalView`);
+  (`lower.bindsStringBytes`, `bindOptionalView`);
 - a capture `|?t|` of a String is `?t[..]` (`writeCapturedView`);
 - a generic `?T` at `T = String` is `rig.ReadView(rig.String)`, which is
   `[]const u8`; `rig.readView` of a String is its bytes, and what `rig.viewed`
@@ -1866,10 +1866,10 @@ the closure aloud.
 
 **Storage questions.** A few questions about a node that emit,
 lowering, and the checkers all act on are each a pure function of
-the typing facts (`src/storage.zig`), so every pass that asks one gets
+the typing facts (`src/lower.zig`, "The storage deciders"), so every pass that asks one gets
 the same answer. They are `leaf_step`, how the walk that reaches a
-value by address reaches a node (`storage.leafStep`); `reaches_leaf`,
-whether a value is reached where its leaves are (`storage.reachesLeaf`),
+value by address reaches a node (`lower.leafStep`); `reaches_leaf`,
+whether a value is reached where its leaves are (`lower.reachesLeaf`),
 which lowering decides for every expression; and, for each
 `match`, how it reaches its subject (`match_mode`), whether it switches
 on it where it is (`matches_in_place`), reads it again
@@ -2067,27 +2067,27 @@ source order.
 | Kind | Zig name | Made for | By | Life |
 |---|---|---|---|---|
 | `temp` | `__rig_tmp` | an owning temporary its statement or header drops (`dropsTemp`) | owned | statement |
-| `header_value` | `__rig_hdr` | a header that makes temporaries: the block that ends them yields the address of the place a construct's subject reaches (`storage.headerPoints`), or else its value | pointer or copy | header |
+| `header_value` | `__rig_hdr` | a header that makes temporaries: the block that ends them yields the address of the place a construct's subject reaches (`lower.headerPoints`), or else its value | pointer or copy | header |
 | `header_copy` | (the header's value) | a `match`, `for`, or `as` that binds the parts of that value, a copy (`copiesHeader`) | copy | construct |
 | `held` | `__rig_held` | the made value a header's subject is a part of (`Header.held`) | owned | construct |
 | `taken` | `__rig_src` | the array a `for` takes (`Header.taken`) | owned | construct |
 | `iterator`, `element` | `__rig_it`, `__rig_elem` | a consuming `for` | owned | construct, iteration |
 | `range_start`, `range_end` | `__rig_i`, `__rig_end` | a range `for`'s counter and end | owned | construct |
-| `subject` | `__rig_subject` | a `match` that evaluates its subject before its arms, or holds a generic view a call returns (`storage.subjectHold`) | pointer, copy, or owned | construct |
+| `subject` | `__rig_subject` | a `match` that evaluates its subject before its arms, or holds a generic view a call returns (`lower.subjectHold`) | pointer, copy, or owned | construct |
 | `whole`, `payload` | `__rig_whole`, `__rig_payload` | what an arm captures: the value `match <x` takes, or a variant's payload | owned, pointer, or copy | arm |
 | `as_value`, `as_copy` | `__rig_opt`, `__rig_opt_N_v` | what `if … as` or `while … as` captures, and a mutable copy its binding views | pointer, copy, or owned | body |
 | `viewed` | `__rig_viewed` | the value inside an optional a view reaches | pointer | expression |
-| `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`) | pointer | expression |
+| `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`lower.reachesLeaf`) | pointer | expression |
 | `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | owned | handler |
-| `argument`, `self` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `selfHold`, `argumentHold`); a `task.select` evaluates its arms' parts first, in its own block, and an arm none; an actor's handle and an arm's channel are its `self` (`heldSelf`) | owned, copy, or pointer | call; select, for an arm's |
+| `argument`, `self` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`lower.hoistsArgs`, `selfHold`, `argumentHold`); a `task.select` evaluates its arms' parts first, in its own block, and an arm none; an actor's handle and an arm's channel are its `self` (`heldSelf`) | owned, copy, or pointer | call; select, for an arm's |
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal passed to a call as a view, or called where it is written; the callee of a call whose arguments are evaluated first, when it is a value (`pick(k)(...)`, `fs[i](...)`, `b.f(...)`; `heldFirst`) | owned, copy, or pointer | call; select, for an arm's |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
-| `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
+| `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`lower.setOrder`) | owned, pointer, owned, pointer | assignment |
 | `api_object`, `result_place` | `__rig_obj`, `__rig_res` | a call through an API object's table: the object, read once for its table and its value unless a name holds it, and the place a large optional result is written to (`TableEntry.result_out`) | copy, owned | call |
 | `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
-| `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
+| `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`lower.hoistsResults`) | owned | call |
 | `held_header` | `__rig_header` | a parameter holding a write view of a `String`, or of a `List` with no inline room, which the body uses in a loop: its header, held for the body and written back by `defer`, which the parameter's name views (`Lowerer.heldHeaders`); none where a task, a closure, or a `raw` block names the parameter, or the result holds a view | copy | block |
-| `task_record` | `__rig_task` | a fork: the record of a task made by `t = f(x)&`, an assignment written `=` that declares a fresh name in a block, not through an actor's handle, that stays in its maker's frame (`storage.taskStaysInFrame`, `storage.taskRecordIn`). Every later naming of `t` in the block is the task of `>t`, the self of `<t.cancel()`, or a read view `?t`, outside every closure, so its drop, which waits, runs before the block ends; any other naming (a move, `return`, a `Tasks` add, a stored field, a closure's capture, an assignment) keeps it off, as does a record (header, arguments, and result) over `max_frame_task_bytes`, 1 KiB. The record counts in the frame (`accounts.count`, from the `task_record` var); emit makes it in the slot, `var __rig_task_N = rig.Task(T).frame.spawn(f, .{ x })`, which records the fork on its fiber (`Fiber.fork`), and the binding starts it there, `t = __rig_task_N.start()` (`sched.startAt`) | owned | block |
+| `task_record` | `__rig_task` | a fork: the record of a task made by `t = f(x)&`, an assignment written `=` that declares a fresh name in a block, not through an actor's handle, that stays in its maker's frame (`lower.taskRecordIn`). Every later naming of `t` in the block is the task of `>t`, the self of `<t.cancel()`, or a read view `?t`, outside every closure, so its drop, which waits, runs before the block ends; any other naming (a move, `return`, a `Tasks` add, a stored field, a closure's capture, an assignment) keeps it off, as does a record (header, arguments, and result) over `max_frame_task_bytes`, 1 KiB. The record counts in the frame (`accounts.count`, from the `task_record` var); emit makes it in the slot, `var __rig_task_N = rig.Task(T).frame.spawn(f, .{ x })`, which records the fork on its fiber (`Fiber.fork`), and the binding starts it there, `t = __rig_task_N.start()` (`sched.startAt`) | owned | block |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array passed to a call as a view that evaluates its arguments where they stand (`viewsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
@@ -2104,7 +2104,7 @@ base, an assignment's new value, an argument or self a call holds
 in its slot), and the value of `_ = e` or `<e`, a `discard`, which is
 not storage and has no name. Each parameter, local, and capture has a
 var of its own (`lower.Module.bindingOf(sym)`): its `drop`
-(`storage.bindingDrop`), which gives it `var` storage and a drop guard
+(`lower.bindingDrop`), which gives it `var` storage and a drop guard
 of that kind, and which the ownership checker asserts, in self-check
 builds, it treats as owning exactly when set; and its `flag`, set when
 a use may move it out (`SemContext.moved`, which `lower.markMoved`
@@ -2155,8 +2155,9 @@ a read view of a word-sized object is the object's own optional, routed
 through the helpers as it is (`sema.optionalRouted`), since the view is
 the object.
 
-The predicates that decide where emit makes storage are in
-`src/storage.zig`, and emit asks the same ones. How storage holds its
+The predicates that decide where emit makes storage are lowering's
+storage deciders (`src/lower.zig`), and emit reads what lowering
+recorded from them. How storage holds its
 value is decided apart from how emit writes it: an argument viewed as the
 view its parameter expects (`viewOf`) is held as that view, `pointer`,
 as is one whose parameter is a view held as a pointer, and emit gives
@@ -2340,7 +2341,7 @@ unit u  ==>  prove every check in u from E - K(u); then add u's facts
 where `E` is the facts at `u`'s entry and `K(u)` every write anywhere in
 `u` (nested units, closure literals, and `defer`s registered in it
 included), but an assignment's own store, which follows every other step
-of the assignment (`storage.eachSetStep`). Inside a unit nothing is
+of the assignment (`lower.eachSetStep`). Inside a unit nothing is
 ordered: whatever order emit picks for its parts (an assignment's steps,
 a held self or argument, a hoisted value), every write it runs is in
 `K(u)`, and no fact `u` makes is visible to its own checks. A unit
@@ -2446,7 +2447,7 @@ a fact emit and the ownership checker read too:
 | `if` | the guard parts in order, each from the true edge of the one before (`rig.eachGuardPart`, `rig.eachGuardOperand`); `then` from the last one's; `else` from `E - K(condition)`; after it, `E - K(if)` |
 | `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant, and `i`'s `nonneg(i)` and `below(i, k, b)` from `E` when every write of `i` in the loop is `i = e & m` with one mask `m` that holds in `L` (the `below` with no more room than `m` has in `L`, or 1 for `s.len - 1`): each write makes them again, and the loop writes neither `m` nor `b`; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; after it, `E - K(loop)` |
 | `for` | the source unit; then `L` as for `while`, a masked `i` kept as there, the body from `L`; a `for` binding of `lo..hi` gets `nonneg(k)` when `lo` is a literal or a binding with `nonneg`, and `below(k, 1, b)` when `hi` is a bound `b` the loop writes nothing of (`below(k, 0, b)` for `lo..=hi`; emit reads both ends once, before the first iteration), or `b / c` with a literal `c >= 1` and `b` a length or `lo` a literal (`lo..hi` only: `b / c <= b` for `b >= 0`, and a body that runs has `0 <= k < b / c`, so `b > 0`; `k <= -1 / 2` holds at `k = 0`); any other `for` binding gets no facts |
-| statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`storage.matchRereads`) proves nothing; after it, `E - K(match)` |
+| statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`lower.matchRereads`) proves nothing; after it, `E - K(match)` |
 | `break`, `continue` | carries the facts where it runs, less what every pending `defer` of the body writes, to where its `JumpDest` goes; only a step joins them (a head starts from `L`, an exit from the join after the loop) |
 | `return`, a failing `e!` or `e?` | leaves the body, carrying nothing; after a `return`, `break`, `continue`, or `panic` statement nothing is reached |
 | `raw` | opaque: nothing in it is proven, no fact outlives it, and a jump out of it carries none |
@@ -2620,12 +2621,12 @@ makes or copies (`Walker.copy`): every expression but, by a
 positive list (`copiedIn`), a callee, an assignment's target, one viewed
 where it is used, a part held in a var first (counted once, where the
 var is read), and the base of a field or element path or the operand
-of a view that is storage (`storage.hasStorage`) or reached where its
-leaf is (`storage.reachesLeaf`). A `match`'s patterns make no value and
+of a view that is storage (`lower.hasStorage`) or reached where its
+leaf is (`lower.reachesLeaf`). A `match`'s patterns make no value and
 count nothing. A self a method takes by value
 counts again, and a view its context reads through (`readsThrough`)
 counts at the size of what it views. A fill built in place
-(`storage.fillsInPlace`) is neither a temporary nor a copy. Code Zig
+(`lower.fillsInPlace`) is neither a temporary nor a copy. Code Zig
 writes more than once counts once for each copy: a `defer` or
 `errdefer` body at every exit after it in its block (`return`, `!`,
 `?`, `break`, `continue`) and at the block's end (`deferBody`), and an
@@ -3003,7 +3004,7 @@ runtime function with value arguments, or the existing `read` and
 | `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), @splat(x)))` |
 | `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), a))` |
 | `v +% w`, `v & w`, `v == w`, `v < w`; `+`, `-`, `*`, `-v` of float lanes | the Zig operator, lane by lane; a comparison's lanes become a mask through `rig.mask(v == w)` |
-| `v + w`, `v - w`, `v * w`, `-v` of integer lanes, and `+=`, `-=`, `*=` | `rig.vecAdd(v, w)`, `rig.vecSub(v, w)`, `rig.vecMul(v, w)`, `rig.vecNeg(v)` (`storage.laneChecked`): the wrapped lanes, and a panic when any lane overflows, found by lane comparisons (`r < v` unsigned, sign tests signed, the product in lanes twice as wide) with no overflow intrinsic, whose flags LLVM computes wrong on aarch64 for 32 and 64 byte lanes. Every Rig build keeps runtime safety on; the runtime's Zig built with it off (its own unit tests, in Zig's fast mode) takes the plain Zig operator, as it does for a scalar |
+| `v + w`, `v - w`, `v * w`, `-v` of integer lanes, and `+=`, `-=`, `*=` | `rig.vecAdd(v, w)`, `rig.vecSub(v, w)`, `rig.vecMul(v, w)`, `rig.vecNeg(v)` (`lower.laneChecked`): the wrapped lanes, and a panic when any lane overflows, found by lane comparisons (`r < v` unsigned, sign tests signed, the product in lanes twice as wide) with no overflow intrinsic, whose flags LLVM computes wrong on aarch64 for 32 and 64 byte lanes. Every Rig build keeps runtime safety on; the runtime's Zig built with it off (its own unit tests, in Zig's fast mode) takes the plain Zig operator, as it does for a scalar |
 | `m & k`, `m \| k`, `m ^ k`, `m == k`, `m != k` of masks, and their compound forms | `rig.maskAnd(m, k)`, `rig.maskOr`, `rig.maskXor`, `rig.maskEq`, `rig.maskNe` |
 | `v +\| w`, `v -\| w` | `rig.vecAddSat(v, w)`, `rig.vecSubSat(v, w)`: Zig's `+\|` and `-\|` where LLVM builds the code; elsewhere the wrapped lanes, corrected where one overflowed (Zig's own x86 backend saturates `I32` lanes wrong without AVX) |
 | `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic (with runtime safety off, `vecShl` is `vecShlWrap`) |
@@ -3668,7 +3669,7 @@ one), whose root stays viewed while a payload binding views it (viewed
 to write for `match !x`, whose bindings write through like a local
 write view); moving a payload out of a match that reads its subject
 is rejected. A subject that is no place and that the match reads
-without taking it (`storage.matchMode`), a view a call returns, a
+without taking it (`lower.matchMode`), a view a call returns, a
 branching value, or a part of either, is viewed the same way: a binding
 that is not a view by its type does not own what it binds
 (`Var.payload_view`), so a generic body that gives away a `T` bound so
@@ -4008,7 +4009,7 @@ decides a binding's mode another way (a unit test checks the sources):
 - **Emit** binds a `.read` binding of a write view, a match's payload
   or an `as` binding's value inside, as the read view of what it views:
   the write view itself, or the value it points at, copied out, for a
-  scalar or a view (`storage.throughWrite`, a decision about the `as`).
+  scalar or a view (`lower.throughWrite`, a decision about the `as`).
 - **Diagnostics** of a write through a read binding name the binding
   that writes (`readMatchHint`): `match !e`, `if !o as x`, a branch viewed
   to write, `if !o as x` for `o?`, or, for a part of a value made in the
@@ -4380,7 +4381,7 @@ result, as one result is discarded.
 **Emit.** The results are a Zig tuple, `@Tuple(&.{ A, B })`; `return
 a, b` is `return .{ a, b }`, each part written as one result is
 (`emitResultValue`). When a later part can leave after an earlier one
-that owns (`storage.hoistsResults`), each part is made first into
+that owns (`lower.hoistsResults`), each part is made first into
 `__rig_arg_N_i`, an owned one guarded by a flag, so the way out drops it
 (`emitHoistedResults`); Zig's own tuple would lose it. A destructure is
 `const __rig_res_N = f(x);` and then each binding, whose value is
@@ -4423,7 +4424,7 @@ L_res: {                         // the loop's block: what its header holds, a `
 | `break`, `break x` | joined after the loop; `x`, a `loop`'s value, consumed like a returned value | `break :L_res x`, or `break :L` when the loop gives no value |
 
 **Where the step runs** is the decision `step_point`
-(`storage.stepPoint`, read by emit as `Facts.stepPoint`): `after_body`
+(`lower.stepPoint`, read by emit as `Facts.stepPoint`): `after_body`
 when the step reads a binding of the condition, so it runs in the
 bindings' scope, and `continue_expr` otherwise. A step reads a binding
 when a name in it is the binding or a closure's capture of it
@@ -4441,7 +4442,7 @@ checker walks it before `walkLoop`.
 **A fold.** A `for` over a List or a slice of integers of at most 64
 bits whose body is only `s OP= x`, where `x` is the element, `s` a
 local of its type, and `OP` the checked or the wrapping `+`, `^`, `|`,
-or `&`, is a fold: the decision `fold` (`storage.fold`, read by emit as
+or `&`, is a fold: the decision `fold` (`lower.fold`, read by emit as
 `Facts.fold`), asked by lowering. Emit writes it as one call,
 `s = rig.fold(.add, s, xs, &turns)`, a vector loop: Zig 0.17 runs LLVM
 with its loop vectorizer off ([Known Zig 0.17 issues](#known-zig-017-issues-rig-works-around)),
@@ -4819,7 +4820,7 @@ is one desugaring, which the checker walks (`walkSet`) and emit writes
 place op= value   ==>   { __v = value; __b = base; __i1 = i1; ... __in = in; place(__b, __i1..__in) op= __v }
 ```
 
-Its steps, in the order they run, are one list, `storage.eachSetStep`:
+Its steps, in the order they run, are one list, `lower.eachSetStep`:
 the value; then the target's base, the value its path of fields and
 elements starts from (a name, a view `(!h)`, a call `pick(!t, !i)`, a
 method's result `(!p).at(!i)`, a propagation `get(!h)?`, a branch
@@ -4828,7 +4829,7 @@ a range's bounds left to right. A target that is a name has no steps.
 The store comes last: it finds the place through the base and indexes
 as they were evaluated, and stores.
 
-A target assigned through (`storage.assignedThrough`) has no field or
+A target assigned through (`lower.assignedThrough`) has no field or
 element on its path, so it is its own base: a call that returns a
 write view `!T`, or that call's `!` or `?`. Typecheck admits no other
 (`assignThroughCall`): `?` or `!` around anything but a call is no
@@ -4860,12 +4861,12 @@ temporary the value makes outside its nested scopes (`mk(5).n`) belongs
 to the assignment's statement, as every statement's temporaries do, so
 it lives until after the store: `__v = value;` does not end it.
 
-**The fact: `SetOrder`** (`storage.setOrder`, the decision `set_order`,
+**The fact: `SetOrder`** (`lower.setOrder`, the decision `set_order`,
 read by emit as `Facts.setOrder`). Which steps emit evaluates into
 storage in their turn is decided once per assignment, from the steps
 and three positive lists:
 
-- `held`: the value or an index can act (`storage.setActs`: a call, an
+- `held`: the value or an index can act (`lower.setActs`: a call, an
   assignment, a drop, `return`, `break`, `continue`, `!`, or `?` in it,
   outside the closures it holds), or the base can and the value is not
   pure (`isPureArg`). Then the value is made into `__rig_new_N` unless
@@ -4978,7 +4979,7 @@ type it writes is spelled from a sema `TypeId`. A construct it cannot
 lower is an internal error: sema must have rejected it.
 
 Emit reads sema through `Facts` (`src/facts.zig`), and imports neither
-`sema.zig` nor `storage.zig`, so the classifiers there are out of its
+`sema.zig` nor `lower.zig`, so the classifiers there are out of its
 reach: every decision that affects ownership or memory is made before
 emit runs, recorded, and read. `Facts` offers the facts table, the
 storage facts, and the questions about a type whose answer is how its
@@ -5061,7 +5062,7 @@ that is a recorded fact.
   compares them, is renamed to a name of the emitter's,
   `__rig_local_x_3`, which no later name of the program's can be.
 - **Bindings** are `const` unless reassigned, written through, owning
-  what they hold (their var's `drop`, `storage.bindingDrop`), or
+  what they hold (their var's `drop`, `lower.bindingDrop`), or
   initialized by a compile-time-known value, which Zig would fold. A
   binding holds its value, a pointer, or the address of the place it
   views as the plan decided (`bind_hold`).
@@ -5270,7 +5271,7 @@ that is a recorded fact.
   `/` on a `T` is `rig.div`, and the operators sema's requirements allow.
 - **Calls.** Whether a call passes a self as its first parameter
   is read from the parameters it fills (`callParamsOf`,
-  `storage.hasSelf`), by emit, the storage facts, and the ownership
+  `lower.hasSelf`), by emit, the storage facts, and the ownership
   checker alike: `value.method(...)` does, and `Type.f(...)`,
   `module.f(...)`, and a callable a field holds, `s.cb(...)`, do not.
   Arguments are evaluated in source order, into temporaries
@@ -5278,7 +5279,7 @@ that is a recorded fact.
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
   guarded `defer` then drops. Every value built of several parts in
-  order follows the one rule, `storage.leavesAfterOwned`: a call's
+  order follows the one rule, `lower.leavesAfterOwned`: a call's
   arguments, an array literal's elements (`emitHoistedArray`, a block
   that makes each element into `__rig_arg_N_i` and builds the array of
   them last), and the parts of `return a, b` (`hoistsResults`). The
@@ -5564,7 +5565,7 @@ that is a recorded fact.
   are declared: `f(b: e2, a: e1)` is `{ b = e2; a = e1; f(a, b) }`,
   written `{ a1 = <first written>; a2 = <second written>; f(<declared
   order>) }`. What the call evaluates before its arguments comes
-  first in that block (`storage.heldFirst`, `selfHold`): a method's
+  first in that block (`lower.heldFirst`, `selfHold`): a method's
   self, an actor's handle, a select arm's channel, or a callee that is
   a value. A callee that copies (a function value, also one a local or
   a field path holds) is copied in its turn, as plain data is read,
@@ -5601,7 +5602,7 @@ that is a recorded fact.
   (`swap`, a write slice, a hoisted self): every one reads
   the fact `writesTemp`. A header subject with temporaries that reaches a
   place is reached through the address its block yields
-  (`storage.headerPoints`), never a copy of the block's value. A `match`
+  (`lower.headerPoints`), never a copy of the block's value. A `match`
   on a generic read view a name holds switches on
   `rig.viewedPtr(T, &v).*`, as does one on a generic read view a field
   or an element on the subject's path holds (`rig.viewedPtr(T, &w.r).*`),
@@ -5682,7 +5683,7 @@ that is a recorded fact.
   it. An arm of `task.select` keeps its `FnRef` until the select runs
   it, so the select's block holds every arm's parts (their life is
   `select`): in each arm's turn, its channel (held as a call's self is,
-  `storage.heldSelf`), then its arguments; and the ownership checker
+  `lower.heldSelf`), then its arguments; and the ownership checker
   holds an arm's loans until the select returns. Sema records which
   expressions are viewed this way (`SemContext.viewOf`, the `callable`
   row). A select of named arms (`task.select(got: !a.on_recv(), late:
@@ -6864,7 +6865,7 @@ from memory, as fast as LLVM's loop vectorizer makes it. It is for this
 release too; on Zig 0.18, check whether the plain loops vectorize, the
 checked sum included (its overflow check leaves the loop early), and
 remove the fold if they do, in one step: the question `fold`,
-`storage.decideFold`, `Emitter.emitFold`, and `runtime.fold`.
+`lower.decideFold`, `Emitter.emitFold`, and `runtime.fold`.
 
 Re-enabling the vectorizer for Rig's programs is not safe on 0.17: Zig
 0.17's LLVM 22.1.8 lacks the LAA fix
