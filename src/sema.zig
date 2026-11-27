@@ -2706,7 +2706,8 @@ pub const ElemOp = enum {
     /// or a List of numbers added in order to `start`, `0` by default.
     sum,
     /// `xs.prefetch(i)`: a hint that element `i` of a slice, an array, or
-    /// a List will be read soon, which a program cannot see, for any `i`.
+    /// a List, or byte `i` of text, will be read soon, which a program
+    /// cannot see, for any `i`.
     prefetch,
 
     /// Whether the method is one of a single integer's bits (`bitCall`),
