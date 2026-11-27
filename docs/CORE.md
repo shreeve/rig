@@ -432,7 +432,10 @@ view of it,** wherever that view went: a field, an array, an optional,
 a closure, a result. Dropping a value uses the views it holds only when
 its drop runs a `drop` body, which could read them, so the views a
 `List[[]Int]` holds end at its last use, not where it is dropped.
-*(built)*
+When a value's drop runs a `drop` body, its own or one of a value it
+holds, that drop is the last use of every view the value holds: where
+an assignment replaces the value, after the new value is made (§6),
+where its scope ends, or where its statement ends (§3). *(built)*
 
 ```rig reject
 sub main()
@@ -477,6 +480,24 @@ sub main()
 
 ```error
 cannot assign to `a[0]` while a read view of `a` is still in use
+```
+
+```rig reject
+obj Guard
+  s: ?String
+
+  drop(!@)
+    print(@s)
+
+sub main()
+  b = String("old")
+  a = Guard(s: ?b)
+  b = String("new")
+  a = Guard(s: ?b)
+```
+
+```error
+cannot reassign `b` while a read view of it is still in use
 ```
 
 **7. A call passes on only the views its signature shows.** A function
@@ -788,9 +809,9 @@ until then only when its drop runs a `drop` body (sentence 6). Each
 result counts as the views its own type could hold, so a `Bool` beside
 a view counts as none, and a result may be a write view, as `-> !T` is,
 beside results whose types could view nothing it views (sentence 5).
-When no result holds a write view, every write view passed to the call
-ends as it returns, as for one result. *(built; two write-view results are
-planned)*
+A write view passed to the call that no result counts as a view of, and
+that the call does not keep, ends as the call returns, as for one
+result. *(built; two write-view results are planned)*
 
 ```rig
 obj Counter
@@ -1165,11 +1186,40 @@ b)` moves nothing.
 no name: a call's result, a constructor, `+x`, or a block or `match`
 value. Its statement is its scope, so it is a *temporary*, dropped when
 the statement ends, the last made first, also when the statement fails
-or leaves early. A temporary may be given a read view or a write view
-(sentence 4), and a view of it may be used only within its statement. A value
-made to be called (`(+h.f)(x)`) is a temporary too *(planned)*, and so
+or leaves early. A statement that a failure or a jump leaves ends there,
+before the defers of the scopes the exit leaves run: its temporaries
+drop, and a view made for an operation that never runs, as `!v` is in
+`f(!v, g()!)`, has had its last use. What the exit carries, a returned
+or `break` value, lives while those defers run (§7). A temporary may be
+given a read view or a write view (sentence 4), and a view of it may be
+used only within its statement. A value made to be called (`(+h.f)(x)`) is a temporary too *(planned)*, and so
 is a template where a `?String` is expected, built in 256 bytes of the
 statement's stack, then on the heap.
+
+```rig
+error E
+  bad
+
+fun num(ok: Bool) -> Int!
+  return E.bad if not ok
+  1
+
+fun total(a: []Int, n: Int) -> Int
+  a.len + n
+
+fun work(nums: !List[Int], ok: Bool) -> Int!
+  errdefer !nums.push(0)
+  total(?nums[..], num(ok)!)
+
+sub main()
+  v: List[Int] = List()
+  n = work(!v, false) catch -1
+  print(n, v.len)
+```
+
+```output
+-1 1
+```
 
 **Headers are their own statements:** an `if` or `while` condition, a
 guard, and the subject of a `match` or `for`. A header's temporaries
@@ -1366,7 +1416,10 @@ A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
 copy limits nothing but what the views it holds limit, as with a call's
 `?Int` result. `a ?? b` is `v` when `a` holds a view `v`, and `b`
-otherwise; `a catch b` is the same over a failure (§8). So when `b` is
+otherwise; `a catch b` is the same over a failure (§8). Where `b` runs,
+`a` holds nothing, so the views it carried, and only those, have had
+their last use there: `w = pick(!v) ?? !v` works, and a view of the same
+place that another part of the statement holds stays in use. When `b` is
 a `T`, the type the view sees, `v` is copied out to match it, as above:
 `m.get(k) ?? 0` is an `Int`, and `m` stays free to change. A fallback
 that is a view or a jump leaves the view, and so does `none` where an
@@ -1397,6 +1450,44 @@ sub main()
 
 ```error
 only a value that copies is copied out of a view, and a `String` owns a resource: make the fallback a view, so the result is one, and clone that for a `String` of its own: `+(m.get("a") ?? ?String("none"))`
+```
+
+```rig
+fun pick(v: !List[Int], ok: Bool) -> (!List[Int])?
+  return none if not ok
+  !v
+
+sub main()
+  v: List[Int] = List()
+  w = pick(!v, false) ?? !v
+  !w.push(3)
+  print(v.len)
+```
+
+```output
+1
+```
+
+```rig reject
+fun pick(v: []Int, ok: Bool) -> ([]Int)?
+  return none if not ok
+  v
+
+fun grow(v: !List[Int]) -> []Int
+  !v.push(2)
+  ?v[..]
+
+fun both(a: []Int, b: []Int) -> Int
+  a.len + b.len
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  print(both(?v[..], pick(?v[..], false) ?? grow(!v)))
+```
+
+```error
+cannot change `v` while a read view of it is still in use
 ```
 
 A slice `x[a..b]` is the same view, of
@@ -2044,9 +2135,10 @@ write view of `m`; and
 
 ## 6. Bindings and assignment
 
-**Evaluation order.** `x = e` evaluates `e` first, then the indexes in
-`x` from left to right, then finds `x`'s place, then stores. This
-matches Rust for `=`. *(built)*
+**Evaluation order.** `x = e` evaluates `e`, then the indexes in `x`
+from left to right, then finds `x`'s place, then drops the value the
+place held, then stores. `x op= e` is `x = e` with `x` read just before
+the store. This matches Rust for `=`. *(built)*
 
 ```rig
 fun next(i: !Int) -> Int
@@ -2064,11 +2156,12 @@ sub main()
 [0, 1, 0]
 ```
 
-A call evaluates its self and arguments left to right, then runs; an
-operator evaluates its operands left to right, then yields. Plain data
-read as a value (an operand, a field or element read, an argument to a
-parameter of a plain type) is copied where it stands, through a view
-too, and keeps nothing limited there. Whatever else an earlier argument
+A call evaluates its self, then its arguments in the order the call
+writes them, never the parameters' order, named or positional, fallible
+or not; then it runs. An operator evaluates its operands left to right,
+then yields. Plain data read as a value (an operand, a field or element
+read, an argument to a parameter of a plain type) is copied where it
+stands, through a view too, and keeps nothing limited there. Whatever else an earlier argument
 or operand hands over (a view, which `print` and `String` arguments are;
 a value that shares storage its place owns; what a write view reaches)
 stays read-only until the call returns or the operator yields, so a
@@ -2101,6 +2194,25 @@ sub main()
 
 ```error
 while an earlier argument's read of it is still in use
+```
+
+```rig
+fun bump(v: !List[Int]) -> Int
+  !v.push(9)
+  0
+
+fun f(a: Int, b: Int) -> Int
+  a + b
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  r =! ?v[0]
+  print(f(b: r, a: bump(!v)))
+```
+
+```output
+1
 ```
 
 A field copied out of a view keeps nothing limited, so the view's last
@@ -2326,7 +2438,11 @@ sub main()
 
 **Defer.** `defer` and `errdefer` run where their scope ends. They may
 read and write what is live there; they never keep a view in use past it.
-What their scope gives back is live while they run. No failure leaves
+What their scope gives back is live while they run. What leaves their
+scope, its value or a `return` or `break` value, is live while they
+run, with every view it holds, a write view included, so the place it
+views stays read-only or unusable (sentence 6) until the last of them
+ends. No failure leaves
 one: a fallible call in it is caught there, so the error a failing
 scope is leaving with is never replaced. *(built)*
 
@@ -2339,6 +2455,20 @@ sub main()
 ```output
 first
 last
+```
+
+```rig reject
+sub main()
+  xs: List[Int] = List()
+  !xs.push(5)
+  r = loop
+    defer xs = List()
+    break ?xs[0]
+  print(r)
+```
+
+```error
+cannot reassign `xs` while a read view of it is still in use
 ```
 
 ## 8. Outside the core: syntax, not ownership

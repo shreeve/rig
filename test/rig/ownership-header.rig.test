@@ -175,7 +175,7 @@ test "header branch points", release: true, '''
 '''
   # A header whose subject branches, each leaf a place, one reached through
   # a statement temporary the header makes (an index), binds the place of
-  # the leaf it takes (`storage.headerPoints`): a write through the binding
+  # the leaf it takes (`lower.headerPoints`): a write through the binding
   # lands there, whichever branch is taken.
 
   obj S
@@ -742,7 +742,7 @@ fail "header place inside temporary", "32:7: this header binds a copy of its sub
   # A header subject that is a place inside a view of a value the header
   # makes (`id(?mk()).e`, `mk().e`) lives in a temporary the header
   # ends, so emit evaluates the header as a copy, never as a pointer into
-  # the temporary (`storage.headerPoints`), and the header is rejected at
+  # the temporary (`lower.headerPoints`), and the header is rejected at
   # the temporary, in every header form, plain data bound or not. Lifting
   # the header rejection (B4b) must keep these rejected: pointing into the
   # header's own temporary reads it after the header drops it (review of
@@ -963,7 +963,7 @@ test "header points through temporary", release: true, '''
   # A header whose subject makes a statement temporary (an index or an
   # argument on the path to a place) and reaches a place outside it is
   # evaluated in a block that ends the temporary and yields the place's
-  # address (`storage.headerPoints`): what `match`, `if … as`,
+  # address (`lower.headerPoints`): what `match`, `if … as`,
   # `while … as`, and `for` bind is the place's own, so a write, a Cell
   # change, and a view through a binding reach the place, after the
   # header's temporary is gone.
@@ -1667,6 +1667,42 @@ fail "header temporary rejected", "36:5: this header binds a copy of its subject
   if opt(?String("abc")) as p
     print(p.x)
 
+fail "header copy after a type error", "type mismatch: expected `Int`, got `Static`", errors: 1
+  # Whether a header binds a copy of its subject is lowering's decision,
+  # and a module with a type error is not lowered: the headers that would
+  # bind a copy are not reported with it.
+
+  enum E
+    a(xs: [4]Int)
+    b
+
+  obj P
+    x: Int
+
+  obj H
+    e: E
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun opt(n: ?String) -> P?
+    if n.len > 0
+      return P(x: n.len)
+    none
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(xs: [n, n, n, n]))
+
+  if ?opt(?String("abc")) as p
+    print(p.x)
+  match mkh(4).e
+    .a(xs) => print(xs[0])
+    .b => pass
+  for x in [[1, 2], [3, 4]][idx(?String("ab"))]
+    print(x)
+  n: Int = "a"
+  print(n)
+
 fail "header temporary view bound", "20:5: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first", "22:8: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first", "25:8: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mke()` to a name first", errors: 3
   # What `if … as`, `while … as`, or `match` binds lives through the
   # body, past its header, so it may not view a temporary the header
@@ -1815,3 +1851,57 @@ fail "header ternary view outlives the place it views", "11:6: `r` does not live
   o = Res(n: 0, s: String("z"))
   v = ?r if make(1) as r else ?o
   print(v.n)
+
+test "header over a view of an optional beside a temporary", '''
+  6
+  u
+  6
+  u
+'''
+  # `if pick(!h, ?mk()) as t` over a view of an optional held by address,
+  # where the header makes a temporary (`?mk()`), binds the value inside
+  # the optional, which the view reaches in `h`.
+  obj X
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+    e: Int
+
+  obj B
+    o: X?
+
+  fun mk() -> B
+    B(o: X(a: 1, b: 2, c: 3, d: 4, e: 5))
+
+  fun pick(b: !B, k: ?B) -> !(X?) from b
+    !b.o
+
+  fun peek(b: ?B, k: ?B) -> ?(X?) from b
+    ?b.o
+
+  h = mk()
+  if pick(!h, ?mk()) as t
+    print(t.a + t.e)
+  if pick(!h, ?mk()) as _
+    print("u")
+  if peek(?h, ?mk()) as t
+    print(t.a + t.e)
+  if peek(?h, ?mk()) as _
+    print("u")
+
+test "header over a branch of write views of a String", '''
+  3 bc
+  3 bc
+'''
+  # `if (?a if c else ?b) as t`, a branch of views of `(!String)?`, binds
+  # the String's bytes where `t` is only read.
+  s1 = String("abc")
+  s2 = String("wxyz")
+  a: (!String)? = !s1
+  b: (!String)? = !s2
+  c = true
+  if (?a if c else ?b) as t
+    print(t.len, t[1..])
+  if (!a if c else !b) as u
+    print(u.len, u[1..])

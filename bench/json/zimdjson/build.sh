@@ -13,7 +13,7 @@ if [ ! -d upstream/.git ]; then
   git -C upstream checkout --detach aa22af403d769fb8c70c6c529389b1977f5cd558
   git -C upstream apply "$W/zig-0.17.patch"
 fi
-zig build-exe $O -j"${CPUQ_CORES:-2}" \
+zig build-exe $O -j"2" \
   --cache-dir "$W/.zc" --global-cache-dir "$W/.zgc" \
   --dep zimdjson --dep cfg -Mroot=bench.zig \
   --dep build_options -Mzimdjson=upstream/src/zimdjson.zig \

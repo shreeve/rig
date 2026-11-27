@@ -1986,3 +1986,34 @@ bomb "simd module constant as a field default overflows when the program runs", 
     b = Box()
     print(b.v)
     print(b.v + b.v)
+
+test "simd mask as an array", '''
+  [false, false, true, true] true
+  [1, 2, 3, 4]
+'''
+  # `m.array()` of a mask gives its lanes as `[n]Bool`; of a vector of
+  # numbers, `[n]T`.
+  v = Simd[U8, 4]([1, 2, 3, 4])
+  m = v > 2
+  a = m.array()
+  print(a, a[2])
+  print(v.array())
+
+test "simd module constant of another module as a field default", "[1, 1, 7, 1]"
+  # A field's default may name a vector constant of an imported module:
+  # Zig reads the value the constant was made from, in that module.
+
+  use lib
+
+  obj Box
+    v: lib.Quad = lib.ONES
+
+  sub main()
+    b = Box()
+    b.v = b.v.with(2, 7)
+    print(b.v)
+
+  file "lib.rig"
+    pub type Quad = Simd[U8, 4]
+
+    pub ONES = Quad.splat(1)

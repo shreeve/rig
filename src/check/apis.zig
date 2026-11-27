@@ -328,7 +328,7 @@ pub fn builtinMember(ctx: *SemContext, ty: TypeId, name: []const u8) bool {
     const t = ctx.types.get(ty);
     const has_len = switch (t) {
         .array, .slice, .string_view, .static, .string => true,
-        .parameterized_nominal => CompatCheck.listElementType(ctx, ty) != null or CompatCheck.cellListElement(ctx, ty) != null,
+        .parameterized_nominal => sema.listElem(ctx, ty) != null or CompatCheck.cellListElement(ctx, ty) != null,
         else => false,
     };
     if (has_len and (std.mem.eql(u8, name, "len") or std.mem.eql(u8, name, "is_empty"))) return true;

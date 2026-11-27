@@ -2,7 +2,7 @@
 //!
 //! The lowered IR holds what the typed tree leaves implicit: the order
 //! a function's parts are evaluated in, the hidden vars that hold its
-//! values (each a kind of `storage.StorageKind`), the
+//! values (each a kind of `StorageKind`), the
 //! bindings and how each drops, and which region declares each var, so
 //! how long it lives. Control flow stays structured, as Zig needs it:
 //! regions nest, and a region yields a value where an expression needs
@@ -14,10 +14,10 @@
 
 const std = @import("std");
 const parser = @import("parser.zig");
-const storage = @import("storage.zig");
 const sema = @import("sema.zig");
 const diag = @import("diag.zig");
 const rig = @import("rig.zig");
+const self_check = @import("build_options").self_check;
 
 const Sexp = parser.Sexp;
 
@@ -33,8 +33,8 @@ pub const Var = struct {
     node: Sexp,
     name: Name,
     /// How a hidden var holds its value, and for how long.
-    by: storage.StorageBy = .owned,
-    life: storage.StorageLife = .block,
+    by: StorageBy = .owned,
+    life: StorageLife = .block,
     /// How it drops the value it holds, or null when it owns nothing to
     /// drop.
     drop: ?sema.ResourceKind = null,
@@ -42,10 +42,15 @@ pub const Var = struct {
     parts: []const ?sema.ResourceKind = &.{},
     /// A binding a use may move out: its drop is armed behind a flag.
     flag: bool = false,
+    /// A binding of a `match` arm's pattern, its catch-all name or a
+    /// payload, that holds the address of what it binds
+    /// (`lower.catchAllCaptured`, `lower.bindsByAddress`); emit's
+    /// lowering decides it.
+    by_address: bool = false,
 
     pub const Name = union(enum) {
         binding: sema.SymbolId,
-        hidden: storage.StorageKind,
+        hidden: StorageKind,
     };
 };
 
@@ -72,24 +77,307 @@ pub const Expr = union(enum) {
     /// module), and the values its captures take, made here.
     closure: struct { node: Sexp, owner: u32, captures: []const ExprId },
     /// `value`, the value of `node`, made the type its context takes:
-    /// `how`, one of the node's coercions (`lower.Module.Coerced`).
+    /// `how`, one of the node's coercions (`lower.Module.Chain`).
     coerce: struct { node: Sexp, how: *const Coercion, value: ExprId },
 
-    pub const Op = struct { node: Sexp, args: []const ExprId };
+    /// The operation of `node` over `args`: what it does, `kind`, and
+    /// for a call, its record, `Func.calls[aux]`; for a `member` or an
+    /// `index` that reaches a place, the place, `Func.places[aux - 1]`.
+    pub const Op = struct { node: Sexp, args: []const ExprId, kind: OpKind = .other, aux: u32 = 0 };
 
     pub const Use = struct { v: VarId, node: Sexp };
+
+    // An operation's kind and record index fit in the room a closure
+    // takes, so an expression is no larger for them.
+    comptime {
+        std.debug.assert(@sizeOf(Op) <= @sizeOf(@FieldType(Expr, "closure")));
+    }
 
     /// An `if`: its condition, then the branch it picks.
     pub const If = struct { node: Sexp, cond: ExprId, then: RegionId, @"else": ?RegionId };
 
     /// A `match`: its subject, then the arm whose pattern it fits.
-    pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId };
+    pub const Choice = struct { node: Sexp, subject: ExprId, arms: []const RegionId, answers: MatchAnswers = .{} };
+};
+
+/// What an operation does, by the form of its node: the facts that
+/// decide more are recorded on the operation's own record (`Call`).
+pub const OpKind = enum(u8) {
+    /// `+`, `-`, `*`, `/`, `%`, their wrapping and saturating forms,
+    /// the bitwise operators and shifts, and `neg`.
+    arith,
+    /// `==`, `!=`, `<`, `>`, `<=`, `>=`.
+    compare,
+    /// `and`, `or`, `not`.
+    logic,
+    /// `?x` and `!x`: a read view and a write view.
+    view,
+    /// `<x`.
+    move,
+    /// `+x`.
+    clone,
+    /// `~x`.
+    weak,
+    /// `*x`.
+    share,
+    /// `^x`.
+    box,
+    member,
+    index,
+    /// `f[T]`: a compile-time instance.
+    inst,
+    /// A call, whose record is `Func.calls[aux]`.
+    call,
+    array,
+    array_fill,
+    template,
+    /// `v!`.
+    propagate,
+    /// `v?`.
+    propagate_none,
+    /// `a ?? b`.
+    nullish,
+    /// `v catch |e| handler`.
+    @"catch",
+    kwarg,
+    panic,
+    results,
+    /// `.variant` and `:symbol`.
+    literal,
+    /// `v as name`, `f() as a, b`, and the `match` tests of a condition.
+    as,
+    /// Any other operation: its node says what it is.
+    other,
+};
+
+/// What a call is, decided once by lowering (`lower.classifyCall`) in
+/// the order emit's call ladder asks: a call that fits two forms is
+/// the first of them here.
+pub const CallKind = enum(u8) {
+    /// An element operation of a slice, an array, or a List
+    /// (`sema.ElemCall`).
+    elem,
+    /// `Simd[T, n](a)`.
+    simd_conversion,
+    /// `f(x)&`, and `c.m(x)&` through an actor's handle.
+    task,
+    actor_spawn,
+    /// The built-ins (`sema.BuiltinCall`).
+    print,
+    warn,
+    conversion,
+    swap,
+    /// `String(...)`, `!t.add(...)` (`facts.StringCall`).
+    string,
+    /// A call through a type alias: of a number, a List, a Signal, or
+    /// an object.
+    alias_conversion,
+    alias_list,
+    alias_signal,
+    alias_object,
+    /// `.variant(payload)`.
+    variant,
+    /// A closure literal called where it is written.
+    inline_invoke,
+    /// Through an API: the witness's method, or an API object's table.
+    witness,
+    object,
+    /// A closure a local holds in the frame.
+    stack_closure,
+    /// The built-in types' makers, and an object's.
+    list,
+    table,
+    signal,
+    constructor,
+    /// A member callee with no type of its own: an error with fields,
+    /// a variant through its enum, an object of another module, an
+    /// instance sema gave it.
+    error_member,
+    variant_member,
+    foreign_object,
+    instance,
+    /// Through a callable view, and an owned closure handle.
+    fn_ref,
+    closure_handle,
+    /// A method of a built-in type emit lowers on its own
+    /// (`sema.BuiltinCall`).
+    builtin_method,
+    /// The runtime's calls: `task.all`, an actor's method, `task.select`
+    /// (to a value, or into the slot), its arms, `http.serve`, `reduce`,
+    /// `io.copy`, `task.supervise`, `task.isolate`, the `par` forms, and
+    /// the waits of a set and of a task.
+    task_join,
+    actor_call,
+    select_value,
+    select_into,
+    arm_recv,
+    arm_send,
+    arm_end,
+    arm_after,
+    http_serve,
+    reduce,
+    io_copy,
+    supervise,
+    isolate,
+    par_map,
+    par_each,
+    par_workers,
+    par_push,
+    wait_all,
+    wait,
+    /// Any other call: a function, a method, or a function value.
+    plain,
+    /// Not classified: a call of the checkers' lowering, in a build that
+    /// does not check itself. Only emit reads the kind.
+    unclassified,
+};
+
+/// A call: what it is, how its callee is written, how it takes its
+/// self, and what is opened around it. Emit's lowering records its kind
+/// and wrap, the checkers' its flags; each records the callee and self.
+pub const Call = struct {
+    kind: CallKind,
+    callee: Callee,
+    /// How a method takes its self; null for a call with none.
+    self: ?Self = null,
+    wrap: Wrap = .{},
+    flags: Flags = .{},
+
+    /// How the callee is written, as the ownership checker walks it.
+    pub const Callee = enum(u8) {
+        /// A function a field holds, called with the arguments alone.
+        field_fn,
+        /// A method, through the member's object, its self.
+        member,
+        name,
+        lambda,
+        other,
+    };
+
+    pub const Self = struct {
+        mode: sema.SelfMode,
+        /// Written with its sigil: `!b.m()`, `?b.m()`.
+        explicit: bool,
+    };
+
+    /// What emit opens around the call, outermost first.
+    pub const Wrap = packed struct(u8) {
+        /// A std maker checked as Rig compiles (`SemContext.isConstMaker`).
+        const_maker: bool = false,
+        /// Its parts are held first, in a `call` region.
+        held: bool = false,
+        /// It may reach an inlined function, whose optional, fallible,
+        /// or other result is made a run-time value
+        /// (`program.inlined_calls`).
+        rt_optional: bool = false,
+        rt_fallible: bool = false,
+        rt_plain: bool = false,
+        /// A duration form joins its failure.
+        folds: bool = false,
+        _: u2 = 0,
+    };
+
+    pub const Flags = packed struct(u8) {
+        /// It only reads its arguments and keeps none of them: `print`
+        /// and the `String` forms.
+        text_only: bool = false,
+        /// An actor's call or a select's arm: its result keeps no loan.
+        keeps_no_loan: bool = false,
+        /// `swap(a, b)` of two places or two values.
+        swap: bool = false,
+        _: u5 = 0,
+    };
+};
+
+/// How an operation or a step uses an operand, decided once by lowering
+/// (`Lowerer.role`) for each expression: an expression is the operand of
+/// one operation or step, so its role is kept by its id
+/// (`Func.roles`), in a self-checking build for now, where the ownership
+/// checker asserts that it decides each the same.
+pub const Operand = packed struct(u16) {
+    use: Use = .read,
+    sink: Sink = .none,
+    /// Viewed to read where a view is expected, with no sigil
+    /// (`sema.View.implicit`).
+    implicit: bool = false,
+    /// A view of the operand's elements, or a String's bytes: `?a`
+    /// viewed as `?a[..]`.
+    elems: bool = false,
+    /// A held write view passed on where a read view is expected.
+    read_only: bool = false,
+    /// Held first in a hidden var of its call or array literal
+    /// (`argument`).
+    held: bool = false,
+    _: u5 = 0,
+
+    /// What an operand's user does with it (Core sentences 1, 2, 4, 5).
+    pub const Use = enum(u3) {
+        /// A place read where it stands, or a value read as it is.
+        read,
+        /// `<x`: the operand of a move.
+        move,
+        /// `?x` and `!x`: the operand of a view, or a value viewed to read
+        /// where a view is expected (`Operand.implicit`).
+        read_view,
+        write_view,
+        /// A held write view (`w`, `e.t`) passed to a call: it is a write
+        /// view of its holder for as long as the result may keep it.
+        pass_view,
+        /// A value made where it stands, which its user takes.
+        made,
+    };
+
+    /// Where a consumed operand goes (Core sentences 3, 7), as the ownership
+    /// checker names it (`ownership.Sink`).
+    pub const Sink = enum(u4) {
+        none,
+        binding,
+        argument,
+        field,
+        element,
+        allocation,
+        box,
+        ret,
+        brk,
+    };
+};
+
+/// A place: a var, then the fields and elements of it a `member` or
+/// `index` operation reaches (`sema.Hands.place`). Its op names it by
+/// `Func.places[aux - 1]`; recorded in a self-checking build, where the
+/// ownership checker asserts that it finds each place so
+/// (`resolvePlace`).
+pub const Place = struct {
+    /// Null for a place rooted at a leaf: a constant of the module.
+    root: ?VarId,
+    steps: []const PlaceStep,
+};
+
+pub const PlaceStep = packed struct(u8) {
+    kind: Kind,
+    /// Its object is the root, a read view: the field is on the root's
+    /// path only for a self checked by path (`bindSelfPaths`).
+    root_read_view: bool = false,
+    /// Its object is a shared handle.
+    through_shared: bool = false,
+    _: u4 = 0,
+
+    pub const Kind = enum(u2) {
+        /// A data field of an object, of a box's, or of what a view of
+        /// the root sees: a place of its own on the root's path (Core
+        /// §5).
+        field,
+        /// Any other member, which ends the path.
+        member,
+        /// An element or a slice, which ends the path.
+        index,
+    };
 };
 
 /// How a value becomes the type its context takes, where it goes. Each
 /// is a typing fact of the node it wraps, made explicit where the value
 /// is read: a value held in a var first is coerced where the var is
-/// written, or where it is read (`Module.Coerced`).
+/// written, or where it is read (`lower.Module.chainOf`).
 pub const Coercion = union(enum) {
     /// A scalar beside a vector, standing for every lane: the vector's
     /// type (`sema.splatOf`).
@@ -132,10 +420,11 @@ fn optionalDepth(types: *const sema.TypeStore, ty: sema.TypeId) u32 {
 
 /// A step of a region, run in order.
 pub const Step = union(enum) {
-    /// Evaluate `value` into `v`.
-    bind: struct { v: VarId, value: ExprId },
+    /// Evaluate `value` into `v`; for a binding's declaration, the
+    /// `set` that declares it.
+    bind: struct { v: VarId, value: ExprId, set: Sexp = .nil, answers: Assign = .{} },
     /// Store `value` in the place `target`: the assignment `node`.
-    store: struct { node: Sexp, target: ExprId, value: ExprId },
+    store: struct { node: Sexp, target: ExprId, value: ExprId, answers: Assign = .{} },
     /// Evaluate `value` for what it does.
     eval: ExprId,
     /// Drop what `v` holds: `<x`, the name read at `node`.
@@ -148,11 +437,74 @@ pub const Step = union(enum) {
     @"if": Expr.If,
     /// `while cond: step`, running `body` while `cond` holds, then
     /// `step`.
-    loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId },
+    loop: struct { node: Sexp, cond: ExprId, body: RegionId, step: ?RegionId, step_point: StepPoint = .continue_expr },
     /// `for x in source`, running `body` once for each element.
-    each: struct { node: Sexp, source: ExprId, body: RegionId },
+    each: struct { node: Sexp, source: ExprId, body: RegionId, fold: ?Fold = null, string_bytes: bool = false },
     /// `match`, running the arm its subject fits.
     match: Expr.Choice,
+
+    // What emit's lowering decides of a step fits in the room the
+    // largest step (a `match`) takes, so a step is no larger for it.
+    comptime {
+        std.debug.assert(@sizeOf(Step) <= 56);
+    }
+};
+
+/// What emit's lowering decides of an assignment or a binding's
+/// declaration (its `set`), kept on its step for emit to read; the
+/// checkers' lowering leaves it as it starts.
+pub const Assign = struct {
+    order: SetOrder = @bitCast(@as(u8, 0)),
+    fills_in_place: bool = false,
+    lane_checked: bool = false,
+    /// An operator's assignment: the call that makes it, if any.
+    compound: ?CompoundCall = null,
+    /// A binding's declaration: what the binding holds.
+    hold: ?BindHold = null,
+};
+
+/// What emit's lowering decides of a node it lowered
+/// (`lower.Module.answersOf`): of every node, how it hands its value
+/// over and whether it is read where its leaves are; the rest of a node
+/// of the form each names, or of an operand its operation's form names.
+pub const Answers = struct {
+    hands: sema.Hands.Kind = .place,
+    reaches_leaf: bool = false,
+    /// A value read by address where its leaves are (`lower.leafStep`).
+    leaf_step: ?LeafStep = null,
+    /// `+`, `-`, `*`, or `-x` checked on a vector's integer lanes.
+    lane_checked: bool = false,
+    /// `^[n of x]`, filling its allocation.
+    fills_in_place: bool = false,
+    /// The value of `v as name` that views an optional's value.
+    views_optional_value: bool = false,
+    /// An operand of `==` or `!=` dropped once tested.
+    drops_when_tested: bool = false,
+    /// A part a call or an array literal holds first: how.
+    argument_hold: ?ArgumentHold = null,
+    /// An argument of `print`, a `String` form, `panic`, or a template's
+    /// slot, written by address.
+    prints_by_address: bool = false,
+    /// `v as name`: how the binding reads through a write view, and
+    /// whether it binds a string's bytes.
+    through_write: ?ThroughWrite = null,
+    binds_string_bytes: bool = false,
+    /// `return a, b` whose parts are made first.
+    hoists_results: bool = false,
+    /// A call: how it holds its self first, and whether it consumes an
+    /// owned temporary as its self.
+    self_hold: ?SelfHold = null,
+    consumes_self: bool = false,
+};
+
+/// What emit's lowering decides of a `match` (`Expr.Choice`).
+pub const MatchAnswers = packed struct(u8) {
+    mode: MatchMode = .read,
+    in_place: bool = false,
+    rereads: bool = false,
+    block: bool = false,
+    selects: bool = false,
+    _: u2 = 0,
 };
 
 /// A stretch of a function that declares vars, which live until it ends.
@@ -167,6 +519,9 @@ pub const Region = struct {
     /// The var that is its value, for a header that ends its
     /// temporaries (`header_value`).
     label: ?VarId = null,
+    /// For a `match` arm, whether its pattern fits any subject; decided
+    /// by emit's lowering.
+    catch_all: bool = false,
 
     pub const Kind = enum {
         /// A function's body.
@@ -191,6 +546,11 @@ pub const Region = struct {
     };
 };
 
+/// A list a self-checking build keeps, and no other: there it is empty.
+fn Checked(comptime T: type) type {
+    return if (self_check) std.ArrayList(T) else struct {};
+}
+
 /// A function, a closure, a test, or a `drop` body, lowered.
 pub const Func = struct {
     /// The `fun`, `sub`, `lambda`, `test`, or `drop_decl` node.
@@ -198,6 +558,15 @@ pub const Func = struct {
     vars: std.ArrayList(Var) = .empty,
     exprs: std.ArrayList(Expr) = .empty,
     regions: std.ArrayList(Region) = .empty,
+    /// The record of each call, which its op names (`Op.aux`).
+    calls: std.ArrayList(Call) = .empty,
+    /// The role of each expression as an operand, by its id; filled in
+    /// a self-checking build, and shorter than `exprs` where the rest
+    /// take the default.
+    roles: Checked(Operand) = if (self_check) .empty else .{},
+    /// The places `member` and `index` operations reach, each named by
+    /// its op (`Op.aux - 1`); filled in a self-checking build.
+    places: Checked(Place) = if (self_check) .empty else .{},
     body: RegionId = 0,
 
     pub fn addVar(f: *Func, a: std.mem.Allocator, v: Var) !VarId {
@@ -213,6 +582,12 @@ pub const Func = struct {
     pub fn addRegion(f: *Func, a: std.mem.Allocator, node: Sexp, kind: Region.Kind) !RegionId {
         try f.regions.append(a, .{ .node = node, .kind = kind });
         return @intCast(f.regions.items.len - 1);
+    }
+
+    /// The role of expression `e` as an operand.
+    pub fn roleOf(f: *const Func, e: ExprId) Operand {
+        if (!self_check) return .{};
+        return if (e < f.roles.items.len) f.roles.items[e] else .{};
     }
 
     pub fn region(f: *Func, r: RegionId) *Region {
@@ -469,7 +844,9 @@ const Printer = struct {
                 else => try p.w.writeAll("_"),
             },
             .op => |o| {
-                try p.w.print("{s}(", .{@tagName(o.node.kind() orelse .module)});
+                try p.w.print("{s}", .{@tagName(o.node.kind() orelse .module)});
+                if (o.kind == .call) try p.w.print("/{s}", .{@tagName(p.f.calls.items[o.aux].kind)});
+                try p.w.writeAll("(");
                 for (o.args, 0..) |a, i| {
                     if (i > 0) try p.w.writeAll(", ");
                     try p.expr(a, depth);
@@ -555,3 +932,353 @@ test "verify finds an expression reached twice and a var declared twice" {
     try g.region(g.body).decls.append(a, v);
     try std.testing.expectEqualStrings("a var declared twice", (try verify(std.testing.allocator, &g)).?.what);
 }
+
+// =============================================================================
+// What the storage deciders answer (`src/lower.zig`)
+// =============================================================================
+
+/// What a hidden storage location holds, and the Zig name emit gives it.
+pub const StorageKind = enum {
+    /// An owning temporary its statement or header drops at its end
+    /// (`__rig_tmp`): `dropsTemp`.
+    temp,
+    /// The value of a header that makes statement temporaries, yielded
+    /// by the block that ends them (`__rig_hdr`).
+    header_value,
+    /// The construct (`match`, `for`, `as`) binds the parts of that
+    /// yielded value, a copy of its subject: `copiesHeader`. No name of
+    /// its own: the storage is the header's value.
+    header_copy,
+    /// The made value a header's subject is a part of, held for the
+    /// construct (`__rig_held`): `Header.held`.
+    held,
+    /// The array a `for` takes, held for the loop (`__rig_src`):
+    /// `Header.taken`.
+    taken,
+    /// The iterator a consuming `for` hands its elements over from
+    /// (`__rig_it`).
+    iterator,
+    /// The element a consuming `for` hands over, before its binding
+    /// takes it (`__rig_elem`).
+    element,
+    /// A range `for`'s counter, from the range's start (`__rig_i`).
+    range_start,
+    /// A range `for`'s end (`__rig_end`).
+    range_end,
+    /// Whether an inclusive range `for` runs again (`__rig_more`): its
+    /// counter never steps past the end, which may be its type's largest
+    /// value.
+    range_more,
+    /// A `match` subject evaluated once, before its arms (`__rig_subject`).
+    subject,
+    /// The whole value a `match <x` arm takes (`__rig_whole`).
+    whole,
+    /// A variant's payload an arm captures (`__rig_payload`).
+    payload,
+    /// What `if … as` or `while … as` captures (`__rig_opt`).
+    as_value,
+    /// A mutable copy of what an `as` captures, which its binding views
+    /// (`__rig_opt_N_v`).
+    as_copy,
+    /// The value inside an optional a view reaches (`__rig_viewed`).
+    viewed,
+    /// The copy an API object of a read view of plain data, or of a type
+    /// parameter's value, views (`Erasure.copy`), a local of the erasing
+    /// block (`__rig_erased`).
+    erased_copy,
+    /// The payload a branch of a value read where its leaves are takes,
+    /// captured by address (`__rig_leaf`).
+    leaf,
+    /// The error a `catch |e|` handler names (`__rig_err`).
+    error_value,
+    /// An argument of a call whose arguments are evaluated first
+    /// (`__rig_arg`).
+    argument,
+    /// The self of such a call, or an actor's handle, or a select
+    /// arm's channel (`__rig_recv`): `lower.heldFirst`.
+    self,
+    /// The environment of a closure literal passed to a call (`__rig_env`).
+    environment,
+    /// A closure literal called where it is written, or the callee of a
+    /// call whose arguments are evaluated first, which a value the call
+    /// reaches is (`__rig_fn`): `lower.heldFirst`.
+    invoked,
+    /// The environment an owned closure allocates (`__rig_env`), which
+    /// the closure value then owns.
+    closure_env,
+    /// An assignment's value, made before the store (`__rig_new`).
+    new_value,
+    /// The value an assignment's target path starts from, evaluated after
+    /// the value and before the indexes (`__rig_base`).
+    base,
+    /// An index of an assignment's target, evaluated before the store
+    /// (`__rig_ix`).
+    index,
+    /// The place an assignment stores to, found once (`__rig_slot`).
+    slot,
+    /// The API object a call through its table reads twice, for the
+    /// table and the value, evaluated once (`__rig_obj`): a copy of the
+    /// view or box, which nothing views.
+    api_object,
+    /// The place a call through an API object's table writes its result
+    /// to (`TableEntry.result_out`), copied out as the call returns
+    /// (`__rig_res`).
+    result_place,
+    /// The several results a call gives, held for its statement while
+    /// each target takes its own, left to right (`__rig_res`): a
+    /// destructure's, `q, r = f()`. A result no target takes (`_`) it
+    /// drops at the statement's end.
+    results,
+    /// The header (pointer, length, and capacity) of a String or List a
+    /// write view parameter views, held in a local for the function's
+    /// body and written back as it returns (`__rig_header`;
+    /// `lower.planHeldHeaders`): the parameter's name views the local,
+    /// so a loop keeps the header in registers.
+    held_header,
+    /// The record of a task made by `t = f(x)&` that stays in its
+    /// maker's frame and is waited for there (`lower.taskRecordIn`): a
+    /// fork. Emit makes it in this slot, `var __rig_task_N =
+    /// rig.Task(T).frame.spawn(f, .{ x })`, and starts it there,
+    /// `t = __rig_task_N.start()`; it counts in the frame
+    /// (`accounts.count`).
+    task_record,
+    /// A value made here whose address emit takes where Zig holds it, in
+    /// no slot: a leaf no statement slot keeps (`lower.leafStep` is
+    /// `made`, and not `dropsTemp`), or a literal, reached by address.
+    /// No name of its own: the storage is Zig's, which keeps it until its
+    /// statement ends.
+    zig_temp,
+    /// Not storage: the value of `_ = e`, or of a statement `<e` of
+    /// anything but a name, which Zig drops at once. It is in the table
+    /// for its `drop`, and has no name.
+    discard,
+};
+
+/// How a hidden storage location holds what it holds.
+pub const StorageBy = enum {
+    /// The value is its own: made there, or taken, and dropped there if
+    /// nothing takes it on.
+    owned,
+    /// A copy of a value that is still held where it was: a view of the
+    /// storage views the copy, not that value.
+    copy,
+    /// The address of a place, or of storage another fact records.
+    pointer,
+    /// Text a template makes where a `?String` reads it, held in the
+    /// storage itself while it fits 256 bytes, and in a heap block the
+    /// storage frees past them (`rig.TextBuf`): no String is made.
+    buffer,
+};
+
+/// How long a hidden storage location lives.
+pub const StorageLife = enum {
+    /// Until its statement ends; a header is its own statement.
+    statement,
+    /// Until its header ends.
+    header,
+    /// Until the construct (`match`, `for`, `if … as`) ends.
+    construct,
+    /// For one iteration of a loop.
+    iteration,
+    /// Until its `match` arm ends.
+    arm,
+    /// Until the body of its `if … as` or `while … as` ends.
+    body,
+    /// Until its `catch` handler ends.
+    handler,
+    /// Until the expression it is made in ends.
+    expression,
+    /// Until its call returns.
+    call,
+    /// Until the `task.select` whose arm it is a part of returns: the
+    /// select makes every arm, then runs the one it commits.
+    select,
+    /// Until its assignment's store.
+    assignment,
+    /// Until the block it is made in ends: each pass of a loop's body
+    /// makes it anew.
+    block,
+};
+
+/// How a call whose arguments are evaluated first (`hoistsArgs`) holds
+/// its self, or the callee it evaluates in its place (`heldFirst`),
+/// while they run.
+pub const SelfHold = enum {
+    /// An owned temporary the method consumes, handed over when the
+    /// call runs (`consumedTemporary`).
+    consumed,
+    /// A value that branches: the address of the leaf it takes
+    /// (`reachesLeaf`).
+    leaf,
+    /// A value its statement's slot keeps, or a part of one: its address
+    /// there (`keptInSlot`).
+    slot,
+    /// A place: its address.
+    place,
+    /// A temporary: its value, which the call's block holds.
+    value,
+
+    /// How the storage holds self, given whether `recv` itself
+    /// has storage (`hasStorage`): a part of a temporary is a copy.
+    pub fn by(hold: SelfHold, part: bool) StorageBy {
+        return switch (hold) {
+            .consumed => .owned,
+            .leaf, .slot, .place => .pointer,
+            .value => if (part) .copy else .owned,
+        };
+    }
+};
+
+/// How a call whose arguments are evaluated first holds an argument
+/// that is not pure (`isPureArg`), and an array literal whose elements
+/// are evaluated first holds such an element.
+pub const ArgumentHold = enum {
+    /// A closure literal passed as a callable: its environment, and the
+    /// `rig.FnRef` over it.
+    closure,
+    /// Any other callable passed: the `rig.FnRef`.
+    callable,
+    /// A value passed as the view its parameter expects (`viewOf`): the
+    /// view, which points where the value is, a place or its
+    /// statement's slot.
+    viewed,
+    /// The argument's value.
+    value,
+};
+
+/// How emit finds the address of `e`, a value reached where its leaves
+/// are (`reachesLeaf`), or of one of its leaves: one step of the walk
+/// `Emitter.emitLeafPtr` writes, which the storage planner follows.
+/// Inside such a value every branching form is walked to its
+/// parts (`sema.valueParts`), as `sema.valueLeaves` walks a read, also
+/// one whose every leaf is made here.
+pub const LeafStep = enum {
+    /// `a if c else b`: the address of the branch it takes.
+    @"if",
+    /// `o ?? d` and `e catch h`: the address of the payload where the
+    /// optional or fallible operand is (reached as a leaf), or else of
+    /// the fallback's value.
+    fallback,
+    /// `o?` and `e!`: the address of the payload where the operand is.
+    unwrap,
+    /// A place: its address.
+    place,
+    /// A field or element of a value made here: its address within that
+    /// value, which is reached as a value is.
+    part,
+    /// `?x` or `!x`: the view it makes.
+    view,
+    /// A value made here: its address in its statement's slot when one
+    /// keeps it (`dropsTemp`), else of a Zig temporary.
+    made,
+    /// A literal (`none`, a number, a string): a constant of the program,
+    /// which no slot keeps and which holds no Cell. `none` is reached only
+    /// as the operand whose payload a branch captures, which it has
+    /// none of, so its address is never written through.
+    literal,
+    /// `return`, `break`, `continue`: no value, no address.
+    jump,
+};
+
+/// How a `match` reaches its subject (`checkMatch`): a bare or `?`
+/// subject is read, `!` binds write views of the fields, and `<` of
+/// a value that owns a resource hands the arm its fields.
+pub const MatchMode = enum(u2) { read, write, consume };
+
+/// How a `for` loop combines integers into a local, when it is a fold:
+/// `for x in xs` over a List or a slice of integers of at most 64 bits,
+/// whose body is only `s OP= x`, `s` a local of the element's type. Emit
+/// lowers it to `rig.fold`, which combines the elements by vectors, as
+/// LLVM's loop vectorizer would and Zig 0.17, with it off, does not
+/// (INTERNALS, "Known Zig 0.17 issues"). The result is the plain loop's,
+/// and a checked `+` panics on the element where the plain loop would.
+pub const Fold = enum(u8) { add_wrap, add, bit_xor, bit_or, bit_and };
+
+/// How a read binding of a write view is bound (`throughWrite`).
+pub const ThroughWrite = enum { pointer, value };
+
+/// How assignment `set` runs (`setOrder`): its desugaring is
+///
+///     { __v = value; __b = base; __i1 = index1; ...; place op= __v }
+///
+/// with the steps `eachSetStep` lists. Zig would find the place before it
+/// evaluates the value, and evaluate the base where it finds the place,
+/// so emit evaluates a step into hidden storage when its turn comes
+/// wherever Zig's own order could be told apart.
+pub const SetOrder = packed struct(u8) {
+    /// The value or an index can act (`setActs`), or the base can and the
+    /// value is not pure (`isPureArg`): the value, unless it is pure, is
+    /// made into `__rig_new` first, and then each index that is not pure
+    /// into `__rig_ix`, before the place is found. Otherwise Zig's own
+    /// order (the base, the indexes, the value) is one no program can
+    /// tell from this one, and stands.
+    held: bool = false,
+    /// The base is evaluated into `__rig_base` in its turn, after the
+    /// value and before the indexes: the steps are held, an index after
+    /// it is, and the base does not stay (`baseStays`). An unheld base is
+    /// evaluated where the place is found, after every held step, which
+    /// is its turn when no index is held.
+    base: bool = false,
+    /// The value owns a resource, and a step of the target can leave
+    /// (`setLeaves`): where the value is made into storage before that
+    /// step (`held`, or a place that owns, whose old value is dropped
+    /// after the new one is made), the storage is dropped on the way out
+    /// unless the store takes it.
+    guard: bool = false,
+    /// The assignment replaces a value that moves (`sema.resourceKind`):
+    /// the place, a field or element of a type that moves (or of a type
+    /// sema does not know), a local that owns, or what a `!T` local
+    /// writes through when it owns. The new value is made first, then
+    /// the old one is dropped and the new one stored.
+    drops_old: bool = false,
+    _: u4 = 0,
+};
+
+/// Where the step of a `while` runs (docs/internals/INTERNALS.md, "Loops"), which
+/// emit lowers to, the ownership checker walks, and the type checker's
+/// jump resolver reads.
+pub const StepPoint = enum(u8) {
+    /// The loop's continue expression, after the condition's bindings end:
+    /// a `continue` from the condition or the body goes on to it. A
+    /// `while` with no step has nothing to place, and is this too.
+    continue_expr,
+    /// After the body, in the scope of the condition's bindings, which the
+    /// step reads: a `continue` from the body goes on to it, and one from
+    /// the condition would skip binding what it reads.
+    after_body,
+};
+
+/// How a new binding holds its value (`bindHold`).
+pub const BindHold = enum {
+    /// The value, made or copied; a read view that copies
+    /// (`sema.viewByValue`) is held as the value it views.
+    value,
+    /// A view held as a pointer (`viewHeldAsPointer`), however it was
+    /// obtained.
+    pointer,
+    /// The address of the place `?x` or `!x` views.
+    view,
+};
+
+/// The call a compound assignment `x op= v` lowers to, which assigns the
+/// call's result (`compoundCall`): its place is found once.
+pub const CompoundCall = enum {
+    /// A mask's `&`, `|`, and `^` (`rig.maskAnd`, `rig.Mask`).
+    mask,
+    /// A vector's lane shifts (`rig.vecShl`, `rig.vecShlWrap`,
+    /// `rig.vecShr`), which take the amount as it is.
+    lane_shift,
+    /// A vector's saturating `+|` and `-|` (`rig.vecAddSat`,
+    /// `rig.vecSubSat`).
+    lane_saturate,
+    /// `rig.rem`, for `%`.
+    rem,
+    /// `@divTrunc`, an integer `/`.
+    div,
+    /// `rig.div`, a `/` of a type parameter's values.
+    div_generic,
+    /// `@shlExact`, a scalar `<<`.
+    shl,
+    /// A checked `+`, `-`, or `*` on integer lanes (`laneChecked`).
+    lane_checked,
+};

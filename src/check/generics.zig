@@ -6,7 +6,7 @@ const std = @import("std");
 const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const Sexp = parser.Sexp;
 const ir = parser.ir;
 const Tag = rig.Tag;
@@ -272,7 +272,7 @@ pub const OwnerWalker = struct {
     }
 };
 
-/// The exits in `e` (`storage.leave_kinds`), not counting those in its
+/// The exits in `e` (`lower.leave_kinds`), not counting those in its
 /// closures.
 pub fn countExits(e: Sexp) usize {
     if (e != .list) return 0;
@@ -282,7 +282,7 @@ pub fn countExits(e: Sexp) usize {
         return n;
     };
     if (kind == .lambda) return 0;
-    var n: usize = @intFromBool(std.mem.findScalar(Tag, &storage.leave_kinds, kind) != null);
+    var n: usize = @intFromBool(std.mem.findScalar(Tag, &lowering.leave_kinds, kind) != null);
     for (rig.children(e)) |c| n += countExits(c);
     return n;
 }

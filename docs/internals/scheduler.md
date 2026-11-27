@@ -804,6 +804,10 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   the program's own code, the section `rig_text` (`__TEXT,__rig_text` on
   the Mac), and its worker holds no lock: there the fiber is at a point
   the compiler could have put a check, and the handler switches it out.
+  On x86-64 the stopped stack pointer may be any address, since a
+  function that calls none may move it by any count of bytes; the
+  trampoline starts on the 16-byte boundary below the red zone and
+  returns to the stack pointer exactly (test/cli/preempt_align.sh).
   Elsewhere, in a system call, the runtime, or a lock's span, it leaves
   the yield check owed, which the fiber's next waiting point pays
   (`atWaitingPoint`), as do the allocator's slow path and the growth of

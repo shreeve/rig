@@ -289,9 +289,11 @@ fail "last binding read in a loop it was declared outside of", "cannot change `v
     !v.push(Item(n: x.n))
   print(v.len)
 
-# What emit reads at its consumer, after later operands, is used there.
+# A call evaluates its arguments, and an assignment its value, in the
+# order written (Core §6): a fixed view binding is read where it is
+# written, before a later operand writes what it views.
 
-fail "last keyword argument read after a later one writes", "cannot change `v` while a read view of it is still in use"
+test "last keyword argument read before a later one writes", "1"
   obj Item
     n: Int
 
@@ -308,7 +310,7 @@ fail "last keyword argument read after a later one writes", "cannot change `v` w
   r =! ?v[0]
   print(f(b: r, a: bump(!v)))
 
-fail "last write view keyword argument read after a later one writes", "cannot change `v` while a write view of it is still in use"
+test "last write view keyword argument read before a later one writes", "1"
   fun bump(v: !List[Int]) -> Int
     for _ in 0..64
       !v.push(2)
@@ -322,44 +324,50 @@ fail "last write view keyword argument read after a later one writes", "cannot c
   w =! !v[0]
   print(f(b: w, a: bump(!v)))
 
-fail "last hoisted argument read after a later one writes", "cannot change `v` while a read view of it is still in use"
+test "last hoisted argument read before a later one writes", "3"
   obj Item
     n: Int
+    m: Int
+    k: Int
+    j: Int
 
   fun bump(v: !List[Item]) -> Int!
     for _ in 0..64
-      !v.push(Item(n: 2))
+      !v.push(Item(n: 2, m: 2, k: 2, j: 2))
     0
 
   fun g(s: String, b: Item, n: Int) -> Int
-    s.len + b.n + n
+    s.len + b.n + b.j + n
 
   sub run()!
     v: List[Item] = List()
-    !v.push(Item(n: 1))
+    !v.push(Item(n: 1, m: 1, k: 1, j: 1))
     r =! ?v[0]
     print(g(String("x"), r, bump(!v)!))
 
   run() catch print("failed")
 
-fail "last argument beside a viewed closure read after a later one writes", "cannot change `v` while a read view of it is still in use"
+test "last argument beside a viewed closure read before a later one writes", "3"
   obj Item
     n: Int
+    m: Int
+    k: Int
+    j: Int
 
   fun bump(v: !List[Item]) -> Int
     for _ in 0..64
-      !v.push(Item(n: 2))
+      !v.push(Item(n: 2, m: 2, k: 2, j: 2))
     0
 
   fun apply(it: Item, f: ?fun(Int) -> Int, n: Int) -> Int
-    f(it.n) + n
+    f(it.n) + it.j + n
 
   v: List[Item] = List()
-  !v.push(Item(n: 1))
+  !v.push(Item(n: 1, m: 1, k: 1, j: 1))
   r =! ?v[0]
   print(apply(r, |x| x + 1, bump(!v)))
 
-fail "last assigned value read after its index writes", "cannot change `v` while a read view of it is still in use"
+test "last assigned value read before its index writes", "Item(n: 1)"
   obj Item
     n: Int
 
@@ -376,7 +384,7 @@ fail "last assigned value read after its index writes", "cannot change `v` while
   xs[bump(!v)] = r
   print(xs[0])
 
-fail "last compound assigned value read after its index writes", "cannot change `v` while a write view of it is still in use"
+test "last compound assigned value read before its index writes", "1"
   fun bump(v: !List[Int]) -> Int
     for _ in 0..64
       !v.push(2)

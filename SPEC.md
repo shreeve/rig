@@ -8403,9 +8403,11 @@ ahead, in the order the statement runs ("Evaluation order within a
 call", below): `!v.push(Item(n: x.n))` with `x = ?v[0]`
 reads `x.n` before the push makes its view of `v`, so it is accepted,
 while `f(x, grow(!v))` hands `x` over as a view, which keeps `v`
-read-only until `f` returns. A name a call or an assignment reads where it runs, after a
-later operand (a keyword argument given out of its parameter's order,
-an assigned value read after the target's indexes), is used there.
+read-only until `f` returns. A call's arguments are evaluated in the
+order the call writes them, a keyword argument given out of its
+parameter's order too, and an assignment's value before the target's
+indexes, so a name read in one is used where it is written, a fixed
+view binding (`r =! ?v[0]`) as much as a plain one.
 
 ```rig
 obj Wrap
@@ -8474,8 +8476,10 @@ sub main()
 cannot change `v` while a write view of it is still in use
 ```
 
-**Evaluation order within a call.** A call evaluates its arguments left
-to right and uses them all when it runs, so what an earlier argument
+**Evaluation order within a call.** A call evaluates its self, then its
+arguments in the order the call writes them, never the parameters'
+order, named or positional, fallible or not, and uses them all when it
+runs, so what an earlier argument
 holds is still in use while the later ones are evaluated. A view (`?v`)
 or a slice (`?v[..]`) in an earlier argument keeps its place read-only
 until the call ends. So does an argument that reads a place by value when that
@@ -15605,9 +15609,10 @@ for its first value, and calls it again for a new value each time a
 panic ends the old one, which is abandoned as a dead actor's is. The
 call that panicked still panics in its caller; the calls queued, and
 those after, run against the new value, which `make` makes just before
-the next method runs. On the actor's own task it starts again only once
-the tasks the method started have ended, and a call one of them makes
-to it until then panics as a call to a dead actor does. `restarts: n, per: s` allows at most `n` restarts
+the next method runs. Its methods run on its own task, never inline
+in a caller that finds it idle, so it starts again only once the tasks
+the method started have ended, and a call one of them makes to it until
+then panics as a call to a dead actor does. `restarts: n, per: s` allows at most `n` restarts
 within `s` seconds ([Durations](#durations)), or `n` in all without `per:`; past that, or at
 a panic in `make` itself, the actor dies for good. What `make` captures
 moves to the tasks that run the actor. `mailbox:` is as `*Actor(x)`
@@ -15915,6 +15920,17 @@ each task a state of its own (below):
   the calls run in turn on the calling task.
 - The tasks take chunks of the elements in turn, about eight for each
   task, so one that finishes early takes more.
+- `cost:` gives each element's cost, an `Int`: a closure, `cost: |x|
+  x.len`, or a function's name, called on each element as `?T` before
+  the tasks start, or the costs themselves, a List, an array, or a slice
+  of `Int`s, one for each element, `cost: ?weights`. A negative cost
+  counts as 0, and costs of another length panic. With it, the tasks
+  take the costliest elements first, and each takes its share of the
+  cost left, so the costliest go one at a time and cheap ones together
+  at the end; with one task, the calls run in turn in order. The values,
+  and the elements written, are the same: `cost:` changes only which
+  task makes each and when. The closure only reads: none of its
+  captures is a write view, and it cannot fail.
 - When `f` can fail, so can the call: the first failure stops the tasks
   taking more elements and cancels them, and the call fails with its
   error once all have ended. `par.map` drops the values already made.
@@ -15941,12 +15957,18 @@ sub main()
   print(par.map(?xs, square, limit: 2))
   par.each(!xs, |x| x += 1)
   print(xs)
+  words = List(["a", "bbbb", "cc"])
+  print(par.map(?words, |w| w.len * 2, cost: |w| w.len))
+  costs = List([1, 4, 2])
+  print(par.map(?words, |w| w.len, cost: ?costs))
 ```
 
 ```output
 [10, 20, 30, 40]
 [1, 4, 9, 16]
 [2, 3, 4, 5]
+[2, 8, 4]
+[1, 4, 2]
 ```
 
 ```rig reject
@@ -15966,7 +15988,10 @@ sub main()
 calling task among them. Each task holds its own state, as `!S`, and
 calls `f(!s, x)` on the next item it takes, as `?T`, until none is
 left; the items are taken one at a time in their order, so a caller
-that puts the heaviest first balances an uneven load.
+that puts the heaviest first balances an uneven load. `cost:` is as for
+`par.map`, of each item: with it, and more than one state, the tasks
+take the costliest items first, in claims of their share of the cost
+left, `par.workers(!states, ?items, f, cost: |x| x.len)`.
 
 - It gives a `List` of each call's value in the order of the items,
   whichever task made each, or nothing when `f` gives nothing.
@@ -16020,9 +16045,11 @@ time: run `k` is the next `sizes[k]` slots, in order from the table's
   as a loop of `!t.push(x)` in the order of the runs leaves it. Until
   `f` writes a slot, it holds what it held, `T()` unless written by
   slot.
-- `limit:`, the chunks the tasks take, and failure are as for
+- `limit:`, the chunks the tasks take, `cost:`, and failure are as for
   `par.each`, over the runs: with one task, or one run, the calling
-  task writes the runs in order. A failure leaves the slots pushed.
+  task writes the runs in order. A cost closure takes the run's index,
+  `cost: |k| sizes[k]`, and listed costs hold one for each run. A
+  failure leaves the slots pushed.
 
 `t` is unusable for the call, as any `!` argument is, and the
 runs are disjoint slices of its slots, each passed to one task, as

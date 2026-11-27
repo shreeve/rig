@@ -3726,6 +3726,40 @@ fail "float limit overflow", "4:10: this constant expression overflows `F32`", "
   w = F64.min - F64.max
   print(y, z, w, F32.max * 0.5)
 
+fail "float limit overflow through an alias", "10:8: this constant expression overflows `F32`", "13:10: this constant expression overflows `F32`", "14:12: this constant expression overflows `F32`", "15:10: this constant expression overflows `F32`", "16:12: this constant expression overflows `F32`", "17:7: this constant expression overflows `Float`", "18:17: this constant expression overflows `F32`", errors: 7
+  # A float type's limits named through an alias, or an alias of an
+  # alias, are the same constants: arithmetic on them that overflows the
+  # type is rejected, as it is through the type itself.
+
+  type R = F32
+  type S = R
+  type D = Float
+  obj Box[T]
+    v: T
+  K: R = R.max * 2.0
+
+  sub main()
+    a: R = R.max * 2.0
+    b: F32 = R.min * 2.0
+    c: S = S.min - S.max
+    d: F32 = S.max + R.max
+    e = D.max * 2.0
+    f = Box[R](v: R.max * 2.0)
+    print(K, a, b, c, d, e, f.v, R.max * 0.5, D.min / 2.0)
+
+fail "integer limit overflow through an alias", "8:10: this constant expression overflows; its value does not fit in `U8`", "9:10: this constant expression overflows; its value does not fit in `U8`", "10:10: this constant expression overflows; its value does not fit in `I8`", errors: 3
+  # So are an integer type's, through an alias or an alias of one.
+
+  type B = U8
+  type C = B
+  type N = I8
+
+  sub main()
+    e: B = B.max + 1
+    f: C = C.max + 1
+    g: N = N.min - 1
+    print(e, f, g)
+
 test "float literal arithmetic", '''
   0.3 -0.1 1.1 inf nan 1e38
   nan

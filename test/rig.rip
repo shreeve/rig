@@ -33,8 +33,9 @@
 # .swarm/errors.log.
 
 import { swarm, init, todo, args } from 'rip/swarm'
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync, rmSync, renameSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync, rmSync, renameSync, statSync, symlinkSync } from 'fs'
 import { join, resolve, basename, dirname, relative } from 'path'
+import { constants as osConstants } from 'os'
 import { claimWait, claimHeld } from './claim.rip'
 
 root = resolve(import.meta.dir, '..')
@@ -457,9 +458,9 @@ put = (path, text) ->
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
 
-# A zig build's -j: inside a cpuq lease, the cores it granted (zig build
+# A zig build's -j: inside a cpuq task, one (it holds one CPU, and zig build
 # would otherwise start a thread for every CPU); elsewhere, Zig's own.
-zigJobs = -> if process.env.CPUQ_CORES then ["-j#{process.env.CPUQ_CORES.split('-')[0]}"] else []
+zigJobs = -> if process.env.CPUQ_CPU then ["-j1"] else []
 
 # This runner's hash: what it writes changes with it.
 runner = Bun.CryptoHasher.new('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
@@ -694,6 +695,11 @@ setup = ->
     for set in ['tests', 'docs']
       todo("oracle.#{set}", JSON.stringify({ file: 'test/oracle', name: set, verb: 'oracle', line: 1, path: join(work, 'oracle', "#{set}.list"), opts: { timeout: '900' } }))
     todo('oracle.matrix', JSON.stringify({ file: 'test/matrix.py', name: 'matrix', verb: 'matrix', line: 1, opts: { timeout: '900' } }))
+    # Trig, when TRIG names a checkout or the default one exists
+    # (checkTrig).
+    trig = process.env.TRIG ?? join(process.env.HOME ?? '/', 'Data', 'Code', 'trig')
+    if process.env.TRIG? or existsSync(join(trig, 'src'))
+      todo('oracle.trig', JSON.stringify({ file: 'test/oracle', name: 'trig', verb: 'oracle-trig', line: 1, path: resolve(trig), opts: { timeout: '300' } }))
     todo('oracle.lint', JSON.stringify({ file: 'test/oracle', name: 'lint', verb: 'lint', line: 1, opts: {} }))
   # The matrix's programs built and run, in shards: only those whose own
   # Zig changed since a run that passed (`--own --delta`), each built
@@ -745,7 +751,8 @@ setup = ->
     # a program any worktree has built is not built again.
     env = Object.fromEntries(sweeps.map((v) -> [v, '1']))
     env.RIG_BUILD_STORE = (if /^# builds:[ \t]*shared[ \t]*$/m.test(text) then store else '')
-    todo(id, JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, env, opts: { timeout: String(if full then Math.min(limit * 10, 3600) else limit) } }))
+    cpus = text.match(/^# cpus:[ \t]*(\d+)[ \t]*$/m)
+    todo(id, JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, env, opts: { timeout: String(if full then Math.min(limit * 10, 3600) else limit), cpus: (if cpus then Number(cpus[1]) else 1) } }))
   # Its id sorts before every other job's, as Swarm starts them in that
   # order: the slowest job, a compile of minutes when the compiler changed,
   # runs beside the rest instead of after them.
@@ -754,11 +761,34 @@ setup = ->
 
 # ---- Checking a case -------------------------------------------------------
 
-# Run a command; its status (null when the time limit ended it), stdout,
-# and stderr.
-run = (cmd, env, seconds, cwd = root) ->
+# Where cpuq is installed (and RIG_NO_CPUQ is not set), each command runs as
+# `cpuq run -- CMD`, so a running case holds one CPU of the pool. A script
+# marked `# cpus: N` measures work spread over several CPUs, which one
+# pooled CPU cannot show, so it runs directly.
+cpuq = if process.env.RIG_NO_CPUQ then null else Bun.which('cpuq')
+
+# Run a command; its status, stdout, and stderr. A command that did not
+# exit has no status, and `ended` says why: its time limit ended it
+# ("timed out after 120s"), or a signal did ("killed by signal SIGABRT
+# (6) after 0.4s").
+run = (cmd, env, seconds, cwd = root, pooled = true) ->
+  cmd = [cpuq, 'run', '--', ...cmd] if cpuq and pooled
+  start = performance.now()
   r = Bun.spawnSync({ cmd, cwd, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe', timeout: seconds * 1000 })
-  { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() }
+  ended = null
+  unless r.exitCode?
+    took = ((performance.now() - start) / 1000).toFixed(1)
+    ended = if r.exitedDueToTimeout then "timed out after #{seconds}s" else signalEnd(r.signalCode, took)
+  { code: r.exitCode, ended, out: r.stdout.toString(), err: r.stderr.toString() }
+
+# How a signal ended a command, by its name and number: Bun names a
+# signal it knows, and gives the number of one it does not.
+signalEnd = (sig, took) ->
+  return "ended with no status after #{took}s" unless sig?
+  if typeof sig is 'number'
+    name = Object.keys(osConstants.signals).find((k) -> osConstants.signals[k] is sig)
+    return if name then "killed by signal #{name} (#{sig}) after #{took}s" else "killed by signal #{sig} after #{took}s"
+  "killed by signal #{sig} (#{osConstants.signals[sig] ?? '?'}) after #{took}s"
 
 firstLine = (s) -> s.split('\n').find((l) -> l.trim() isnt '') or '(nothing)'
 
@@ -772,7 +802,7 @@ bodyAt = (c, file, line, col) ->
 checkFail = (c) ->
   r = run([rig, 'check', c.path], {}, 120)
   all = r.out + r.err
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   throw Error.new("the compiler crashed: #{firstLine(all)}") if r.code > 128 or /panic:|reached unreachable|Segmentation fault/.test(all)
   throw Error.new('accepted (a `fail` case must be rejected)') if r.code is 0
   msgs = []
@@ -835,7 +865,7 @@ checkPack = (c) ->
   writeFileSync(join(c.dir, 'key'), c.key) if r.code is 0
   mkdirSync(c.dir, { recursive: true })
   writeFileSync(join(c.dir, 'state'), "#{c.key}\t#{if r.code is 0 then 'built' else if empty then 'empty' else 'failed'}\n")
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   why = firstLine(r.err.split('\n').filter((l) -> /error/.test(l)).join('\n') or r.err)
   throw Error.new("#{left.length} of the pack's programs did not build, so they run alone: #{why}") if r.code is 0 and left.length > 0
   return if r.code is 0 or empty
@@ -892,7 +922,7 @@ checkRunWith = (c, seedEnv, seedNote) ->
   quiet = if c.verb is 'bomb' or c.opts.exit? then { RIG_NO_CRASH_REPORT: '1' } else {}
   r = run(cmd, { RIG_SANITIZE: '1', RIG_OUT_DIR: outDirOf(c, (if c.release then '.release' else '.debug')), ...quiet, ...seedEnv }, seconds)
   mode = (if c.release then ' (release)' else '') + seedNote
-  throw Error.new("timed out after #{seconds}s#{mode}") unless r.code?
+  throw Error.new("#{r.ended}#{mode}") unless r.code?
   rejected = r.err.match(/(\S+\.rig):(\d+):(\d+): error: (.*)/)
   throw Error.new("rejected by rig at #{bodyAt(c, rejected[1], Number(rejected[2]), Number(rejected[3]))}: #{rejected[4]}") if rejected and r.code is 1 and not inPack
   throw Error.new("did not run#{mode}: #{firstLine(r.err)}") if r.code is 125 or r.err.includes('rig: the program did not run')
@@ -924,7 +954,7 @@ checkRunWith = (c, seedEnv, seedNote) ->
 checkAccept = (c) ->
   r = run([rig, 'check', c.path], {}, 120)
   all = r.out + r.err
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   return if r.code is 0
   throw Error.new("the compiler crashed: #{firstLine(all)}") if r.code > 128 or /panic:|reached unreachable|Segmentation fault/.test(all)
   throw Error.new("rejected: #{firstLine(all)}")
@@ -932,7 +962,7 @@ checkAccept = (c) ->
 # A doc example that is only parsed.
 checkParse = (c) ->
   r = run([rig, 'parse', c.path], {}, 120)
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   throw Error.new("does not parse: #{firstLine(r.err)}") unless r.code is 0
 
 # A doc example whose facts, `rig check --facts`, are exactly its
@@ -940,7 +970,7 @@ checkParse = (c) ->
 checkFacts = (c) ->
   r = run([rig, 'check', '--facts', c.path], {}, 120)
   all = r.out + r.err
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   throw Error.new("rejected: #{firstLine(all)}") unless r.code is 0
   throw Error.new('facts differ from the facts block') unless all.replace(/\n+$/, '') + '\n' is c.out
 
@@ -951,7 +981,7 @@ checkFacts = (c) ->
 checkProofs = (c) ->
   seconds = Number(c.opts.timeout)
   facts = run([rig, 'check', '--facts=proofs', c.path], {}, seconds)
-  throw Error.new('rig check timed out') unless facts.code?
+  throw Error.new("rig check #{facts.ended}") unless facts.code?
   return unless facts.code is 0
   return if facts.out.trim() is '' and not c.every
   out = join(work, 'proofs', Bun.CryptoHasher.new('sha256').update(c.path).digest('hex').slice(0, 16))
@@ -960,7 +990,7 @@ checkProofs = (c) ->
     env = { RIG_SANITIZE: '1', RIG_NO_CRASH_REPORT: '1', RIG_OUT_DIR: join(out, how) }
     env.RIG_NO_PROOFS = '1' if how is 'plain'
     r = run([rig, 'run', ...(if how is 'debug' then [] else ['--release']), c.path], env, seconds)
-    throw Error.new("#{how}: timed out after #{seconds}s") unless r.code?
+    throw Error.new("#{how}: #{r.ended}") unless r.code?
     throw Error.new("#{how}: did not run: #{firstLine(r.err)}") if r.code is 125 or r.err.includes('rig: the program did not run')
     throw Error.new("#{how}: a proven check failed") if r.err.includes('rig: a proven check failed')
     m = r.err.match(/panic: .*/)
@@ -976,7 +1006,7 @@ checkProofs = (c) ->
 checkTorture = (c) ->
   r = run([rig, 'run', c.path], { RIG_OUT_DIR: join(work, 'torture', 'out', basename(c.path)) }, 120)
   all = r.out + r.err
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   throw Error.new("the compiler crashed on bad input: #{firstLine(all)}") if r.code > 128 or /panic:|reached unreachable|Segmentation fault/.test(all)
   throw Error.new('bad input was accepted and ran') if r.code is 0
   throw Error.new("rejected without a file:line:col diagnostic: #{firstLine(all)}") unless /\.rig:\d+:\d+/.test(all)
@@ -991,8 +1021,8 @@ checkScript = (c) ->
   mkdirSync(join(out, 'work'), { recursive: true })
   seconds = Number(c.opts.timeout)
   timeoutCmd = (Bun.which('timeout') ?? Bun.which('gtimeout')) ?? 'timeout'
-  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT_CMD: timeoutCmd, ...(c.env ?? {}) }, seconds, join(out, 'work'))
-  throw Error.new("timed out after #{seconds}s") unless r.code?
+  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT_CMD: timeoutCmd, ...(c.env ?? {}) }, seconds, join(out, 'work'), (c.opts.cpus ?? 1) <= 1)
+  throw Error.new(r.ended) unless r.code?
   unless r.code is 0
     all = r.out + r.err
     throw Error.new(all.split('\n').find((l) -> l.startsWith('FAIL')) ?? "exit #{r.code}: #{all.trim().split('\n').pop()}")
@@ -1039,10 +1069,56 @@ checkOracle = (c) ->
   key = oracleInputs([c.name, readFileSync(c.path, 'utf8')], readFileSync(c.path, 'utf8').split('\n').filter((l) -> l isnt '').map((l) -> l.split('\t')[1]))
   return if passedBefore(c, key)
   r = run([join(root, 'bin', 'rig-oracle'), '--set', c.name, '--allow', 'test/oracle/differences', '--rejects', 'test/oracle/rejections', '--coverage', 'test/oracle/coverage', '--list', c.path], {}, Number(c.opts.timeout))
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
-    throw Error.new(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+    bad = all.filter((l) -> /^(DIFF|STRICTER|FIXED|FAIL|LOST|UNLISTED)/.test(l))
+    throw Error.new(bad.slice(0, 40).join('\n')) if bad.length > 0
+    throw Error.new(all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+  passedNow(c, key)
+
+# Trig (TRIG, default ~/Data/Code/trig, only read) under the reference
+# checker: its modules, linked into a folder of the run's own, with
+# tools/trig/main.rig as the program and two stubs in place of the
+# modules a Trig build generates (`buildinfo`, `libtrees`), held to the
+# same lists. Every function the compiler accepts and the oracle rejects
+# fails the job, and so does a Trig the compiler stops before its
+# ownership checks, which the oracle would then decide nothing of.
+trigStubs =
+  buildinfo: 'pub fun rig_commit() -> Static\n  "oracle"\n\npub fun trig_commit() -> Static\n  "oracle"\n'
+  libtrees: 'use ast\n\npub fun sections(name: ?String) -> List[Static]\n  List()\n\npub fun node_records(name: ?String) -> List[ast.NodeRec]\n  List()\n'
+
+checkTrig = (c) ->
+  src = join(c.path, 'src')
+  main = join(c.path, 'tools', 'trig', 'main.rig')
+  throw Error.new("no Trig at #{c.path} (TRIG names it)") unless existsSync(src) and existsSync(main)
+  mods = readdirSync(src).sort().filter((m) -> m not in ['buildinfo', 'libtrees'] and statSync(join(src, m)).isDirectory())
+  h = Bun.CryptoHasher.new('sha256')
+  h.update(readFileSync(main))
+  h.update(JSON.stringify(trigStubs))
+  for m in mods
+    for f in readdirSync(join(src, m), { recursive: true }).map(String).sort() when f.endsWith('.rig')
+      h.update("#{m}/#{f}\n").update(readFileSync(join(src, m, f)))
+  key = oracleInputs([c.name, h.digest('hex')], [])
+  return if passedBefore(c, key)
+  dir = join(work, 'oracle', 'trig')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  symlinkSync(join(src, m), join(dir, m)) for m in mods
+  writeFileSync(join(dir, 'main.rig'), readFileSync(main))
+  for name, text of trigStubs
+    mkdirSync(join(dir, name))
+    writeFileSync(join(dir, name, "#{name}.rig"), text)
+  r = run([join(root, 'bin', 'rig-oracle'), '--set', c.name, '--allow', 'test/oracle/differences', '--rejects', 'test/oracle/rejections', "trig=#{join(dir, 'main.rig')}"], {}, Number(c.opts.timeout))
+  throw Error.new(r.ended) unless r.code?
+  all = (r.out + r.err).split('\n')
+  unless r.code is 0
+    # A function the compiler accepts and the oracle rejects comes first.
+    throw Error.new(all.find((l) -> l.startsWith('DIFF')) ?? all.find((l) -> /^(STRICTER|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+  decided = Number(all.find((l) -> l.startsWith('oracle'))?.match(/(\d+) decided/)?[1] ?? 0)
+  if decided is 0
+    k = run([rig, 'check', join(dir, 'main.rig')], {}, Number(c.opts.timeout))
+    throw Error.new("the compiler stops Trig before its ownership checks: #{firstLine(k.out + k.err)}")
   passedNow(c, key)
 
 # The matrix's programs (test/matrix.py) under the reference checker,
@@ -1051,10 +1127,12 @@ checkMatrix = (c) ->
   key = oracleInputs([c.name, readFileSync(join(root, 'test', 'matrix.py'))], [])
   return if passedBefore(c, key)
   r = run(['python3', join(root, 'test', 'matrix.py'), '--oracle'], {}, Number(c.opts.timeout))
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
-    throw Error.new(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+    bad = all.filter((l) -> /^(DIFF|STRICTER|FIXED|FAIL|LOST|UNLISTED)/.test(l))
+    throw Error.new(bad.slice(0, 40).join('\n')) if bad.length > 0
+    throw Error.new(all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
   passedNow(c, key)
 
 # The matrix's programs built and run (test/matrix.py `--own --delta`),
@@ -1063,7 +1141,7 @@ checkMatrix = (c) ->
 matrixShards = 40
 checkMatrixRun = (c) ->
   r = run(['python3', join(root, 'test', 'matrix.py'), '--rig', rig, '--own', '--delta', '--shard', c.shard, '-j', '1'], { RIG_BUILD_STORE: '' }, Number(c.opts.timeout))
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
     throw Error.new(all.find((l) -> /^fail /.test(l))?.replace(/\s+/g, ' ') ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
@@ -1081,13 +1159,13 @@ checkLint = (c) ->
 # A generated test file is what its tool writes now.
 checkGenerated = (c) ->
   r = run(['python3', c.path, '--check'], {}, Number(c.opts.timeout))
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   throw Error.new(firstLine(r.out + r.err).split(root + '/tools/../').join('').split(root + '/').join('')) unless r.code is 0
 
 # The compiler's own Zig tests.
 checkUnit = (c) ->
   r = run(['zig', 'build', 'test', '-Dself-check=true', ...zigJobs()], {}, Number(c.opts.timeout))
-  throw Error.new('timed out') unless r.code?
+  throw Error.new(r.ended) unless r.code?
   throw Error.new("zig build test failed: #{(r.err + r.out).trim().split('\n').slice(-3).join(' / ')}") unless r.code is 0
 
 perform = (task, ctx) ->
@@ -1106,6 +1184,7 @@ perform = (task, ctx) ->
       when 'script' then checkScript(c)
       when 'unit' then checkUnit(c)
       when 'oracle' then checkOracle(c)
+      when 'oracle-trig' then checkTrig(c)
       when 'lint' then checkLint(c)
       when 'generated' then checkGenerated(c)
       when 'matrix' then checkMatrix(c)
@@ -1177,8 +1256,7 @@ leftBehind = ->
   process.stdout.write("\x1b[31mthe run left #{extra.length} file(s) in the checkout:\x1b[0m\n" + extra.slice(0, 20).map((l) -> "  #{l}\n").join(''))
   process.exit(1)
 
-# Inside a cpuq lease, as many workers as it granted cores; elsewhere,
-# Swarm's own default, one per CPU (`-w N` chooses either way).
-await swarm { setup, perform, workers: (if process.env.CPUQ_CORES then Number(process.env.CPUQ_CORES.split('-')[0]) else undefined) }
+# Swarm's own default workers, one per CPU (`-w N` chooses another number).
+await swarm { setup, perform }
 verdict()
 leftBehind()

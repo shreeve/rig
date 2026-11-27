@@ -58,7 +58,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `src/diag.zig` | the diagnostics every pass collects and the CLI prints |
 | `src/modules.zig` | loads `use`d files and checks modules in dependency order |
 | `src/sema.zig`, `resolve.zig`, `typecheck.zig`, `cteval.zig` | names, declarations, types, effects, the facts table, and compile-time functions |
-| `src/storage.zig` | the hidden storage emit makes, decided once for emit and the ownership checker |
+| `src/lower.zig`, `lir.zig` | lowering: each body to its LIR, which emit and the ownership checker read, and the storage deciders, which say once what hidden storage emit makes |
 | `src/ownership.zig`, `src/ownership/` | the ownership checker: moves, loans, drops, one file per part of the Core |
 | `src/proofs.zig` | the index, byte, and add checks known to pass, which emit omits |
 | `src/accounts.zig` | each frame's account, its values, reach, and operations, counted on its LIR |

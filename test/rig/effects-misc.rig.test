@@ -1508,6 +1508,23 @@ fail "while step binding condition continue", "13:47: the loop step reads `h`, a
     i += 1
   print(steps, i)
 
+fail "while step binding after a type error", "type mismatch: expected `Int`, got `Static`", errors: 1
+  # Where a `while` step runs is lowering's decision, and a module with a
+  # type error is not lowered: a step that reads a binding of the
+  # condition is not reported with it.
+
+  fun odd(i: Int) -> Int?
+    none if i % 2 == 1 else i
+
+  fun some(i: Int) -> Int?
+    i if i < 10 else none
+
+  i = 0
+  while some(odd(i) ?? continue) as h: i += h
+    i += 1
+  n: Int = "a"
+  print(n, i)
+
 fail "while step capture condition continue", "16:54: the loop step reads `h`, a binding of the condition, which a `continue` in the condition leaves unbound", errors: 1
   # A step that reads the condition's binding through a closure's capture
   # reads it too, so a `continue` in the condition, which goes on to the
@@ -1619,3 +1636,14 @@ test "fallible sub returns an error", '''
 
   forward(2) catch |e| print(e)
   pick(1) catch |e| print(e)
+
+test "extern variable", "1"
+  # `extern name: T` declares C data: a C variable read inside `raw`.
+  # `optind` is libc's index of the next command-line argument, which is 1
+  # before any option parsing.
+
+  extern optind: I32
+
+  sub main()
+    raw
+      print(optind)

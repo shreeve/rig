@@ -144,6 +144,20 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **CORE review 3** (owner approved the defaults 2026-11-26; branch
+  `core-three`, draft PR): CORE states that a call evaluates its
+  arguments in the order it writes them, that a `drop` body's drop is
+  the last use of the views its value holds, and that what leaves a
+  scope is live through its defers; emit copies a fixed view binding
+  where it stands, and the reference checker models the other two.
+- **Loans end at their last use** (family P of the ownership rebuild;
+  branch `last-use`, draft PR): liveness on each body's LIR flow
+  (`live.Flow`) in place of source positions. The owner reviews the
+  list of programs whose verdict changes before it merges
+  (`~/Data/Code/Claude/rig/rig/rebuild/last-use-verdicts.md`); nothing
+  is newly rejected. Two cases of `ownership-last-use.rig.test` stay
+  `known`: a capture of a write-view binding, and a view whose branch
+  differs in each pass.
 - **Datetime** (owner's design v3, 2026-11-17, amended 2026-11-20 and 2026-11-22;
   [design/datetime.md](docs/design/datetime.md)): phase 0 measured the
   `Duration` layout, generated and checked the zone tables, and built the

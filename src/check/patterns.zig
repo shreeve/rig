@@ -6,7 +6,7 @@ const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const diag = @import("../diag.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const Wide = sema.Wide;
 const resolve = @import("../resolve.zig");
 const Sexp = parser.Sexp;
@@ -76,7 +76,7 @@ pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expe
     else if (subject_hands.hasStorage()) .{ .place = subject, .kind = .match_copy, .pattern = tested } else null;
     const saved_arm_local = self.expect.arm_local;
     defer self.expect.arm_local = saved_arm_local;
-    self.expect.arm_local = mode == .read and !self.isPoison(scrutinee) and !storage.matchesInPlace(self.ctx, node);
+    self.expect.arm_local = mode == .read and !self.isPoison(scrutinee) and !lowering.matchesInPlace(self.ctx, node);
     const saved_matching = self.expect.matching;
     defer self.expect.matching = saved_matching;
     self.expect.matching = node;
@@ -124,7 +124,7 @@ pub fn checkMatchIn(self: *Checker, node: Sexp, position: Checker.Position, expe
         if (viewed) |v| {
             if (pattern.isKind(.variant_pattern) or pattern.isKind(.alt_pattern)) {
                 for (self.ctx.armPayloadBindings(pattern)) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
-            } else if (storage.isCatchAll(self.ctx, pattern)) if (self.ctx.symbolOf(pattern)) |sym| {
+            } else if (lowering.isCatchAll(self.ctx, pattern)) if (self.ctx.symbolOf(pattern)) |sym| {
                 var whole = v;
                 whole.whole = true;
                 try self.copied_from.put(self.ctx.allocator, sym, whole);
@@ -200,7 +200,7 @@ pub fn alwaysHolds(self: *Checker, pattern: Sexp, scrutinee: TypeId) Error!void 
 /// `_` or a name after `matches`, alone or among alternatives, matches
 /// every value: rejected, and its name given no type.
 pub fn testCatchAll(self: *Checker, subject: Sexp, alts: []const Sexp, cov: *Checker.MatchCoverage) Error!void {
-    for (alts) |alt| if (storage.isCatchAll(self.ctx, alt)) {
+    for (alts) |alt| if (lowering.isCatchAll(self.ctx, alt)) {
         const name = self.text(alt);
         const compare = if (std.mem.eql(u8, name, "_")) "" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "; to compare with `{s}`, write `{s} == {s}`", .{ name, try ViewCheck.plainText(self, CompatCheck.stripSigil(subject)), name });
         try self.errAt(alt, "`{s}` matches every value, so `matches` would always hold; a pattern after `matches` names a variant or a value{s}", .{ name, compare });
@@ -502,31 +502,6 @@ pub fn makesTemps(self: *Checker, node: Sexp, base: Sexp) bool {
     return false;
 }
 
-/// Header `node` (a `match`, a `for`, or an `as`) over `subject` that
-/// makes a statement temporary (`sema.firstStmtTemp`) is evaluated by
-/// emit in a block that ends the temporary. The block yields the
-/// address of a place the subject reaches (`storage.headerPoints`),
-/// and the construct binds the place's own, as it would with no
-/// temporary. It yields the value of any other subject, and what the
-/// construct binds is in that copy, which is recorded (the storage
-/// fact `header_copy`) for emit. A header that copies is rejected at
-/// the temporary, whatever it binds: a write, a Cell change, or a
-/// view, a catch-all's of plain data included, would reach the copy.
-/// A value made here, which no name holds, is the construct's own: it
-/// binds plain data of it by copy, which is what the copy holds.
-pub fn rejectHeaderCopy(self: *Checker, node: Sexp, subject: Sexp, bound: TypeId) Error!void {
-    const temp = sema.firstStmtTemp(self.ctx, subject) orelse return;
-    if (storage.headerPoints(self.ctx, storage.headerSubject(node))) return;
-    try self.ctx.record(.header_copies, node, {});
-    if (self.isPoison(bound)) return;
-    if (ViewCheck.hands(self, subject).kind == .made and sema.holdsNoLoanButText(self.ctx, sema.unwrapViews(self.ctx, bound))) return;
-    if (CompatCheck.inIndex(subject, temp)) {
-        try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first", .{});
-    } else if (CompatCheck.inArgument(subject, temp)) {
-        try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind the argument to a name first", .{});
-    } else try self.errAt(temp, "this header binds a copy of its subject, since a temporary it makes ends with the header: bind `{s}` to a name first", .{CallCheck.sourceText(self, temp)});
-}
-
 /// The temporary place `e` reads into, where `e` is a field or
 /// element path, or a view, of one (`mk().e`, `?mk()`).
 pub fn tempBase(self: *Checker, e: Sexp) ?Sexp {
@@ -543,7 +518,7 @@ pub fn armsBind(self: *Checker, match: Sexp) bool {
         const pattern = ir.Arm.pattern(arm);
         const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
         for (alts) |alt| {
-            if (storage.isCatchAll(self.ctx, alt) and viewsMatched(self, alt)) return true;
+            if (lowering.isCatchAll(self.ctx, alt) and viewsMatched(self, alt)) return true;
             if (alt.isKind(.variant_pattern)) for (self.ctx.payloadBindings(alt) orelse &.{}) |b| if (b == .src and viewsMatched(self, b)) return true;
         }
     }
@@ -571,7 +546,7 @@ pub fn checkAlternatives(self: *Checker, alts: []const Sexp, in_test: bool) Erro
     // After `matches`, a catch-all is reported as the test it makes
     // (`testCatchAll`).
     for (alts) |alt| {
-        if (!in_test and storage.isCatchAll(self.ctx, alt)) {
+        if (!in_test and lowering.isCatchAll(self.ctx, alt)) {
             try self.errAt(alt, "`{s}` matches every value, so the other alternatives never matter; give it an arm of its own", .{self.text(alt)});
             try poisonBinding(self, alt);
         }
@@ -789,7 +764,7 @@ pub fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *Chec
                     // subject, or captured as a copy, is usable in its
                     // arm only.
                     const ty = try bindMatchView(self, pattern, mode, scrutinee);
-                    const copied = self.expect.arm_local or (mode == .read and !storage.catchAllCaptured(self.ctx, pattern, self.expect.matching));
+                    const copied = self.expect.arm_local or (mode == .read and !lowering.catchAllCaptured(self.ctx, pattern, self.expect.matching));
                     if (copied and mode == .read and sema.copies(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) != .yes) (try self.ctx.symbolMut(sym)).flags.arm_view = true;
                     try self.ctx.recordType(pattern, ty);
                 }

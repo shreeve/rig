@@ -1,0 +1,937 @@
+# ownership: views that end at their last use.
+#
+# Core sentences 5 and 6 leave a place read-only or unusable until the
+# last use of every view of it. The checker finds that use on the
+# body's LIR, in the order it runs: deferred code where it runs, a
+# loop's step and a later arm's guard on the paths that reach them, a
+# re-pointed name's old view up to the store, and a value's views up
+# to the path where it fails or is `none`. Each `test` case is
+# accepted by the reference checker (bin/rig-oracle) too, and runs
+# clean under RIG_SANITIZE=1. The two cases still `known` need more
+# than liveness: a capture of a write-view binding that keeps what the
+# binding views, and a view whose branch differs in each pass.
+#
+# The `fail` cases at the end are accepted by the reference checker too,
+# but are unsafe as emit holds their values, and stay rejected: a value
+# whose type has a `drop` body uses its views where it is dropped, a
+# fixed view binding is read where emit reads it, after the operands
+# emit evaluates first, and a loop's `break` value keeps its views in
+# force while the body's defers run. The last ones are unsafe, and the
+# reference checker rejects them: a failed or `none` value ends only the
+# views it carried, never an equal view another part of the statement
+# holds.
+
+# Deferred code runs at its scope's exit, after the views declared after
+# it were last used.
+
+test "last use of a write view before a defer that writes its place", "1"
+  v: List[Int] = List()
+  defer !v.push(3)
+  w = !v
+  !w.push(1)
+  print(v.len)
+
+test "last use of a read view before a defer that writes a match payload", "ello"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      defer !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      s = ?t[1..]
+      print(s)
+    .b => pass
+
+test "last use of a read view before a defer that writes a parameter", '''
+  ello
+  hellox
+'''
+  sub f(t: !String)
+    defer !t.add("x")
+    s = ?t[1..]
+    print(s)
+
+  t = String("hello")
+  f(!t)
+  print(t)
+
+test "last use of a read view before a defer that writes an if as binding", '''
+  ello
+  hellox
+'''
+  o: String? = String("hello")
+  if !o as t
+    defer !t.add("x")
+    s = ?t[1..]
+    print(s)
+  print(o ?? String("none"))
+
+test "last use of an element view before a defer that writes the element", "a"
+  v: List[String] = List()
+  !v.push(String("a"))
+  defer !v[0].add("!")
+  x = ?v[0]
+  print(x)
+
+test "last use of a List view before a defer that pushes", "[1]"
+  v: List[Int] = List()
+  !v.push(1)
+  defer !v.push(2)
+  x = ?v
+  print(x)
+
+test "last use of a re-pointed write view before its block's defer", "bd"
+  b = String("b")
+  w = !b
+  if true
+    a = String("a")
+    w = !a
+    defer !w.add("d")
+    w = !b
+  print(b)
+
+test "last use of a read view before a defer that moves a field out", '''
+  S(a: R(n: 1))
+  deferred R(n: 1)
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  obj S
+    a: R?
+
+  s = S(a: R(n: 1))
+  r = ?s
+  defer
+    x = <s.a
+    print("deferred", x)
+  print(r)
+
+test "last use of a write view in a defer before an earlier defer moves a field out", '''
+  end
+  S(a: R(n: 1))
+  R(n: 1)
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  obj S
+    a: R?
+
+  s = S(a: R(n: 1))
+  defer print(<s.a)
+  w = !s
+  defer print(w)
+  print("end")
+
+test "last use of a closure's view where its errdefer never runs", "1"
+  v: List[Int] = List()
+  !v.push(1)
+  f = |?v| print(v.len)
+  errdefer f()
+  <v
+  print(1)
+
+test "last use of a closure's write view in a defer before the defer reads its place", "3"
+  x = 1
+  f = |!x|
+    x += 1
+  defer
+    f()
+    print(x)
+  f()
+
+# A view's last use is on the paths that reach it: a `while` step a
+# `break` or `return` never reaches, a name re-pointed before its next
+# read, or a later arm's guard where an earlier arm matched.
+
+test "last use of a step's view on a path that returns", "4"
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 5
+      return S(s: ?v[..])
+    none
+
+  fun run() -> Int
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    i = 0
+    while mk(?v, i) as h: k += h.s[0]
+      i += 1
+      if i == 3
+        !v.push(2)
+        return k + v.len
+    k
+
+  print(run())
+
+test "last use of a step's view re-pointed before the step", "5"
+  v: List[Int] = List()
+  !v.push(1)
+  s = ?v[..]
+  k = 0
+  i = 0
+  while i < 5: k += s[0]
+    !v.push(2)
+    s = ?v[..]
+    i += 1
+  print(k)
+
+test "last use of a step's view on a path that breaks", "1 2"
+  fun mk(v: ?List[Int], n: Int) -> ([]Int)?
+    if n < 3
+      return ?v[..]
+    none
+
+  sub grow(v: !List[Int])
+    for i in 0..100
+      !v.push(i)
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  n = 0
+  while mk(?v, n) as h: k += h[0]
+    n += 1
+    if n > 1
+      grow(!v)
+      break
+  print(k, n)
+
+test "last use of a step's method view on a path that breaks", "1 2"
+  obj H
+    r: []Int
+
+    fun get(?@) -> []Int
+      @r
+
+  fun mk(v: ?List[Int], n: Int) -> H?
+    if n < 3
+      return H(r: ?v[..])
+    none
+
+  sub grow(v: !List[Int])
+    for i in 0..100
+      !v.push(i)
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  n = 0
+  while mk(?v, n) as h: k += h.get()[0]
+    n += 1
+    if n > 1
+      grow(!v)
+      break
+  print(k, n)
+
+test "last use of a view declared before a loop and re-pointed in each pass", '''
+  hello
+  ello!
+  .a(t: "hello!!")
+'''
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  s: ?String = ""
+  for i in 0..2
+    match !e
+      .a(t)
+        s = ?t[i..]
+        print(s)
+        !t.add("!")
+      .b => pass
+  print(e)
+
+test "last use of a field view carried around a loop and re-pointed", '''
+  1
+  2
+  3
+'''
+  obj P
+    items: List[Int]
+    n: Int
+
+  p = P(items: List(), n: 0)
+  !p.items.push(0)
+  prev = ?p.items[..]
+  for i in 0..3
+    print(prev.len)
+    !p.items.push(i)
+    prev = ?p.items[..]
+
+test "last use of a view in a later arm's guard where an earlier arm writes", "51"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..50
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  x = ?v[0..1]
+  k = 0
+  r = match k
+    0 => grow(!v)
+    _ if x[0] > 0 => 1
+    _ => 2
+  print(r)
+
+# Re-pointing a name ends its old view at the old view's last use, not at
+# the assignment.
+
+test "last use of a read view re-pointed by a match whose arm writes", '''
+  7
+  8 4
+'''
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..3
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  r = ?v[0..1]
+  print(r[0])
+  k = 0
+  r = match k
+    0
+      grow(!v)
+      ?u[0..1]
+    _ => ?u[0..1]
+  print(r[0], v.len)
+
+test "last use of a view held across passes of a match on a branch", ''', known: "cannot change `e` while a write view of it is still in use"
+  1
+  2
+  2
+  3
+'''
+  obj Res
+    n: Int
+    v: List[Int]
+
+  enum E
+    a(r: Res)
+    b
+
+  fun mk(n: Int) -> E
+    v: List[Int] = List()
+    !v.push(n)
+    E.a(r: Res(n: n, v: <v))
+
+  e = mk(1)
+  d = mk(2)
+  z = [0]
+  keep: []Int = ?z[..]
+  for i in 0..4
+    match (!e if i % 2 == 0 else !d)
+      .a(r)
+        print(keep.len)
+        !r.v.push(i)
+        keep = ?r.v[..]
+      .b => pass
+
+test "last use of a write view re-pointed while a closure holds what it saw", "11 2", known: "cannot reassign `w` while a write view of it is still in use"
+  m = 1
+  n = 2
+  w = !m
+  f = |!w| w += 10
+  w = !n
+  f()
+  print(m, n)
+
+# A view a statement or a header makes ends at its last use within it:
+# a call's write view once the call has failed, a result's write views
+# once the results are taken, a fallback's after the value it replaces,
+# a call's arguments on a failure before the call starts, and a header's
+# views once the part it copies is made.
+
+test "last use of a call's write view before its catch handler's", "1"
+  error Bad
+    oops
+
+  fun first(r: !List[Int], ok: Bool) -> (!List[Int])!
+    return Bad.oops if not ok
+    r
+
+  vs: List[Int] = List()
+  k = first(!vs, false) catch !vs
+  !k.push(1)
+  print(vs.len)
+
+test "last use of a write argument whose call's result holds another", "3 2"
+  fun pair(a: !Int, b: !Int) -> (!Int, Int) from a
+    b += 1
+    return a, b
+
+  x = 1
+  y = 1
+  w, y = pair(!x, !y)
+  w += y
+  print(x, y)
+
+test "last use of a write view in a call's none before the fallback's", "1 7"
+  obj P
+    x: Int
+
+  fun pick(p: !P, b: Bool) -> (!P)?
+    return none if b
+    p
+
+  p = P(x: 1)
+  q = P(x: 2)
+  c = false
+  (!p if c else pick(!q, true) ?? !q).x = 7
+  print(p.x, q.x)
+
+test "last use of an argument's write view on a failure before its call", '''
+  failed
+  0
+'''
+  error E
+    bad
+
+  fun num(w: Int) -> Int!
+    return E.bad if w < 0
+    w
+
+  sub keep(v: !List[Int], k: Int)
+    !v.push(k)
+
+  sub viewed(nums: !List[Int], ws: ?List[Int])!
+    errdefer !nums.clear()
+    for w in ws
+      keep(!nums, num(w)!)
+
+  nums: List[Int] = List()
+  ws: List[Int] = List()
+  !ws.push(1)
+  !ws.push(-1)
+  viewed(!nums, ?ws) catch print("failed")
+  print(nums.len)
+
+test "last use of a returned write view on a failure before its call", '''
+  failed
+  0
+'''
+  error E
+    bad
+
+  obj Box
+    v: List[Int]
+
+    fun slot(!@) -> !List[Int] from @
+      !@v
+
+  fun num(w: Int) -> Int!
+    return E.bad if w < 0
+    w
+
+  sub keep(v: !List[Int], k: Int)
+    !v.push(k)
+
+  sub started(b: !Box, ws: ?List[Int])!
+    errdefer !b.v.clear()
+    for w in ws
+      keep(!b.slot(), num(w)!)
+
+  b = Box(v: List())
+  ws: List[Int] = List()
+  !ws.push(1)
+  !ws.push(-1)
+  started(!b, ?ws) catch print("failed")
+  print(b.v.len)
+
+test "last use of a branch's write views in a for header that copies a part", "6"
+  obj A3
+    arr: [3]Int
+
+  xs: List[A3] = List()
+  !xs.push(A3(arr: [1, 2, 3]))
+  ys: List[A3] = List()
+  !ys.push(A3(arr: [4, 5, 6]))
+  a = !xs[0]
+  b = !ys[0]
+  c = true
+  n = 0
+  for x in (a if c else b).arr
+    for _ in 0..100
+      !xs.push(A3(arr: [0, 0, 0]))
+    n += x
+  print(n)
+
+test "last use of a branch's write views in a for header, then a write to the part", "6"
+  obj A3
+    arr: [3]Int
+
+  xs: List[A3] = List()
+  !xs.push(A3(arr: [1, 2, 3]))
+  ys: List[A3] = List()
+  !ys.push(A3(arr: [4, 5, 6]))
+  a = !xs[0]
+  b = !ys[0]
+  c = true
+  n = 0
+  for x in (a if c else b).arr
+    xs[0].arr[2] = 100
+    n += x
+  print(n)
+
+# Unsafe where emit holds the value. A value whose type has a `drop` body
+# uses the views it holds where it is dropped: at a reassignment, after
+# the new value is made (Core sentence 6), not at its last use by name.
+
+fail "last use drop of a reassigned value reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 1)
+  print(a.tag)
+  b = String("newb")
+  a = Guard(s: "lit", tag: 2)
+  print(b, a.tag)
+
+fail "last use drop of a value reassigned with results reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  fun mk() -> (String, Guard)
+    return String("newb"), Guard(s: "lit", tag: 2)
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 1)
+  print(a.tag)
+  b, a = mk()
+  print(b, a.tag)
+
+fail "last use drop of a reassigned value reads what its new value's call replaced", "cannot change `x` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  fun mk(s: !String, t: Int) -> Guard
+    s = String("replaced")
+    Guard(s: "lit", tag: t)
+
+  x = String("x")
+  g = Guard(s: ?x, tag: 0)
+  print(g.tag)
+  g = mk(!x, 1)
+  print(g.tag)
+
+fail "last use drop of a reassigned value reads a slice its new value's call grew", "cannot change `v` while a read view of it is still in use"
+  obj H
+    v: []Int
+
+    drop(!@)
+      print("drop", @v[0])
+
+  fun growh(v: !List[Int], u: ?List[Int]) -> H
+    for _ in 0..200
+      !v.push(1)
+    H(v: ?u[0..1])
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  h = H(v: ?v[0..1])
+  h = growh(!v, ?u)
+  print("end")
+
+fail "last use drop of a reassigned value reads a List a match arm grew", "cannot change `v` while a read view of it is still in use"
+  obj H
+    v: ?List[Int]
+
+    drop(!@)
+      print("drop", @v[0])
+
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  h = H(v: ?v)
+  k = 0
+  h = match k
+    0
+      grow(!v)
+      H(v: ?u)
+    _ => H(v: ?u)
+  print("end")
+
+fail "last use drop of a reassigned value reads a place its new value writes", "cannot change `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  fun grow(s: !String) -> Int
+    for _ in 0..64
+      !s.add("xxxxxxxx")
+    1
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 1)
+  print(a.tag)
+  a = Guard(s: "lit", tag: grow(!b))
+  print(a.tag)
+
+fail "last use drop of an optional set to none reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  b = String("oldb")
+  o: Guard? = Guard(s: ?b, tag: 1)
+  print(b.len)
+  b = String("newb")
+  o = none
+  print(b)
+
+fail "last use drop of a value moved on one path reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 1)
+  if b.len > 9
+    c = <a
+    print(c.tag)
+  b = String("newb")
+  a = Guard(s: "lit", tag: 2)
+  print(b, a.tag)
+
+fail "last use drop of a value reassigned in a loop reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 0)
+  for i in 0..2
+    b = String("x")
+    a = Guard(s: "lit", tag: i)
+  print(b, a.tag)
+
+fail "last use drop of a value a defer reassigns reads a reassigned place", "cannot reassign `b` while a read view of it is still in use"
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!@)
+      print("guard", @tag, @s)
+
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 0)
+  if a.tag == 0
+    defer a = Guard(s: "lit", tag: 1)
+    b = String("x")
+  print(b, a.tag)
+
+# A fixed view binding (`r =! ?v[0]`) of a value held by address is
+# read where it is written, before a later operand grows its List
+# (Core §6), as a plain binding is.
+
+test "last use fixed read view of an object read before a keyword argument grows its List", "2"
+  obj Item
+    n: Int
+    m: Int
+    k: Int
+    j: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2, m: 2, k: 2, j: 2))
+    0
+
+  fun f(a: Int, b: Item) -> Int
+    a + b.n + b.j
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1, m: 1, k: 1, j: 1))
+  r =! ?v[0]
+  print(f(b: r, a: bump(!v)))
+
+test "last use fixed read view of an object read before its index grows its List", "1"
+  obj Item
+    n: Int
+    m: Int
+    k: Int
+    j: Int
+
+  fun bump(v: !List[Item]) -> Int
+    for _ in 0..64
+      !v.push(Item(n: 2, m: 2, k: 2, j: 2))
+    0
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1, m: 1, k: 1, j: 1))
+  xs: List[Item] = List()
+  !xs.push(Item(n: 0, m: 0, k: 0, j: 0))
+  r =! ?v[0]
+  xs[bump(!v)] = r
+  print(xs[0].j)
+
+# A loop body's defers run as `break` leaves it, after its value is made:
+# a view the value holds is in use while they run.
+
+fail "last use break value's write view while the body's defer replaces its List", "cannot assign to `@xs` while a write view of it is still in use"
+  obj Slot
+    key: Int
+
+  obj Tab
+    xs: List[Slot]
+
+    fun broke(!@) -> !Slot from @
+      r = loop
+        defer @xs = List()
+        break !@xs[0]
+      r
+
+  t = Tab(xs: List())
+  !t.xs.push(Slot(key: 1))
+  w = (!t).broke()
+  print(w.key)
+
+fail "last use break value's write view while the body's defer clears its List", "cannot use `xs` while a write view of it is still in use"
+  xs: List[Int] = List()
+  !xs.push(1)
+  r = loop
+    defer !xs.clear()
+    break !xs[0]
+  r = 5
+  print(xs.len)
+
+fail "last use break value's write view of a parameter while the body's defer clears it", "cannot use `xs` while a write view of it is still in use"
+  fun local(xs: !List[Int]) -> !Int from xs
+    loop
+      defer !xs.clear()
+      break !xs[0]
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  print(local(!xs))
+
+fail "last use break value's write view in an if while its defer clears the List", "cannot use `xs` while a write view of it is still in use"
+  fun inif(xs: !List[Int]) -> !Int from xs
+    r = loop
+      if xs.len > 0
+        defer !xs.clear()
+        break !xs[0]
+      !xs.push(1)
+    r
+
+  xs: List[Int] = List()
+  print(inif(!xs))
+
+fail "last use break value's write view of a String while the body's defer clears its List", "cannot use `xs` while a write view of it is still in use"
+  fun localstr(xs: !List[String]) -> !String from xs
+    r = loop
+      defer !xs.clear()
+      break !xs[0]
+    r
+
+  xs: List[String] = List()
+  !xs.push(String("a"))
+  print(localstr(!xs))
+
+fail "last use break value moving a write view while the body's defer clears its List", "cannot use `xs` while a write view of it is still in use"
+  fun pick(xs: !List[String]) -> !String from xs
+    r = loop
+      defer !xs.clear()
+      w = !xs[0]
+      break <w
+    r
+
+  xs: List[String] = List()
+  !xs.push(String("a"))
+  print(pick(!xs))
+
+# Where a `catch` handler or the right of `??` runs, the value before it
+# holds nothing, so the views it carried, and only those, have had their
+# last use (Core §4). A view of the same place that another part of the
+# statement holds stays in use.
+
+fail "last use ends only a none's own views where another argument views its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(both(?v[..], pick(?v[..], false) ?? grow(!v)))
+
+fail "last use ends only a failure's own views where another argument views its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  error E
+    bad
+
+  fun first(v: []Int, ok: Bool) -> ([]Int)!
+    return E.bad if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(both(?v[..], first(?v[..], false) catch grow(!v)))
+
+fail "last use ends only a failure's own views where another argument passes the same name", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  error E
+    bad
+
+  fun first(v: []Int, ok: Bool) -> ([]Int)!
+    return E.bad if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  a = ?v[..]
+  print(both(a, first(a, false) catch grow(!v)))
+
+fail "last use ends only a none's own views where another argument passes the same name", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  a = ?v[..]
+  print(both(a, pick(a, false) ?? grow(!v)))
+
+fail "last use ends only a none's own views of a field another argument views", "cannot change `o.items` while a read view of it is still in use"
+  # oracle: main reject C4
+  obj O
+    items: List[Int]
+
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  o = O(items: List())
+  !o.items.push(1)
+  print(both(?o.items[..], pick(?o.items[..], false) ?? grow(!o.items)))
+
+fail "last use ends only a none's own views where two arguments view its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun three(a: []Int, b: []Int, c: []Int) -> Int
+    a.len + b.len + c.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(three(?v[..], ?v[..], pick(?v[..], false) ?? grow(!v)))
+
+fail "last use ends only a branching none's own views where another argument views its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  c = false
+  print(both(?v[..], (pick(?v[..], false) if c else pick(?v[..], true)) ?? grow(!v)))

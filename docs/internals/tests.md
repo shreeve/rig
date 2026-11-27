@@ -172,7 +172,14 @@ waits only for its own pack. Each job checks one case and lands in
 `done/` or, with its reason in `errors.log`, in `died/`. Swarm runs a
 job per CPU at once (`-w N` chooses another number; more than the CPUs
 is slower, as each job waits on a process of its own), and each job's
-time goes to `.swarm/times`.
+time goes to `.swarm/times`. Under cpuq the suite runs as a driver, which
+holds no CPU of its own: `cpuq run --driver --label rig:test -- swarm
+test/rig.rip -w N`; a build runs as `cpuq run --label rig:build -- zig
+build -j1`. Where cpuq is on `PATH`, each command a case runs is started
+as `cpuq run -- CMD`, so a running case holds one CPU of the pool;
+`RIG_NO_CPUQ=1` starts them plain. A script marked `# cpus: N`, which
+measures work spread over several CPUs, runs plain as well, since one
+pooled CPU cannot show it.
 
 Beside the test files, the runner reads the docs' examples, each
 ```` ```rig ```` block of a Markdown file a case (below), and two
@@ -379,7 +386,8 @@ statement temporaries and evaluation order written out, then checks
 moves, loans, and drops with a dataflow over the function's control
 flow. Each function gets its verdict, accept or reject, or none when
 the function uses a form the oracle does not model yet. The suite's
-core runs it over three sets, and checks it with a lint:
+core runs it over four sets, the last only where Trig is at hand, and
+checks it with a lint:
 
 | Id | Programs |
 |---|---|
@@ -387,6 +395,20 @@ core runs it over three sets, and checks it with a lint:
 | `oracle.tests` | the behavior and rejection tests, as `test/rig.rip` writes them out, and `examples` |
 | `oracle.docs` | every doc example but fragments |
 | `oracle.matrix` | the matrix programs (`test/matrix.py --oracle`) |
+| `oracle.trig` | Trig, when `TRIG` names a checkout or `~/Data/Code/trig` exists (about 30 s) |
+
+`oracle.trig` reads Trig and never changes it: the run links Trig's
+`src/` modules into a folder of its own, takes `tools/trig/main.rig` as
+the program, and puts two stubs in place of the modules a Trig build
+generates, `buildinfo` (`rig_commit` and `trig_commit`) and `libtrees`
+(`sections` and `node_records`, each giving an empty List), whose
+signatures the stubs must keep. It is held to the same lists as the
+other sets, under the program name `trig`, with no coverage floor, since
+Trig's own changes move its count. It also fails when the compiler stops
+Trig before its ownership checks (Trig no longer checks with this Rig,
+or a stub no longer matches), since the oracle would then decide
+nothing. Like the other sets, it is not checked again while its inputs,
+Trig's `.rig` files among them, are as they were when it last passed.
 
 A set fails when the compiler accepts a function the oracle rejects:
 that may be a soundness hole, and it can never be allowlisted. It also
@@ -397,13 +419,15 @@ on a listed one the oracle decides and stops rejecting (`LOST`: the
 reference checker was weakened, whatever the compiler decides). A doc
 example is listed by its doc and a hash of its text
 (`doc/SPEC/0f3c9a1b2d4e`), so an edit that only moves it keeps its
-entry; one that changes its text renames it. So a change to the oracle that loses a rejection shows, though a
-stricter compiler alone would only be reported
+entry; one that changes its text renames it. So a change to the oracle that loses a rejection shows, and so
+does a stricter compiler
 (`test/cli/oracle_rejections.sh` checks that both fire). When the
-compiler rejects a function the oracle accepts, the run reports it
-(`stricter`), and `test/oracle/differences` records it once classified
-(a compiler rejection the Core allows, an oracle gap, or a question the
-Core leaves open). A set also fails when a listed difference is gone
+compiler rejects a function the oracle accepts, the set fails unless
+`test/oracle/differences` lists it (`STRICTER`, with the line to add):
+each entry is `program function prod-rejects CLASS note`, the class
+`prod-strict` (a compiler rejection the Core allows), `ref-gap` (an
+oracle gap), or `core-gap` (a question the Core leaves open). The list
+is exact: a set also fails when a listed difference is gone
 (`FIXED`), or when the oracle decides fewer functions than the set's
 floor in `test/oracle/coverage`.
 

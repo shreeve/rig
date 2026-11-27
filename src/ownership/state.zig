@@ -6,8 +6,9 @@
 
 const std = @import("std");
 const parser = @import("../parser.zig");
+const lir = @import("../lir.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const diag = @import("../diag.zig");
 const self_check = @import("build_options").self_check;
 const Sexp = parser.Sexp;
@@ -250,9 +251,9 @@ pub const Var = struct {
     /// The name `match <name` would take, for a read match whose subject
     /// is an owner's name (`arm_of`); empty when no take would compile.
     arm_take: []const u8 = "",
-    /// A value a call holds in storage of its own, which lives only
-    /// while the call runs (`storage.Var` of life `call`): self
-    /// or argument it is given (`holdForCall`).
+    /// A self a call holds in storage of its own, which lives only
+    /// while the call runs (a hidden var of life `call`,
+    /// `holdForCall`).
     call_held: bool = false,
     /// An owning temporary its statement holds (`holdTemp`): in use while
     /// a value in flight views it, or its drop runs a `drop` body.
@@ -287,10 +288,10 @@ pub const Scope = struct {
     node: Sexp = .nil,
 };
 
-/// A `defer` or `errdefer` body, and the number of vars declared before
-/// it: the rest are dropped before it runs. An `errdefer` runs only at
-/// an exit that fails.
-pub const Deferred = struct { body: Sexp, vars: u32, err_only: bool };
+/// A `defer` or `errdefer` body, the region LIR made for it, and the
+/// number of vars declared before it: the rest are dropped before it
+/// runs. An `errdefer` runs only at an exit that fails.
+pub const Deferred = struct { body: Sexp, r: ?lir.RegionId, vars: u32, err_only: bool };
 
 /// One change to a var's flow, kept so it can be undone.
 pub const Change = struct { id: VarId, old: Flow };
@@ -335,66 +336,6 @@ pub const ParamSites = struct {
     stored_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
     /// The name of the parameter each was first stored in.
     stored_in: [@bitSizeOf(sema.ParamMask)][]const u8 = @splat(""),
-};
-
-/// The uses of each symbol in the function being checked: an entry per
-/// symbol used, found by symbol id. Entries and their lists are kept for
-/// the next function.
-pub const Uses = struct {
-    /// Each used symbol's entry, plus one, by symbol id; 0 for none.
-    slots: std.ArrayList(u32) = .empty,
-    entries: std.ArrayList(Use) = .empty,
-    /// The entries in use.
-    len: u32 = 0,
-
-    pub const Use = struct { sym: SymbolId, last: u32, at: std.ArrayList(u32) };
-
-    pub fn entry(u: *const Uses, sym: SymbolId) ?*Use {
-        if (sym >= u.slots.items.len) return null;
-        const i = u.slots.items[sym];
-        return if (i == 0) null else &u.entries.items[i - 1];
-    }
-
-    /// The positions `sym` is used at.
-    pub fn get(u: *const Uses, sym: SymbolId) ?std.ArrayList(u32) {
-        return (u.entry(sym) orelse return null).at;
-    }
-
-    /// The last position `sym` is used at.
-    pub fn last(u: *const Uses, sym: SymbolId) ?u32 {
-        return (u.entry(sym) orelse return null).last;
-    }
-
-    pub fn note(u: *Uses, gpa: std.mem.Allocator, sym: SymbolId, pos: u32, symbols: usize) Error!void {
-        if (sym >= u.slots.items.len) try u.slots.appendNTimes(gpa, 0, @max(sym + 1, symbols) - u.slots.items.len);
-        const e = u.entry(sym) orelse made: {
-            if (u.len == u.entries.items.len) try u.entries.append(gpa, .{ .sym = sym, .last = pos, .at = .empty });
-            const e = &u.entries.items[u.len];
-            e.* = .{ .sym = sym, .last = pos, .at = e.at };
-            e.at.clearRetainingCapacity();
-            u.len += 1;
-            u.slots.items[sym] = u.len;
-            break :made e;
-        };
-        if (e.last < pos) e.last = pos;
-        try e.at.append(gpa, pos);
-    }
-
-    /// The entries in use.
-    pub fn all(u: *const Uses) []Use {
-        return u.entries.items[0..u.len];
-    }
-
-    pub fn clear(u: *Uses) void {
-        for (u.all()) |e| u.slots.items[e.sym] = 0;
-        u.len = 0;
-    }
-
-    pub fn deinit(u: *Uses, gpa: std.mem.Allocator) void {
-        for (u.entries.items) |*e| e.at.deinit(gpa);
-        u.entries.deinit(gpa);
-        u.slots.deinit(gpa);
-    }
 };
 
 pub const FnCtx = struct {
@@ -472,7 +413,7 @@ pub const LoopCtx = struct {
     breaks: std.ArrayList(State) = .empty,
     conts: std.ArrayList(State) = .empty,
     /// While the body of a `while` whose step runs after it is walked
-    /// (`storage.StepPoint.after_body`): the state after the bindings,
+    /// (`lir.StepPoint.after_body`): the state after the bindings,
     /// with `step_depth` scopes open, where a `continue` to the step goes.
     /// `step_conts` are relative to it.
     step_point: ?Point = null,
@@ -483,17 +424,10 @@ pub const LoopCtx = struct {
     parent: ?*LoopCtx,
     /// False for a labeled block: only `break $label` leaves it.
     is_loop: bool = true,
-    /// Source position where the loop starts: code from here on may run
-    /// again in the next iteration.
-    start: u32 = 0,
     /// Its value is read through (`SemContext.readsThrough`), so a
     /// `break` value that is a view of a Copy value is copied.
     reads: bool = false,
 };
-
-/// A symbol an assignment's target reads, used after its value
-/// (`Checker.after_value`), and the loop around the assignment.
-pub const AfterValue = struct { sym: SymbolId, loop: ?*LoopCtx };
 
 /// Where a value is being consumed, for alias diagnostics.
 pub const Sink = enum {
@@ -622,6 +556,9 @@ pub const Checker = struct {
     /// The struct or enum whose members are being walked: the owner of a
     /// method (`declOrigins`).
     decl_owner: ?SymbolId = null,
+    /// The next statement of the module's compile-time body to walk
+    /// (`walkConstant`).
+    const_at: u32 = 0,
     /// The method of a generic type being walked, by its name's position
     /// (`PlainRequirement.method`).
     method_pos: ?u32 = null,
@@ -664,57 +601,26 @@ pub const Checker = struct {
     trail: std.ArrayList(Change) = .empty,
     /// Scratch space for `capture`.
     scratch: std.ArrayList(VarId) = .empty,
-    /// Views end at their last use (see `holderLive`): for the function
-    /// being checked, the last position each symbol is used at, and the
-    /// symbols used in deferred code, which runs at scope exit.
-    defer_used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
-    /// Every position each symbol is used at (`indexUses`), so a use in
-    /// the statement being walked counts only while it is ahead
-    /// (`useAhead`), and the last.
-    uses: Uses = .{},
-    /// The positions of the uses walked so far in the statements being
-    /// walked, each statement's dropped when it ends (`walkStmtValue`).
-    walked: std.ArrayList(u32) = .empty,
-    /// The uses a consumer being walked reads where it runs, after the
-    /// operands that follow them (`storage.isPureArg` parts of a call
-    /// that evaluates its arguments first, an assignment's value): walked
-    /// only once that consumer is done (`walkLate`).
-    late: std.ArrayList(u32) = .empty,
-    /// `uses` describes the code being walked.
+    /// Views end at their last use (see `holderLive`): liveness is
+    /// asked in the function being checked.
     nll: bool = false,
+    /// Where the walk is in the flow of the body walked (`live.Flow`):
+    /// the point of the expression, step, or statement end it is at.
+    point: live.Loc = .{},
+    /// Where the statement being walked ends.
+    stmt_out: live.Loc = .{},
     /// The innermost statement being walked.
     cur_stmt: Sexp = .nil,
     /// While a `while` loop's step is walked: where it runs, after the
-    /// body (`stepAt`), which stands for the step's statements in
-    /// `uses` and in the liveness checks.
+    /// body (`stepAt`), for the notes that say a use runs again.
     step_at: ?u32 = null,
     scopes: std.ArrayList(Scope) = .empty,
-    /// What the targets of the assignments whose values are being walked
-    /// read. An assignment is `{ __v = value; place op= __v }`, so its
-    /// target is used after the whole value, every statement and scope
-    /// in it included: while the value is walked, these symbols are
-    /// live (`holderLive`), each with the loop around its assignment, so
-    /// a jump out of the assignment, which never reaches the target,
-    /// leaves them behind (`walkJump`).
-    after_value: std.ArrayList(AfterValue) = .empty,
     /// Loans taken by the current statement and not stored in a var.
     temps: std.ArrayList(Loan) = .empty,
-    /// The hidden vars holding the owning temporaries of the statements
-    /// being walked (`sema.dropsTemp`), each with its position: dropped
-    /// when its statement ends.
-    stmt_drops: std.ArrayList(struct { id: VarId, pos: u32 }) = .empty,
-    /// The hidden vars made, before the scope a `catch` handler opens,
-    /// for the statement temporaries it makes (`holdPartTemps`), by node:
-    /// `holdTemp` holds each there.
-    part_temps: std.AutoHashMapUnmanaged(u32, VarId) = .empty,
     /// The views a call kept because its callee's `keeps` names their
     /// parameter, by where each was made: what a conflict's note says
     /// (`noteLoan`).
     kept_views: std.AutoHashMapUnmanaged(u32, KeptView) = .empty,
-    /// The hidden vars holding what the calls being walked keep in
-    /// storage of their own (`holdForCall`): each ends when its call
-    /// returns (`endCallHeld`).
-    call_held: std.ArrayList(VarId) = .empty,
     /// The positions where a `once` parameter is used as it may be: the
     /// callee of a call, or an argument to another `once` parameter.
     once_uses: std.ArrayList(u32) = .empty,
@@ -744,11 +650,6 @@ pub const Checker = struct {
     /// (`scopeEnd`).
     fn_body: Sexp = .nil,
     loop: ?*LoopCtx = null,
-    /// The loops around each deferred body being walked, innermost
-    /// last: `loop` is null at a deferred body's start, so a jump in it
-    /// leaves no loop outside it, but the body runs inside those loops,
-    /// so liveness (`liveFrom`) still counts them.
-    defer_loops: std.ArrayList(?*LoopCtx) = .empty,
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, view argument, `*|...|`).
     lambda_ok: bool = false,
@@ -771,7 +672,7 @@ pub const Checker = struct {
     /// `checkNoImplicitCopy` is inside an expression whose context reads
     /// the value a view reaches (`SemContext.readsThrough`).
     copy_reads: bool = false,
-    /// The next value `walkConsumed` takes is read the same way: a
+    /// The next value `walkConsumedE` takes is read the same way: a
     /// `break` or `else` value of a loop whose value is read.
     value_reads: bool = false,
     /// The loop about to be walked is labeled, and its value is read.
@@ -861,23 +762,14 @@ pub const Checker = struct {
         self.old_nones.deinit(self.gpa);
         self.method_calls.deinit(self.gpa);
         self.items_seen.deinit(self.gpa);
-        self.stmt_drops.deinit(self.gpa);
-        self.part_temps.deinit(self.gpa);
         self.kept_views.deinit(self.gpa);
-        self.call_held.deinit(self.gpa);
         self.once_uses.deinit(self.gpa);
         self.flows.deinit(self.gpa);
         self.loan_counts.deinit(self.gpa);
         self.trail.deinit(self.gpa);
         self.scratch.deinit(self.gpa);
-        self.defer_used.deinit(self.gpa);
-        self.uses.deinit(self.gpa);
-        self.walked.deinit(self.gpa);
-        self.late.deinit(self.gpa);
-        self.defer_loops.deinit(self.gpa);
         for (self.scopes.items) |*s| s.defers.deinit(self.gpa);
         self.scopes.deinit(self.gpa);
-        self.after_value.deinit(self.gpa);
         self.temps.deinit(self.gpa);
         self.reaches.deinit(self.gpa);
         self.arm_binds.deinit(self.gpa);
@@ -934,7 +826,7 @@ pub const Checker = struct {
     /// view a var declared in it, and what else `v` views is in use while
     /// the scope's defers run (`ExitTo.result`). Gives what `v` keeps.
     pub fn leaveScope(self: *Checker, v: Value) Error!Value {
-        const kept = try rules.checkValueEscapesScope(self, v);
+        const kept = if (self.reachable) try rules.escapeVarsFrom(self, v, self.scopes.items[self.scopes.items.len - 1].start) else Value{};
         try self.popScopeWith(try self.withDerefs(kept, v));
         return kept;
     }
@@ -961,6 +853,8 @@ pub const Checker = struct {
         }
         var scope = self.scopes.pop().?;
         defer scope.defers.deinit(self.gpa);
+        // Its vars are dropped once its defers have run.
+        live.atScopeEnd(self, if (scope.kind == .function or scope.kind == .closure) .nil else scope.node);
         const start = scope.start;
         const ext = notes.extent(self, scope.node);
         try self.releaseVarsFrom(start, self.reachable, if (ext.hi >= ext.lo) ext.hi +| 1 else null, scope.node);
@@ -975,7 +869,7 @@ pub const Checker = struct {
     pub fn releaseVarsFrom(self: *Checker, start: u32, report: bool, end: ?u32, node: Sexp) Error!void {
         if (self.viewedFrom(start)) {
             if (report) for (self.flows.items[0..@min(start, self.flows.items.len)], 0..) |f, holder| {
-                if (hasLoanFrom(f.loans, start)) _ = try notes.reportHolder(self, f, @intCast(holder), start, end, if (end != null) node else .nil);
+                if (hasLoanFrom(f.loans, start)) _ = try notes.reportHolder(self, f, @intCast(holder), start, null, if (end != null) node else .nil, end);
             };
             for (0..@min(start, self.flows.items.len)) |holder| {
                 var f = self.flows.items[holder];
@@ -1002,10 +896,10 @@ pub const Checker = struct {
         var v = var_;
         const ctx = self.sema;
         // Emit holds a binding as lowering made its var
-        // (`storage.bindingDrop`): the checker treats as owning exactly
+        // (`lower.bindingDrop`): the checker treats as owning exactly
         // the bindings whose var holds a value that moves.
         if (self_check) if (v.sym) |sym| if (v.ty) |t| {
-            const drop = storage.bindingDrop(ctx, sym);
+            const drop = lowering.bindingDrop(ctx, sym);
             switch (ctx.symbols.items[sym].kind) {
                 .param, .local, .capture => if ((drop != null) != (types.owningKind(self, t) != null))
                     try notes.err(self, v.decl, "internal error: the checker holds `{s}` as {s}, but its var holds {s}", .{ v.name, if (types.owningKind(self, t) != null) "owning" else "owning nothing", if (drop) |h| @tagName(h) else "nothing to drop" }),
@@ -1211,7 +1105,7 @@ pub const Checker = struct {
 
     /// Leave the current path for point `p`, going on at `resume_at`
     /// (`exitTo`): its state relative to `p`, after going back to `p`.
-    pub fn leave(self: *Checker, p: Point, resume_at: ?u32) Error!State {
+    pub fn leave(self: *Checker, p: Point, resume_at: ?live.Loc) Error!State {
         const s = try exits.exitTo(self, .{ .to = p, .resume_at = resume_at });
         try self.rewind(p);
         return s;
@@ -1219,7 +1113,7 @@ pub const Checker = struct {
 
     /// Make current the join of the current state, which goes on at
     /// `resume_at`, with `states`, all relative to point `p`.
-    pub fn joinAt(self: *Checker, p: Point, states: []const State, resume_at: ?u32) Error!void {
+    pub fn joinAt(self: *Checker, p: Point, states: []const State, resume_at: ?live.Loc) Error!void {
         var out = try self.leave(p, resume_at);
         for (states) |s| out = try self.join(out, s);
         try self.apply(out);

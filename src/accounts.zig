@@ -24,7 +24,9 @@
 //! `inlining.decide` adds per call.
 //!
 //! The same walk counts each body's operations (`sema.FrameOwner.ops`),
-//! the size `inlining.decide` measures a function by.
+//! the size `inlining.decide` measures a function by: each step but a
+//! region and an expression statement's, whose operations count, and
+//! each operation, coercion, hold, branch, choice, and closure.
 //!
 //! A frame whose types mention generic parameters is checked at each
 //! instance (`check/generics.zig`, `checkInstanceFrames`). The module's
@@ -36,7 +38,6 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
-const storage = @import("storage.zig");
 const lir = @import("lir.zig");
 const lowering = @import("lower.zig");
 const generics = @import("check/generics.zig");
@@ -226,7 +227,7 @@ const Walker = struct {
                     if (keeps(s)) try slots.append(ctx.allocator, .{ .ty = s.ty, .name = s.name });
                 },
                 .hidden => |k| if (k == .task_record) {
-                    const bytes = (try storage.taskRecordBytes(ctx, v.node)).?;
+                    const bytes = (try lowering.taskRecordBytes(ctx, v.node)).?;
                     const byte = try ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
                     const record = try ctx.intern(.{ .array = .{ .elem = byte, .len = try sema.ctInt(ctx, @intCast(bytes)) } });
                     try slots.append(ctx.allocator, .{ .ty = record, .name = "a task's record" });
@@ -241,14 +242,16 @@ const Walker = struct {
         const r = &w.f.regions.items[id];
         try w.decls(r, slots);
         for (r.steps.items, 0..) |s, j| {
-            if (s != .region) w.ops += 1;
+            // A region runs its own steps, and a statement that is an
+            // expression runs its operations: neither step is one more.
+            if (s != .region and s != .eval) w.ops += 1;
             switch (s) {
                 .bind => |b| {
                     const v = w.f.vars.items[b.v];
                     switch (v.name) {
                         // A declaration takes its value directly; a fill
                         // built in the local makes no copy.
-                        .binding => try w.expr(b.value, true, !(r.node.isKind(.set) and storage.fillsInPlace(w.ctx, r.node)), slots),
+                        .binding => try w.expr(b.value, true, !(r.node.isKind(.set) and lowering.fillsInPlace(w.ctx, r.node)), slots),
                         // A part held first is counted where the var is
                         // read (`held`); any other is copied into its var.
                         .hidden => if (w.held[b.v] == null) try w.expr(b.value, false, true, slots),
@@ -256,7 +259,7 @@ const Walker = struct {
                 },
                 .store => |st| {
                     try w.expr(st.target, false, false, slots);
-                    try w.expr(st.value, true, !storage.fillsInPlace(w.ctx, st.node), slots);
+                    try w.expr(st.value, true, !lowering.fillsInPlace(w.ctx, st.node), slots);
                 },
                 .eval => |e| try w.expr(e, false, true, slots),
                 .drop => |u| try w.copy(u.node, slots),
@@ -408,7 +411,7 @@ const Walker = struct {
         if (kind != .kwarg) w.ops += 1;
         if (kind == .box) {
             // A fill built in the box's allocation is no temporary.
-            const in_place = storage.fillsInPlace(ctx, node);
+            const in_place = lowering.fillsInPlace(ctx, node);
             const kids = rig.children(node);
             for (o.args, 0..) |a, i| if (i < kids.len and compat.sameSite(kids[i], ir.Box.operand(node))) try w.expr(a, in_place, !in_place, slots);
             return;
@@ -424,7 +427,7 @@ const Walker = struct {
         if (copied) try w.copy(node, slots);
         if (kind == .call) {
             // A self a method takes by value is copied.
-            if (storage.selfOf(ctx, node)) |recv| if (w.takesSelf(node)) try w.copy(recv, slots);
+            if (lowering.selfOf(ctx, node)) |recv| if (w.takesSelf(node)) try w.copy(recv, slots);
             try w.addInlined(node, slots);
         }
         const kids = rig.children(node);
@@ -461,7 +464,7 @@ const Walker = struct {
     /// through a view.
     fn takesSelf(w: *const Walker, call: Sexp) bool {
         const ctx = w.ctx;
-        const f = storage.fnType(ctx, storage.typeOf(ctx, ctx.calleeOf(call))) orelse return false;
+        const f = lowering.fnType(ctx, lowering.typeOf(ctx, ctx.calleeOf(call))) orelse return false;
         if (f.params.len == 0) return false;
         return switch (ctx.types.get(f.params[0])) {
             .read_view, .write_view => false,
@@ -544,8 +547,8 @@ fn isDefer(node: Sexp) bool {
 /// Whether the value of `child` is made or copied where `parent` uses
 /// it, by a positive list of the uses that read it in place: a callee,
 /// and the base of a field or element path or the operand of a view
-/// that is storage (`storage.hasStorage`) or reached where its leaf is
-/// (`storage.reachesLeaf`); any other base or operand is made into a
+/// that is storage (`lower.hasStorage`) or reached where its leaf is
+/// (`lower.reachesLeaf`); any other base or operand is made into a
 /// temporary first.
 fn copiedIn(ctx: *SemContext, parent: Sexp, child: Sexp) bool {
     return switch (parent.kind().?) {
@@ -557,7 +560,7 @@ fn copiedIn(ctx: *SemContext, parent: Sexp, child: Sexp) bool {
 }
 
 fn readsInPlace(ctx: *SemContext, e: Sexp) bool {
-    return storage.hasStorage(ctx, e) or storage.reachesLeaf(ctx, e);
+    return lowering.hasStorage(ctx, e) or lowering.reachesLeaf(ctx, e);
 }
 
 fn sameNode(a: Sexp, b: Sexp) bool {

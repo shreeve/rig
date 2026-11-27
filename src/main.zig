@@ -13,6 +13,7 @@ const parser = @import("parser.zig");
 const ir = parser.ir;
 const rig = @import("rig.zig");
 const rt = @import("names.zig").rt;
+const decl = @import("names.zig").decl;
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const symbols = @import("symbols.zig");
@@ -23,7 +24,6 @@ const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
-const storage = @import("storage.zig");
 const lower = @import("lower.zig");
 const proofs = @import("proofs.zig");
 const lsp = @import("lsp.zig");
@@ -174,6 +174,12 @@ const usage =
     \\                   of everything the build reads, and build
     \\                   there, in place of RIG_OUT_DIR (or batch
     \\                   build's <dir>)
+    \\  RIG_UNIT_LAUNCHER
+    \\                   A command, split on spaces, that a split build
+    \\                   (--units=N, N > 1) runs each unit's Zig compile
+    \\                   under: `cpuq run --` runs `cpuq run -- zig
+    \\                   build-obj ...`. The link, and a build of one
+    \\                   unit, run Zig directly
     \\  RIG_RUN_STARTED  A file run and test delete at once, and create
     \\                   only once the program has started, which proves
     \\                   it ran. Any failure before the program starts
@@ -318,6 +324,17 @@ const Env = struct {
         return env.get("ZIG") orelse "zig";
     }
 
+    /// The command `RIG_UNIT_LAUNCHER` names, split on spaces, which a
+    /// split build runs each unit's `zig build-obj` under
+    /// (`buildSplit`): empty when it is unset or empty.
+    fn unitLauncher(env: Env, allocator: std.mem.Allocator) ![]const []const u8 {
+        const value = env.get("RIG_UNIT_LAUNCHER") orelse return &.{};
+        var words: std.ArrayList([]const u8) = .empty;
+        var it = std.mem.tokenizeScalar(u8, value, ' ');
+        while (it.next()) |word| try words.append(allocator, word);
+        return words.items;
+    }
+
     fn leakTrace(env: Env) bool {
         return env.flag("RIG_LEAK_TRACE");
     }
@@ -424,7 +441,7 @@ const RootConfig = struct {
             const v = @field(c, name);
             const set = if (T == bool) v else v != null;
             if (set) {
-                try w.writeAll(if (first) "\npub const __rig_config: rig.Config = .{ ." else ", .");
+                try w.writeAll(if (first) "\npub const " ++ decl(.config) ++ ": rig.Config = .{ ." else ", .");
                 first = false;
                 try w.print("{s} = ", .{name});
                 if (T == bool) {
@@ -1203,8 +1220,10 @@ fn splitCount(opts: Options, graph: *const modules.ModuleGraph) u16 {
 
 /// Build a split package (`splitFiles`) into the executable `exe`: every
 /// unit at once, each a `zig build-obj` with a Zig cache of its own, then
-/// the entry linked with their objects. An executable kept from the same
-/// package is copied instead (`keptBuild`). A unit Zig fails shows its
+/// the entry linked with their objects, each unit's compile run under
+/// `RIG_UNIT_LAUNCHER` when it is set (`Env.unitLauncher`) and the link
+/// not. An executable kept from the same package is copied instead
+/// (`keptBuild`). A unit Zig fails shows its
 /// errors, the first that failed; each unit's are in the package.
 fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, dir: []const u8, zig_cache: []const u8, pkg: *const Package, exe: []const u8) !void {
     const zig = env.zig();
@@ -1226,6 +1245,7 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return if (pkg.writesDsym()) keepDsym(allocator, io, exe);
 
     Ending.watch();
+    const launcher = try env.unitLauncher(allocator);
     const children = try allocator.alloc(std.process.Child, pkg.units);
     const logs = try allocator.alloc([]const u8, pkg.units);
     for (children, logs, objects, 0..) |*child, *log, object, k| {
@@ -1233,9 +1253,12 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
         const file = try std.Io.Dir.cwd().createFile(io, log.*, .{});
         defer file.close(io);
         const unit_cache = try std.fs.path.join(allocator, &.{ zig_cache, try allocator.print("u{d}", .{k}) });
-        const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", unit_cache, try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}.zig", .{k}) }), try allocator.print("-femit-bin={s}", .{object}) }, libc });
+        const argv = try std.mem.concat(allocator, []const u8, &.{ launcher, &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", unit_cache, try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}.zig", .{k}) }), try allocator.print("-femit-bin={s}", .{object}) }, libc });
         child.* = std.process.spawn(io, .{ .argv = argv, .stdin = .ignore, .stdout = .{ .file = file }, .stderr = .{ .file = file } }) catch |err| switch (err) {
-            error.FileNotFound => fatal("error: cannot run `{s}`: install Zig 0.17 and put it on PATH, or set ZIG", .{zig}),
+            error.FileNotFound => if (launcher.len > 0)
+                fatal("error: cannot run `{s}`, the command RIG_UNIT_LAUNCHER names", .{launcher[0]})
+            else
+                fatal("error: cannot run `{s}`: install Zig 0.17 and put it on PATH, or set ZIG", .{zig}),
             else => return err,
         };
     }
@@ -1546,7 +1569,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     }
     try root.writer.writeAll("};\n");
     // The programs whose sites a failure's trace reads (`rig.siteTables`).
-    try root.writer.print("\npub const __rig_site_programs = .{{{s} }};\n", .{site_programs.written()});
+    try root.writer.print("\npub const " ++ decl(.site_programs) ++ " = .{{{s} }};\n", .{site_programs.written()});
     // One runtime serves the batch: it runs tasks if any program makes them.
     var config = env.rootConfig(true, null, false, .{});
     config.tasks = makes_tasks;
@@ -1585,18 +1608,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\}}
         \\
     , .{});
-    const package = try std.mem.concat(allocator, PackageFile, &.{ placed.items, &.{
-        .{ .path = emit.runtime_filename, .contents = emit.runtime_source },
-        .{ .path = emit.tasks_filename, .contents = emit.tasks_source },
-        .{ .path = emit.sched_filename, .contents = emit.sched_source },
-        .{ .path = emit.net_filename, .contents = emit.net_source },
-        .{ .path = emit.alloc_filename, .contents = emit.alloc_source },
-        .{ .path = emit.table_filename, .contents = emit.table_source },
-        .{ .path = emit.ordered_filename, .contents = emit.ordered_source },
-        .{ .path = emit.unordered_filename, .contents = emit.unordered_source },
-        .{ .path = split_filename, .contents = split_source },
-        .{ .path = "main.zig", .contents = root.written() },
-    } });
+    const package = try std.mem.concat(allocator, PackageFile, &.{ placed.items, &runtime_files, &.{.{ .path = "main.zig", .contents = root.written() }} });
     try writePackage(allocator, io, dir, &.{.{ .path = "programs", .contents = list.written() }});
 
     const bin = try std.fs.path.join(allocator, &.{ dir, "bin" });
@@ -1914,7 +1926,7 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
     try w.print("        .{{ .module = \"\", .tests = testsOf(@import(\"{s}\")) }},\n", .{graph.root().out_basename});
     try w.writeAll("    });\n}\n");
     // The program whose sites a failure's trace reads (`rig.siteTables`).
-    try w.print("\npub const __rig_site_programs = .{{@import(\"{s}\")}};\n", .{graph.root().out_basename});
+    try w.print("\npub const " ++ decl(.site_programs) ++ " = .{{@import(\"{s}\")}};\n", .{graph.root().out_basename});
     return driver.written();
 }
 
@@ -2126,6 +2138,22 @@ const Package = struct {
 /// `writePackage` places (`emit.placeSites`).
 const PackageFile = struct { path: []const u8, contents: []const u8, module: bool = false };
 
+/// The runtime's files, written beside every program's modules, or once
+/// for a batch, whose programs import them as the module `rig`.
+const runtime_files = [_]PackageFile{
+    .{ .path = emit.runtime_filename, .contents = emit.runtime_source },
+    .{ .path = emit.tasks_filename, .contents = emit.tasks_source },
+    .{ .path = emit.sched_filename, .contents = emit.sched_source },
+    .{ .path = emit.net_filename, .contents = emit.net_source },
+    .{ .path = emit.alloc_filename, .contents = emit.alloc_source },
+    .{ .path = emit.table_filename, .contents = emit.table_source },
+    .{ .path = emit.ordered_filename, .contents = emit.ordered_source },
+    .{ .path = emit.unordered_filename, .contents = emit.unordered_source },
+    .{ .path = emit.arith_filename, .contents = emit.arith_source },
+    .{ .path = emit.names_filename, .contents = emit.names_source },
+    .{ .path = split_filename, .contents = split_source },
+};
+
 /// Whether a program built here may be preempted by signal: on x86-64
 /// Linux and arm64 macOS (`sched.preempt_built` decides for the build
 /// itself, which a debug build for Linux, on Zig's own backend, is not).
@@ -2248,17 +2276,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     const hook = kind.hook;
     const runtime_import = if (kind.batch) emit.runtime_module else emit.runtime_filename;
     var files: std.ArrayList(PackageFile) = .empty;
-    if (!kind.batch) {
-        try files.append(allocator, .{ .path = emit.runtime_filename, .contents = emit.runtime_source });
-        try files.append(allocator, .{ .path = emit.tasks_filename, .contents = emit.tasks_source });
-        try files.append(allocator, .{ .path = emit.sched_filename, .contents = emit.sched_source });
-        try files.append(allocator, .{ .path = emit.net_filename, .contents = emit.net_source });
-        try files.append(allocator, .{ .path = emit.alloc_filename, .contents = emit.alloc_source });
-        try files.append(allocator, .{ .path = emit.table_filename, .contents = emit.table_source });
-        try files.append(allocator, .{ .path = emit.ordered_filename, .contents = emit.ordered_source });
-        try files.append(allocator, .{ .path = emit.unordered_filename, .contents = emit.unordered_source });
-        try files.append(allocator, .{ .path = split_filename, .contents = split_source });
-    }
+    if (!kind.batch) try files.appendSlice(allocator, &runtime_files);
 
     var root_source: []const u8 = "";
     var links_libc = false;
@@ -2300,7 +2318,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         // The root names the program's other modules, whose sites a
         // failure's trace reads (`rig.siteTables`).
         if (i == 0) {
-            try file_buffer.writer.writeAll("\npub const __rig_sites_of = .{");
+            try file_buffer.writer.writeAll("\npub const " ++ decl(.sites_of) ++ " = .{");
             for (graph.modules.items[1..]) |*other| try file_buffer.writer.print(" @import(\"{s}\"),", .{other.out_basename});
             try file_buffer.writer.writeAll(" };\n");
         }
@@ -2377,20 +2395,20 @@ fn splitFiles(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
     try files.append(allocator, .{ .path = "__rig_errseed.zig", .contents = seed.written() });
 
     var decls: std.Io.Writer.Allocating = .init(allocator);
-    try decls.writer.print("const std = @import(\"std\");\nconst rig = @import(\"{s}\");\npub const __rig_program = @import(\"{s}\");\n", .{ emit.runtime_filename, root });
+    try decls.writer.print("const std = @import(\"std\");\nconst rig = @import(\"{s}\");\npub const " ++ decl(.program) ++ " = @import(\"{s}\");\n", .{ emit.runtime_filename, root });
     var lines = std.mem.splitScalar(u8, root_source, '\n');
     while (lines.next()) |line| {
         if (!std.mem.startsWith(u8, line, "pub const ")) continue;
         const rest = line["pub const ".len..];
         const name = rest[0 .. std.mem.indexOfAny(u8, rest, " :") orelse continue];
         if (eql(name, "panic") or eql(name, "std_options") or std.mem.startsWith(u8, name, "__rig_"))
-            try decls.writer.print("pub const {s} = __rig_program.{s};\n", .{ name, name });
+            try decls.writer.print("pub const {s} = " ++ decl(.program) ++ ".{s};\n", .{ name, name });
     }
     for (0..n + 1) |k| {
         var unit_root: std.Io.Writer.Allocating = .init(allocator);
         if (k < n) try unit_root.writer.print("//! Unit {d} of {d} of a split build (`rig.split`).\ncomptime {{\n    _ = @import(\"__rig_errseed.zig\").All;\n}}\n", .{ k, n }) else try unit_root.writer.print("//! The root of a split build's executable, linked with its {d} units (`rig.split`).\n", .{n});
         try unit_root.writer.writeAll(decls.written());
-        try unit_root.writer.print("pub const __rig_unit = struct {{\n    pub const id: u32 = {d};\n    pub const count: u32 = {d};\n}};\n", .{ k, n });
+        try unit_root.writer.print("pub const " ++ decl(.unit) ++ " = struct {{\n    pub const id: u32 = {d};\n    pub const count: u32 = {d};\n}};\n", .{ k, n });
         if (k < n) {
             try unit_root.writer.writeAll("comptime {\n");
             for (graph.modules.items) |*m| try unit_root.writer.print("    _ = @import(\"{s}\");\n", .{m.out_basename});
@@ -3285,4 +3303,15 @@ test {
     _ = @import("runtime.zig");
     _ = @import("nametable.zig");
     _ = @import("symbols.zig");
+    _ = @import("names.zig");
+    _ = @import("arith.zig");
+}
+
+test "the Zig spelling of a renamed Rig name reads back as the name" {
+    const names = @import("names.zig");
+    var buf: [16]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    try rig.writeZigIdent(&w, "rig", .rig);
+    try std.testing.expectEqualStrings("@\"rig" ++ names.renamed_mark ++ "\"", w.buffered());
+    try std.testing.expectEqualStrings("rig", names.rigName(w.buffered()[2 .. w.buffered().len - 1]));
 }

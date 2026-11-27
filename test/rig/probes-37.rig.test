@@ -139,7 +139,7 @@ test "review-while-step-w46-body-shadows-h", "303"
 
   # expect: 303
 
-fail "review-while-step-w48-grow-then-return-ok", "cannot change `v` while a read view of it is still in use"
+test "review-while-step-w48-grow-then-return-ok", "4"
   # Valid: the body grows `v` only on a path that returns, which never
   # reaches the step.
   #

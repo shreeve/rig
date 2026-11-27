@@ -159,7 +159,7 @@ fail "review-header-paths-1-t03 as branch part optreadview local owner", "cannot
       !z.push(1)
     print(s[0])
 
-fail "review-header-paths-1-t05 for read plain array part local", "cannot use `xs` while a write view of it is still in use"
+test "review-header-paths-1-t05 for read plain array part local", "6"
   obj A3
     arr: [3]Int
 
@@ -1380,7 +1380,7 @@ test "review-view-base-2-p-g10", "[4]"
   !(pick(!q, true) ?? !p).v.push(4)
   print(p.v)
 
-fail "review-view-base-2-p-g13", "cannot change `q` while a write view of it is still in use"
+test "review-view-base-2-p-g13", "7"
   error E
     bad
 

@@ -1017,7 +1017,7 @@ test "loop fold many in one function", "175"
   print(many(d))
 
 code "loop fold is one call", "s = rig.fold(.add, s, xs, null);"
-  # The fold is the storage plan's decision (`storage.fold`); emit
+  # The fold is the storage plan's decision (`lower.fold`); emit
   # writes it.
   fun sum(xs: ?[]Int) -> Int
     s = 0
@@ -1029,3 +1029,57 @@ code "loop fold is one call", "s = rig.fold(.add, s, xs, null);"
   !v.push(1)
   w = ?v[..]
   print(sum(w))
+
+test "while matches with a step after the body", '''
+  0 1
+  10 2
+  30 4
+  done 7
+'''
+  # A `while` condition that binds with `as` and tests with `matches`, whose
+  # step reads the `as` binding, runs the step after the body, inside the
+  # `match` that holds the variant's payload.
+  enum Token
+    item(n: Int)
+    done
+
+  fun next(i: Int) -> Token
+    if i < 4
+      .item(n: i * 10)
+    else
+      .done
+
+  fun step(i: Int) -> Int?
+    i + 1 if i < 4 else none
+
+  i = 0
+  while step(i) as h and next(i) matches .item(x) : i += h
+    print(x, h)
+  print("done", i)
+
+test "fold over a place reached through a temporary", '''
+  3
+  5
+  6
+'''
+  # A fold, `for x in xs: t += x`, over a part of a value indexed with an
+  # expression that makes a temporary, reads the place where it stands.
+  obj H
+    a: List[Int]
+
+  fun mkh(n: Int) -> H
+    l: List[Int] = List()
+    !l.push(n)
+    !l.push(n + 1)
+    H(a: <l)
+
+  fun idx(h: ?H) -> Int
+    h.a.len - 2
+
+  hs = [mkh(1), mkh(5)]
+  t2 = 0
+  for x in hs[idx(mkh(9))].a
+    t2 += x
+  print(t2)
+  for x in hs[idx(mkh(9)) + 1].a
+    print(x)

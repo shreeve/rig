@@ -6,6 +6,7 @@ const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const diag = @import("../diag.zig");
 const sema = @import("../sema.zig");
+const arith = @import("../arith.zig");
 const Wide = sema.Wide;
 const resolve = @import("../resolve.zig");
 const Sexp = parser.Sexp;
@@ -805,9 +806,9 @@ pub fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []con
         },
         else => null,
     };
-    if (v >= 0 and (width == null or v < width.?)) return true;
+    if (if (width) |w| arith.shiftInRange(v, w) else v >= 0) return true;
     if (width) |w| {
-        try self.errAt(amount, "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(canonical(self, shifted)), w - 1 });
+        try self.errAt(amount, arith.shift_range_text, .{ v, try self.tyName(canonical(self, shifted)), w - 1 });
     } else try self.errAt(amount, "shift amount `{d}` is negative", .{v});
     return false;
 }

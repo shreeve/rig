@@ -6,7 +6,7 @@ const std = @import("std");
 const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const resolve = @import("../resolve.zig");
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -220,34 +220,6 @@ pub fn checkStepUses(self: *Checker, cond: Sexp, step: Sexp) Error!void {
     }
 }
 
-/// A step that reads a binding of the condition runs inside the `if`s
-/// that bind it, after the body (`storage.StepPoint.after_body`,
-/// docs/internals/INTERNALS.md, "Loops"), so every binding there stays until the
-/// step is done: each must be plain data (neither a view nor owning),
-/// and no `continue` in the condition, which would go on past the
-/// step (`resolveJump`), may skip binding one.
-pub fn checkStepBindings(self: *Checker, frame: *const Checker.LoopFrame, loop: Sexp) Error!void {
-    if (storage.stepPoint(self.ctx, loop) != .after_body) return;
-    const step = ir.While.step(loop);
-    const parts = try guardParts(self, ir.While.cond(loop));
-    var read: ?Sexp = null;
-    for (parts) |p| if (p.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(p))) |b| {
-        if (sema.findUse(self.ctx, step, b)) |use| read = use;
-    };
-    const use = read orelse return;
-    const name = self.text(use);
-    if (frame.cond_continues.items.len > 0) return self.errAt(use, "the loop step reads `{s}`, a binding of the condition, which a `continue` in the condition leaves unbound", .{name});
-    for (parts) |p| {
-        if (!p.isKind(.as)) continue;
-        const b = self.ctx.symbolOf(ir.As.name(p)) orelse continue;
-        const sym = self.ctx.symbols.items[b];
-        if (self.isPoison(sym.ty)) continue;
-        if (sema.isReadOrWriteView(self.ctx, sym.ty) or sema.moves(self.ctx, sym.ty) == .yes) {
-            return self.errAt(use, "the loop step reads `{s}`, a binding of the condition, so each binding there must be plain data; `{s}` is a `{s}`", .{ name, sym.name, try self.tyName(sym.ty) });
-        }
-    }
-}
-
 /// Whether `node` is a block `if` (`if c` then a block), not a
 /// ternary `a if c else b` or a postfix guard `stmt if c`, which
 /// start with their value or statement.
@@ -432,13 +404,11 @@ pub fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
     // A part of plain data is read in the header, as any value is.
     if (!viewed and self.expect.held_base != .nil) try PatternCheck.releaseHeld(self);
     if (viewed) reach = .read;
-    // What the binding views, unless it owns a value made here or
-    // taken with `<`, may be a copy (`rejectHeaderCopy`).
+    // The binding owns a value made here or taken with `<`.
     const owns = expr.isKind(.move) or (ViewCheck.hands(self, expr).kind == .made and !through_view);
     if (reach == .copied and owns) reach = .taken;
     const access = PatternCheck.asAccess(self, reach, inner);
     inner = try PatternCheck.viewOfAccess(self, access, inner);
-    if (!owns and !self.isPoison(inner)) try PatternCheck.rejectHeaderCopy(self, node, expr, inner);
     _ = self.enter(node);
     if (self.ctx.symbolOf(name)) |sym| {
         (try self.ctx.symbolMut(sym)).access = access;
@@ -558,9 +528,7 @@ pub fn checkWhile(self: *Checker, node: Sexp) Error!void {
                 try self.errAt(target, "a `while` step runs after the body, so it cannot declare `{s}`; declare it before the loop", .{self.text(target)});
             }
         };
-        const mark = self.ctx.diagnostics.items.len;
         try checkStepUses(self, cond, step);
-        if ((rig.isConditionJoin(cond) or cond.isKind(.as)) and self.ctx.diagnostics.items.len == mark) try checkStepBindings(self, &frame, node);
     }
     try settleConditionJumps(self, &frame);
     frame.part = .body;
@@ -673,13 +641,13 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
             // loop cannot both view and take, unless its elements copy.
             const peeled_hands = ViewCheck.hands(self, peeled_source);
             const unbound = (!peeled_hands.hasStorage() and peeled_hands.kind != .made) or (mode == .iter and peeled_hands.kind == .part_of_made and self.expect.held_base == .nil);
-            const list = CompatCheck.listElementType(self.ctx, source_ty) != null or sema.tableElem(self.ctx, source_ty) != null;
+            const list = sema.listElem(self.ctx, source_ty) != null or sema.tableElem(self.ctx, source_ty) != null;
             const moving = list or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, source_ty))) {
                 .array => |a| sema.copies(self.ctx, a.elem) == .no,
                 else => false,
             };
             // A List whose elements move is reported by `elementTypeForLoop`.
-            const list_moves = if (CompatCheck.listElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty)) orelse sema.tableElem(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
+            const list_moves = if (sema.listElem(self.ctx, sema.unwrapViews(self.ctx, source_ty)) orelse sema.tableElem(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
             if (mode != .move and unbound and !list_moves and (if (mode == .iter) moving else list) and !self.isPoison(source_ty)) {
                 const what = if (list) "a List held in a place or made by a call" else "a place or takes a value made here";
                 try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
@@ -687,20 +655,19 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
             self.expect.loop_access = null;
             elem_ty = try elementTypeForLoop(self, source, peeled_source, source_ty, eff);
             if (elem_poisoned) elem_ty = self.t().invalid_id;
-            // What the loop binds views the source, unless it takes it or
-            // walks a slice of it, and may view a copy (`rejectHeaderCopy`).
+            // What the loop binds views the source, unless it takes it.
             // The source is a header: a temporary it reads into ends with
             // it, before the loop walks it.
             const walks_temp = if (eff != .move and !self.isPoison(elem_ty)) PatternCheck.tempBase(self, source) else null;
             if (walks_temp) |temp| {
                 try self.errAt(temp, "the loop would walk the temporary `{s}` after its header drops it; bind it to a name first", .{CallCheck.sourceText(self, temp)});
-            } else if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try PatternCheck.rejectHeaderCopy(self, node, source, elem_ty);
+            }
             // `for x in ?e` and `for x in !e` view `e`: one made here
             // would end with the header. A call's result is taken:
             // `for x in e`. A view a call returns, whose loans name only
             // places, is passed on (`?first(?ls)` is the view
             // `first(?ls)` gives).
-            const views_on = sema.isReadOrWriteView(self.ctx, source_ty) and storage.livesIn(self.ctx, source).onlyPlaces();
+            const views_on = sema.isReadOrWriteView(self.ctx, source_ty) and sema.livesIn(self.ctx, source).onlyPlaces();
             if ((mode == .read or mode == .write) and !views_on and !(unbound and list) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
                 try self.errAt(source, "the loop would walk a view of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ CallCheck.sourceText(self, source), self.text(binding), CallCheck.sourceText(self, source) });
             }
@@ -1000,10 +967,10 @@ pub fn resolveJump(self: *Checker, node: Sexp) Error!?*Checker.LoopFrame {
 /// The `continue`s in the condition of `while` loop `frame`: to the
 /// step when it is the loop's continue expression, or else to the
 /// head, past a step that reads a binding they would leave unbound
-/// (`checkStepBindings` rejects that).
+/// (`lower.Lowerer.stepBindings` rejects that).
 pub fn settleConditionJumps(self: *Checker, frame: *const Checker.LoopFrame) Error!void {
     if (frame.cond_continues.items.len == 0) return;
-    const to: sema.JumpDest.To = switch (storage.stepPoint(self.ctx, frame.node)) {
+    const to: sema.JumpDest.To = switch (lowering.stepPoint(self.ctx, frame.node)) {
         .continue_expr => .step,
         .after_body => .head,
     };
@@ -1041,7 +1008,7 @@ pub fn loopElement(self: *Checker, mode: sema.LoopMode, elem: TypeId) Error!Type
 /// with the loan on `h`. Nothing is written through a handle, or
 /// taken out through one.
 pub fn sharedLoopElement(self: *Checker, source: Sexp, inner_source: Sexp, walked: TypeId, mode: ?Tag) Error!TypeId {
-    const elem, const what = if (CompatCheck.listElementType(self.ctx, walked)) |e| .{ e, "a List" } else .{ self.ctx.types.get(walked).array.elem, "an array" };
+    const elem, const what = if (sema.listElem(self.ctx, walked)) |e| .{ e, "a List" } else .{ self.ctx.types.get(walked).array.elem, "an array" };
     const pos = self.startOf(source);
     const shown = try ViewCheck.plainText(self, inner_source);
     if (mode == .write) {
@@ -1060,18 +1027,18 @@ pub fn sharedLoopElement(self: *Checker, source: Sexp, inner_source: Sexp, walke
 }
 
 /// Whether `e` is a write view whose loans name only places
-/// (`storage.livesIn`): what it points at outlives the statement.
+/// (`sema.livesIn`): what it points at outlives the statement.
 pub fn writeViewOfPlaces(self: *Checker, e: Sexp) bool {
     const ty = self.ctx.typeOf(e) orelse return false;
-    return self.ctx.types.get(ty) == .write_view and storage.livesIn(self.ctx, e).onlyPlaces();
+    return self.ctx.types.get(ty) == .write_view and sema.livesIn(self.ctx, e).onlyPlaces();
 }
 
 /// Whether a loop over `source` walks memory that outlives its header,
 /// so it reads the elements where they are: a place a name holds, or
 /// a field or element of one, or a view whose loans name only places
-/// (`storage.livesIn`, CORE §9): `first(?ls)` views `ls`.
+/// (`sema.livesIn`, CORE §9): `first(?ls)` views `ls`.
 pub fn walksPlace(self: *Checker, source: Sexp) bool {
-    return StmtCheck.placeOf(self, source).named() or storage.livesIn(self.ctx, source).onlyPlaces();
+    return StmtCheck.placeOf(self, source).named() or sema.livesIn(self.ctx, source).onlyPlaces();
 }
 
 pub fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, source_ty: TypeId, mode: ?Tag) Error!TypeId {
@@ -1095,7 +1062,7 @@ pub fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, sour
             }
             if (mode == .write) return writeElement(self, source, inner_source, elem);
             return loopElement(self, .read, elem);
-        } else if (CompatCheck.listElementType(self.ctx, peeled)) |elem| {
+        } else if (sema.listElem(self.ctx, peeled)) |elem| {
             // Elements that move (handles and boxes) are walked by
             // view; every other element is plain data.
             const is_resource = sema.moves(self.ctx, elem) == .yes;
@@ -1220,12 +1187,6 @@ pub fn checkMatchSubject(self: *Checker, node: Sexp) Error!Checker.MatchSubject 
         const reached = sema.unwrapAccess(self.ctx, scrutinee);
         if (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee)) == .shared and sema.changesByMark(self.ctx, reached)) scrutinee = try self.ctx.intern(.{ .write_view = reached });
     }
-    // What the arms bind views the subject, unless the match takes it,
-    // and may view a copy (`rejectHeaderCopy`).
-    // (A view a call returns, held as a pointer, is matched where it
-    // points, temporaries or not.)
-    const held_view = storage.holdsView(self.ctx, node);
-    if (mode != .consume and !held_view and !self.isPoison(scrutinee)) try PatternCheck.rejectHeaderCopy(self, node, subject, sema.unwrapAccess(self.ctx, scrutinee));
     try ViewCheck.recordUse(self, subject, switch (mode) {
         .read => .read,
         .consume => .take,

@@ -104,18 +104,6 @@ pub fn stepAt(self: *const Checker, node: Sexp) u32 {
     return extent(self, ir.While.body(node)).hi +| 1;
 }
 
-/// Where a path that skips the rest of `node` goes on: at `next`, a
-/// later part of it, or else past its end.
-pub fn resumeAt(self: *const Checker, next: Sexp, node: Sexp) u32 {
-    return resumeBefore(self, next, extent(self, node).hi +| 1);
-}
-
-/// Where a path that skips to `next` goes on, in a node whose end is
-/// `past` (`resumeAt` with that node's end found once).
-pub fn resumeBefore(self: *const Checker, next: Sexp, past: u32) u32 {
-    return if (next == .nil) past else @min(extent(self, next).lo, past);
-}
-
 /// The first and last leaf positions in `s`, every one where its
 /// span puts it: a hidden leaf a rewrite padded past the source's end
 /// (a chain's names, a closure's padded parameter) stands at its
@@ -251,7 +239,7 @@ pub fn viewedText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
 /// or the drop, at the end of its scope, of a task or of a value
 /// whose `drop` body reads it; or the `task.select` whose arms hold
 /// it. It mirrors `holderLive`, which decided the view is in force,
-/// and reads only what the walk keeps anyway (`uses`, `walked`), so a
+/// and reads only what the walk keeps anyway (the body's flow), so a
 /// program without errors pays nothing for it.
 pub fn noteStillUsed(self: *Checker, l: Loan, at: u32) Error!void {
     if (self.quiet > 0 or !self.last_err_kept) return;
@@ -355,22 +343,14 @@ pub fn noteHolderUse(self: *Checker, h: VarId, l: Loan, at: u32, end: ?u32, dept
             return note(self, v.decl, "still used here, by the `match`, which reads its subject again after a guard to test the next arm", .{});
     }
     if (!v.temp_value and v.kind != .hidden and !self.isGlobal(h)) if (v.sym) |sym| {
-        if (nextUse(self, v, sym, at, end)) |u| {
-            // A use before the statement in flight (before the scope's
-            // end) runs again in the loop's next iteration.
-            const before = if (end) |e| u < e else u < live.stmtStart(self);
+        if (nextUse(self, v, sym, at)) |next| {
+            const u = next.pos;
             // A task's use is its wait, `>t`: point at the wait.
             const wait = u > 0 and u <= self.source.len and self.source[u - 1] == '>' and if (v.ty) |ty| sema.isTask(ctx, ty) or sema.isTaskSet(ctx, ty) else false;
-            if (!before) return note(self, if (wait) u - 1 else u, "still used here", .{});
+            if (next.ahead) return note(self, if (wait) u - 1 else u, "still used here", .{});
             if (inDeferred(self, u)) return note(self, u, "still used here, in deferred code, which runs at the end of its scope", .{});
             return note(self, u, "still used here, in the next iteration of the loop", .{});
         }
-        // The target of an assignment whose value is being walked is
-        // used after it.
-        for (self.after_value.items) |a| if (a.sym == sym) if (targetUse(self, sym, at)) |u|
-            return note(self, u, "still used here", .{});
-        if (self.defer_used.contains(sym)) if (deferredUse(self, sym)) |u|
-            return note(self, u, "still used here, in deferred code, which runs at the end of its scope", .{});
         if (v.kind == .param)
             return note(self, v.decl, "still used by the caller, through `{s}`, after the function returns", .{v.name});
     };
@@ -390,7 +370,7 @@ pub fn noteHolderUse(self: *Checker, h: VarId, l: Loan, at: u32, end: ?u32, dept
     if (self.isViewed(h)) for (self.flows.items, 0..) |f, j| {
         if (j == h) continue;
         for (f.loans) |x| if (x.root == h and !x.ext) {
-            if (live.holderLiveDepth(self, @intCast(j), end, depth + 1)) return noteHolderUse(self, @intCast(j), x, at, end, depth + 1);
+            if (live.holderLiveDepth(self, @intCast(j), null, depth + 1)) return noteHolderUse(self, @intCast(j), x, at, end, depth + 1);
             break;
         };
     };
@@ -408,38 +388,23 @@ pub fn afterMatch(self: *const Checker, pos: u32) bool {
     return k == 0 or !(std.ascii.isAlphanumeric(before[k - 1]) or before[k - 1] == '_');
 }
 
-/// The target of an assignment around `at` whose value is being
-/// walked: the use of `sym` not walked yet nearest before `at`.
-pub fn targetUse(self: *const Checker, sym: SymbolId, at_in: u32) ?u32 {
-    const at = live.usePos(self, at_in);
-    const all = self.uses.get(sym) orelse return null;
-    var best: ?u32 = null;
-    for (all.items) |p| {
-        if (p > at or std.mem.findScalar(u32, self.walked.items, p) != null) continue;
-        if (best == null or p > best.?) best = p;
+/// The use of var `v` (symbol `sym`) that keeps it live past the
+/// walk's point, as `holderLiveDepth` finds it: of those a path from
+/// there reaches, one that runs later in this pass (`ahead`), the
+/// first written after `at`; else one in the loop around, which runs
+/// again; else one in deferred code. A use that reads the value comes
+/// before one that only assigns the var.
+pub fn nextUse(self: *const Checker, v: Var, sym: SymbolId, at: u32) ?struct { pos: u32, ahead: bool } {
+    // By whether the use only assigns, then how it is reached.
+    var best: [2][4]?u32 = @splat(@splat(null));
+    for (live.usesAhead(self, sym)) |u| {
+        if (u.pos == v.decl) continue;
+        const how: usize = if (u.ahead) @as(usize, if (u.pos > at) 0 else 1) else if (inDeferred(self, u.pos)) 3 else 2;
+        const slot = &best[@intFromBool(assignsOnly(self, u.pos))][how];
+        if (slot.* == null or u.pos < slot.*.?) slot.* = u.pos;
     }
-    return best;
-}
-
-/// The use of var `v` (symbol `sym`) that keeps it live past `at`,
-/// as `holderLiveDepth` counts uses: the first after `at`, or else
-/// the first in the loop around, which runs again. A use that reads
-/// the value comes before one that only assigns the var, which
-/// counts too.
-pub fn nextUse(self: *const Checker, v: Var, sym: SymbolId, at_in: u32, end: ?u32) ?u32 {
-    const at = live.usePos(self, at_in);
-    const all = self.uses.get(sym) orelse return null;
-    const from = live.liveFrom(self, v.decl, end);
-    const any_walked = end != null or from < live.stmtStart(self);
-    // By whether the use only assigns, then whether it is after `at`.
-    var best: [2][2]?u32 = .{ .{ null, null }, .{ null, null } };
-    for (all.items) |p| {
-        if (p < from or p == v.decl) continue;
-        if (!any_walked and p < live.stmtEnd(self) and std.mem.findScalar(u32, self.walked.items, p) != null) continue;
-        const slot = &best[@intFromBool(assignsOnly(self, p))][@intFromBool(p <= at)];
-        if (slot.* == null or p < slot.*.?) slot.* = p;
-    }
-    return best[0][0] orelse best[0][1] orelse best[1][0] orelse best[1][1];
+    for (best) |b| for (b, 0..) |p, how| if (p) |pos| return .{ .pos = pos, .ahead = how < 2 };
+    return null;
 }
 
 /// Whether the name at `pos` is only assigned there (`x = e`, `x: T
@@ -461,13 +426,6 @@ pub fn inDeferred(self: *const Checker, pos: u32) bool {
         if (pos >= x.lo and pos <= x.hi) return true;
     };
     return false;
-}
-
-/// A use of symbol `sym` in deferred code of a scope still open.
-pub fn deferredUse(self: *const Checker, sym: SymbolId) ?u32 {
-    const all = self.uses.get(sym) orelse return null;
-    for (all.items) |p| if (inDeferred(self, p)) return p;
-    return null;
 }
 
 /// Where var `id` is dropped at the end of its scope: just past the
@@ -529,12 +487,6 @@ pub fn holdsCellHandle(self: *const Checker, id: VarId) bool {
         .shared => |inner| sema.holdsMarkedValue(ctx, inner),
         else => false,
     };
-}
-
-/// Whether positions `a` and `b` lie in two arms of one `task.select`
-/// in `node`.
-pub fn inTwoArms(self: *const Checker, node: Sexp, a: u32, b: u32) bool {
-    return selectWith(self, node, a, b) != null;
 }
 
 /// The `task.select` in `node` that has positions `a` and `b` in two
@@ -749,35 +701,35 @@ pub fn reportTempOutlived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
 pub fn reportTempHolder(self: *Checker, f: Flow, holder: VarId, depth: u32) Error!void {
     for (f.loans) |l| {
         if (l.root < depth or !self.isStmtTemp(l.root)) continue;
-        if (live.holderLive(self, holder, live.stmtEnd(self))) try reportTempOutlived(self, l, holder);
+        if (live.holderLive(self, holder, self.stmt_out)) try reportTempOutlived(self, l, holder);
         return;
     }
 }
 
 /// Report each var below `depth` that keeps a loan on a var at
 /// `depth` or above, which leaves scope, where the holder is live at
-/// `at` (after the current statement when null); or, when it is not,
+/// point `at` (after the walk's point when null); or, when it is not,
 /// a loan on a statement's temporary that it keeps past its
 /// statement. Each holder is reported once.
-pub fn reportDropped(self: *Checker, depth: u32, at: ?u32) Error!void {
+pub fn reportDropped(self: *Checker, depth: u32, at: ?live.Loc) Error!void {
     if (!self.viewedFrom(depth)) return;
     for (self.flows.items[0..@min(depth, self.flows.items.len)], 0..) |f, holder| {
         if (!hasLoanFrom(f.loans, depth)) continue;
-        if (!(try reportHolder(self, f, @intCast(holder), depth, at, .nil))) try reportTempHolder(self, f, @intCast(holder), depth);
+        if (!(try reportHolder(self, f, @intCast(holder), depth, at, .nil, null))) try reportTempHolder(self, f, @intCast(holder), depth);
     }
 }
 
 /// Report each loan on a var at `depth` or above that `holder`
-/// (whose flow is `f`) keeps, where the holder is live at `at` (after
-/// the current statement when null). Whether it is. `scope` is the
+/// (whose flow is `f`) keeps, where the holder is live at point `at`
+/// (after the walk's point when null). Whether it is. `scope` is the
 /// code of a scope that ends as the code falls through, which drops
-/// those vars at its end (`.nil` for another exit).
-pub fn reportHolder(self: *Checker, f: Flow, holder: VarId, depth: u32, at: ?u32, scope: Sexp) Error!bool {
+/// those vars at its end, `end` (`.nil` for another exit).
+pub fn reportHolder(self: *Checker, f: Flow, holder: VarId, depth: u32, at: ?live.Loc, scope: Sexp, end: ?u32) Error!bool {
     if (!live.holderLive(self, holder, at)) return false;
     // Where the scope that drops them ends, when it ends as the code
     // falls through: worked out only here, for the message.
     const drop_at = endOf(self, scope);
-    for (f.loans) |l| if (l.root >= depth) try reportShortLived(self, l, holder, if (drop_at) |d| .{ .at = d, .end = at.? } else null);
+    for (f.loans) |l| if (l.root >= depth) try reportShortLived(self, l, holder, if (drop_at) |d| (if (end) |e| .{ .at = d, .end = e } else null) else null);
     return true;
 }
 

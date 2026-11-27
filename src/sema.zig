@@ -22,7 +22,7 @@
 //!                   `sema.zig`       then every local must be read
 //!   7. generics     `sema.zig`,      the instances generic bodies reach,
 //!                   `typecheck.zig`  and each instance's requirements
-//!   8. storage      `storage.zig`    the hidden storage emit makes
+//!   8. storage      `lower.zig`      the hidden storage emit makes
 //!
 //! ## The facts table
 //!
@@ -50,12 +50,13 @@
 
 const std = @import("std");
 const zig_builtin = @import("builtin");
+const arith = @import("arith.zig");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 pub const diag = @import("diag.zig");
 const resolve = @import("resolve.zig");
 const typecheck = @import("typecheck.zig");
-const storage = @import("storage.zig");
+const lir = @import("lir.zig");
 const lowering = @import("lower.zig");
 const accounts = @import("accounts.zig");
 const timing = @import("timing.zig");
@@ -1101,7 +1102,7 @@ pub const SymbolFlags = packed struct(u64) {
     unique: bool = false,
     /// A read match's binding of a payload, or the whole value, that is
     /// not plain data, of a subject the match reads as a copy (not
-    /// `storage.matchesInPlace`): usable within its arm only
+    /// `lower.matchesInPlace`): usable within its arm only
     /// (docs/internals/INTERNALS.md, "Header subjects").
     arm_view: bool = false,
     /// A `!T` or `![]T` local assigned a view somewhere
@@ -2270,6 +2271,7 @@ pub const specs: std.enums.EnumFieldStruct(Column, ColumnSpec, .{}) = .{
     .member_compares = .{ .key = .raw },
     .embeds = .{ .writer = .modules },
     .old_nones = .{ .writer = .ownership },
+    .header_copies = .{ .writer = .lower },
     .once_captures = .{ .key = .raw },
     .const_ints = .{ .key = .raw },
     .const_floats = .{ .key = .raw },
@@ -2505,7 +2507,7 @@ pub const JumpDest = struct {
         /// The loop's step, which runs before the next iteration: a
         /// `continue` from the body of a `while` with a step, or from its
         /// condition when the step is the loop's continue expression
-        /// (`storage.StepPoint`).
+        /// (`lir.StepPoint`).
         step,
         /// The loop's head, the next iteration's condition: a `continue`
         /// in a loop with no step, from a step, or from a condition whose
@@ -3167,10 +3169,10 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
     while (stack.pop()) |n| {
         if (n == .list) try stack.appendSlice(a, n.list.items());
         if (n != .src and !(n == .list and n.list.id != 0)) continue;
-        inline for (@typeInfo(storage.StorageKind).@"enum".field_names) |name| {
-            const kind = @field(storage.StorageKind, name);
+        inline for (@typeInfo(lir.StorageKind).@"enum".field_names) |name| {
+            const kind = @field(lir.StorageKind, name);
             if (kind == .discard) continue;
-            const s: ?struct { by: storage.StorageBy, life: storage.StorageLife } = switch (kind) {
+            const s: ?struct { by: lir.StorageBy, life: lir.StorageLife } = switch (kind) {
                 // A `header_copy` is the header's value, no var of its own.
                 .header_copy => if (ctx.copiesHeader(n)) .{ .by = .copy, .life = .construct } else null,
                 else => if (lowered.varOf(n, kind)) |v| .{ .by = v.by, .life = v.life } else null,
@@ -5550,6 +5552,12 @@ pub const SemContext = struct {
     pub fn fieldMoves(self: *const SemContext, sym: SymbolId) []const []const u8 {
         const paths = self.field_moves.getPtr(sym) orelse return &.{};
         return paths.items;
+    }
+
+    /// Header `node` binds a copy of its subject, as lowering finds it
+    /// (`lower.Lowerer.headerCopy`).
+    pub fn recordHeaderCopy(self: *SemContext, node: Sexp) std.mem.Allocator.Error!void {
+        try self.putIn(.lower, .header_copies, recordKey(node), {});
     }
 
     pub fn copiesHeader(self: *const SemContext, node: Sexp) bool {
@@ -12641,7 +12649,7 @@ pub const MakerPart = enum {
             .hour => .{ 0, 23 },
             .minute, .second => .{ 0, 59 },
             .ns => .{ 0, 999_999_999 },
-            .duration_s => .{ -std.math.maxInt(i64), std.math.maxInt(i64) },
+            .duration_s => .{ -arith.duration_max_s, arith.duration_max_s },
             .duration_ns, .unix_ns => .{ -999_999_999, 999_999_999 },
             .unix_s => .{ @divFloor(instant_min_ns, 1_000_000_000), @divFloor(instant_max_ns, 1_000_000_000) },
             .unix_ms => .{ @divFloor(instant_min_ns, 1_000_000), @divFloor(instant_max_ns, 1_000_000) },
@@ -12771,10 +12779,6 @@ pub const Duration = struct {
         return if (d.opt != type_invalid) d.opt else d.ty;
     }
 };
-
-/// `x * unit` rounded once from its exact value, as the program converts
-/// it: a constant converts by the runtime's own `rig.floatToNs`.
-pub const floatToNs = @import("runtime.zig").floatToNs;
 
 /// How a duration form becomes its value (docs/design/datetime.md
 /// §5.2), decided once by the checker on a positive list: `total`, a form
@@ -13314,13 +13318,15 @@ pub fn isHeaderOf(parent: Sexp, child: Sexp) bool {
 
 /// Whether the temporaries `child` makes are its parent `stmt`'s: a
 /// block or a closure holds statements of its own, a `match` arm's body
-/// is a statement of its own (as the one statement of a block is), and
-/// a header (an `if`'s condition, a `match`'s subject, an arm's guard)
-/// or a `while` loop's step is a statement of its own; every other part
-/// of a statement, a branch, a `??` fallback, and a `catch` handler
-/// included, makes its temporaries for the statement.
-fn sharesStmtTemps(stmt: Sexp, child: Sexp) bool {
+/// and a `defer`'s body are statements of their own (as the one
+/// statement of a block is), and a header (an `if`'s condition, a
+/// `match`'s subject, an arm's guard) or a `while` loop's step is a
+/// statement of its own; every other part of a statement, a branch, a
+/// `??` fallback, and a `catch` handler included, makes its
+/// temporaries for the statement.
+pub fn sharesStmtTemps(stmt: Sexp, child: Sexp) bool {
     if (child != .list or child.isKind(.block) or child.isKind(.lambda)) return false;
+    if (stmt.isKind(.@"defer") or stmt.isKind(.@"errdefer")) return false;
     return !isHeaderOf(stmt, child) and !isWhileStep(stmt, child) and !isArmBody(stmt, child);
 }
 
@@ -13359,19 +13365,6 @@ pub fn stmtTemps(ctx: *const SemContext, a: std.mem.Allocator, stmt: Sexp, out: 
         try stmtTemps(ctx, a, ir.Set.target(stmt), out);
     } else for (rig.children(stmt)) |c| if (sharesStmtTemps(stmt, c)) try stmtTemps(ctx, a, c, out);
     if (ctx.dropsTemp(stmt)) try out.append(a, stmt);
-}
-
-/// The values statement `stmt` erases to API objects that view a copy
-/// (`Erasure.copy`), in its headers and arms too, but not in the blocks or
-/// closures it holds, whose statements are emitted on their own: emit
-/// declares the slot of each before the statement, a local of its block
-/// (`Emitter.emitErasedSlots`).
-pub fn stmtErasedCopies(ctx: *const SemContext, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
-    if (ctx.facts.erasures.count() == 0) return;
-    if (stmt.isKind(.block) or stmt.isKind(.lambda)) return;
-    if (ctx.erasureOf(stmt)) |e| if (e.copy) try out.append(a, stmt);
-    if (stmt != .list) return;
-    for (stmt.items()) |c| try stmtErasedCopies(ctx, a, c, out);
 }
 
 /// Whether a view of type `ty` is held as a pointer: a write view (but
@@ -13884,6 +13877,16 @@ pub fn viewParam(ctx: *const SemContext, ty: TypeId) bool {
         .optional => |inner| isViewType(ctx, inner),
         else => isViewType(ctx, ty),
     };
+}
+
+/// Whether `e`, a view read through (`SemContext.readsThrough`), is
+/// copied out for what it reaches: plain data that holds no view and no
+/// type parameter's value, copied where `e` stands, which keeps nothing
+/// viewed (Core §6).
+pub fn copiedOut(ctx: *const SemContext, e: Sexp) bool {
+    if (!ctx.readsThrough(e)) return false;
+    const reached = copiedThrough(ctx, ctx.typeOf(e) orelse return false) orelse return false;
+    return !mayHoldView(ctx, reached) and !containsTypeVar(ctx, reached);
 }
 
 /// Whether `ty` is a view: a `?T`, `!T`, `[]T` (a `![]T` is a `!T`),
@@ -16799,9 +16802,22 @@ pub fn intTypeNamed(name: []const u8) ?IntInfo {
     };
 }
 
-/// The integer type the type alias `id` names, through other aliases;
+/// A number type as a name gives it: an integer type, or a float type of
+/// `bits` (32 or 64).
+pub const NumberType = union(enum) { int: IntInfo, float: u8 };
+
+/// The number type a built-in type name spells (`U8`, `F32`, `Float`),
+/// or null.
+pub fn numberTypeNamed(name: []const u8) ?NumberType {
+    if (intTypeNamed(name)) |i| return .{ .int = i };
+    if (std.mem.eql(u8, name, "F32")) return .{ .float = 32 };
+    if (std.mem.eql(u8, name, "F64") or std.mem.eql(u8, name, "Float")) return .{ .float = 64 };
+    return null;
+}
+
+/// The number type the type alias `id` names, through other aliases;
 /// null for any other type. Known before the alias is resolved, too.
-pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
+pub fn aliasNumberType(ctx: *const SemContext, id: SymbolId) ?NumberType {
     var c = ctx;
     var alias = id;
     // An alias chain longer than this is a cycle, reported elsewhere.
@@ -16809,7 +16825,8 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
         const sym = c.symbols.items[alias];
         if (sym.kind != .type_alias) return null;
         if (sym.ty != c.types.unknown_id) return switch (c.types.get(sym.ty)) {
-            .int => |i| i,
+            .int => |i| .{ .int = i },
+            .float => |f| .{ .float = if (f.bits == 32) 32 else 64 },
             else => null,
         };
         const target = c.alias_targets.get(alias) orelse return null;
@@ -16825,10 +16842,17 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
             continue;
         }
         const name = identAt(c.source, target) orelse return null;
-        if (intTypeNamed(name)) |i| return i;
+        if (numberTypeNamed(name)) |n| return n;
         alias = c.lookup(sym.scope, name) orelse return null;
     }
     return null;
+}
+
+/// The integer type the type alias `id` names (`aliasNumberType`), or
+/// null.
+pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
+    const n = aliasNumberType(ctx, id) orelse return null;
+    return if (n == .int) n.int else null;
 }
 
 /// Whether an integer type holds `v`.
@@ -17427,9 +17451,9 @@ test "storage: a header points at a place its temporaries reach, never into one"
     const points = [_]bool{ true, true, false, false, false, true, false, false, true, false };
     try std.testing.expectEqual(points.len, headers.items.len);
     for (headers.items, points) |h, want| {
-        try std.testing.expectEqual(want, storage.headerPoints(&r.ctx, storage.headerSubject(h)));
+        try std.testing.expectEqual(want, lowering.headerPoints(&r.ctx, lowering.headerSubject(h)));
         try std.testing.expectEqual(!want, r.ctx.copiesHeader(h));
-        if (h.isKind(.match) and storage.matchMode(&r.ctx, h) == .read) try std.testing.expectEqual(want, storage.matchesInPlace(&r.ctx, h));
+        if (h.isKind(.match) and lowering.matchMode(&r.ctx, h) == .read) try std.testing.expectEqual(want, lowering.matchesInPlace(&r.ctx, h));
     }
 }
 

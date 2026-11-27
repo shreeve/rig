@@ -29,7 +29,10 @@ fail "review-arm-temps-2-m12 nested set owner reassigned", "cannot reassign `v` 
     _ => 3
   print(v[0])
 
-fail "review-arm-temps-2-m15 readview repoint overreject", "cannot change `v` while a read view of it is still in use"
+test "review-arm-temps-2-m15 readview repoint overreject", '''
+7
+8 4
+'''
   # A read-view local re-pointed from a value whose arm grows its old referent.
   fun grow(v: !List[Int]) -> Int
     for _ in 0..3
@@ -762,7 +765,7 @@ fail "review-arm-temps-l06 view in loop earlier arm rev", "cannot change `v` whi
       0 => print(x[0])
       _ => print(grow(!v))
 
-fail "review-arm-temps-l07 subject viewed by guard after", "cannot change `v` while a read view of it is still in use"
+test "review-arm-temps-l07 subject viewed by guard after", "51"
   # The subject views v; a later arm's guard reads it through x after a
   # write view in an earlier-tested arm? Guards run before the arm body.
   fun grow(v: !List[Int]) -> Int

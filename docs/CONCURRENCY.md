@@ -234,7 +234,8 @@ bare. `+ledger` makes another handle for each task.
 **Underneath,** the actor is a task with a mailbox, and a call is a
 message whose caller waits for the answer. When the actor is idle, the
 caller takes it with one atomic step and runs the method on its own
-stack, as the actor, with no message and no switch. So an idle actor
+stack, as the actor, with no message and no switch (a supervised
+actor's methods run on its own task). So an idle actor
 costs about what a lock does, and Rig has no `Mutex`.
 
 Every call takes the actor, a read as much as a write, so a table many

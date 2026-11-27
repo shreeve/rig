@@ -18,6 +18,10 @@
 //!   `defaultAllocator()`, which is leak-checked in Debug builds.
 
 const std = @import("std");
+// The rules of arithmetic and the names the compiler shares
+// (`arith.zig`, `names.zig`).
+const arith = @import("arith.zig");
+const decl = @import("names.zig").decl;
 
 /// Rig's `Int`. Sizes and indices cross the Rig boundary as `Int`.
 pub const Int = i64;
@@ -92,6 +96,7 @@ pub const taskWorkers = tasks.setWorkers;
 pub const taskWorkerCount = tasks.workerCount;
 pub const taskSleep = tasks.sleep;
 pub const parMapInto = tasks.parMapInto;
+pub const parMapCostInto = tasks.parMapCostInto;
 pub const Actor = tasks.Actor;
 pub const actor = tasks.actor;
 pub const superviseInto = tasks.superviseInto;
@@ -110,8 +115,11 @@ pub const actorSpawn = tasks.actorSpawn;
 pub const isolateInto = tasks.isolateInto;
 pub const monotonicNs = tasks.monotonicNs;
 pub const parEachInto = tasks.parEachInto;
+pub const parEachCostInto = tasks.parEachCostInto;
 pub const parPushInto = tasks.parPushInto;
+pub const parPushCostInto = tasks.parPushCostInto;
 pub const parWorkersInto = tasks.parWorkersInto;
+pub const parWorkersCostInto = tasks.parWorkersCostInto;
 pub const enterDeadline = tasks.enterDeadline;
 pub const restoreDeadline = tasks.restoreDeadline;
 
@@ -212,7 +220,7 @@ pub const Config = struct {
 };
 
 /// The program's `Config`.
-pub const config: Config = if (@hasDecl(root, "__rig_config")) root.__rig_config else .{};
+pub const config: Config = if (@hasDecl(root, decl(.config))) root.__rig_config else .{};
 
 // Errors with data. A program in which a member with fields reaches
 // `error` names its error glue in its root's `Config`: the size and
@@ -868,14 +876,14 @@ pub fn Opt(comptime T: type) type {
     // An object that names its none (`none id == 0`) holds it for
     // `none`, under `RIG_STRICT_OPTIONALS` too: its optional is the size
     // of the object, which the object asserts.
-    if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_none_field")) return Niche(T, nicheOf(T).?);
-    if (comptime (@typeInfo(T) == .@"struct" or @typeInfo(T) == .@"union") and @hasDecl(T, "__rig_strict_optional")) return Strict(T);
+    if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, decl(.none_field))) return Niche(T, nicheOf(T).?);
+    if (comptime (@typeInfo(T) == .@"struct" or @typeInfo(T) == .@"union") and @hasDecl(T, decl(.strict_optional))) return Strict(T);
     // An object with a niche (`nicheOf`) holds `none` there, and so does
     // an optional of one, with the next value. Only an object the emitter
     // writes (`__rig_name`) and its optionals: every optional of one goes
     // through the helpers (`sema.optionalRouted`), so no `?T` of it is
     // written anywhere else. A `String?`, `Bool?`, or enum's is Zig's.
-    if (comptime @typeInfo(T) == .@"struct" and (@hasDecl(T, "__rig_name") or @hasDecl(T, "__rig_niche"))) {
+    if (comptime @typeInfo(T) == .@"struct" and (@hasDecl(T, decl(.name)) or @hasDecl(T, "__rig_niche"))) {
         if (comptime nicheOf(T)) |n| return Niche(T, n);
         // A 64-bit word keeps the four-byte alignment its halves had.
         if (comptime wordHeld(T)) return WordOpt(T);
@@ -917,7 +925,7 @@ pub fn nicheOf(comptime T: type) ?NicheAt {
         .array => |a| if (a.len == 0) null else nicheOf(a.child),
         .@"struct" => |s| blk: {
             if (s.layout == .@"packed") break :blk null;
-            if (@hasDecl(T, "__rig_none_field")) break :blk namedNiche(T);
+            if (@hasDecl(T, decl(.none_field))) break :blk namedNiche(T);
             // A niche optional's own niche is the next value free in its
             // payload's (`T??`, or a `T?` field).
             if (@hasDecl(T, "__rig_niche")) {
@@ -1276,7 +1284,7 @@ pub const Repr = struct {
 /// The `Repr` `T` carries, or null for a type that carries none.
 pub fn reprOf(comptime T: type) ?Repr {
     return switch (@typeInfo(T)) {
-        .@"struct", .@"enum", .@"union" => if (@hasDecl(T, "__rig_repr")) T.__rig_repr else null,
+        .@"struct", .@"enum", .@"union" => if (@hasDecl(T, decl(.repr))) T.__rig_repr else null,
         else => null,
     };
 }
@@ -1305,17 +1313,17 @@ pub fn needsDrop(comptime T: type) bool {
         .error_union => |e| needsDrop(e.payload),
         .array => |a| needsDrop(a.child),
         .@"struct" => |s| blk: {
-            if (@hasDecl(T, "__rig_drop")) break :blk true;
+            if (@hasDecl(T, decl(.drop))) break :blk true;
             inline for (s.field_types) |F| if (needsDrop(F)) break :blk true;
             break :blk false;
         },
         .@"union" => |u| blk: {
-            if (@hasDecl(T, "__rig_drop")) break :blk true;
+            if (@hasDecl(T, decl(.drop))) break :blk true;
             if (u.tag_type == null) break :blk false;
             inline for (u.field_types) |F| if (needsDrop(F)) break :blk true;
             break :blk false;
         },
-        .@"enum", .@"opaque" => @hasDecl(T, "__rig_drop"),
+        .@"enum", .@"opaque" => @hasDecl(T, decl(.drop)),
         else => false,
     };
 }
@@ -1716,12 +1724,12 @@ fn clonesErased(comptime T: type) bool {
         .array => |a| clonesErased(a.child),
         .@"struct" => |s| blk: {
             if (@hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_ordered") or @hasDecl(T, "__rig_unordered") or @hasDecl(T, "__rig_error_value") or @hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak") or @hasDecl(T, "__rig_api_box") or @hasDecl(T, "__rig_api_shared") or @hasDecl(T, "__rig_api_weak")) break :blk true;
-            if (@hasDecl(T, "__rig_drop")) break :blk false;
+            if (@hasDecl(T, decl(.drop))) break :blk false;
             inline for (s.field_types) |F| if (!clonesErased(F)) break :blk false;
             break :blk true;
         },
         .@"union" => |u| blk: {
-            if (@hasDecl(T, "__rig_drop")) break :blk false;
+            if (@hasDecl(T, decl(.drop))) break :blk false;
             inline for (u.field_types) |F| if (!clonesErased(F)) break :blk false;
             break :blk true;
         },
@@ -1779,12 +1787,12 @@ pub fn IterItem(comptime I: type) type {
     return Payload(@typeInfo(@TypeOf(I.next)).@"fn".return_type.?);
 }
 
-/// Whether type `T` gives `api` (`__rig_own_eq`, `__rig_own_hash`,
-/// `__rig_own_order`, `__rig_own_print`) a meaning of its own: its header
-/// names the API and it declares the method (docs/design/apis.md).
-fn ownsApi(comptime T: type, comptime decl: []const u8) bool {
+/// Whether type `T` gives `api` (`.own_eq`, `.own_hash`, `.own_order`,
+/// `.own_print`) a meaning of its own: its header names the API and it
+/// declares the method (docs/design/apis.md).
+fn ownsApi(comptime T: type, comptime api: @import("names.zig").Decl) bool {
     return switch (@typeInfo(T)) {
-        .@"struct", .@"union", .@"enum" => @hasDecl(T, decl),
+        .@"struct", .@"union", .@"enum" => @hasDecl(T, decl(api)),
         else => false,
     };
 }
@@ -1907,10 +1915,10 @@ pub fn dropElement(comptime T: type, value: *T) void {
             }
         },
         .@"struct" => {
-            if (comptime map_trace and @hasField(T, "__rig_trace")) mapTraceDrop(value);
-            if (@hasDecl(T, "__rig_drop")) value.__rig_drop() else dropFields(value);
+            if (comptime map_trace and @hasField(T, decl(.trace))) mapTraceDrop(value);
+            if (@hasDecl(T, decl(.drop))) value.__rig_drop() else dropFields(value);
         },
-        .@"union" => if (@hasDecl(T, "__rig_drop")) {
+        .@"union" => if (@hasDecl(T, decl(.drop))) {
             value.__rig_drop();
         } else switch (value.*) {
             inline else => |*payload| dropElement(@TypeOf(payload.*), payload),
@@ -2292,7 +2300,7 @@ fn nestingDepth(comptime T: type) u32 {
 }
 
 fn eqlAs(comptime T: type, a: T, b: T) bool {
-    if (comptime ownsApi(T, "__rig_own_eq")) return T.__rig_own_eq(&a, &b);
+    if (comptime ownsApi(T, .own_eq)) return T.__rig_own_eq(&a, &b);
     if (comptime isOptStruct(T)) {
         const x = some(a) orelse return some(b) == null;
         const y = some(b) orelse return false;
@@ -2348,7 +2356,7 @@ pub fn hash(x: anytype) u64 {
 
 /// `hash` of a value of type `T`.
 pub fn hashAs(comptime T: type, x: T) u64 {
-    if (comptime ownsApi(T, "__rig_own_hash")) return T.__rig_own_hash(&x);
+    if (comptime ownsApi(T, .own_hash)) return T.__rig_own_hash(&x);
     if (comptime isString(T)) return hashBytes(stringBytes(x));
     if (comptime isOptStruct(T)) return if (some(x)) |v| hashAs(Payload(T), v) else hash_none;
     switch (@typeInfo(T)) {
@@ -2401,7 +2409,7 @@ pub fn wordCount(comptime T: type) ?usize {
 }
 
 fn leafWords(comptime T: type) ?usize {
-    if (ownsApi(T, "__rig_own_hash") or ownsApi(T, "__rig_own_eq")) return null;
+    if (ownsApi(T, .own_hash) or ownsApi(T, .own_eq)) return null;
     return switch (@typeInfo(T)) {
         .int => |i| if (i.bits <= 64) 1 else null,
         .bool, .@"enum" => 1,
@@ -2583,7 +2591,7 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
 /// Whether `T` is an object `order` orders by its fields: no order of
 /// its own, and none of the runtime's types that `order` reads apart.
 fn derivedFields(comptime T: type) bool {
-    return @typeInfo(T) == .@"struct" and !ownsApi(T, "__rig_own_order") and @hasDecl(T, "__rig_name") and
+    return @typeInfo(T) == .@"struct" and !ownsApi(T, .own_order) and @hasDecl(T, decl(.name)) and
         !isString(T) and !isOptStruct(T) and !@hasDecl(T, "__rig_box");
 }
 
@@ -2598,7 +2606,7 @@ fn fieldsLess(comptime T: type, a: T, b: T) bool {
         const F = @TypeOf(x);
         const scalar = switch (@typeInfo(F)) {
             .int, .bool => true,
-            .@"enum" => !ownsApi(F, "__rig_own_order"),
+            .@"enum" => !ownsApi(F, .own_order),
             else => false,
         };
         if (scalar) {
@@ -2634,7 +2642,7 @@ inline fn scalarRank(x: anytype) switch (@typeInfo(@TypeOf(x))) {
 /// then its payload's fields.
 pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
     const T = @TypeOf(a);
-    if (comptime ownsApi(T, "__rig_own_order")) return switch (T.__rig_own_order(&a, &b)) {
+    if (comptime ownsApi(T, .own_order)) return switch (T.__rig_own_order(&a, &b)) {
         .less => .lt,
         .equal => .eq,
         .greater => .gt,
@@ -2691,7 +2699,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
 /// holds (a List, a Map) are not. It follows `order` case by case, so a
 /// sort may reorder equal elements of such a `T` unseen (`std.sort`).
 pub fn orderIsIdentity(comptime T: type) bool {
-    if (ownsApi(T, "__rig_own_order")) return false;
+    if (ownsApi(T, .own_order)) return false;
     if (isStringView(T)) return true;
     if (isOptStruct(T)) return orderIsIdentity(Payload(T));
     return switch (@typeInfo(T)) {
@@ -2703,12 +2711,12 @@ pub fn orderIsIdentity(comptime T: type) bool {
             if (@hasDecl(T, "__rig_string")) break :blk true;
             if (@hasDecl(T, "__rig_box")) break :blk orderIsIdentity(@typeInfo(@FieldType(T, "value")).pointer.child);
             // A Rig object or tuple; the runtime's own types are none.
-            if (!@hasDecl(T, "__rig_name")) break :blk false;
+            if (!@hasDecl(T, decl(.name))) break :blk false;
             inline for (st.field_types) |F| if (!orderIsIdentity(F)) break :blk false;
             break :blk true;
         },
         .@"union" => |u| blk: {
-            if (u.tag_type == null or !@hasDecl(T, "__rig_name")) break :blk false;
+            if (u.tag_type == null or !@hasDecl(T, decl(.name))) break :blk false;
             inline for (u.field_types) |F| if (!payloadIsIdentity(F)) break :blk false;
             break :blk true;
         },
@@ -2755,7 +2763,7 @@ inline fn intOrder(a: anytype, b: anytype) std.math.Order {
 /// they cross cores.
 fn synchronized(comptime T: type) bool {
     if (@typeInfo(T) != .@"struct") return false;
-    if (@hasDecl(T, "__rig_synced")) return true;
+    if (@hasDecl(T, decl(.synced))) return true;
     // An actor's handles go to other tasks (`tasks.Actor`).
     if (@hasDecl(T, "__rig_actor")) return true;
     // So do a channel's (`tasks.Chan`).
@@ -2786,7 +2794,7 @@ pub fn Frozen(comptime T: type) type {
 /// no two such Cells share a line and cores changing each its own do not
 /// take the line from one another. Every other `*T` keeps a word's.
 fn countedAlign(comptime T: type, comptime is_frozen: bool) usize {
-    if (!is_frozen and @typeInfo(T) == .@"struct" and ((@hasDecl(T, "__rig_word") and T.__rig_word) or @hasDecl(T, "__rig_synced"))) return std.atomic.cache_line;
+    if (!is_frozen and @typeInfo(T) == .@"struct" and ((@hasDecl(T, "__rig_word") and T.__rig_word) or @hasDecl(T, decl(.synced)))) return std.atomic.cache_line;
     return @alignOf(usize);
 }
 
@@ -4502,9 +4510,9 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
             @compileError("rig.typeName: no Rig name for " ++ @typeName(T)),
         .@"struct", .@"union", .@"enum" => if (comptime isWideMask(T))
             "Simd[" ++ nameOf(bool, names) ++ std.fmt.comptimePrint(", {d}]", .{T.__rig_mask})
-        else if (@hasDecl(T, "__rig_symbol"))
+        else if (@hasDecl(T, decl(.symbol)))
             "Symbol"
-        else if (@hasDecl(T, "__rig_name"))
+        else if (@hasDecl(T, decl(.name)))
             qualifier(T.__rig_name.module, names) ++ spell(T.__rig_name.name, .{}, names)
         else if (@hasDecl(T, "__rig_weak"))
             handleName("~", T.__rig_weak, names)
@@ -4814,73 +4822,24 @@ pub inline fn namedTag(e: anytype) @TypeOf(e) {
 // `clamped`, a wait's, the `Clamp` twins, which wait as long as they
 // can. None panics on a value the checker let through.
 
-/// The least and greatest whole seconds of a `Duration`: the range is
-/// symmetric (docs/design/datetime.md §5.1).
-const duration_max_s: i128 = std.math.maxInt(i64);
-const ns_per_s: i128 = 1_000_000_000;
-
 /// `ns` nanoseconds as `T`, or null beyond its range; an `i64` is
 /// clamped.
 inline fn durationOf(comptime T: type, ns: i128) ?T {
     if (comptime T == i128) return ns;
     if (comptime T == i64) return @intCast(std.math.clamp(ns, std.math.minInt(i64), std.math.maxInt(i64)));
-    const s = @divTrunc(ns, ns_per_s);
-    if (s > duration_max_s or s < -duration_max_s) return null;
-    return .{ .s = @intCast(s), .nano = @intCast(@rem(ns, ns_per_s)) };
+    if (!arith.durationHolds(ns)) return null;
+    return .{ .s = @intCast(@divTrunc(ns, arith.ns_per_s)), .nano = @intCast(@rem(ns, arith.ns_per_s)) };
 }
 
 /// `ns` nanoseconds as `T`, the longest or shortest beyond its range.
 inline fn durationClamped(comptime T: type, ns: i128) T {
-    const limit = duration_max_s * ns_per_s + (ns_per_s - 1);
-    return durationOf(T, std.math.clamp(ns, -limit, limit)).?;
+    return durationOf(T, std.math.clamp(ns, -arith.duration_max_ns, arith.duration_max_ns)).?;
 }
 
 /// A form the checker found cannot fail did: a bug in Rig.
 fn durationBug() noreturn {
     @branchHint(.cold);
     @panic("rig: a duration the compiler checked is beyond a Duration's range (compiler bug)");
-}
-
-/// The nanoseconds of `x` units of `unit`, from `x`'s exact value,
-/// rounded to the nearest, a half away from zero; null when `x` is not
-/// finite. A value past 2^100 nanoseconds, beyond any `Duration`, is
-/// 2^100 with its sign (`floatToNs`).
-inline fn floatNs(x: f64, comptime unit: i64) ?i128 {
-    return floatToNs(x, unit);
-}
-
-/// `x * unit`, `x` a finite double and `unit` a positive integer, rounded
-/// from its exact value to the nearest integer, a half away from zero,
-/// and held within ±2^100; null when `x` is not finite. A double is an
-/// integer times a power of two, so the product is exact before the one
-/// rounding. The compiler converts a constant with this one, as the
-/// program would (`sema.floatToNs`).
-pub fn floatToNs(x: f64, unit: i64) ?i128 {
-    if (!std.math.isFinite(x)) return null;
-    const cap: i128 = 1 << 100;
-    const bits: u64 = @bitCast(x);
-    const exp_bits: i32 = @intCast((bits >> 52) & 0x7ff);
-    const frac: u64 = bits & ((@as(u64, 1) << 52) - 1);
-    const m: u64 = if (exp_bits == 0) frac else frac | (@as(u64, 1) << 52);
-    const e: i32 = (if (exp_bits == 0) @as(i32, 1) else exp_bits) - 1075;
-    const neg = bits >> 63 == 1;
-    // |x * unit| = m * unit * 2^e, m below 2^53 and unit below 2^42.
-    const num: u128 = @as(u128, m) * @as(u128, @intCast(unit));
-    var q: u128 = 0;
-    if (e >= 0) {
-        if (num != 0 and (e >= 100 or (@as(u128, cap) >> @intCast(e)) < num)) {
-            q = cap;
-        } else q = num << @intCast(e);
-    } else {
-        const shift: u32 = @intCast(-e);
-        if (shift < 128) {
-            q = num >> @intCast(shift);
-            const rest = num - (q << @intCast(shift));
-            if (rest >= (@as(u128, 1) << @intCast(shift - 1))) q += 1;
-        }
-    }
-    const n: i128 = @intCast(@min(q, cap));
-    return if (neg) -n else n;
 }
 
 /// What a duration form does beyond its type's range
@@ -4915,9 +4874,9 @@ pub inline fn durationInt(comptime T: type, n: i64, comptime unit: i64, comptime
 /// whole nanosecond, a half away from zero: a constant the checker
 /// checked (`.total`), or a number that fails with the callee's errors.
 pub fn durationFloat(comptime T: type, x: f64, comptime unit: i64, comptime how: anytype) DurationAs(T, how) {
-    if (comptime @typeInfo(@TypeOf(how)) == .@"struct") return durationOf(T, floatNs(x, unit) orelse return how[1]) orelse how[0];
+    if (comptime @typeInfo(@TypeOf(how)) == .@"struct") return durationOf(T, arith.floatToNs(x, unit) orelse return how[1]) orelse how[0];
     comptime std.debug.assert(how == .total);
-    return durationOf(T, floatNs(x, unit) orelse durationBug()) orelse durationBug();
+    return durationOf(T, arith.floatToNs(x, unit) orelse durationBug()) orelse durationBug();
 }
 
 /// The sum of `parts`, each an `i128` of nanoseconds, as `T`: a duration
@@ -4938,7 +4897,7 @@ inline fn partsNs(parts: anytype) i128 {
 /// The nanoseconds of `d`, std.time's `Duration`, for a wait that takes
 /// an `i64` of them (`time.after`, `per:`): clamped, as a wait is.
 pub inline fn durationNs(d: anytype) i64 {
-    return durationOf(i64, @as(i128, d.s) * ns_per_s + d.nano).?;
+    return durationOf(i64, @as(i128, d.s) * arith.ns_per_s + d.nano).?;
 }
 
 /// A float about to be converted to an integer type, panicking if it is
@@ -5016,7 +4975,7 @@ pub fn enumText(e: anytype) []const u8 {
         .pointer => e.*,
         else => e,
     };
-    if (comptime @hasDecl(@TypeOf(v), "__rig_symbol")) return @TypeOf(v).text(v);
+    if (comptime @hasDecl(@TypeOf(v), decl(.symbol))) return @TypeOf(v).text(v);
     return rigName(@tagName(v));
 }
 
@@ -5925,14 +5884,14 @@ inline fn laneAmount(comptime V: type, amount: anytype) @Vector(@typeInfo(V).vec
 /// shift of a function, which Zig's branch quota would count.
 pub fn shiftAmount(comptime T: type, n: anytype) std.math.Log2Int(T) {
     if (@TypeOf(n) == comptime_int) return n;
-    if (std.debug.runtime_safety and (n < 0 or n >= @bitSizeOf(T))) shiftPanic(T, n);
+    if (std.debug.runtime_safety and !arith.shiftInRange(n, @bitSizeOf(T))) shiftPanic(T, n);
     return @intCast(unsigned(n));
 }
 
 noinline fn shiftPanic(comptime T: type, n: anytype) noreturn {
     @branchHint(.cold);
     const name = comptime if (T == i64) "Int" else std.fmt.comptimePrint("{c}{d}", .{ @as(u8, if (@typeInfo(T).int.signedness == .signed) 'I' else 'U'), @bitSizeOf(T) });
-    std.debug.panic("shift amount `{d}` is out of range for `" ++ name ++ "` (0..{d})", .{ n, @bitSizeOf(T) - 1 });
+    std.debug.panic(arith.shift_range_text, .{ n, name, @bitSizeOf(T) - 1 });
 }
 
 /// `x`, an integer, as the unsigned type of its width, for a cast to a
@@ -6523,22 +6482,14 @@ pub fn div(a: anytype, b: anytype) linksection(program_section) @TypeOf(a, b) {
     return if (@typeInfo(T) == .float) @as(T, a) / @as(T, b) else @divTrunc(@as(T, a), @as(T, b));
 }
 
-/// `a % b`: the remainder with the dividend's sign, for integers and
-/// floats. A signed integer's remainder by -1 is 0, `Int.min % -1`
-/// included, where the machine's division would trap.
+/// `a % b`, for integers and floats (`arith.rem`).
 pub fn rem(a: anytype, b: anytype) linksection(program_section) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
-    switch (@typeInfo(T)) {
-        .int => |int| if (int.signedness == .signed and b == -1) return 0,
-        else => {},
-    }
-    return @rem(@as(T, a), @as(T, b));
+    return arith.rem(@as(T, a), @as(T, b));
 }
 
-/// The longest length a Rig `Int` holds: no target holds more, and the
-/// margin above it lets the compiler prove `i + c` fits where `i` is
-/// below a length (docs/internals/INTERNALS.md, "Proven checks").
-pub const max_len: u64 = (1 << 62) - 1;
+/// The longest length a Rig `Int` holds (`arith.max_len`).
+pub const max_len = arith.max_len;
 
 /// A length or count as a Rig `Int`; panics above `max_len`, which a
 /// 64-bit target tests with one compare and a 32-bit one never needs to.
@@ -7447,7 +7398,7 @@ fn traceName(comptime T: type) []const u8 {
     if (comptime isOptStruct(T)) return traceName(Payload(T)) ++ "?";
     switch (@typeInfo(T)) {
         .optional => |o| return traceName(o.child) ++ "?",
-        .@"struct", .@"union", .@"enum" => if (@hasDecl(T, "__rig_name")) {
+        .@"struct", .@"union", .@"enum" => if (@hasDecl(T, decl(.name))) {
             const name = T.__rig_name;
             var text: []const u8 = if (name.module.len == 0) "" else name.module ++ ".";
             if (@TypeOf(name.name) == []const u8 or @typeInfo(@TypeOf(name.name)) == .pointer) return text ++ name.name;
@@ -9017,12 +8968,12 @@ fn fileAt(info: anytype, debug_io: std.Io, a: std.mem.Allocator, addr: usize) ?[
 /// those of the modules it names (`__rig_sites_of`).
 fn siteTables() []const SiteTable {
     @setEvalBranchQuota(eval_quota);
-    const programs = if (@hasDecl(root, "__rig_site_programs")) root.__rig_site_programs else if (@hasDecl(root, "__rig_program")) .{root.__rig_program} else .{root};
+    const programs = if (@hasDecl(root, decl(.site_programs))) root.__rig_site_programs else if (@hasDecl(root, decl(.program))) .{root.__rig_program} else .{root};
     var tables: []const SiteTable = &.{};
     inline for (programs) |p| {
-        if (@hasDecl(p, "__rig_sites")) tables = tables ++ &[_]SiteTable{p.__rig_sites};
-        if (@hasDecl(p, "__rig_sites_of")) inline for (p.__rig_sites_of) |m| {
-            if (@hasDecl(m, "__rig_sites")) tables = tables ++ &[_]SiteTable{m.__rig_sites};
+        if (@hasDecl(p, decl(.sites))) tables = tables ++ &[_]SiteTable{p.__rig_sites};
+        if (@hasDecl(p, decl(.sites_of))) inline for (p.__rig_sites_of) |m| {
+            if (@hasDecl(m, decl(.sites))) tables = tables ++ &[_]SiteTable{m.__rig_sites};
         };
     }
     const out = tables;
@@ -9622,10 +9573,10 @@ const print_code_depth = 12;
 fn printRunsCode(comptime T: type, comptime depth: u8) bool {
     if (depth == 0) return true;
     return switch (@typeInfo(T)) {
-        .@"struct" => |s| ownsApi(T, "__rig_own_print") or @hasDecl(T, "__rig_api_object") or
+        .@"struct" => |s| ownsApi(T, .own_print) or @hasDecl(T, "__rig_api_object") or
             (T == ErrorValue and error_glue != null) or typesRunCode(s.field_types, depth - 1),
-        .@"union" => |u| ownsApi(T, "__rig_own_print") or typesRunCode(u.field_types, depth - 1),
-        .@"enum" => ownsApi(T, "__rig_own_print"),
+        .@"union" => |u| ownsApi(T, .own_print) or typesRunCode(u.field_types, depth - 1),
+        .@"enum" => ownsApi(T, .own_print),
         .pointer => |p| switch (@typeInfo(p.child)) {
             .@"opaque", .@"fn" => true,
             else => printRunsCode(p.child, depth - 1),
@@ -10360,12 +10311,8 @@ fn rigTypeName(comptime T: type) []const u8 {
     return rigName(full[begin..end]);
 }
 
-/// The Rig name of a Zig name the emitter wrote: a Rig name the emitted
-/// Zig cannot keep (`std`, `rig`, `debug`) is spelled with a `'` suffix
-/// (`rig.writeZigIdent` in the compiler), which no Rig name contains.
-pub fn rigName(zig: []const u8) []const u8 {
-    return if (zig.len > 1 and zig[zig.len - 1] == '\'') zig[0 .. zig.len - 1] else zig;
-}
+/// The Rig name of a Zig name the emitter wrote (`names.rigName`).
+pub const rigName = @import("names.zig").rigName;
 
 /// Values nested deeper than this print as `...`: a structure that
 /// reaches itself through handles would otherwise print forever.
@@ -10385,7 +10332,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
     const T = @TypeOf(value);
     // A template's show slot, `{=e}`: the value as a part of another.
     if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_shown")) return writeValue(w, value.value, false);
-    if (comptime ownsApi(T, "__rig_own_print")) {
+    if (comptime ownsApi(T, .own_print)) {
         var out: Printer = .{ .w = w };
         T.__rig_own_print(&value, &out);
         if (out.failed) return error.WriteFailed;
@@ -10421,7 +10368,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
                     if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_chan")) return w.writeAll("<chan>");
                     if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_actor")) return w.writeAll("<actor>");
                     // An object of word Cells prints as any object does.
-                    if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_synced")) return writeValue(w, value.value, top);
+                    if (comptime @hasDecl(@FieldType(p.child, "value"), decl(.synced))) return writeValue(w, value.value, top);
                     try w.writeAll("Cell(value: ");
                     try writeValue(w, value.value.get(), false);
                     return w.writeAll(")");
@@ -10431,7 +10378,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
             if (@typeInfo(p.child) == .@"fn") return w.writeAll("<fun>");
             if (p.size != .slice) return writeValue(w, value.*, top);
         },
-        .@"enum" => return if (comptime @hasDecl(T, "__rig_symbol"))
+        .@"enum" => return if (comptime @hasDecl(T, decl(.symbol)))
             w.print(":{s}", .{T.text(value)})
         else
             w.print(".{s}", .{rigName(@tagName(value))}),
@@ -10594,7 +10541,7 @@ fn writeFields(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
 /// Whether `T` is the built-in type of std/prelude.rig whose
 /// recorded spelling (`__rig_name`) starts `head`, `"Map["` or `"Set["`.
 fn isBuiltin(comptime T: type, comptime head: []const u8) bool {
-    if (!@hasDecl(T, "__rig_name")) return false;
+    if (!@hasDecl(T, decl(.name))) return false;
     const name = T.__rig_name;
     return std.mem.eql(u8, name.module, "std.prelude") and std.mem.eql(u8, name.name[0], head);
 }

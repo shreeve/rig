@@ -5,7 +5,7 @@
 const std = @import("std");
 const parser = @import("../parser.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const Sexp = parser.Sexp;
 const ir = parser.ir;
 const TypeId = sema.TypeId;
@@ -479,11 +479,6 @@ pub fn noteItems(self: *Checker, ty: ?TypeId) Error!void {
     }
 }
 
-/// Whether a value of `ty` may hold a view, here or in an instance.
-pub fn mayHoldInInstance(self: *const Checker, ty: ?TypeId) bool {
-    return types.mayCarryLoan(self, ty) or genericType(self, ty);
-}
-
 /// A store of `stored` in what var `id` leads to, a type that holds a
 /// type parameter (`genericType`), whose loans a generic body does not
 /// track: a parameter the caller viewed is noted as holding them
@@ -619,13 +614,6 @@ pub fn noteGenericStore(self: *Checker, into: VarId, pos: u32) void {
     self.func.generic_store_count += 1;
 }
 
-/// A bracket list of compile-time arguments (`List[Int]`, `max[Int]`),
-/// which names a type or a function and holds no value.
-pub fn isInstance(self: *const Checker, e: Sexp) bool {
-    const s = self.sema;
-    return s.instanceOf(e) != null;
-}
-
 /// The type of the function call `node` calls, when it names a type
 /// parameter of the body: a function value's (a parameter, local,
 /// capture, or field holding one, or a closure called where it is
@@ -651,11 +639,11 @@ pub fn calledValueType(self: *Checker, node: Sexp, callee: Sexp, field_call: boo
 
 /// `p.f(...)` where `f` is a data field holding a plain function or
 /// an owned closure (not a method): the call has no self
-/// (`storage.hasSelf`), and neither can keep a view of an
+/// (`lower.hasSelf`), and neither can keep a view of an
 /// argument in `p`.
 pub fn callsFunctionField(self: *const Checker, call: Sexp, callee: Sexp) bool {
     const ctx = self.sema;
-    return !storage.isTypeCallee(ctx, ir.Member.object(callee)) and !storage.hasSelf(ctx, call);
+    return !lowering.isTypeCallee(ctx, ir.Member.object(callee)) and !lowering.hasSelf(ctx, call);
 }
 
 /// Whether method call `callee` reaches a built-in table's method
