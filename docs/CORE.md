@@ -788,8 +788,8 @@ until then only when its drop runs a `drop` body (sentence 6). Each
 result counts as the views its own type could hold, so a `Bool` beside
 a view counts as none, and a result may be a write view, as `-> !T` is,
 beside results whose types could view nothing it views (sentence 5).
-When no result holds a write view, every write view passed to the call
-ends as it returns, as for one result. *(built; two write-view results are
+A write view passed to the call that no result carries ends as it
+returns, as for one result. *(built; two write-view results are
 planned)*
 
 ```rig

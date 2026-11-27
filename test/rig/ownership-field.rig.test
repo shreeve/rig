@@ -268,11 +268,14 @@ fail "field handle field reassigned", "17:1: cannot assign to `p.h` while a read
   p.h = *Sym(name: String("b"))
   print(r)
 
-fail "field loop carried", "17:3: cannot change `p.items` while a read view of it is still in use", errors: 1
-  # `prev`, declared before the loop and read in it, counts as live
-  # anywhere in the loop (docs/internals/INTERNALS.md, "Liveness"), so its view of
-  # `p.items` conflicts with the push, though `prev` is re-pointed before
-  # its next use. The paths are equal: a field loan changes nothing here.
+test "field loop carried", '''
+1
+2
+3
+'''
+  # `prev`, declared before the loop and read in it, is re-pointed before
+  # its next use, so its view of `p.items` has ended at the push
+  # (docs/internals/INTERNALS.md, "Liveness").
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/reject/field_loop_carried.rig).
 

@@ -125,6 +125,14 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Loans end at their last use** (family P of the ownership rebuild;
+  branch `last-use`, draft PR): liveness on each body's LIR flow
+  (`live.Flow`) in place of source positions. The owner reviews the
+  list of programs whose verdict changes before it merges
+  (`~/Data/Code/Claude/rig/rig/rebuild/last-use-verdicts.md`); nothing
+  is newly rejected. Two cases of `ownership-last-use.rig.test` stay
+  `known`: a capture of a write-view binding, and a view whose branch
+  differs in each pass.
 - **Datetime** (owner's design v3, 2026-11-17, amended 2026-11-20 and 2026-11-22;
   [design/datetime.md](docs/design/datetime.md)): phase 0 measured the
   `Duration` layout, generated and checked the zone tables, and built the

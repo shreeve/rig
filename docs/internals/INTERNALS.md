@@ -3410,10 +3410,9 @@ expression its region evaluates or yields (`lowered.stmtExpr`); an
 step's operand, and each of whose branches, arms, and bodies is the
 region made for it (`lowered.partExpr`). The place walker (views,
 moves, slices, takes) and the path of an assignment's target take each
-part as an operand of the part that holds it. The uses liveness reads
-are the LIR's (`lowered.indexUses`): each name a var is read or dropped
-at, each binding's declaring name, and a pattern's names, which LIR
-does not lower. A node no LIR operation reaches is walked from the
+part as an operand of the part that holds it. Liveness reads the LIR's
+flow (`live.Flow`, "Liveness" below): each name a var is read or
+dropped at, and a pattern's names, which LIR does not lower. A node no LIR operation reaches is walked from the
 tree (`lowered.exprAt`), as is a body the LIR does not cover.
 
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
@@ -3594,23 +3593,30 @@ place's var holds, and no loan on the var (`walkThroughView`). The var
 is still held while the place's indexes run.
 
 **Liveness.** A loan held by a var is in force only while the var is
-live: while it may still be used. Before checking a function, one walk
-records the last source position each symbol is used at (a capture's
-leaf counts as a use of what it captures; a use in a `while` loop's
-step counts where the step runs, just past the body, `stepAt`, which
-also stands for the step's statements while it is walked) and the
-symbols deferred code uses, with every position each symbol is used at
-(`uses`). A var is live after the current point when it is used after
-the current statement, or at a use in it not walked yet (`useAhead`:
-`walkName` marks each use it walks in `walked`, which each statement
-drops as it ends, and a use its consumer reads where it runs, after
-later operands, is marked only when that consumer is done: a pure part
-of a call that evaluates the rest first or passes keyword arguments in
-its parameters' order, and an assigned value read after its target's
-indexes, `late`), or anywhere in an enclosing loop it was
-declared outside of (the next iteration), or in deferred code, or in
-the target of an assignment whose value is being walked
-([Assignments](#assignments)), or when
+live: while it may still be used. Liveness is found on the body's LIR,
+in the order it runs (`live.Flow`, built as the body is entered):
+every expression, step, and region end is a point, numbered after its
+operands, and the points are joined as control goes between them, a
+branch to each of its parts and to the join after them, a loop's body
+and step back to its head, a `match` arm whose guard fails on to the
+later arms, `and`, `or`, `??` and a `catch` handler on a path that
+skips them, and a jump, a `return`, and a failure (`e!`, `e?`) to
+where they go, through the defers of the scopes they leave, which run
+there and not where they are written. A pure part of a call that passes
+keyword arguments in its parameters' order, or of an element operation
+that evaluates the rest first, is read after the other parts, and a
+pure value stored after the target's base and indexes
+(`lower.isPureArg`), as emit reads them. A binding is used at each
+read, at a capture that names it, and at a store that combines with it
+or writes through it; a store that points it elsewhere, entering the
+region that declares it, and `v as name` give it a new value. A var is
+live after a point when a path from it reaches a use before a new
+value (`holderLive`); the walk keeps the point it is at
+(`Checker.point`): an expression's while its checks run, a statement's
+end once it is walked, a scope's end once its defers have run, and,
+at a jump or a failure, where the path goes on past its defers, so a
+check asks about the code that runs after it and nothing else. It is
+also live when
 it owns a value whose drop at scope exit may run a `drop` body
 (`sema.dropRunsBody`: one of its own, or of a value it holds and drops,
 or `depends` for a value holding a type parameter), which could read
@@ -3630,9 +3636,11 @@ parameter, and the hidden var that keeps a `for` source viewed are always
 live. Desugared, a drop that runs no `drop` body is a release of memory
 the value owns, which reads none of the views it holds. The
 conflict checks and the checks that a view does not outlive its root at
-scope ends and jumps skip loans whose holder is not live. This is
-textual, so it is the same on every path, and conservative where paths
-differ.
+scope ends and jumps skip loans whose holder is not live. A value that
+fails or is `none` views nothing, so the views it carried end on the
+path that handles it (a `catch` handler, the right of `??`), and an
+exit that leaves a statement unfinished ends the statement's temporary
+views before its defers run (`dropPendingHolds`).
 
 **Both ends of a view.** A conflict points at the view that blocks it
 twice: where it is made (`noteLoan`) and the use that keeps it in use
@@ -4355,9 +4363,8 @@ position, typed `part_ty` and walked as `part_value`.
 **Loans.** Sentence 7 applies per result: the call's loans are
 narrowed by each result's own type (`carryResult` of each,
 `callResults`), so a `Bool` beside a view carries none. An argument's
-write view ends at the return only when no result keeps it to write;
-while one may, every view of the call lasts to the statement's end, as
-for a `!T` result. The checker holds the results in a hidden var of the
+write view ends at the return when no result carries it; one a result
+carries lasts to the statement's end, as for a `!T` result. The checker holds the results in a hidden var of the
 statement (`walkDestructure`), which keeps the loans of the results no
 target has taken yet: a target bound while a pending result views it is
 reported (`pendingView`). A `_`'s loans last to the statement's end
@@ -4921,23 +4928,19 @@ assignments are recorded, after the check. `@head = ^Node(elem: <e,
 next: <@head)`, and `@head = <node.next` after `node = (<@head)?.unbox()`,
 store with no drop.
 
-- **The checker** walks the value, then the target. While the value is
-  walked, the target's uses lie ahead, in the statement after `__v`:
-  the symbols the target reads are live (`Checker.after_value`,
-  `useAfterValue`), so a scope that ends inside the value, the last one
-  included, reports a loan of its locals that the target's view still
-  holds, and a view in the value conflicts with what the target views.
-  A name target reads its binding when the store combines with it
-  (`x op= v`) or writes through it (a `!T` local given a value); one
-  that is pointed elsewhere (`repoints`) or given a new value reads
-  nothing. A jump out of the value never reaches the target, so the
-  symbols pinned inside the loop or block it leaves are not live on its
-  path (`walkJump`). Liveness positions are not patched: the target's
-  uses are recorded where they stand, and a scope that ends after the
-  assignment (one whose last line it is) sees them as behind it. A
-  base's loans stay live while the indexes after it run, as the view
-  it gives is used by the store, so an index cannot change what the
-  base views.
+- **The checker** walks the value, then the target, and the flow
+  places the target's uses after the value (a pure value after the
+  target's base and indexes), so while the value is walked what the
+  target reads is live: a scope that ends inside the value reports a
+  loan of its locals that the target's view still holds, and a view in
+  the value conflicts with what the target views. A name target reads
+  its binding when the store combines with it (`x op= v`) or writes
+  through it (a `!T` local given a value); one that is pointed
+  elsewhere (`repoints`) or given a new value reads nothing, so its old
+  view ends at its last use before the store. A jump out of the value
+  never reaches the target. A base's loans stay live while the indexes
+  after it run, as the view it gives is used by the store, so an index
+  cannot change what the base views.
 - **Emit** makes `__v` whenever the value can act or the fact holds it,
   as the `new_value` storage fact `__rig_new_N`, then stores through
   the place: a field or element through `openAssign` or

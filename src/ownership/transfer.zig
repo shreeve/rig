@@ -183,12 +183,7 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
     const saved_lir = self.lir_body;
     defer self.lir_body = saved_lir;
     self.lir_body = try lowered.enter(self, root);
-    if (top) {
-        self.defer_used.clearRetainingCapacity();
-        self.uses.clear();
-        if (self.lir_body) |b| try lowered.indexUses(self, b.f);
-        self.nll = true;
-    }
+    if (top) self.nll = true;
     defer if (top) {
         self.nll = false;
     };
@@ -225,6 +220,7 @@ pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
             self.cur_stmt = e.node;
             defer self.cur_stmt = saved_stmt;
             result = try walkReturnValueE(self, .{ .node = e.node, .id = e.id }, null);
+            if (live.outOf(self, st.at(i))) |p| self.point = p;
         } else _ = try walkStmtValueE(self, e, null);
     }
     return result;
@@ -307,10 +303,17 @@ pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value 
     const saved_stmt = self.cur_stmt;
     self.cur_stmt = stmt;
     defer self.cur_stmt = saved_stmt;
-    const walked = self.walked.items.len;
-    defer self.walked.shrinkRetainingCapacity(@min(walked, self.walked.items.len));
+    const out = live.stmtOut(self, e);
+    const saved_out = self.stmt_out;
+    if (out) |o| self.stmt_out = o;
+    defer self.stmt_out = saved_out;
+    if (e.r) |r| if (live.inOf(self, r)) |in| {
+        self.point = in;
+    };
     const vars_mark: VarId = @intCast(self.vars.items.len);
     const v = if (sink) |k| try walkConsumedE(self, e, k) else try walkE(self, e);
+    // Its temporaries end where it does.
+    if (out) |o| self.point = o;
     self.temps.shrinkRetainingCapacity(@min(temps_len, self.temps.items.len));
     try endTemps(self, try lowered.stmtEnds(self, e, vars_mark));
     return v;
@@ -359,6 +362,13 @@ pub fn walkTailStmt(self: *Checker, e: lowered.Expr, t: ?Tail) Error!Value {
 /// LIR operation's.
 pub fn walkE(self: *Checker, ex: lowered.Expr) Error!Value {
     const sexp = ex.node;
+    // The checks of an expression are where it runs, after its
+    // operands; the walk goes on from there, or from the point of the
+    // operation it is an operand of.
+    const saved_point = self.point;
+    if (ex.id) |id| live.atExpr(self, id);
+    const own = self.point;
+    defer self.point = @max(saved_point, own);
     // An API object of a read view of plain data, or of a type
     // parameter's value, views a copy, a local of the erasing block
     // (`sema.Erasure.copy`): its loan is on that copy, which keeps
@@ -526,14 +536,11 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
                 break :blk walkConsumedE(self, lowered.operand(self, ex, 1), .argument);
             },
             .array => blk: {
-                const late = self.late.items.len;
-                try holdLateOperands(self, ex, ir.Array.elems(sexp), 0);
                 var v: Value = .{};
                 for (0..ir.Array.elems(sexp).len) |i| {
                     if (self_check) expectRole(self, lowered.operand(self, ex, i), .{ .sink = .element });
                     v = try self.valueUnion(v, try walkConsumedE(self, lowered.operand(self, ex, i), .element));
                 }
-                try live.endLate(self, late);
                 break :blk v;
             },
             .array_fill => blk: {
@@ -560,7 +567,7 @@ pub fn walkList(self: *Checker, ex: lowered.Expr, kind: Tag) Error!Value {
             // nothing while it runs.
             .@"and", .@"or" => blk: {
                 _ = try walkE(self, lowered.operand(self, ex, 0));
-                _ = try walkMayRun(self, lowered.operand(self, ex, 1), null, sexp);
+                _ = try walkMayRun(self, lowered.operand(self, ex, 1), null, ex, &.{});
                 break :blk .{};
             },
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@".." => blk: {
@@ -717,7 +724,6 @@ pub fn walkName(self: *Checker, node: Sexp, as_callee: bool) Error!Value {
     }
     const place = takePlaceRead(self, node);
     try rules.checkReadable(self, id, place, pos);
-    try live.markWalked(self, pos);
     var value = live.varValue(self, id);
     if (origins.isSelfVar(self, id)) if (place) |e| if (resolvePlace(self, e)) |p| if (p.root == id) {
         value = try origins.tagSelf(self, value, id, p.path);
@@ -1874,8 +1880,6 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
             pub fn step(st: *@This(), s: Step) Error!void {
                 switch (s.role) {
                     .value => {
-                        const mark = try useAfterValue(st.c, st.set);
-                        defer st.c.after_value.shrinkRetainingCapacity(mark);
                         if (self_check) expectRole(st.c, st.value_e, .{ .sink = .field });
                         st.value = try walkConsumedE(st.c, st.value_e, .field);
                     },
@@ -1907,14 +1911,10 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
             }
         };
         var steps: Steps = .{ .c = self, .set = node, .placed = resolvePlace(self, target) != null, .value_e = value_e };
-        // A value read where it runs (`lower.isPureArg`) is read at
-        // the store, after the target's base and indexes.
-        const late = self.late.items.len;
-        if (self.nll and lowering.isPureArg(self.sema, expr)) try live.holdLate(self, expr);
         try steps.step(.{ .role = .value });
         try steps.path(if (target_id) |id| lowered.stepOperand(self, target, id) else lowered.uncovered(self, target));
-        try walkFieldAssign(self, node, target, steps.value, steps.base, steps.base_node);
-        return live.endLate(self, late);
+        if (set_steps.len > 0) live.atStep(self, &set_steps[set_steps.len - 1]);
+        return walkFieldAssign(self, node, target, steps.value, steps.base, steps.base_node);
     }
 
     const pos = target.src.pos;
@@ -1927,7 +1927,6 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
     if (kind == .default and self.sema.repoints(node)) if (self.find(target)) |id| {
         if (!readsName(self, expr, name) and !leavesEarly(expr)) try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
     };
-    const mark = try useAfterValue(self, node);
     const value: Value = switch (kind) {
         .default, .fixed, .shadow => if (is_lambda) blk: {
             // A closure literal makes a new binding, or is reported
@@ -1947,10 +1946,8 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
         },
         else => try walkE(self, value_e),
     };
-    self.after_value.shrinkRetainingCapacity(mark);
-    // The target takes the value: its old value is used no more, and
-    // the new one from the next use on.
-    try live.markWalked(self, pos);
+    // The target takes the value where the store runs.
+    if (set_steps.len > 0) live.atStep(self, &set_steps[set_steps.len - 1]);
 
     if (std.mem.eql(u8, name, "_")) return;
 
@@ -1976,38 +1973,6 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
         },
     }
     if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drop_reads = envDropReads(self, expr);
-}
-
-/// An assignment is `{ __v = value; place op= __v }`: what its target
-/// reads is used after its value, so it is live while the value is
-/// walked (`after_value`). A name target reads its binding when the
-/// store combines with it (`x op= v`) or writes through it (a `!T`
-/// local given a value); a field or element target reads every name
-/// in it. Returns the mark to drop them back to once the value is
-/// walked.
-pub fn useAfterValue(self: *Checker, node: Sexp) Error!usize {
-    const mark = self.after_value.items.len;
-    const ctx = self.sema;
-    const target = ir.Set.target(node);
-    if (target != .src) {
-        try useAfterValueIn(self, target);
-        return mark;
-    }
-    const sym = ctx.symbolOf(target) orelse return mark;
-    const s = ctx.symbols.items[sym];
-    if (s.decl_pos == target.src.pos) return mark;
-    const kind = rig.bindingKindOf(ir.Set.op(node));
-    const writes_through = kind == .default and ctx.writesThrough(node);
-    if (kind.operator() != null or writes_through) try self.after_value.append(self.gpa, .{ .sym = sym, .loop = self.loop });
-    return mark;
-}
-
-pub fn useAfterValueIn(self: *Checker, e: Sexp) Error!void {
-    switch (e) {
-        .src => if (self.sema.symbolOf(e)) |sym| try self.after_value.append(self.gpa, .{ .sym = sym, .loop = self.loop }),
-        .list => for (e.items()) |c| try useAfterValueIn(self, c),
-        else => {},
-    }
 }
 
 /// Whether `e` names `name` anywhere.
@@ -2301,10 +2266,7 @@ pub fn walkCall(self: *Checker, call: lowered.Expr) Error!Value {
     const vars_mark: VarId = @intCast(self.vars.items.len);
     const once_mark = self.once_uses.items.len;
     const used = try rules.onceUses(self, node);
-    const late = self.late.items.len;
-    try holdLateOperands(self, call, ir.Call.args(node), first_arg);
     const v = try walkCallBody(self, call);
-    try live.endLate(self, late);
     self.once_uses.shrinkRetainingCapacity(once_mark);
     // A `once` parameter called, or passed to another, is used up.
     for (used) |u| if (self.flowLive(u.id)) try self.markInvalid(u.id, .moved, u.pos);
@@ -2325,26 +2287,6 @@ pub fn walkCall(self: *Checker, call: lowered.Expr) Error!Value {
 /// The operand of a call that is its first argument: after its task
 /// mark and its callee.
 const first_arg = 2;
-
-/// The parts of `e`, a call or an array literal whose first part is
-/// operand `first`, that it reads where it runs, after the others
-/// (`late`): where its region evaluates parts first, each operand no
-/// hidden var holds (`lowered.heldFirst`); where it has no such region,
-/// the pure parts of one that passes its keyword arguments in its
-/// parameters' order (`live.holdLateParts`).
-fn holdLateOperands(self: *Checker, e: lowered.Expr, parts: []const Sexp, first: usize) Error!void {
-    if (!self.nll) return;
-    const ctx = self.sema;
-    // Outside a lowered body, whether the parts are evaluated first is
-    // asked; in one, a region holds them but for an element operation's.
-    const holds = lowered.holdsParts(self, e) orelse return live.holdLateParts(self, parts, lowering.hoistsArgs(ctx, e.node));
-    if (!holds) return live.holdLateParts(self, parts, e.node.isKind(.call) and ctx.elemCallOf(ctx.calleeOf(e.node)) != null and lowering.hoistsArgs(ctx, e.node));
-    for (parts, 0..) |a, i| {
-        var part = lowered.operand(self, e, first + i);
-        if (a.isKind(.kwarg)) part = lowered.operand(self, part, 1);
-        if (!lowered.heldFirst(self, part)) try live.holdLate(self, lowering.argValue(a));
-    }
-}
 
 /// Hold `v`, the value of `node`, which the emitted call keeps in
 /// storage of its own (`storage.Var` of life `call`: a self, or
@@ -2814,6 +2756,13 @@ pub fn callResults(self: *Checker, node: Sexp, temps_start: usize, stored: Value
     self.results_of = .{ .node = node, .parts = parts };
     if (view_only) return keepViewTemps(self, temps_start, whole);
     if (read_only) return endWriteViews(self, temps_start, stored, whole);
+    // A write view no result carries, and the call did not store, has
+    // had its last use as the call returns.
+    var i = @min(temps_start, self.temps.items.len);
+    while (i < self.temps.items.len) {
+        const l = self.temps.items[i];
+        if (l.kind == .write and !hasLoanOn(stored.loans, l.root) and !hasLoanOn(whole.loans, l.root)) _ = self.temps.orderedRemove(i) else i += 1;
+    }
     return whole;
 }
 
@@ -2831,12 +2780,6 @@ pub fn walkDestructure(self: *Checker, e: lowered.Expr) Error!void {
     const node = e.node;
     const value = ir.Destructure.value(node);
     const targets = ir.Destructure.targets(node).items();
-    // What a target's store reads is used after the value, as an
-    // assignment's target is.
-    const mark = self.after_value.items.len;
-    for (targets) |t| if (t.isKind(.set)) {
-        _ = try useAfterValue(self, t);
-    };
     // A write-view local a target re-points never uses its old view
     // again, when the value does not read it and cannot leave early:
     // its loans end before the call makes a view anew, as for `w = e`.
@@ -2861,7 +2804,6 @@ pub fn walkDestructure(self: *Checker, e: lowered.Expr) Error!void {
     const target_steps = lowered.stepsIn(self, .{ .node = node, .r = if (steps.len > 0 and steps[steps.len - 1] == .region) steps[steps.len - 1].region else null });
     if (self_check) expectRole(self, value_e, .{ .sink = .binding });
     const whole = try walkConsumedE(self, value_e, .binding);
-    self.after_value.shrinkRetainingCapacity(mark);
     if (!self.reachable) return;
     const call = resultsCall(value);
     const parts: []const Value = blk: {
@@ -3364,7 +3306,12 @@ pub fn inCellList(self: *const Checker, target: Sexp) bool {
 pub fn walkPropagate(self: *Checker, ex: lowered.Expr) Error!Value {
     const node = ex.node;
     const v = try walkE(self, lowered.operand(self, ex, 0));
-    if (self.reachable) _ = try exits.exitTo(self, .{ .exit = .{ .propagate = node.isKind(.propagate) } });
+    if (self.reachable) {
+        const at = self.point;
+        defer self.point = at;
+        live.atFailure(self, ex);
+        _ = try exits.exitTo(self, .{ .exit = .{ .propagate = node.isKind(.propagate) } });
+    }
     return v;
 }
 
@@ -3387,6 +3334,9 @@ pub fn walkCatch(self: *Checker, ex: lowered.Expr) Error!Value {
     const handler = ir.Catch.handler(node);
     try holdPartTemps(self, handler);
     const base = try self.here();
+    // The handler runs once the value failed: an error views nothing,
+    // so the views the value carried have ended there.
+    endCarried(self, v1.loans);
     try self.pushScopeFor(.block, handler);
     const name = ir.Catch.name(node);
     if (name != .nil) {
@@ -3394,9 +3344,21 @@ pub fn walkCatch(self: *Checker, ex: lowered.Expr) Error!Value {
     }
     var v2 = try walkTailPartE(self, if (lowered.argRegion(self, ex, 1)) |h| lowered.exprIn(self, handler, h) else lowered.uncovered(self, handler), t);
     v2 = try self.leaveScope(v2);
-    const s = try self.leave(base, notes.resumeAt(self, .nil, node));
+    const s = try self.leave(base, live.ptOf(self, ex));
     try self.apply(try self.join(stateAt(base), s));
     return self.valueUnion(v1, v2);
+}
+
+/// End the statement's temporary loans that `loans`, what a value
+/// carried, has: on a path where the value holds nothing.
+fn endCarried(self: *Checker, loans: []const Loan) void {
+    var n: usize = 0;
+    for (self.temps.items) |l| {
+        if (containsLoan(loans, l)) continue;
+        self.temps.items[n] = l;
+        n += 1;
+    }
+    self.temps.shrinkRetainingCapacity(n);
 }
 
 /// `a ?? b`: `b` runs only when `a` is `none`. It may be a jump, which
@@ -3405,7 +3367,7 @@ pub fn walkNullish(self: *Checker, ex: lowered.Expr) Error!Value {
     const node = ex.node;
     const t = takeTail(self, node);
     const v1 = try walkPayloadHolder(self, node, lowered.operand(self, ex, 0));
-    return self.valueUnion(v1, try walkMayRun(self, lowered.operand(self, ex, 1), t, node));
+    return self.valueUnion(v1, try walkMayRun(self, lowered.operand(self, ex, 1), t, ex, v1.loans));
 }
 
 // -----------------------------------------------------------------------------
@@ -3426,6 +3388,7 @@ pub fn walkReturn(self: *Checker, e: lowered.Expr) Error!void {
             result = try self.valueUnion(result, try walkReturnValueE(self, lowered.operand(self, value_e, i), ty));
         }
     } else if (value != .nil) result = try walkReturnValueE(self, value_e, null);
+    live.atJump(self, lowered.stepsIn(self, e));
     _ = try exits.exitTo(self, .{ .exit = .{ .@"return" = value != .nil and mayFail(self, value) }, .result = result.loans });
     self.reachable = false;
 }
@@ -3536,11 +3499,9 @@ pub fn walkIf(self: *Checker, e: lowered.Expr) Error!Value {
     const then_b = ir.If.then(node);
     const else_b = ir.If.@"else"(node);
     // The condition is a header, its own statement.
-    const mark = try useBranchesAfter(self, node, cond);
     _ = try walkStmtValueE(self, if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.uncovered(self, cond), null);
-    self.after_value.shrinkRetainingCapacity(@min(mark, self.after_value.items.len));
     const base = try self.here();
-    const past = notes.resumeAt(self, .nil, node);
+    const past = live.pt(live.ctlOf(self, node).exit);
     const v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
     const s1 = try self.leave(base, past);
     const v2 = if (else_b == .nil) Value{} else try walkTailPartE(self, branchOf(self, else_b, lir_if, false), t);
@@ -3557,25 +3518,6 @@ fn branchOf(self: *const Checker, b: Sexp, lir_if: ?lir.Expr.If, then: bool) low
     return lowered.exprIn(self, b, r);
 }
 
-/// A branch before its condition in the source (`stmt if cond`, `a if
-/// cond else b`) runs after it: what the branch reads is used after
-/// the condition, so it is live while the condition is walked, as an
-/// assignment's target is while its value is (`after_value`). A name
-/// the branch binds counts as `useAfterValue` counts a target.
-/// Returns the mark to drop them back to once the condition is walked.
-pub fn useBranchesAfter(self: *Checker, node: Sexp, cond: Sexp) Error!usize {
-    const mark = self.after_value.items.len;
-    const at = notes.extent(self, cond).lo;
-    for ([_]Sexp{ ir.If.then(node), ir.If.@"else"(node) }) |b| {
-        if (b == .nil or notes.extent(self, b).lo >= at) continue;
-        if (b.isKind(.set)) {
-            _ = try useAfterValue(self, b);
-            try useAfterValueIn(self, ir.Set.value(b));
-        } else try useAfterValueIn(self, b);
-    }
-    return mark;
-}
-
 /// `if a as x` and `if a as x and ...`: the parts run in order, each
 /// binding in a scope over the rest and the then-branch. The `else`
 /// runs when a part fails, so it starts from the join of the states
@@ -3588,10 +3530,10 @@ pub fn walkIfBinding(self: *Checker, node: Sexp, lir_if: ?lir.Expr.If, t: ?Tail)
     // A failing part goes on to the `else`, or past the `if`.
     const cond = ir.If.cond(node);
     const cond_e = if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.uncovered(self, cond);
-    const fails = try walkConditionParts(self, cond_e, then_b, .{ .to = base, .resume_at = notes.resumeAt(self, else_b, node) }, self.loop);
+    const past = live.pt(live.ctlOf(self, node).exit);
+    const fails = try walkConditionParts(self, cond_e, then_b, .{ .to = base, .resume_at = if (lir_if) |i| (if (i.@"else") |r| live.inOf(self, r) else past) else past }, self.loop);
     var v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
     while (self.scopes.items.len > depth) v1 = try self.leaveScope(v1);
-    const past = notes.resumeAt(self, .nil, node);
     const s1 = try self.leave(base, past);
     try self.apply(try joinAll(self, fails));
     const v2 = if (else_b != .nil) try walkTailPartE(self, branchOf(self, else_b, lir_if, false), t) else Value{};
@@ -3668,16 +3610,21 @@ pub fn walkConditionPart(self: *Checker, ce: lowered.Expr, body: Sexp) Error!voi
     self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
     try self.pushScopeFor(.block, body);
     try bindNew(self, ir.As.name(cond), false, false, bound);
+    // The binding holds the value from the part's own point on.
+    if (live.ptOf(self, ce)) |p| self.point = p;
     try endTemps(self, try lowered.endsAt(self, value, vars_mark, .header));
 }
 
-/// Walk `part` of `node`, which runs on some paths through `node`
-/// only: the right side of `and`, `or`, and `??`. What follows starts
-/// from the join of the state before it with the state after it.
-pub fn walkMayRun(self: *Checker, part: lowered.Expr, t: ?Tail, node: Sexp) Error!Value {
+/// Walk `part` of `e`, which runs on some paths through `e` only: the
+/// right side of `and`, `or`, and `??`. What follows starts from the
+/// join of the state before it with the state after it. The value
+/// before it, which carried `ended`, holds nothing where it runs: a
+/// `none`, or a `Bool`.
+pub fn walkMayRun(self: *Checker, part: lowered.Expr, t: ?Tail, e: lowered.Expr, ended: []const Loan) Error!Value {
     const base = try self.here();
+    endCarried(self, ended);
     const v = try walkTailPartE(self, part, t);
-    const s = try self.leave(base, notes.resumeAt(self, .nil, node));
+    const s = try self.leave(base, live.ptOf(self, e));
     try self.apply(try self.join(stateAt(base), s));
     return v;
 }
@@ -3780,7 +3727,7 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
     var value: Value = .{};
     var catch_all = false;
     const arms = ir.Match.arms(match);
-    const past = notes.resumeAt(self, .nil, match);
+    const past = live.pt(live.ctlOf(self, match).exit);
     for (arms, 0..) |arm, i| {
         const pattern = ir.Arm.pattern(arm);
         const guard = ir.Arm.guard(arm);
@@ -3793,6 +3740,9 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
         // A guarded arm may not run for the values its pattern
         // matches. The views the guard takes end with it.
         const bound = self.vars.items.len;
+        if (ctrl) |c| if (c == .match and i < c.match.arms.len) if (live.inOf(self, c.match.arms[i])) |p| {
+            self.point = p;
+        };
         if (try bindPattern(self, pattern, info, scrut_value) and guard == .nil) catch_all = true;
         // A binding that views a temporary the subject made would
         // outlive it.
@@ -3809,7 +3759,8 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
             // A header, its own statement, which its arm's region tests.
             _ = try walkStmtValueE(self, lowered.guardOf(self, ctrl, i, guard), null);
             // A failing guard goes on to the next arm, or past the match.
-            failed = try exits.exitTo(self, .{ .to = base, .resume_at = notes.resumeBefore(self, if (i + 1 < arms.len) arms[i + 1] else .nil, past) });
+            const next: ?u32 = if (ctrl) |c| (if (c == .match and i + 1 < c.match.arms.len) live.inOf(self, c.match.arms[i + 1]) else past) else past;
+            failed = try exits.exitTo(self, .{ .to = base, .resume_at = next });
         }
         // The arm is chosen: the subject is read no more.
         if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
@@ -4223,12 +4174,12 @@ pub fn walkLabeled(self: *Checker, e: lowered.Expr) Error!Value {
     self.loop = &ctx;
     defer self.loop = ctx.parent;
     _ = try walkStmtValueE(self, lowered.within(self, e, stmt), null);
-    try self.joinAt(ctx.point, ctx.breaks.items, notes.resumeAt(self, .nil, node));
+    try self.joinAt(ctx.point, ctx.breaks.items, live.pt(live.ctlOf(self, stmt).exit));
     return .{};
 }
 
 pub fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
-    var ctx: LoopCtx = .{ .node = spec.node, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = notes.extent(self, spec.node).lo, .reads = self.pending_reads or rules.readsValue(self, spec.node) };
+    var ctx: LoopCtx = .{ .node = spec.node, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .reads = self.pending_reads or rules.readsValue(self, spec.node) };
     self.pending_reads = false;
     self.loop = &ctx;
     defer self.loop = ctx.parent;
@@ -4266,7 +4217,7 @@ pub fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
     try self.apply(try joinAll(self, it.exit));
     // A `loop` used as a value yields a `break` value.
     self.loop = ctx.parent;
-    try self.joinAt(ctx.point, ctx.breaks.items, notes.resumeAt(self, .nil, spec.node));
+    try self.joinAt(ctx.point, ctx.breaks.items, live.pt(live.ctlOf(self, spec.node).exit));
     return ctx.value;
 }
 
@@ -4284,7 +4235,10 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     // The loop ends when its condition fails: for a binding
     // condition, when a part fails, with the bindings before it gone.
     // A failing part leaves the loop.
-    const fail: ExitTo = .{ .to = ctx.point, .resume_at = notes.resumeAt(self, .nil, spec.node) };
+    const at = live.ctlOf(self, spec.node);
+    // Each pass starts at the loop's head.
+    if (live.pt(at.head)) |h| self.point = h;
+    const fail: ExitTo = .{ .to = ctx.point, .resume_at = live.pt(at.exit) };
     var exit: []const State = &.{};
     const lir_cond: ?lir.ExprId = if (spec.lir) |c| (if (c == .loop) c.loop.cond else null) else null;
     if (spec.cond_binds) {
@@ -4315,7 +4269,7 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     _ = try walkStmtValueE(self, if (lir_body) |r| lowered.exprIn(self, spec.body, r) else lowered.uncovered(self, spec.body), null);
     if (step_inside) {
         while (self.scopes.items.len > ctx.step_depth) try self.popScope();
-        if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, notes.stepAt(self, spec.node));
+        if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, live.pt(at.step));
         ctx.step_point = null;
         try walkStep(self, spec);
     }
@@ -4326,13 +4280,13 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     // condition (which the type checker rejects when the step runs
     // after the body, since it would skip binding what the step
     // reads); a `continue` in the step ends it.
-    if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
+    if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, live.pt(at.head));
     if (!step_inside) if (spec.cont != null) {
         ctx.conts.clearRetainingCapacity();
         try walkStep(self, spec);
-        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, ctx.start);
+        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, live.pt(at.head));
     };
-    return .{ .back = try exits.exitTo(self, .{ .to = ctx.point, .resume_at = ctx.start }), .exit = exit };
+    return .{ .back = try exits.exitTo(self, .{ .to = ctx.point, .resume_at = live.pt(at.head) }), .exit = exit };
 }
 
 /// Walk the step of the `while` loop `spec` walks, which runs after

@@ -4,7 +4,7 @@
 //! `stepValue`), and the operands of an expression from its LIR
 //! operation (`Expr`, `operand`); an `if`, a loop, or a `match` is its
 //! LIR step (`controlOf`), and each of its parts the region made for it
-//! (`exprIn`). The uses liveness reads are the LIR's (`indexUses`).
+//! (`exprIn`). Liveness reads the LIR's flow (`live.Flow`).
 //! The checkers' lowering lowers every body the checker walks
 //! (`lower.Options.checked`).
 
@@ -42,6 +42,13 @@ pub const Body = struct {
     /// The checker var the walk made last for each hidden var, by LIR
     /// var (`noteMade`); empty until it makes one.
     made: []state.VarId = &.{},
+    /// Its points in the order they run, for liveness; null for the
+    /// module's compile-time body.
+    flow: ?*live.Flow = null,
+    /// The body walked around it, and the point there, where a closure
+    /// is made.
+    outer: ?*Body = null,
+    outer_point: u32 = 0,
 };
 
 /// An expression the walk reaches: its tree node, and, in a lowered
@@ -64,7 +71,7 @@ fn hoistedOf(b: *const Body, v: lir.VarId) ?lir.ExprId {
 
 /// Expression `id` under the coercions and holds of its node, and the
 /// var that holds it first, where a region evaluates it first.
-fn under(b: *const Body, start: lir.ExprId) lir.ExprId {
+pub fn under(b: *const Body, start: lir.ExprId) lir.ExprId {
     var id = start;
     while (true) switch (b.f.exprs.items[id]) {
         .coerce => |c| id = c.value,
@@ -572,7 +579,7 @@ pub fn enter(self: *Checker, root: Sexp) Error!?*Body {
     // lives until it is walked (`dropConstants`).
     const a = if (root.isKind(.module)) self.const_arena_state.allocator() else self.fn_arena_state.allocator();
     const out = try a.create(Body);
-    out.* = .{ .f = f };
+    out.* = .{ .f = f, .outer = self.lir_body, .outer_point = self.point };
     for (f.regions.items) |r| {
         if (r.kind == .call) if (sema.decisionKeyOf(r.node)) |key| try out.calls.put(a, key, {});
         for (r.steps.items) |s| switch (s) {
@@ -586,6 +593,7 @@ pub fn enter(self: *Checker, root: Sexp) Error!?*Body {
             else => {},
         };
     }
+    if (!root.isKind(.module)) out.flow = try live.build(self, out, a);
     return out;
 }
 
@@ -656,121 +664,3 @@ pub fn stepOperand(self: *const Checker, node: Sexp, id: lir.ExprId) Expr {
     }
     return .{ .node = node, .id = id };
 }
-
-/// Note each use of a binding in lowered body `f` and the closures it
-/// makes: each name a var's read or a leaf reads, and each binding's
-/// declaring name, a use
-/// in a `defer` body noted as deferred, and one in a `while` step at
-/// the step's place (`notes.stepAt`).
-pub fn indexUses(self: *Checker, f: *const lir.Func) Error!void {
-    var u: Uses = .{ .c = self, .f = f };
-    try u.region(f.body);
-    // In source order, as the tree lists them: LIR evaluates an
-    // assignment's value before its target.
-    for (self.uses.all()) |e| std.mem.sort(u32, e.at.items, {}, std.sort.asc(u32));
-}
-
-const Uses = struct {
-    c: *Checker,
-    f: *const lir.Func,
-    in_defer: bool = false,
-    at: ?u32 = null,
-
-    fn note(u: *Uses, sym: SymbolId, node: Sexp) Error!void {
-        if (node != .src) return;
-        try live.noteUse(u.c, sym, u.at orelse node.src.pos, u.in_defer);
-    }
-
-    fn region(u: *Uses, r: lir.RegionId) Error!void {
-        const reg = &u.f.regions.items[r];
-        const saved = u.in_defer;
-        defer u.in_defer = saved;
-        if (reg.node.isKind(.@"defer") or reg.node.isKind(.@"errdefer")) u.in_defer = true;
-        // A pattern is not lowered: its names are read from the tree,
-        // an alternative's among them, which declares no var.
-        if (reg.kind == .arm) try live.indexUses(u.c, ir.Arm.pattern(reg.node), u.in_defer, u.at);
-        for (reg.decls.items) |x| {
-            const v = u.f.vars.items[x];
-            switch (v.name) {
-                .binding => |sym| try u.declared(sym, v.node),
-                .hidden => {},
-            }
-        }
-        for (reg.steps.items) |s| switch (s) {
-            .bind => |x| try u.expr(x.value),
-            .store => |x| {
-                try u.expr(x.target);
-                try u.expr(x.value);
-            },
-            .eval => |e| try u.expr(e),
-            .drop => |x| switch (u.f.vars.items[x.v].name) {
-                .binding => |sym| try u.note(sym, x.node),
-                .hidden => {},
-            },
-            .jump => |j| if (j.value) |e| try u.expr(e),
-            .region => |sub| try u.region(sub),
-            .@"if" => |i| {
-                try u.expr(i.cond);
-                try u.region(i.then);
-                if (i.@"else") |e| try u.region(e);
-            },
-            .loop => |lp| {
-                try u.expr(lp.cond);
-                try u.region(lp.body);
-                if (lp.step) |st| {
-                    const saved_at = u.at;
-                    defer u.at = saved_at;
-                    if (u.at == null) u.at = notes.stepAt(u.c, lp.node);
-                    try u.region(st);
-                }
-            },
-            .each => |ea| {
-                try u.expr(ea.source);
-                try u.region(ea.body);
-            },
-            .match => |c| {
-                try u.expr(c.subject);
-                for (c.arms) |arm| try u.region(arm);
-            },
-        };
-        if (reg.value) |e| try u.expr(e);
-    }
-
-    /// A binding's declaring name, and, for a capture, the binding it
-    /// captures, whose use it is where the closure is made.
-    fn declared(u: *Uses, sym: SymbolId, node: Sexp) Error!void {
-        try u.note(sym, node);
-        const d = u.c.sema.symbols.items[sym];
-        if (d.kind == .capture and node == .src and d.decl_pos == node.src.pos and d.origin != sema.symbol_invalid) try u.note(d.origin, node);
-    }
-
-    fn expr(u: *Uses, id: lir.ExprId) Error!void {
-        switch (u.f.exprs.items[id]) {
-            .@"var" => |x| switch (u.f.vars.items[x.v].name) {
-                .binding => |sym| try u.note(sym, x.node),
-                .hidden => {},
-            },
-            .leaf => |l| if (u.c.sema.symbolOf(l)) |sym| try u.note(sym, l),
-            .op => |o| for (o.args) |a| try u.expr(a),
-            .hold => |h| try u.expr(h.value),
-            .block => |r| try u.region(r),
-            .branch => |x| {
-                try u.expr(x.cond);
-                try u.region(x.then);
-                if (x.@"else") |r| try u.region(r);
-            },
-            .choice => |x| {
-                try u.expr(x.subject);
-                for (x.arms) |r| try u.region(r);
-            },
-            .closure => |x| {
-                for (x.captures) |c| try u.expr(c);
-                const m = &(u.c.sema.lowered orelse return);
-                const g = m.owners[x.owner].func orelse return;
-                var inner: Uses = .{ .c = u.c, .f = g, .in_defer = u.in_defer, .at = u.at };
-                try inner.region(g.body);
-            },
-            .coerce => |x| try u.expr(x.value),
-        }
-    }
-};
