@@ -10801,6 +10801,7 @@ owns one), and read views.
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.swap_remove(i)` | remove the element at `i` and hand it over, moving the last element into its place: one element moves, not the rest, and the order of what is left changes; panics out of range |
 | `!v.clear()` | drop every element |
+| `!v.fit()` | give back the room past the elements, so the List's buffer holds exactly `v.len` of them (none when it is empty, and its inline room when they fit there); the elements, their order, and `v.len` are unchanged, and the List grows again as before. A large buffer is cut where it lies, a small one copied |
 | `!v.extend(s)` | append a copy of each element of `s`, a `[]T` (`?ys[a..b]`, an array, or a List), in one copy, growing once; `T` copies and holds no view (below), and `s` may not view `v`, which is unusable meanwhile |
 | `!v.extend_from_bytes(s)` | append the records the bytes of `s`, a `?String` (or a `Static`), hold, in one copy, growing once; `T` is a type whose every bit pattern is a value, or with `Bool`s and enums when `s` is written `$embed(path)` (below); panics unless `s.len` is a whole number of `$size(T)` |
 

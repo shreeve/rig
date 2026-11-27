@@ -3913,6 +3913,28 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             }
         }
 
+        /// `!v.fit()`: the buffer cut to the elements the List holds, so
+        /// it holds no room past them: freed when it holds none, and for
+        /// a List with inline room, its elements moved back into the List
+        /// when they fit there. A large buffer is cut where it lies, its
+        /// room past the elements given back to the allocator with no
+        /// copy (`alloc.shrinkLarge`); a small one is copied into the
+        /// smallest block that holds them (`reallocSlice`).
+        pub fn fit(self: *Self) void {
+            if (comptime @sizeOf(T) == 0) return;
+            if (comptime inline_len > 0) {
+                if (self.buf.len == 0) return;
+                if (self.len <= inline_len) {
+                    @memcpy(self.inline_buf[0..self.len], self.buf[0..self.len]);
+                    freeSlice(T, self.buf);
+                    self.buf = &.{};
+                    return;
+                }
+            }
+            if (self.buf.len == self.len) return;
+            self.buf = reallocSlice(T, self.buf, self.len);
+        }
+
         /// `!v.keep(n)`: keep the first `n` elements and drop the rest,
         /// last first as `clear` does, keeping the buffer. Panics unless
         /// `0 <= n <= len`.

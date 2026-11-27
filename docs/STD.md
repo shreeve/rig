@@ -2836,7 +2836,10 @@ main.rig:4:3: panic: lost ["a\tb"]
 for `n` more elements without changing the length, so the next `n`
 pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
 first `n` elements and drops the rest, so a List can be rewound to a
-length saved earlier.
+length saved earlier. `!v.fit()` gives back the room past the elements,
+so a List built by pushes into a large buffer is kept at its length
+without a copy: the allocator cuts a large buffer where it lies and
+copies only a small one.
 
 `!v.extend(?ys[a..b])` appends a copy of each element of a slice, an
 array, or a List, growing once and copying them with one `@memcpy`: the
