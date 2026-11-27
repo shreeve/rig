@@ -419,13 +419,15 @@ on a listed one the oracle decides and stops rejecting (`LOST`: the
 reference checker was weakened, whatever the compiler decides). A doc
 example is listed by its doc and a hash of its text
 (`doc/SPEC/0f3c9a1b2d4e`), so an edit that only moves it keeps its
-entry; one that changes its text renames it. So a change to the oracle that loses a rejection shows, though a
-stricter compiler alone would only be reported
+entry; one that changes its text renames it. So a change to the oracle that loses a rejection shows, and so
+does a stricter compiler
 (`test/cli/oracle_rejections.sh` checks that both fire). When the
-compiler rejects a function the oracle accepts, the run reports it
-(`stricter`), and `test/oracle/differences` records it once classified
-(a compiler rejection the Core allows, an oracle gap, or a question the
-Core leaves open). A set also fails when a listed difference is gone
+compiler rejects a function the oracle accepts, the set fails unless
+`test/oracle/differences` lists it (`STRICTER`, with the line to add):
+each entry is `program function prod-rejects CLASS note`, the class
+`prod-strict` (a compiler rejection the Core allows), `ref-gap` (an
+oracle gap), or `core-gap` (a question the Core leaves open). The list
+is exact: a set also fails when a listed difference is gone
 (`FIXED`), or when the oracle decides fewer functions than the set's
 floor in `test/oracle/coverage`.
 

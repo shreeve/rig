@@ -251,3 +251,122 @@ test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig keys prod-re
 test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig nested prod-rejects ref-gap a `List[T]` popped from `src` pushed onto `dst`, `T` unbounded
 test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig closure prod-rejects ref-gap a `T` a closure pops from `src` pushed onto `dst`, `T` unbounded
 test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig Bin.take_from prod-rejects ref-gap a `T` popped from `src` pushed onto a field of self, `T` unbounded
+
+# The rest are rejections the compiler makes and the oracle does not. The
+# oracle checks the ownership core (Core §1 to §7) on lowered functions,
+# and these rest on what it does not read: a signature's `from` and
+# `keeps`, `once`, the tasks a scope must wait for, the temporaries a
+# statement drops, a `Cell`'s contents, a bound that gives a `T` no
+# view, the order a call's arguments are read in, and what a `drop` of a
+# reassigned value reads. `ref-gap` marks an oracle gap and `prod-strict`
+# a compiler stricter than the Core. Each entry's note is the compiler's
+# message.
+test/reject/concurrency/chan_made_in_a_bounded_generic_needs_Owned.rig mk prod-rejects ref-gap `T` is bounded by `Sends`, which does not give a value that holds no view, which a channel keeps
+test/reject/concurrency/chan_made_in_a_bounded_generic_needs_Owned.rig mka prod-rejects ref-gap `T` is bounded by `Sends`, which does not give a value that holds no view, which a channel keeps
+test/reject/concurrency/sets_lost.rig main prod-rejects ref-gap the tasks of `ws` can fail, and they are dropped where its scope ends without being waited for, so their errors would be lost
+test/reject/concurrency/task_fallible_lost.rig main prod-rejects ref-gap the task `u` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost
+test/reject/ctfun/ctfun_view_of_a_call_outlives_it.rig main prod-rejects ref-gap a view of the temporary `sq[3]` outlives its statement, which drops it
+test/reject/ctfun/ctfun_returned_view_of_a_call.rig get prod-rejects ref-gap cannot return a view of `sq[3]`, which belongs to this function
+test/reject/ownership/apis_the_API's_keeps,_not_the_instance's.rig run prod-rejects ref-gap cannot let this call store a view of `t` in `w`: `w` outlives it
+test/reject/ownership/apis_the_API's_keeps,_not_the_instance's.rig mine prod-rejects ref-gap cannot let this call store a view of `t` in `w`: `w` outlives it
+test/reject/ownership/apis_the_API's_keeps,_said_by_the_caller.rig pass_on prod-rejects ref-gap `pass_on` stores a view of `s` in `w`, which its caller reaches, but its signature does not keep `s`
+test/reject/ownership/cell_vec_element_view.rig put prod-rejects ref-gap cannot store a view of `s` in a `Cell`: every handle to it could reach the view
+test/reject/ownership/a_loop_over_a_read_view_binding_binds_slot_views,_as_one_over_?p_does.rig main prod-rejects prod-strict cannot move loop view `x`
+test/reject/ownership/a_loop_over_?p_binds_slot_views.rig main prod-rejects prod-strict cannot move loop view `y`
+test/reject/ownership/generic_payload_view_moved.rig returned prod-rejects ref-gap cannot move out of `v`: it is a view of `get(o)`
+test/reject/ownership/generic_payload_view_moved.rig whole prod-rejects ref-gap cannot move out of `v`: it is a view of `get(o)`
+test/reject/ownership/generic_value_from.rig pick prod-rejects ref-gap `pick` returns a view of `f`, but its signature says it views only `b`
+test/reject/ownership/generic_value_from.rig first prod-rejects ref-gap `pick` returns a view of `f`, but its signature says it views only `b`
+test/reject/ownership/generic_value_from.rig get prod-rejects ref-gap `pick` returns a view of `f`, but its signature says it views only `b`
+test/reject/ownership/generic_value_from.rig unwrap prod-rejects ref-gap `pick` returns a view of `f`, but its signature says it views only `b`
+test/reject/ownership/generic_value_from.rig mk prod-rejects ref-gap `pick` returns a view of `f`, but its signature says it views only `b`
+test/reject/ownership/generic_value_from.rig payload prod-rejects ref-gap `pick` returns a view of `f`, but its signature says it views only `b`
+test/reject/ownership/type_param_method_stores_argument.rig put prod-rejects ref-gap `put` stores a view of `t` in `x`, which its caller reaches, but its signature does not keep `t`
+test/reject/ownership/generic_value_from_a_viewed_parameter_through_a_local_into_self.rig Pairs.upd prod-rejects ref-gap `upd` stores a view of `xs` in `@`, which its caller reaches, but its signature does not keep `xs`
+test/behavior/ownership/last_use_of_a_view_held_across_passes_of_a_match_on_a_branch.rig main prod-rejects ref-gap cannot change `e` while a write view of it is still in use
+test/behavior/ownership/last_use_of_a_write_view_re-pointed_while_a_closure_holds_what_it_saw.rig main prod-rejects ref-gap cannot reassign `w` while a write view of it is still in use
+test/reject/ownership/last_use_drop_of_a_reassigned_value_reads_a_reassigned_place.rig main prod-rejects ref-gap cannot reassign `b` while a read view of it is still in use
+test/reject/ownership/last_use_drop_of_a_value_reassigned_with_results_reads_a_reassigned_place.rig main prod-rejects ref-gap cannot reassign `b` while a read view of it is still in use
+test/reject/ownership/last_use_drop_of_a_reassigned_value_reads_what_its_new_value's_call_replaced.rig main prod-rejects ref-gap cannot change `x` while a read view of it is still in use
+test/reject/ownership/last_use_drop_of_a_reassigned_value_reads_a_slice_its_new_value's_call_grew.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
+test/reject/ownership/last_use_drop_of_a_reassigned_value_reads_a_List_a_match_arm_grew.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
+test/reject/ownership/last_use_fixed_read_view_of_an_object_read_after_a_keyword_argument_grows_its_List.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
+test/reject/ownership/last_use_fixed_read_view_of_an_object_read_after_its_index_grows_its_List.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
+test/reject/ownership/last_use_break_value's_write_view_while_the_body's_defer_replaces_its_List.rig Tab.broke prod-rejects ref-gap cannot assign to `@xs` while a write view of it is still in use
+test/reject/ownership/last_keyword_argument_read_after_a_later_one_writes.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
+test/reject/ownership/last_write_view_keyword_argument_read_after_a_later_one_writes.rig main prod-rejects ref-gap cannot change `v` while a write view of it is still in use
+test/reject/ownership/last_hoisted_argument_read_after_a_later_one_writes.rig run prod-rejects ref-gap cannot change `v` while a read view of it is still in use
+test/reject/ownership/last_argument_beside_a_viewed_closure_read_after_a_later_one_writes.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
+test/reject/ownership/last_assigned_value_read_after_its_index_writes.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
+test/reject/ownership/last_compound_assigned_value_read_after_its_index_writes.rig main prod-rejects ref-gap cannot change `v` while a write view of it is still in use
+test/reject/ownership/static_slice_view_keeps_its_place.rig main prod-rejects ref-gap cannot change `l` while a read view of it is still in use
+test/reject/ownership/static_slice_view_origins.rig main prod-rejects ref-gap cannot change `a` while a read view of it is still in use
+test/reject/ownership/once_called_twice.rig twice prod-rejects ref-gap `f` is called at most once (`once`), and it is used up already
+test/reject/ownership/once_called_in_a_loop.rig looped prod-rejects ref-gap `f` is called at most once (`once`), and it is used up already
+test/reject/ownership/once_handed_to_a_closure_parameter.rig handed prod-rejects ref-gap `f` is called at most once (`once`), so it is only called, `f()`, or passed to another `once` parameter
+test/reject/ownership/origin_self_path_eight_fields.rig L7.get prod-rejects ref-gap `get` returns a view of `@a.b.c.d.e.f.g.j`, but its signature says it views only `@a.b.c.d.e.f.g.i`
+test/reject/ownership/slice_of_view_result.rig main prod-rejects ref-gap a view reached through `get(!h)` outlives its statement, which holds `get(!h)`, itself a view, only while it runs
+test/reject/probes/rev215-a01_ret_object_view_and_t.rig mk prod-rejects ref-gap `mk` returns a view of `x`, but its signature says it views only `c`
+test/reject/probes/rev215-a04_closure_local.rig pick prod-rejects ref-gap `pick` returns a view of `f`, but its signature says it views only `b`
+test/reject/probes/rev215-a12_recursion_swap.rig g prod-rejects ref-gap `g` returns a view of `xs`, but its signature says it views only `ys`
+test/reject/probes/rev215-a13_method_box.rig Box.pick prod-rejects ref-gap `pick` returns a view of `@`, but its signature says it views only `other`
+test/reject/probes/rev215-a14_match.rig g prod-rejects ref-gap `g` returns a view of `o`, but its signature says it views only `d`
+test/reject/probes/rev215-a19_match_object_payload.rig g prod-rejects ref-gap `g` returns a view of `o`, but its signature says it views only `d`
+test/reject/probes/rev215-a23_ret_object_K.rig mk prod-rejects ref-gap `mk` returns a view of `x`, but its signature says it views only `c`
+test/reject/probes/rev255-f11_generic_mk_store.rig fill prod-rejects ref-gap `fill` stores a view of `s` in `out`, which its caller reaches, but its signature does not keep `s`
+test/reject/probes/rev255-h07_for_write_holder.rig main prod-rejects ref-gap cannot drop `t` while a read view of it is still in use
+test/reject/probes/rev255-h07d_for_write_direct_store.rig main prod-rejects ref-gap cannot store a view of `t` in `x.src`: `x` views `xs`, which outlives it
+test/reject/probes/rev255-q07_generic_swap_self.rig Bag.take_all prod-rejects ref-gap `take_all` stores a view of `@` in `other`, which its caller reaches, but its signature does not keep `@`
+test/reject/probes/rev255-v04_write_chain_keeps_17.rig put prod-rejects prod-strict this store is too complex for the ownership checker
+test/reject/probes/rev255-y01_self_view_via_keeps.rig main prod-rejects ref-gap cannot let this call store a view of `o.h2` in `o.h`: a value never holds a view of itself
+test/reject/probes/review-b4b-2-p22_store_vec_ok.rig main prod-rejects ref-gap `e` is dropped here, at the end of its scope, while a read view of it is still in use
+test/reject/probes/review-b4b-2-p24_nested_match_ok.rig deep prod-rejects ref-gap `r` does not live long enough
+test/reject/probes/review-b4b-2-p25_nested_on_binding.rig deep prod-rejects ref-gap `i` does not live long enough
+test/reject/probes/review-cell-mark-1-p72_view_into_holder_cellvec.rig put prod-rejects ref-gap cannot store a view of `s` in a `Cell`: every handle to it could reach the view
+test/reject/probes/review-cell-mark-1-p72_view_into_holder_cellvec.rig put2 prod-rejects ref-gap cannot store a view of `s` in a `Cell`: every handle to it could reach the view
+test/reject/probes/review-seam2-a14_match_header.rig main prod-rejects ref-gap this `match` reads the view its subject returns after its header drops the temporary `mk(1)` it points into
+test/reject/probes/review-step10-a01_leaf_made_coalesce.rig main prod-rejects ref-gap a view of the temporary `mko(5) ?? b` outlives its statement, which drops it
+test/reject/probes/review-step10-r2-c01_match_view_of_header_temp.rig main prod-rejects ref-gap this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into
+test/reject/probes/review-step10-r2-c03_match_view_dispatch_dead.rig main prod-rejects ref-gap this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into
+test/reject/probes/review-step3-r2-n10_nested_payload.rig deep prod-rejects ref-gap `i` does not live long enough
+test/reject/probes/review-step45-r2-a05_method_receiver_path.rig main prod-rejects ref-gap this `match` reads the view its subject returns after its header drops the temporary `!s` it points into
+test/reject/probes/review-syntax-b-1-d01_loop_paren_drop.rig main prod-rejects prod-strict cannot drop loop view `x`
+test/reject/probes/review-syntax-b-1-d02_loop_read_drop.rig main prod-rejects prod-strict cannot drop loop view `x`
+test/reject/probes/review-syntax-b-1-d03_loop_param_drop.rig f prod-rejects prod-strict cannot drop loop view `x`
+test/reject/probes/review-syntax-b-1-d04_loop_field_drop.rig main prod-rejects prod-strict cannot drop loop view `x`
+test/reject/probes/review-syntax-b-1-d11_loop_index_drop.rig main prod-rejects prod-strict cannot drop loop view `x`
+test/reject/probes/review-syntax-b-1-d12_loop_param_bang_drop.rig f prod-rejects prod-strict cannot drop loop view `x`
+test/reject/probes/review-syntax-b-2-c05_call_ret_write_ok.rig main prod-rejects ref-gap a view reached through `get(!h)` outlives its statement, which holds `get(!h)`, itself a view, only while it runs
+test/reject/probes/review-syntax-b-2-v01_call_ret_write_written.rig main prod-rejects ref-gap a view reached through `get(!h)` outlives its statement, which holds `get(!h)`, itself a view, only while it runs
+test/reject/probes/review-syntax-b-2-v07_method_ret_write_ok.rig main prod-rejects ref-gap a view reached through `(!h).get()` outlives its statement, which holds `(!h).get()`, itself a view, only while it runs
+test/reject/probes/review-text2-e10.rig main prod-rejects ref-gap cannot store a view of `t` in a `Cell`: every handle to it could reach the view
+test/reject/types/apis_pub_states_its_bounds_on_lines_of_their_own.rig pick prod-rejects ref-gap `pub fun pick[K, T]` copies a `T`: write `[T: Copy]`
+doc/SPEC/54c68b0f3f5e twice prod-rejects ref-gap `f` is called at most once (`once`), and it is used up already
+doc/learn-04-concurrency/790513e82178 main prod-rejects ref-gap the task `t` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost
+static.discard.write_view run prod-rejects ref-gap bare use of write view `w` in binding would copy it, and a write view never copies
+static.discard.destructure_write run prod-rejects ref-gap bare use of write view `d1` in binding would copy it, and a write view never copies
+shared.recv_view.catch run prod-rejects ref-gap a view of the temporary `fail(c)` outlives its statement, which drops it
+box.recv_view_then_write.ctor run prod-rejects ref-gap a view of the temporary `^N(v: 5)` outlives its statement, which drops it
+drop.recv_view.catch run prod-rejects ref-gap a view of the temporary `fail(c)` outlives its statement, which drops it
+gen.call.unsaid.read g prod-rejects ref-gap `g` returns a view of `f`, but its signature says it views only `d`
+gen.call.unsaid.drop g prod-rejects ref-gap `g` returns a view of `f`, but its signature says it views only `d`
+gen.element.unsaid.read g prod-rejects ref-gap `g` returns a view of `p`, but its signature says it views only `d`
+gen.element.unsaid.drop g prod-rejects ref-gap `g` returns a view of `p`, but its signature says it views only `d`
+gen.nullish.unsaid.read g prod-rejects ref-gap `g` returns a view of `p`, but its signature says it views only `d`
+gen.nullish.unsaid.drop g prod-rejects ref-gap `g` returns a view of `p`, but its signature says it views only `d`
+gen.as.unsaid.read g prod-rejects ref-gap `g` returns a view of `p`, but its signature says it views only `d`
+gen.as.unsaid.drop g prod-rejects ref-gap `g` returns a view of `p`, but its signature says it views only `d`
+gen.closure.unsaid.read g prod-rejects ref-gap `g` returns a view of `f`, but its signature says it views only `d`
+gen.closure.unsaid.drop g prod-rejects ref-gap `g` returns a view of `f`, but its signature says it views only `d`
+gen.match.unsaid.read g prod-rejects ref-gap `g` returns a view of `p`, but its signature says it views only `d`
+gen.match.unsaid.drop g prod-rejects ref-gap `g` returns a view of `p`, but its signature says it views only `d`
+viewpay.text.generic.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
+viewpay.int.generic.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
+viewpay.int.param.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
+viewpay.int.write_param.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
+viewpay.plain.generic.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
+viewpay.plain.param.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
+viewpay.plain.write_param.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
+viewpay.list.generic.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
+viewpay.list.param.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
+viewpay.list.write_param.whole inner prod-rejects core-gap `w` does not live long enough: `w => match w` of a view parameter, a copy of that view (Core s1), whose payload view the compiler holds to `w`
