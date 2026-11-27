@@ -16792,9 +16792,22 @@ pub fn intTypeNamed(name: []const u8) ?IntInfo {
     };
 }
 
-/// The integer type the type alias `id` names, through other aliases;
+/// A number type as a name gives it: an integer type, or a float type of
+/// `bits` (32 or 64).
+pub const NumberType = union(enum) { int: IntInfo, float: u8 };
+
+/// The number type a built-in type name spells (`U8`, `F32`, `Float`),
+/// or null.
+pub fn numberTypeNamed(name: []const u8) ?NumberType {
+    if (intTypeNamed(name)) |i| return .{ .int = i };
+    if (std.mem.eql(u8, name, "F32")) return .{ .float = 32 };
+    if (std.mem.eql(u8, name, "F64") or std.mem.eql(u8, name, "Float")) return .{ .float = 64 };
+    return null;
+}
+
+/// The number type the type alias `id` names, through other aliases;
 /// null for any other type. Known before the alias is resolved, too.
-pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
+pub fn aliasNumberType(ctx: *const SemContext, id: SymbolId) ?NumberType {
     var c = ctx;
     var alias = id;
     // An alias chain longer than this is a cycle, reported elsewhere.
@@ -16802,7 +16815,8 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
         const sym = c.symbols.items[alias];
         if (sym.kind != .type_alias) return null;
         if (sym.ty != c.types.unknown_id) return switch (c.types.get(sym.ty)) {
-            .int => |i| i,
+            .int => |i| .{ .int = i },
+            .float => |f| .{ .float = if (f.bits == 32) 32 else 64 },
             else => null,
         };
         const target = c.alias_targets.get(alias) orelse return null;
@@ -16818,10 +16832,17 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
             continue;
         }
         const name = identAt(c.source, target) orelse return null;
-        if (intTypeNamed(name)) |i| return i;
+        if (numberTypeNamed(name)) |n| return n;
         alias = c.lookup(sym.scope, name) orelse return null;
     }
     return null;
+}
+
+/// The integer type the type alias `id` names (`aliasNumberType`), or
+/// null.
+pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
+    const n = aliasNumberType(ctx, id) orelse return null;
+    return if (n == .int) n.int else null;
 }
 
 /// Whether an integer type holds `v`.

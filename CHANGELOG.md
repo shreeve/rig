@@ -350,6 +350,16 @@ returns no value, and fails only by returning an error: write
 `both[String](...)`, is rejected with "the generic body discards a
 value that holds a `T`", where it leaked. Bind the results and drop
 them, or give the body plain data.
+
+**A float type's limits named through an alias are constants of it**
+([SPEC "Primitive types"](SPEC.md#primitive-types)): `R.max * 2.0` for `type R = F32`, an
+alias of an alias, or another module's `lib.R.max`, is rejected when it
+overflows, as `F32.max * 2.0` was: "this constant expression overflows
+`F32`". 0.3.0 accepted it and the program computed an infinity. So is
+a constant duration from one, `time.duration(D.max)` or `ns: D.inf()`
+for `type D = Float`: "`D.max` seconds is beyond a `Duration`'s range,
+about 292 billion years either way", "a duration is a finite number,
+and `D.inf()` is not". Write a constant that fits. Neither Trig nor loco has an alias of a float type.
 **`http.Response`'s `type` is an `http.Type`:** `.text`, `.html`,
 `.json`, `.css`, `.js`, `.csv`, `.xml`, `.svg`, `.png`, `.jpeg`,
 `.gif`, `.webp`, `.pdf`, `.wasm`, `.bytes`, or `.other(text)` for any
