@@ -1910,6 +1910,12 @@ arms.
 - `rig build --release --pgo -- WORKLOAD` works on the Mac, with Apple's
   command-line tools: Trig 5 to 15% faster on projects it was not
   trained on.
+- On Linux a `Table` dropped while other workers are awake keeps its
+  pages until none is, its range handed to no new Table meanwhile; the
+  ranges waiting are given back together in one `process_madvise`, or
+  once they hold 256 MiB, or by `os.exit`. Trig on pup's E-cores: 9 to
+  17% fewer TLB shootdowns on nuxt and webpack, wall time unchanged,
+  peak memory 6 to 8% higher.
 - On Linux a `Table` of a heap that does little waits to ask for huge
   pages until its heap faults in ahead, instead of each asking as it is
   made: Trig's smallest projects 2 to 3% faster at 8 checkers, and large
