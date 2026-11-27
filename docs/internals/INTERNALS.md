@@ -2173,8 +2173,8 @@ declaration names it, or a closure captures it.
 The ownership checker walks the storage that lives for less time than
 the Core gives the value it holds: what a call whose arguments run
 first holds while it runs (`life` `call`). A self the call holds as
-a value or a copy, or an argument it copies, is a hidden var the call gets as
-a view (`holdForCall`), which ends when the call returns (`endCallHeld`):
+a value or a copy is a hidden var the call gets as a view
+(`holdForCall`), which ends when the call returns (`endCallHeld`):
 a view of it that the call's result still carries, unless nothing uses
 that value (`discardsValue`: typecheck records the value of each
 expression statement, and what passes it on, as discarded), or that a
