@@ -598,6 +598,14 @@ pub fn trimWorth() bool {
     return worthTrimming(my_heap().* orelse return false);
 }
 
+/// What the running thread's heap has taken from the system, in segments
+/// and large blocks (`Heap.taken`): its worker's sleep reads it to know
+/// when the heap last grew (`sched.sleep`).
+pub fn heapTaken() usize {
+    const h = my_heap().* orelse return 0;
+    return h.taken;
+}
+
 fn worthTrimming(h: *const Heap) bool {
     return h.taken -| h.taken_at_trim >= trimGrowth(h.taken_at_trim);
 }
