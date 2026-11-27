@@ -40,6 +40,45 @@ quiet window and time only within it: `bench-text` builds both with
 those builds take most of a 15-minute window. A change to std alone
 needs one rig for both, with `RIG_STD` set to each side's `std/`.
 
+## The sweep
+
+`sweep.zig` times each way std.text could search a text, by its
+length: a byte loop, 8 places a step in a `u64` (SWAR), and compares of
+8, 16, 32 (AVX2), and 64 (AVX-512BW) bytes, for a needle of 1 or 4
+bytes at the text's end or not there, over 256 windows of a text made
+in the manner of lib.dom.d.ts. It reads where one way starts to beat
+another, the tiers std/text.zig sets by target (`step_lanes`); `--
+check` tests every way against the byte loop first.
+
+```sh
+zig run -O ReleaseFast -mcpu=native --dep runtime -Mroot=bench/text/sweep.zig -Mruntime=src/runtime.zig
+```
+
+The fastest way by length, for the 4-byte needle (the medians of 3 runs
+on pup, 2 on its P-core, 5 on burst, a shared VM whose times only
+indicate):
+
+| machine | byte loop | 8 bytes | 16 bytes | 32 bytes | 64 bytes |
+|---|---|---|---|---|---|
+| pup, Meteor Lake E-core | 4-7 | 8-15 | 16-34 | 35 on | - |
+| pup, Meteor Lake P-core | 4-7 | 8-15 | 16-34 | 35 on | - |
+| burst, Zen 5 | 4-7 | 8-15 | 16-31 | 32-80 | 88 on (10% ahead of 32 at 256-512) |
+
+aarch64 keeps the tiers std.text had, 8-byte compares from 8 bytes and 16 from 16.
+SWAR never wins on these x86 cores, and a vector way wins as soon as
+its vector fits. A 1-byte needle runs the same tiers to 31 bytes, then
+32-byte compares and `std.mem.findScalar` trade places within noise.
+
+In std.text itself, on the E-core, 32-byte compares in `many`'s first
+256 places lost to two of 16 below about 80 bytes, and adding them moved
+the code of every shorter search (bench-text, 15 rounds); so `many`
+compares 16 bytes on every target, and only `far`, past the first 256
+places, widens. Against main, on pup's E-core (bench-text and
+guard.rig's rows timed): texts to 288 bytes the same, 320 bytes 6 to
+13% slower, 1 KiB 9 to 11% faster, 4 KiB misses 25 to 30%, and the
+whole of lib.dom.d.ts 21 to 34%; a match at place 256 of 4 KiB with a
+12-byte needle is 26% slower (18 to 23 ns), the cost of entering `far`.
+
 ## Against memchr and Go
 
 `bench-text --rivals RIG FILE ROUNDS` times std.text, built with
