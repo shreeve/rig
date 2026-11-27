@@ -178,6 +178,15 @@ inline fn isNotOverflowed(pg: *const Group, tag: u8) bool {
     return pg.m[W - 1] & (@as(u8, 1) << @as(u3, @truncate(tag))) == 0;
 }
 
+/// Write lane `lane` of group `pg` as `x`: the group written whole from a
+/// register, so the next probe's load of it takes it from the store,
+/// where a byte's store would stall it until the store is done (bench/hash's
+/// 16-key removes a third faster on an M5).
+inline fn writeLane(pg: *Group, lane: usize, x: u8) void {
+    const ids: VW = std.simd.iota(u8, W);
+    pg.m = @select(u8, ids == @as(VW, @splat(@as(u8, @truncate(lane)))), @as(VW, @splat(x)), load(pg));
+}
+
 inline fn markOverflow(pg: *Group, tag: u8) void {
     pg.m[W - 1] |= @as(u8, 1) << @as(u3, @truncate(tag));
 }
@@ -628,7 +637,13 @@ fn Unordered(comptime K: type, comptime V: type) type {
             if (free_pg) |pg| {
                 @branchHint(.likely);
                 pg.m[free_lane] = h.tag;
-                return .{ .i = slotIndex(free_pos, free_lane), .new = true };
+                // The index keeps its test here, unlike `slotIndex`: an
+                // insert into a small table, whose next probe often loads
+                // the group this byte went to, measured 13% slower on an M5
+                // without it (bench/hash's rnd16 inserts), its instructions
+                // fewer; and written whole, as `writeLane` writes, slower
+                // still.
+                return .{ .i = free_pos * NL + free_lane, .new = true };
             }
             // Every group the find passed is full: the one it stopped at
             // overflows now, and the probe goes on to a free lane.
@@ -818,7 +833,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 if (self.size == 0 or self.ml < self.size) @panic("unordered: a take with the counts awry");
             }
             self.ml -%= @intFromBool(!isNotOverflowed(pg, pg.m[lane]));
-            pg.m[lane] = 0;
+            writeLane(pg, lane, 0);
             self.size -%= 1;
         }
 
