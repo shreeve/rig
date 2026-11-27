@@ -131,7 +131,6 @@ comptime {
         mapped_count,
         exe_file,
         span_spare,
-        process_madvise_refused,
     };
 }
 
@@ -211,9 +210,8 @@ fn prefault(h: *const Heap, p: usize, len: usize) void {
 threadlocal var prefaults_for_test: usize = 0;
 
 /// Test only: the calls this thread has made to map a large block, to
-/// unmap one or a piece of one, and to move one as it grows, and a
-/// trim's calls to give pages back (`GiveBack`).
-threadlocal var calls_for_test: struct { mmap: usize = 0, munmap: usize = 0, mremap: usize = 0, moves: usize = 0, give_backs: usize = 0 } = .{};
+/// unmap one or a piece of one, and to move one as it grows.
+threadlocal var calls_for_test: struct { mmap: usize = 0, munmap: usize = 0, mremap: usize = 0, moves: usize = 0 } = .{};
 
 /// Whether `h` faults in ahead: it leads the heaps (`leads`), or it has
 /// taken from the system `prefault_big` bytes or more, more than its
@@ -623,19 +621,18 @@ fn trimGrowth(at_trim: usize) usize {
 fn trimHeap(h: *Heap) usize {
     mustOwn(h);
     h.taken_at_trim = h.taken;
-    // Every page the trim gives back goes in one batch (`GiveBack`). A
-    // kept block is this heap's alone, so it is kept cold at once: no
-    // thread takes it before the batch is given back, below.
-    var g: GiveBack = .{};
+    // Every page the trim gives back goes in one batch (`Batch`), given
+    // back last, with its spans' (`coolSpans`). A kept block is this
+    // heap's alone, so no thread takes it before then.
+    var b: Batch = .{};
     var given: usize = 0;
     while (lastHeld(&h.kept)) |j| {
         const f = unkeep(&h.kept, j, 0).?;
         const p = @intFromPtr(f);
         const len = f.len;
-        given += g.add(p, len);
+        given += b.add(p, len);
         keepPiece(&h.cold, p, len);
     }
-    given += coolSpans(h, true, &g);
     // A big heap's free lists hold millions of blocks, cold, and its
     // worker comes back to work only once the trim is done: it walks
     // each list once, to count its blocks per page on Linux and to find
@@ -655,8 +652,9 @@ fn trimHeap(h: *Heap) usize {
         if (own_tail) |t| t.next = late else h.free[c] = late;
         tails[c] = late_tail orelse own_tail;
     }
-    if (builtin.os.tag == .linux) given += trimPages(h, touched, &tails, &g);
-    g.finish(h);
+    if (builtin.os.tag == .linux) given += trimPages(h, touched, &tails, &b);
+    given += coolSpans(h, true, &b);
+    b.flush();
     // What stays free goes on its remote lists, where its own next
     // allocation takes it back, and meanwhile another heap may.
     for (0..class_count) |c| {
@@ -705,12 +703,12 @@ fn walkFree(h: *Heap, list: ?*Block, c: usize, touched: *?*Segment) ?*Block {
 /// The pages of `h`'s classes whose every block is on its free list, as
 /// `walkFree` counted them in the `touched` segments: taken off the
 /// lists, whose last blocks `tails` keeps, and given back to the system,
-/// a run of neighbors at a time, in the trim's batch `g`. A block on the
-/// list is free, and those other threads free meanwhile go to
-/// `Heap.remote`, which this leaves alone, so no page given back holds a
-/// block anyone uses or will free; and only this heap's own `newPage`
-/// takes a page given back, after the trim.
-fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block, g: *GiveBack) usize {
+/// a run of neighbors at a time. A block on the list is free, and those
+/// other threads free meanwhile go to `Heap.remote`, which this leaves
+/// alone, so no page given back holds a block anyone uses or will free.
+/// The pages go in the trim's batch `b`; only this heap's `newPage`
+/// hands them out again, after the trim.
+fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block, b: *Batch) usize {
     // A page is wholly free when its count is every block it was carved
     // into: a page still being carved holds fewer on the list than that.
     // Only the lists of the classes with such a page are walked again.
@@ -752,7 +750,9 @@ fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block, g: *Giv
         while (bits != 0) {
             const first = @ctz(bits);
             const run = @ctz(~(bits >> @intCast(first)));
-            g.addPages(@intFromPtr(s) + first * page_size, run * page_size);
+            // From the byte before the run: `add` takes the pages past
+            // the one that holds its first byte.
+            _ = b.add(@intFromPtr(s) + first * page_size - 1, run * page_size + 1);
             bits &= ~(((@as(u64, 1) << @intCast(run)) - 1) << @intCast(first));
         }
         given += @popCount(whole) * page_size;
@@ -810,15 +810,9 @@ const keep_resident: usize = 1 << 20;
 /// back.
 fn decommit(p: usize, len: usize) usize {
     const r = innerPages(p, len) orelse return 0;
-    return if (freePages(@intFromPtr(r.at), r.len)) r.len else 0;
-}
-
-/// Give the `len` bytes of whole pages at `at` back to the system, as
-/// `decommit` does. False if the system did not.
-fn freePages(at: usize, len: usize) bool {
-    const advice: u32 = if (builtin.os.tag == .linux) std.os.linux.MADV.DONTNEED else if (builtin.os.tag.isDarwin()) madv_free_reusable else return false;
-    std.posix.madvise(@ptrFromInt(at), len, advice) catch return false;
-    return true;
+    const advice: u32 = if (builtin.os.tag == .linux) std.os.linux.MADV.DONTNEED else if (builtin.os.tag.isDarwin()) madv_free_reusable else return 0;
+    std.posix.madvise(r.at, r.len, advice) catch return 0;
+    return r.len;
 }
 
 /// The `len` bytes at `p`, taken from the heap's cold blocks, used
@@ -845,120 +839,44 @@ fn innerPages(p: usize, len: usize) ?struct { at: [*]align(std.heap.page_size_mi
 const madv_free_reusable: u32 = 7;
 const madv_free_reuse: u32 = 8;
 
-/// The pages one trim gives back (`trimHeap`), given back together. On
-/// Linux each call that drops pages interrupts every other core running
-/// one of the program's threads, to flush its TLB (a shootdown), however
-/// few the pages; one `process_madvise` of this process (`PIDFD_SELF`)
-/// over many ranges interrupts them once. A trim of a checker's heap in
-/// Trig (nuxt, eight checkers, on Linux 7.0) gave back about 38 ranges
-/// with a `madvise` and a shootdown each, while the last checkers ran.
-/// Ranges beside each other join, and a full batch is given back before
-/// more join. A span joins with its pages: it reads as handed out, so no
-/// other thread takes it, until its pages have gone, then goes back to
-/// its heap cold (`finish`); the link to the next such span lives in its
-/// first page, which stays resident (`innerPages`). On the Mac, and on a
-/// Linux that refuses the call (before 6.13, or 6.15 for `PIDFD_SELF`),
-/// each range has a call of its own, as `decommit` makes.
-const GiveBack = struct {
-    ranges: [give_back_max]std.posix.iovec_const = undefined,
+/// Pages given back together, as `decommit` gives them back one block
+/// at a time. On Linux each call that drops pages interrupts every other
+/// core running the program to flush its TLB, however few the pages; one
+/// `process_madvise` of the process (`PIDFD_SELF`, Linux 6.15) over many
+/// ranges interrupts them once. A trim of a Trig checker's heap (nuxt,
+/// eight checkers) gave back about 38 ranges, a `madvise` and a
+/// shootdown each, while the last checkers ran. Where Linux refuses,
+/// each range gets a `madvise`; elsewhere each is given back as it is
+/// added.
+const Batch = struct {
+    ranges: [batch_max]std.posix.iovec_const = undefined,
     count: usize = 0,
-    spans: ?*CoolingSpan = null,
+    bytes: usize = 0,
 
-    const CoolingSpan = struct { next: ?*CoolingSpan };
-
-    /// The pages of the block of `len` bytes at `p` that `decommit`
-    /// would give back. Gives their bytes.
-    fn add(g: *GiveBack, p: usize, len: usize) usize {
-        if (builtin.os.tag != .linux) return decommit(p, len) else {
-            const r = innerPages(p, len) orelse return 0;
-            g.addPages(@intFromPtr(r.at), r.len);
-            return r.len;
-        }
+    /// The pages of the `len` bytes at `p` that `decommit` would give
+    /// back. Gives their bytes.
+    fn add(b: *Batch, p: usize, len: usize) usize {
+        if (builtin.os.tag != .linux) return decommit(p, len);
+        const r = innerPages(p, len) orelse return 0;
+        if (b.count == batch_max) b.flush();
+        b.ranges[b.count] = .{ .base = r.at, .len = r.len };
+        b.count += 1;
+        b.bytes += r.len;
+        return r.len;
     }
 
-    /// The `len` bytes at `at`, whole pages, on Linux.
-    fn addPages(g: *GiveBack, at: usize, len: usize) void {
-        comptime std.debug.assert(builtin.os.tag == .linux);
-        if (g.count > 0) {
-            const last = &g.ranges[g.count - 1];
-            if (@intFromPtr(last.base) + last.len == at) {
-                last.len += len;
-                return;
-            }
-        }
-        if (g.count == give_back_max) g.flush();
-        g.ranges[g.count] = .{ .base = @ptrFromInt(at), .len = len };
-        g.count += 1;
-    }
-
-    /// The free span of `len` bytes at `at`, handed out to the trim.
-    fn addSpan(g: *GiveBack, at: usize, len: usize) usize {
-        const given = g.add(at, len);
-        const c: *CoolingSpan = @ptrFromInt(at);
-        c.next = g.spans;
-        g.spans = c;
-        return given;
-    }
-
-    /// Give back the ranges.
-    fn flush(g: *GiveBack) void {
-        if (builtin.os.tag != .linux) return;
-        const vs = g.ranges[0..g.count];
-        g.count = 0;
+    fn flush(b: *Batch) void {
+        const vs = b.ranges[0..b.count];
+        const bytes = b.bytes;
+        b.* = .{};
         if (vs.len == 0) return;
-        if (builtin.is_test) calls_for_test.give_backs += 1;
-        if (vs.len > 1 and dontNeedAll(vs)) return;
-        for (vs, 0..) |v, i| {
-            if (builtin.is_test and i > 0) calls_for_test.give_backs += 1;
-            _ = freePages(@intFromPtr(v.base), v.len);
-        }
-    }
-
-    /// Give back the ranges, then put the spans back on `h`'s free
-    /// spans, cold.
-    fn finish(g: *GiveBack, h: *Heap) void {
-        g.flush();
-        const sp = &h.spans;
-        if (g.spans == null) return;
-        sp.lock.lock();
-        while (g.spans) |c| {
-            g.spans = c.next;
-            const at = @intFromPtr(c);
-            const seg = spanSegmentOf(at);
-            const s = spanIndex(seg, at);
-            putSpan(sp, seg, s, seg.tags[s], true);
-        }
-        sp.lock.unlock();
+        const self: usize = @bitCast(@as(isize, -10000));
+        if (std.os.linux.syscall5(.process_madvise, self, @intFromPtr(vs.ptr), vs.len, std.os.linux.MADV.DONTNEED, 0) == bytes) return;
+        for (vs) |v| std.posix.madvise(@ptrFromInt(@intFromPtr(v.base)), v.len, std.os.linux.MADV.DONTNEED) catch {};
     }
 };
 
-/// The most ranges a `GiveBack` holds before it gives them back.
-const give_back_max = 64;
-
-/// `MADV_DONTNEED` for every range of `vs` in one `process_madvise` of
-/// this process, on Linux. False where the system refuses, which it is
-/// then not asked again, or advised only some (the caller advises each,
-/// which drops nothing twice).
-fn dontNeedAll(vs: []const std.posix.iovec_const) bool {
-    if (process_madvise_refused.load(.monotonic)) return false;
-    if (builtin.is_test and process_madvise_fails_for_test) return false;
-    const pidfd_self: usize = @bitCast(@as(isize, -10000));
-    const rc = std.os.linux.syscall5(.process_madvise, pidfd_self, @intFromPtr(vs.ptr), vs.len, std.os.linux.MADV.DONTNEED, 0);
-    if (std.os.linux.errno(rc) != .SUCCESS) {
-        process_madvise_refused.store(true, .monotonic);
-        return false;
-    }
-    var bytes: usize = 0;
-    for (vs) |v| bytes += v.len;
-    return rc == bytes;
-}
-
-/// Whether Linux refused `dontNeedAll`'s call once.
-var process_madvise_refused_var: std.atomic.Value(bool) = .init(false);
-const process_madvise_refused = split.cell(&process_madvise_refused_var, "alloc.process_madvise_refused");
-
-/// Test only: `dontNeedAll` refuses, as an older Linux does.
-var process_madvise_fails_for_test = false;
+const batch_max = 64;
 
 /// The bytes a large block takes: under `span_max`, its length rounded
 /// up to whole `span_unit`s, a span's; from it, its length rounded up to
@@ -2026,34 +1944,41 @@ fn growSpan(h: *Heap, p: usize, old_size: usize, new_size: usize, fresh: bool) b
 /// the smallest span that alone brings it within, or else the largest,
 /// and again, so it keeps its largest warm. Each is taken from its bin
 /// and reads as handed out while its pages are given back, then is put
-/// back cold. Gives the bytes given back.
-/// With `g`, a trim's batch (`GiveBack`), the pages go in it and the span
-/// is put back cold once the batch has given them back.
-fn coolSpans(o: *Heap, all: bool, g: ?*GiveBack) usize {
+/// back cold, `batch_max` at a time, their pages in one batch (`Batch`):
+/// `into`'s, a trim's, else its own. Gives the bytes given back.
+fn coolSpans(o: *Heap, all: bool, into: ?*Batch) usize {
     const sp = &o.spans;
+    var own: Batch = .{};
+    const b = into orelse &own;
+    var held: [batch_max]usize = undefined;
     var given: usize = 0;
     while (true) {
-        if (sp.warm.held.load(.monotonic) == 0) return given;
-        sp.lock.lock();
-        const bound = if (all) 0 else spanBound(sp);
-        const p = if (sp.warm.bytes <= bound) null else findSpan(&sp.warm, @min(spanUnits(sp.warm.bytes - bound), span_units)) orelse
-            @intFromPtr(sp.warm.list[63 - @clz(sp.warm.held.raw)].?);
-        const at = p orelse {
+        var n: usize = 0;
+        while (n < batch_max and sp.warm.held.load(.monotonic) != 0) : (n += 1) {
+            sp.lock.lock();
+            const bound = if (all) 0 else spanBound(sp);
+            const p = if (sp.warm.bytes <= bound) null else findSpan(&sp.warm, @min(spanUnits(sp.warm.bytes - bound), span_units)) orelse
+                @intFromPtr(sp.warm.list[63 - @clz(sp.warm.held.raw)].?);
+            const at = p orelse {
+                sp.lock.unlock();
+                break;
+            };
+            const seg = spanSegmentOf(at);
+            const s = spanIndex(seg, at);
+            const units = unlinkSpan(sp, seg, s);
+            handOutSpan(seg, s, units);
             sp.lock.unlock();
-            return given;
-        };
-        const seg = spanSegmentOf(at);
-        const s = spanIndex(seg, at);
-        const n = unlinkSpan(sp, seg, s);
-        handOutSpan(seg, s, n);
-        sp.lock.unlock();
-        if (g) |b| {
-            given += b.addSpan(at, n * span_unit);
-            continue;
+            given += b.add(at, units * span_unit);
+            held[n] = at;
         }
-        given += decommit(at, n * span_unit);
+        if (n == 0) return given;
+        b.flush();
         sp.lock.lock();
-        putSpan(sp, seg, s, n, true);
+        for (held[0..n]) |at| {
+            const seg = spanSegmentOf(at);
+            const s = spanIndex(seg, at);
+            putSpan(sp, seg, s, seg.tags[s], true);
+        }
         sp.lock.unlock();
     }
 }
@@ -4087,6 +4012,36 @@ test "on Linux a span segment asks for huge pages for all of it while 2 MiB bloc
     }
 }
 
+test "on Linux free spans apart, more than a batch holds, all give their pages back in batches and go back cold, and the spans between them keep theirs" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    var h = testHeap();
+    h.taken = prefault_big;
+    const len: usize = 40 << 10;
+    const pg = std.heap.pageSize();
+    var spans: [2 * batch_max + 10][*]u8 = undefined;
+    for (&spans) |*p| {
+        p.* = allocLarge(&h, len).?;
+        @memset(p.*[0..len], 3);
+    }
+    // Every other span freed: free spans with a span in use between.
+    var freed: usize = 0;
+    for (spans, 0..) |p, i| if (i % 2 == 0) {
+        freeLarge(&h, p, len);
+        freed += 1;
+    };
+    try std.testing.expect(freed > batch_max);
+    try std.testing.expectEqual(freed * len, h.spans.warm.bytes);
+    try std.testing.expectEqual(freed * (len - pg), coolSpans(&h, true, null));
+    try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes);
+    try std.testing.expectEqual(freed * len, h.spans.cold.bytes);
+    for (spans, 0..) |p, i| {
+        try std.testing.expectEqual(if (i % 2 == 0) pg else len, try residentForTest(p, len));
+        if (i % 2 == 1) try std.testing.expectEqual(@as(u8, 3), p[len - 1]);
+    }
+    for (spans, 0..) |p, i| if (i % 2 == 1) freeLarge(&h, p, len);
+    trimAllForTest(&h);
+}
+
 test "on Linux a free span whose pages went back to the system holds one page, and is written whole when taken again" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     var h = testHeap();
@@ -4955,46 +4910,6 @@ test "an idle heap gives back its kept large blocks' pages and, on Linux, its wh
     h.donor.store(false, .monotonic);
     _ = donors.fetchSub(1, .monotonic);
     trimAllForTest(&h);
-}
-
-test "on Linux a trim gives back its free span's pages and its wholly free pages, apart from each other, in one call, or one each where the system refuses" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
-    defer process_madvise_fails_for_test = false;
-    for ([_]bool{ false, true }) |refused| {
-        process_madvise_fails_for_test = refused;
-        var h = testHeap();
-        h.taken = prefault_big;
-        // A free span, warm, and the first and third of three pages of
-        // 1 KiB blocks wholly free: three ranges apart.
-        const big = allocLarge(&h, 1 << 20).?;
-        @memset(big[0 .. 1 << 20], 1);
-        freeLarge(&h, big, 1 << 20);
-        const c = classOf(1024, .@"8").?;
-        const per = page_size / classSize(c);
-        var blocks: [3 * 64][*]u8 = undefined;
-        for (&blocks) |*p| {
-            p.* = h.alloc(c).?;
-            @memset(p.*[0..1024], 0x5a);
-        }
-        for (blocks, 0..) |p, i| if (i != per) h.freeSmall(p, c);
-        const pages: [*]u8 = @ptrFromInt(@intFromPtr(blocks[0]));
-        try std.testing.expectEqual(3 * page_size, try residentForTest(pages, 3 * page_size));
-        calls_for_test.give_backs = 0;
-        const given = trimHeap(&h);
-        try std.testing.expectEqual((1 << 20) - std.heap.pageSize() + 2 * page_size, given);
-        const batched = !refused and !process_madvise_refused.load(.monotonic);
-        try std.testing.expectEqual(@as(usize, if (batched) 1 else 3), calls_for_test.give_backs);
-        // The pages are with the system, the span is cold, and the page
-        // still holding a block keeps it.
-        try std.testing.expectEqual(page_size, try residentForTest(pages, 3 * page_size));
-        try std.testing.expectEqual(std.heap.pageSize(), try residentForTest(big, 1 << 20));
-        try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes);
-        try std.testing.expectEqual(@as(usize, 1 << 20), h.spans.cold.bytes);
-        try std.testing.expectEqual(@as(u8, 0x5a), blocks[per][1023]);
-        h.donor.store(false, .monotonic);
-        _ = donors.fetchSub(1, .monotonic);
-        trimAllForTest(&h);
-    }
 }
 
 test "a trim gives away a free list whole, in its order, with the blocks other threads freed into the heap after it" {
