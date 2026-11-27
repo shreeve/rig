@@ -2109,8 +2109,9 @@ viewed with `?t[s]` or `!t[s]`, and assigned (dropping the old value).
 `!t.push(x)` makes a write view of the table, assigns slot `len`, and returns
 it. It desugars to the forms above: `t[s]` is the element `s` of an
 array of `n` elements the table owns, and `!t.push(x)` is
-`t[len] = x; len += 1` after a test that `len < n`. No rule here
-changes for it. *(built)*
+`t[len] = x; len += 1` after a test that `len < n`; `!t.grow(k)` is
+`len += k` after a test that `len + k <= n`, each slot keeping what it
+holds. No rule here changes for it. *(built)*
 
 ```rig reject
 sub main()

@@ -138,6 +138,20 @@ fn reserve(bytes: usize) [*]align(page) u8 {
     return p;
 }
 
+/// `MADV_POPULATE_WRITE` (Linux 5.14): fault in a range's pages for
+/// writing, as a write to each would, in one system call.
+const madv_populate_write = 23;
+
+/// Faults in the pages of `base[lo..hi]`, a range of a reservation, for
+/// writing (`Table.grow`); the range widens to whole pages, which the
+/// reservation holds. A refusal leaves the pages to fault in as they are
+/// touched, so it is ignored.
+fn populate(base: [*]u8, lo: usize, hi: usize) void {
+    const start = std.mem.alignBackward(usize, @intFromPtr(base) + lo, page);
+    const stop = std.mem.alignForward(usize, @intFromPtr(base) + hi, page);
+    _ = std.os.linux.madvise(@ptrFromInt(start), stop - start, madv_populate_write);
+}
+
 fn unreserve(p: [*]align(page) u8, bytes: usize) void {
     if (comptime !leak_checked) if (rt.fast_alloc.unreserveTable(p, bytes)) return;
     std.posix.munmap(p[0..bytes]);
@@ -222,9 +236,26 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         pub fn pushRuns(self: *Self, total: u64) u64 {
             if (total > n - self.len) fullPanic(n);
             const first = self.len;
-            if (comptime how == .committed) if (total > 0 and first + total > self.cap) self.grow(@intCast(first + total - 1));
+            if (comptime how == .committed) if (total > 0 and first + total > self.cap) self.hold(@intCast(first + total - 1));
             self.len += total;
             return first;
+        }
+
+        /// `!t.grow(k)`: pushes `k` slots at once, as `k` pushes would,
+        /// and panics as `push` does unless they fit; `k = 0` does
+        /// nothing. Each slot keeps what it holds, `T()` unless written
+        /// by slot. On Linux a reserved table then faults in those
+        /// slots' pages for writing with one `MADV_POPULATE_WRITE`, so a
+        /// later read of one finds a page of its own rather than the
+        /// shared zero page, whose first write would copy it and flush
+        /// every other core's TLB of it. A kernel without the advice
+        /// (before 5.14) refuses it, and the pages then fault in as they
+        /// are touched, as any reserved table's do.
+        pub fn grow(self: *Self, k: rt.Int) void {
+            const total = std.math.cast(u64, k) orelse @panic("negative size");
+            if (total == 0) return;
+            const first = self.pushRuns(total);
+            if (comptime how == .reserved and builtin.os.tag == .linux and @sizeOf(T) > 0) populate(@ptrCast(self.slots), first * @sizeOf(T), (first + total) * @sizeOf(T));
         }
 
         /// A slot's offset: below `n` by its type, which a debug build
@@ -249,7 +280,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// `t[s]` as a place to write.
         pub inline fn slot(self: *Self, s: Index) *T {
             const i = offset(s);
-            if (comptime how == .committed) if (i >= self.cap) self.grow(i);
+            if (comptime how == .committed) if (i >= self.cap) self.hold(i);
             return &self.slots[i];
         }
 
@@ -273,8 +304,8 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         const zero: T = if (how == .committed) std.mem.zeroes(T) else undefined;
 
         /// A committed table, written at `i`: the slots up to `i` held,
-        /// at least doubling, zeroed. A read never grows it.
-        noinline fn grow(self: *Self, i: usize) void {
+        /// at least doubling, zeroed. A read never holds more.
+        noinline fn hold(self: *Self, i: usize) void {
             @branchHint(.cold);
             const limit: usize = if (comptime n > std.math.maxInt(usize)) std.math.maxInt(usize) else @intCast(n);
             const want = @min(limit, @max(i +| 1, self.cap *| 2, 64));
@@ -320,4 +351,27 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             }
         }
     };
+}
+
+test "grow pushes slots that read as T(), and push follows them" {
+    var t = Table(u32, 1 << 16).init();
+    defer t.__rig_drop();
+    t.grow(0);
+    try std.testing.expectEqual(@as(u64, 0), t.len);
+    t.grow(5000);
+    try std.testing.expectEqual(@as(u64, 5000), t.len);
+    try std.testing.expectEqual(@as(u32, 0), t.at(4999));
+    t.slot(4000).* = 7;
+    try std.testing.expectEqual(@as(u32, 7), t.at(4000));
+    try std.testing.expectEqual(@as(Slot(1 << 16), 5000), t.push(9));
+    t.grow((1 << 16) - 5001);
+    try std.testing.expectEqual(@as(u64, 1 << 16), t.len);
+    try std.testing.expectEqual(@as(u32, 9), t.at(5000));
+
+    var m = Table(f64, 8).init();
+    defer m.__rig_drop();
+    m.grow(3);
+    try std.testing.expectEqual(@as(u64, 3), m.len);
+    try std.testing.expectEqual(@as(f64, 0), m.at(2));
+    try std.testing.expectEqual(@as(Slot(8), 3), m.push(1.5));
 }

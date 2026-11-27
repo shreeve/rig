@@ -852,6 +852,7 @@ test {
     _ = fast_alloc;
     _ = ordered_zig;
     _ = unordered_zig;
+    _ = table_zig;
 }
 
 // -----------------------------------------------------------------------------
@@ -3911,6 +3912,28 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 self.len -= 1;
                 dropElement(T, &m.ptr[self.len]);
             }
+        }
+
+        /// `!v.fit()`: the buffer cut to the elements the List holds, so
+        /// it holds no room past them: freed when it holds none, and for
+        /// a List with inline room, its elements moved back into the List
+        /// when they fit there. A large buffer is cut where it lies, its
+        /// room past the elements given back to the allocator with no
+        /// copy (`alloc.shrinkLarge`); a small one is copied into the
+        /// smallest block that holds them (`reallocSlice`).
+        pub fn fit(self: *Self) void {
+            if (comptime @sizeOf(T) == 0) return;
+            if (comptime inline_len > 0) {
+                if (self.buf.len == 0) return;
+                if (self.len <= inline_len) {
+                    @memcpy(self.inline_buf[0..self.len], self.buf[0..self.len]);
+                    freeSlice(T, self.buf);
+                    self.buf = &.{};
+                    return;
+                }
+            }
+            if (self.buf.len == self.len) return;
+            self.buf = reallocSlice(T, self.buf, self.len);
         }
 
         /// `!v.keep(n)`: keep the first `n` elements and drop the rest,
@@ -8690,8 +8713,8 @@ fn endProcess(status: u8) noreturn {
 /// process with status `code` at once, from any task. No drop, `defer`,
 /// or leak check runs, and the program's other tasks end with it. A
 /// `code` outside 0..255 panics, as `fun main() -> Int`'s does. On the
-/// Mac a release build may first stop the other workers and unmap the
-/// program's memory on all of them, which the kernel would otherwise
+/// Mac and Linux a release build may first stop the other workers and
+/// give back the program's memory on all of them, which the kernel would otherwise
 /// free on one core as the process ends (`sched.tearDown`).
 pub fn exitNow(code: Int) noreturn {
     const status = exitStatus(code);
