@@ -9,7 +9,7 @@ lookup 8, 16, or 64 ahead. It is not part of the test suite or CI.
 
 ```sh
 bin/rig build --release bench/prefetch/lookup.rig
-cpuq drain --max 20m --label rig:prefetch -- ./lookup              # the Mac
+cpuq drain --all --label rig:prefetch -- ./lookup              # the Mac
 taskset -c 8 ./lookup           # pup, on a P-core whose sibling is idle
 ```
 

@@ -9,7 +9,7 @@ index and its base.
 
 ```sh
 cpuq run --label rig:build -- bin/rig build --release bench/par-push/fill.rig -o /tmp/fill
-cpuq drain --max 20m --label rig:parpush -- /tmp/fill
+cpuq drain --all --label rig:parpush -- /tmp/fill
 ```
 
 | Form | How the records reach the table |

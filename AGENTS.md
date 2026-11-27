@@ -336,10 +336,14 @@ Machine-specific practice (the owner's machines):
   state; everything else runs on E-cores 12-19. `/tmp` is a 16 GB tmpfs shared
   with other projects' gates: binaries and outputs go on `/zfs`.
   `tools/pup-rig COMMIT` builds the Rig under test in its own folder.
-- **Timing on the Mac** runs as `cpuq drain --max 20m --label rig:TASK
-  -- CMD`: cpuq lets every run give its CPUs back, then runs CMD alone,
-  or gives up (exit 75) past its limit. Never pause a running job
-  (SIGSTOP) that has a timeout: it is killed the moment it resumes.
+- **Timing** runs under `cpuq drain`: `-c N --label rig:TASK -t LIMIT --
+  CMD` gathers N CPUs ahead of the line and runs CMD alone on them,
+  pinned on Linux (`$CPUQ_CPUS` lists them; pin to those, never to CPUs
+  named by hand), while the rest of the machine keeps working; `--all`
+  empties the whole machine, for at most 20 minutes, for a board that
+  needs every core. `--max T` gives up waiting (exit 75). Never pause a
+  running job (SIGSTOP) that has a timeout: it is killed the moment it
+  resumes.
 - **The Mac:** suites run with `-w 4` under `cpuq run --driver`.
 - **burst** is billed by the minute: use it in short bursts, and shut it
   down (`sudo -n shutdown -h now`) when nothing runs on it.
