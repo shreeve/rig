@@ -1142,8 +1142,9 @@ sub main()
 ```
 
 One asks for them: `xs.prefetch(i)` tells the processor that element
-`i` of a `[]T`, an array, or a List will be read soon, so its cache line
-is on the way before the read that needs it. It reads `xs` for the call
+`i` of a `[]T`, an array, or a List, or byte `i` of text (a `String`,
+a `?String`, or a `Static`), will be read soon, so its cache line is on
+the way before the read that needs it. It reads `xs` for the call
 and nothing a program can see changes: `i` is any integer, and one out
 of range, negative or at `xs.len` or past it, does nothing, and never
 panics. It is one prefetch instruction for a read (`prfm` on ARM,
