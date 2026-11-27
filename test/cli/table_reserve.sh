@@ -58,6 +58,21 @@ expect_eq "$got" "$want" "a reserved table"
 got=$(RIG_TABLE_FALLBACK=1 rig run same.rig 2>&1) || fail "same, committed: $got"
 expect_eq "$got" "$want" "a committed table"
 
+cat >grown.rig <<'EOF2'
+sub main()
+  t: Table[Int, 100000] = Table()
+  _ = (!t).push(4)
+  !t.grow(70000)
+  t[50000] = 8
+  s = (!t).push(5)
+  print(t.len, t[0], t[69999], t[50000], s, t[s])
+EOF2
+want="70002 4 0 8 70001 5"
+got=$(rig run grown.rig 2>&1) || fail "grown: $got"
+expect_eq "$got" "$want" "a reserved table grown"
+got=$(RIG_TABLE_FALLBACK=1 rig run grown.rig 2>&1) || fail "grown, committed: $got"
+expect_eq "$got" "$want" "a committed table grown"
+
 cat >matched.rig <<'EOF2'
 sub main()
   t: Table[Int, 100000] = Table()

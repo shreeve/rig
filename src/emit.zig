@@ -6948,9 +6948,13 @@ pub const Emitter = struct {
     /// narrower unsigned one as LLVM `trunc nsw`, a promise that the value
     /// fits the narrower *signed* type, so in a release build any value at
     /// or above the target's sign bit would be poison (`U8(200) >= 128`
-    /// false). From the unsigned type the narrowing is `trunc nuw`, and a
-    /// negative value still fails the first cast. A constant is cast when
-    /// Zig compiles.
+    /// false). From the unsigned type the narrowing is `trunc nuw`. When
+    /// the target's width is known the first step is `@bitCast`: a
+    /// negative value's bits are then above the target's largest value,
+    /// so the one unsigned test of the narrowing rejects it too, with the
+    /// same panic. An enum's backing type (`to_bits` null) may be as wide
+    /// as the value, so there the first step is `@intCast`, which rejects
+    /// a negative value itself. A constant is cast when Zig compiles.
     fn openUnsignedCast(self: *Emitter, value: Sexp, from: ?TypeId, to_bits: ?u8) Error!bool {
         try self.w.writeAll("@intCast(");
         const ty = from orelse return false;
@@ -6960,7 +6964,7 @@ pub const Emitter = struct {
         };
         if (!info.signed or self.literalLeaves(value)) return false;
         if (to_bits) |bits| if (bits >= info.width()) return false;
-        try self.w.print("@as(u{d}, @intCast(", .{info.width()});
+        try self.w.print("@as(u{d}, @{s}(", .{ info.width(), if (to_bits == null) "intCast" else "bitCast" });
         return true;
     }
 
@@ -9640,6 +9644,18 @@ pub const Emitter = struct {
                 }
                 return self.w.writeAll(" })");
             },
+            // `task.poll(name: arm, ...)`: the select's value, of the
+            // winner's variant, or none when no arm can complete now.
+            .poll_value => {
+                try self.w.writeAll(rt(.pollValue) ++ "(");
+                try self.emitTypeTy(self.facts.types.get(self.typeOf(sexp).?).optional);
+                try self.w.writeAll(", .{ ");
+                for (args, 0..) |arm, i| {
+                    if (i > 0) try self.w.writeAll(", ");
+                    try self.emitExpr(argValue(arm));
+                }
+                return self.w.writeAll(" })");
+            },
             // `task.select(arm, ...)`: each arm a channel operation and the
             // function the runtime calls with the slot when it is the one
             // that commits.
@@ -9891,7 +9907,8 @@ pub const Emitter = struct {
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
     /// chosen by the kinds of the two types; a signed integer converted to
-    /// an unsigned one goes through `openUnsignedCast`. Zig checks that the
+    /// a narrower unsigned one goes through `openUnsignedCast`,
+    /// `U32(x)` → `@as(u32, @intCast(@as(u64, @bitCast(@as(i64, x)))))`. Zig checks that the
     /// value fits in safe builds; `@trunc` truncates toward zero, and
     /// `rig.notNan` panics on a NaN.
     fn emitConversion(self: *Emitter, call: Sexp) Error!void {

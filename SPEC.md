@@ -1142,8 +1142,9 @@ sub main()
 ```
 
 One asks for them: `xs.prefetch(i)` tells the processor that element
-`i` of a `[]T`, an array, or a List will be read soon, so its cache line
-is on the way before the read that needs it. It reads `xs` for the call
+`i` of a `[]T`, an array, or a List, or byte `i` of text (a `String`,
+a `?String`, or a `Static`), will be read soon, so its cache line is on
+the way before the read that needs it. It reads `xs` for the call
 and nothing a program can see changes: `i` is any integer, and one out
 of range, negative or at `xs.len` or past it, does nothing, and never
 panics. It is one prefetch instruction for a read (`prfm` on ARM,
@@ -11140,6 +11141,7 @@ are; a slot is plain data.
 |---|---|
 | `Table()`, `Table[T, n]()` | a table of `n` slots, each `T()` (typed by context or by brackets); made as the program runs, so it is never a field's default |
 | `!t.push(x)` | write slot `len`, add one to `len`, and give that slot as a `Slot[n]`; panics with "a table of `n` slots is full" when all `n` are pushed |
+| `!t.grow(k)` | push `k` slots at once, each holding what it reads as (`T()` unless written by slot), and give nothing; panics as `push` does when `len + k` would pass `n`, and on a negative `k`; `k = 0` does nothing |
 | `t.len` | the number of slots pushed |
 | `t[s]`, `t[s] = x` | slot `s`, a `Slot[n]`, a place as a List's element is: read in place, viewed with `?t[s]` or `!t[s]`, and assigned, which drops the old value; no test |
 | `t[i]` | with an integer `i`, the slot tested `0 <= i < n` (not `len`) |
@@ -11224,9 +11226,29 @@ sub main()
 type mismatch: expected `Slot[8]`, got `Int`
 ```
 
-A table grows only by `push` and never shrinks: it has no `pop`,
-`clear`, or `keep`, and no clone (`+t`). An id read from data enters
-with `of`, its one test.
+A table grows only by `push` and `grow` and never shrinks: it has no
+`pop`, `clear`, or `keep`, and no clone (`+t`). An id read from data
+enters with `of`, its one test.
+
+`!t.grow(k)` readies slots that are read by slot before they are
+written, such as an index from one store's ids to another's. On Linux a
+reserved table gives the grown slots' pages to the program at once, for
+writing, so the first read of such a slot finds a page of its own: a
+page first touched by a read is the system's shared page of zeros,
+which the first write copies.
+
+```rig
+sub main()
+  links: Table[Int, 8] = Table()
+  !links.grow(3)
+  links[1] = 5
+  s = !links.push(9)
+  print(links.len, links[0], links[1], s, links[s])
+```
+
+```output
+4 0 5 3 9
+```
 
 ### Boxes, `^T`
 
@@ -15756,7 +15778,7 @@ starves. It is a fallible waiting point too: a canceled task fails it
 with `task.Stop.canceled`, and past its deadline with
 `task.Stop.timeout`. An arm with no name is rejected, as is
 `on_recv`, `on_send`, `on_end`, or `time.after` anywhere but in a
-select.
+select (or, but for `time.after`, a poll, below).
 
 ```rig
 use std.task
@@ -15826,6 +15848,66 @@ sub main()!
 
 ```output
 near 10
+```
+
+`task.poll(name: arm, ...)` takes a select's arms but never waits: it
+commits whichever arm can complete now, trying them in the order that
+turns, and gives the select's value as an optional, `none` when no arm
+can. The value is taken out as any optional's is, `if task.poll(...)
+as r`, and `r` matched. An arm that does not complete changes nothing,
+and a send arm's value is dropped, as a losing arm's is. A poll parks
+no task, so it is no waiting point: it cannot fail, a canceled task's
+poll takes what is ready as any other's, and the task stops at its
+next waiting point. A deadline arm could never complete in it, and is
+rejected. The arms are checked as a select's: each is made before the
+poll tries any, and what an arm views stays limited, and what it sends
+stays taken, until the poll returns.
+
+```rig
+use std.task
+
+sub produce(ch: *Chan[Int], n: Int)!
+  for i in 1..n + 1
+    !ch.send(i)!
+  !ch.close()
+
+sub main()!
+  ch = *Chan[Int](4)
+  print(task.poll(got: !ch.on_recv()) == none)
+  p = produce(+ch, 4)&
+  sum = 0
+  open = true
+  while open
+    if task.poll(got: !ch.on_recv()) as r
+      match r
+        .got(v?) => sum += v
+        .got(none) => open = false
+    else
+      if !ch.recv()! as n
+        sum += n
+      else
+        open = false
+  >p!
+  print(sum)
+```
+
+```output
+true
+10
+```
+
+Matching the poll's value at once, with `none =>` beside the arms'
+variants, waits on `match` taking an optional subject:
+
+```rig pending
+use std.task
+
+sub main()!
+  ch = *Chan[Int](1)
+  match task.poll(got: !ch.on_recv())
+    .got(v?) => print(v)
+    .got(none) => print("closed")
+    none => print("nothing yet")
 ```
 
 The old spelling of a select, still accepted, gives each arm a
