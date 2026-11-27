@@ -20,7 +20,6 @@ const rules = @import("rules.zig");
 const notes = @import("notes.zig");
 const Checker = state.Checker;
 const Loan = state.Loan;
-const LoopCtx = state.LoopCtx;
 const Point = state.Point;
 const State = state.State;
 const Value = state.Value;

@@ -12,7 +12,6 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const Tag = rig.Tag;
 const TypeId = sema.TypeId;
-const SymbolId = sema.SymbolId;
 const Error = std.mem.Allocator.Error;
 const state = @import("state.zig");
 const live = @import("live.zig");
@@ -114,7 +113,7 @@ pub fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
 /// A statement of the module's compile-time body: its next statement,
 /// as lowering made them in the order `walkDecl` walks them.
 fn walkConstant(self: *Checker, sexp: Sexp) Error!void {
-    const st = lowered.stmtsOf(self, (self.lir_body orelse return).f.body);
+    const st = lowered.stmtsOf(self, self.lir_body.?.f.body);
     const i = self.const_at;
     self.const_at += 1;
     _ = try walkStmtValueE(self, if (i < st.len()) lowered.stmtAt(self, st.at(i)) else lowered.uncovered(self, sexp), null);
@@ -194,7 +193,7 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
     for (tparams.items()) |p| if (p != .src) try bindParam(self, p);
     try bindParams(self, params);
     try origins.bindSelfPaths(self);
-    const result = try walkBody(self, body, returns_value);
+    const result = try walkBody(self, returns_value);
     try self.popScopeWith(result.loans);
     if (name != .nil) try origins.checkOrigins(self, name, params);
     try self.rewind(outer);
@@ -205,12 +204,8 @@ pub fn walkFunOnce(self: *Checker, root: Sexp, name: Sexp, tparams: Sexp, params
 /// Walk a function body in the current scope. When the function
 /// returns a value, its last expression is the return value, whose
 /// loans it gives.
-pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
-    const b = self.lir_body orelse {
-        try notes.errAt(self, body, "internal error: this block has no lowered statements", .{});
-        return .{};
-    };
-    const st = lowered.stmtsOf(self, b.f.body);
+pub fn walkBody(self: *Checker, returns_value: bool) Error!Value {
+    const st = lowered.stmtsOf(self, self.lir_body.?.f.body);
     var result: Value = .{};
     for (0..st.len()) |i| {
         if (try exits.unreached(self, st, i)) break;
@@ -321,10 +316,7 @@ pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value 
 /// its last statement, which may not view the block's own locals.
 pub fn walkBlock(self: *Checker, e: lowered.Expr) Error!Value {
     const block = e.node;
-    const st = lowered.stmtsOf(self, lowered.blockOf(self, e) orelse {
-        _ = lowered.uncovered(self, block);
-        return .{};
-    });
+    const st = lowered.stmtsOf(self, lowered.blockOf(self, e) orelse lowered.uncovered(self, block));
     const t = takeTail(self, block);
     try self.pushScopeFor(.block, block);
     var v: Value = .{};
@@ -3220,7 +3212,7 @@ pub fn walkLambda(self: *Checker, le: lowered.Expr, owned: bool) Error!Value {
         }, .{ .loans = cv.loans });
     }
     try bindParams(self, params);
-    const result = try walkBody(self, body, returns_value);
+    const result = try walkBody(self, returns_value);
     try self.popScopeWith(result.loans);
     try origins.checkOrigins(self, .nil, params);
     self.func = saved_func;

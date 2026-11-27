@@ -3412,8 +3412,9 @@ region made for it (`lowered.partExpr`). The place walker (views,
 moves, slices, takes) and the path of an assignment's target take each
 part as an operand of the part that holds it. Liveness reads the LIR's
 flow (`live.Flow`, "Liveness" below): each name a var is read or
-dropped at, and a pattern's names, which LIR does not lower. A node no LIR operation reaches is walked from the
-tree (`lowered.exprAt`), as is a body the LIR does not cover.
+dropped at, and a pattern's names, which LIR does not lower. A node
+the walk reaches with no LIR made for it, or a body with none, is an
+internal error (`lowered.uncovered`), in every build.
 
 **State.** Every binding in scope is a `Var` (name, type, kind: local,
 parameter, capture, pattern, loop element) paired with a `Flow`: its
