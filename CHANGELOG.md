@@ -474,6 +474,24 @@ serve no HTTP.
 
 ### Added
 
+- **`task.poll(name: arm, ...)`, a select that never waits**
+  ([SPEC "Channels"](SPEC.md#channels), [std.task](docs/STD.md#stdtask)).
+  It takes the named select's receive, send, and task-end arms, commits
+  whichever can complete now, and gives the select's value as an
+  optional, `none` when no arm can: `if task.poll(got: !ch.on_recv()) as
+  r`, then `match r` with arms `.got(v?)` and `.got(none)`. A `match`
+  on the poll itself is rejected with a message that names `none` and
+  says to take the value out first; matching `none =>` beside the arms
+  waits on `match` taking an optional subject. It parks no task, so it is no waiting point and cannot fail:
+  a canceled task's poll takes what is ready, and the task stops at its
+  next waiting point. A deadline arm, which could never complete in a
+  poll, is rejected. The arms are checked as a select's; a send arm
+  that does not complete drops its value. It lowers to `rig.pollValue`,
+  which tries the arms under their channels' locks from a place that
+  turns, as a select does before it would park, and gives an optional
+  of the select's union. A loop takes each result that is ready and
+  does other work between them, as Trig's file loader interns names
+  between results.
 - **`cost:` on `par.map`, `par.each`, `par.workers`, and `par.push`**
   ([SPEC "Each element on several tasks"](SPEC.md#each-element-on-several-tasks),
   [std.par](docs/STD.md#stdpar)). It gives each element's cost, an

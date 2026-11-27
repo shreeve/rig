@@ -3752,6 +3752,7 @@ pub fn stdForm(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32,
     if (eql(u8, module, "std.task")) {
         if (eql(u8, name, "all")) return try taskJoin(self, pos, args);
         if (eql(u8, name, "select")) return try taskSelect(self, pos, args);
+        if (eql(u8, name, "poll")) return try taskPoll(self, pos, args);
         if (eql(u8, name, "isolate") or eql(u8, name, "supervise")) return try isolateCall(self, eql(u8, name, "supervise"), pos, args);
     } else if (eql(u8, module, "std.par")) {
         if (eql(u8, name, "workers")) return try parWorkers(self, pos, args);
@@ -4334,7 +4335,7 @@ pub fn chanMake(self: *Checker, call: Sexp, e: Sexp, ty: TypeId, args: []const S
 /// view, or a function's name. A fallible waiting point.
 pub fn taskSelect(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     if (args.len == 0) return try CallCheck.badCall(self, args, pos, "`task.select` takes the arms to wait on, each named: `task.select(got: !ch.on_recv(), late: time.after(ms: 50))`", .{});
-    for (args) |a| if (a.isKind(.kwarg)) return taskSelectNamed(self, pos, args);
+    for (args) |a| if (a.isKind(.kwarg)) return taskSelectNamed(self, .select, pos, args);
     // An arm of the named form written without its name.
     for (args) |arm| if (try namedArmShape(self, arm))
         return try badArms(self, args, arm, "each arm of `task.select` has a name, the variant its value matches in a `match`: `{s}: {s}`", .{ try armName(self, arm), try armText(self, arm) });
@@ -4402,6 +4403,19 @@ pub fn taskSelect(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     return try self.ctx.intern(.{ .fallible = .{ .ok = value } });
 }
 
+/// `task.poll(name: arm, ...)`: the named select's arms, given at once
+/// to whichever can complete now, else none (`taskSelectNamed`). It
+/// never waits, so it is no waiting point and cannot fail, and a
+/// deadline arm, which could never complete in it, is rejected.
+pub fn taskPoll(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
+    if (args.len == 0) return try CallCheck.badCall(self, args, pos, "`task.poll` takes the arms to try, each named: `task.poll(got: !ch.on_recv())`, and gives `none` when none can complete now", .{});
+    return taskSelectNamed(self, .poll, pos, args);
+}
+
+/// Which named form a call is: `task.select`, which waits, or
+/// `task.poll`, which does not.
+pub const SelectForm = enum { select, poll };
+
 /// `task.select(name: arm, ...)`: wait until one arm can complete,
 /// commit it alone, and give a value of the select's own type
 /// (`sema.selectType`), whose variants are the arms' names: a
@@ -4409,9 +4423,16 @@ pub fn taskSelect(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
 /// channel is closed and empty; a send, `!ch.on_send(<v)`, and a
 /// deadline, `time.after(ns)`, carry nothing. No arm holds a
 /// function, so the `match` on the value runs the winner's body in
-/// the enclosing scope. A fallible waiting point.
-pub fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
-    const shape = "each arm of `task.select` is `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, `name: ?t.on_end()`, or `name: time.after(ms: 50)`";
+/// the enclosing scope. A fallible waiting point. `task.poll` (`form`
+/// `.poll`) takes the same arms but a deadline, and gives the value as
+/// an optional, `none` when no arm can complete now.
+pub fn taskSelectNamed(self: *Checker, form: SelectForm, pos: u32, args: []const Sexp) Error!TypeId {
+    const poll = form == .poll;
+    const call_name: []const u8 = if (poll) "task.poll" else "task.select";
+    const shape: []const u8 = if (poll)
+        "each arm of `task.poll` is `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, or `name: ?t.on_end()`"
+    else
+        "each arm of `task.select` is `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, `name: ?t.on_end()`, or `name: time.after(ms: 50)`";
     const a = self.ctx.arena.allocator();
     const names = try a.alloc([]const u8, args.len);
     const payloads = try a.alloc(?TypeId, args.len);
@@ -4422,10 +4443,10 @@ pub fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeI
         self.expect.callee_node = saved_callee;
     }
     for (args, names, payloads, 0..) |arg, *name, *payload, i| {
-        if (!arg.isKind(.kwarg)) return try badArms(self, args, arg, "each arm of `task.select` has a name, the variant its value matches in a `match`: `{s}: {s}`", .{ try armName(self, arg), try armText(self, arg) });
+        if (!arg.isKind(.kwarg)) return try badArms(self, args, arg, "each arm of `{s}` has a name, the variant its value matches in a `match`: `{s}: {s}`", .{ call_name, try armName(self, arg), try armText(self, arg) });
         name.* = self.text(ir.Kwarg.name(arg));
         for (names[0..i]) |earlier| if (std.mem.eql(u8, earlier, name.*))
-            return try badArms(self, args, ir.Kwarg.name(arg), "two arms of `task.select` are named `{s}`; each name is a variant of the value it gives, so each is its own", .{name.*});
+            return try badArms(self, args, ir.Kwarg.name(arg), "two arms of `{s}` are named `{s}`; each name is a variant of the value it gives, so each is its own", .{ call_name, name.* });
         const arm = ir.Kwarg.value(arg);
         if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return try badArms(self, args, arm, "{s}", .{shape});
         const callee = ir.Call.callee(arm);
@@ -4434,6 +4455,7 @@ pub fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeI
         self.expect.current_call = arm;
         self.expect.callee_node = callee;
         if (try isAfterArm(self, arm)) {
+            if (poll) return try badArms(self, args, arm, "`task.poll` does not wait, so the deadline arm `{s}` could never complete in it: drop it; the poll gives `none` when no arm can complete now", .{name.*});
             const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().int_id}), .returns = self.t().void_id, .is_sub = true };
             try noteCallee(self, f);
             try CallCheck.checkArgs(self, arm_args, f, .{ .names = &.{"d"}, .durations = sema.paramBit(0), .waits = true }, "time.after", self.startOf(callee), .{ .declared = f.params });
@@ -4468,7 +4490,7 @@ pub fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeI
         if (self.isPoison(handle_ty)) return try skipArms(self, args);
         const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try badArms(self, args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ CallCheck.sourceText(self, handle), try self.tyName(handle_ty), shape });
         if (arm_args.len != @as(usize, if (recv) 0 else 1)) {
-            if (recv) return try badArms(self, args, arm, "a named arm gives what it receives to the `match` on the select's value, and takes no function: `{s}: !{s}.on_recv()`", .{ name.*, CallCheck.sourceText(self, handle) });
+            if (recv) return try badArms(self, args, arm, "a named arm gives what it receives to the `match` on the {s}'s value, and takes no function: `{s}: !{s}.on_recv()`", .{ if (poll) "poll" else "select", name.*, CallCheck.sourceText(self, handle) });
             return try badArms(self, args, arm, "a named arm sends one value and takes no function: `{s}: !{s}.on_send(<v)`", .{ name.*, CallCheck.sourceText(self, handle) });
         }
         const f: FunctionType = .{ .params = if (recv) &.{} else try self.ctx.dupeIds(&.{elem}), .returns = self.t().void_id, .is_sub = true };
@@ -4478,9 +4500,15 @@ pub fn taskSelectNamed(self: *Checker, pos: u32, args: []const Sexp) Error!TypeI
         try self.ctx.record(.select_arms, arm, if (recv) .recv else .send);
         payload.* = if (recv) try self.ctx.intern(.{ .optional = elem }) else null;
     }
-    if (saved_call) |c| try self.ctx.record(.select_calls, c, {});
+    if (saved_call) |c| {
+        try self.ctx.record(.select_calls, c, {});
+        if (poll) try self.ctx.record(.poll_calls, c, {});
+    }
     self.ctx.makes_tasks = true;
-    return try self.ctx.intern(.{ .fallible = .{ .ok = try sema.selectType(self.ctx, names, payloads, pos) } });
+    const value = try sema.selectType(self.ctx, names, payloads, pos);
+    // A poll never waits, so it neither fails nor stops a canceled task.
+    if (poll) return try self.ctx.intern(.{ .optional = value });
+    return try self.ctx.intern(.{ .fallible = .{ .ok = value } });
 }
 
 /// The handle of a receive or send arm, `ch` of `!ch.on_recv()`, whose

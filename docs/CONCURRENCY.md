@@ -32,7 +32,7 @@ Rig gives each through the same `&` and `>t`, on one scheduler.
 | Tasks | Go | `f()&`, `Tasks[T]`, `task.all`, `<t.cancel()`, `time.within` |
 | Actors | Erlang | `*Actor(x)`, and its methods called through the handle |
 | Structured concurrency | Swift | nothing more: a task belongs to its scope |
-| Channels and select | Go's CSP | `*Chan[T](n)`, `task.select(...)` |
+| Channels and select | Go's CSP | `*Chan[T](n)`, `task.select(...)`, `task.poll(...)` |
 
 ### 1. Threads and preemption
 
@@ -349,7 +349,9 @@ complete, and commits that one alone, so no arm takes a value and then
 loses; ready arms are taken in a turning order, so none starves. An arm
 may also wait for a task's end, `done: ?t.on_end()`. A send and a
 receive are marked changes (`!`) and fallible waiting points, where a
-canceled task stops.
+canceled task stops. `task.poll(...)` takes the same arms and never
+parks: it commits an arm that can complete now, or gives `none`, so a
+loop takes each result that is ready and does other work between them.
 
 ## What happens on `f()&` and on `>t`
 
