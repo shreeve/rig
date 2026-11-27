@@ -37,7 +37,12 @@
 #
 # Every open and close is a line in PUP_SLOT_LOG (default
 # /zfs/trig-pup/slot-tools/slots.log): the slot, its kind, minutes and
-# label, the free 2 MiB blocks, swap in use, and the builds it paused.
+# label, the free 2 MiB blocks, swap in use, and the builds it paused,
+# then the free order-9 and order-10 blocks per zone (o9=, o10=) and
+# frag=ok|fragmented: fragmented when order-9 blocks, after compaction,
+# number fewer than PUP_SLOT_MIN_O9 (default 256); open also warns, and a
+# race scored from a fragmented slot can be voided. A close line (deadline
+# or early) records the same fields.
 # A race row records `pup-slot state`. A board race is void when tsrs
 # runs slow against its standing median (REVAMP.md section 10): the
 # scorer applies that rule, and this script records what explains it.
@@ -55,6 +60,20 @@ mkdir -p "$ST"
 # block (4 MiB) two. A fresh boot holds nearly all its free memory at
 # order 10, so counting order 9 alone read a few dozen on an empty pup.
 blocks() { awk '{ o9 += $(NF-1); o10 += $NF } END { print o9 + 2 * o10 }' "$BUDDY"; }
+# Free order-9 and order-10 blocks per zone, e.g. "o9=Normal:120,DMA32:4
+# o10=Normal:30,DMA32:0" (zones in file order; a zone seen twice, on two
+# nodes, is summed), and the order-9 total for the fragmentation check.
+MINO9=${PUP_SLOT_MIN_O9:-256}
+orders() {
+    awk '{ z = $4; if (!(z in a)) { n[++c] = z }; a[z] += $(NF-1); b[z] += $NF }
+        END { s9 = s10 = ""
+              for (i = 1; i <= c; i++) { z = n[i]; s9 = s9 (i > 1 ? "," : "") z ":" a[z]; s10 = s10 (i > 1 ? "," : "") z ":" b[z] }
+              print "o9=" s9 " o10=" s10 }' "$BUDDY"
+}
+o9total() { awk '{ o9 += $(NF-1) } END { print o9 + 0 }' "$BUDDY"; }
+# "frag=ok" or "frag=fragmented": order-9 blocks below PUP_SLOT_MIN_O9
+# (default 256) after compaction void a race scored from the slot.
+frag() { if (($(o9total) < MINO9)); then echo "frag=fragmented"; else echo "frag=ok"; fi; }
 swapmb() { free -m | awk '/Swap/ { print $3 }'; }
 # PIDs of builds: Zig compiles, Rig builds, release-slot wrappers.
 # PUP_SLOT_BUILD_RE and PUP_SLOT_SUITE_RE replace the patterns, for the
@@ -177,7 +196,10 @@ open)
     cp "$ST/paused" "$TMPD/quiet-pids$N"
     touch "$FLAG"
     nohup "$0" watch "$N" "$deadline" >/dev/null 2>&1 </dev/null &
-    note "open $N $KIND ${M}min ${LABEL:+label=\"$LABEL\" }blocks=$b swap_mb=$(swapmb) paused=$(grep -c . "$ST/paused")"
+    note "open $N $KIND ${M}min ${LABEL:+label=\"$LABEL\" }blocks=$b swap_mb=$(swapmb) paused=$(grep -c . "$ST/paused") $(orders) $(frag)"
+    if [[ $(frag) == frag=fragmented ]]; then
+        echo "pup-slot: WARNING slot $N is fragmented: $(o9total) free order-9 blocks (< $MINO9) after compacting; a race scored from it can be voided" >&2
+    fi
     echo "slot $N ($KIND) open until $(date -d "@$deadline" +%T); free 2 MiB blocks: $b; paused: $(echo $(cat "$ST/paused"))"
     ;;
 watch)
@@ -185,7 +207,7 @@ watch)
     while [[ -e $FLAG && $(cat "$ST/open" 2>/dev/null) == "$N" ]]; do
         if (($(date +%s) >= END)); then
             rm -f "$FLAG" "$ST/owner"; resume "$ST/paused"; date +%s >"$ST/closed"
-            note "close $N deadline"
+            note "close $N deadline blocks=$(blocks) $(orders) $(frag)"
             exit 0
         fi
         kind=$(cat "$ST/kind")
@@ -205,7 +227,7 @@ close)
     N=${2:?slot number}
     [[ $(cat "$ST/open" 2>/dev/null) == "$N" && -e $FLAG ]] || { echo "pup-slot: slot $N is not open" >&2; exit 1; }
     rm -f "$FLAG" "$ST/owner"; resume "$ST/paused"; date +%s >"$ST/closed"
-    note "close $N early blocks=$(blocks) swap_mb=$(swapmb)"
+    note "close $N early blocks=$(blocks) swap_mb=$(swapmb) $(orders) $(frag)"
     echo "slot $N closed; resumed: $(echo $(cat "$ST/paused"))"
     ;;
 status)

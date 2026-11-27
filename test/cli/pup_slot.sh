@@ -44,6 +44,8 @@ expect_has "$("$S" state)" "slot=none paused=0" "a closed slot's state names no 
 kill $l
 expect_has "$("$S" state)" "running=1" "a resumed build counts as running"
 expect_has "$(cat slots.log)" 'open 7 board 5min label="a test" blocks=100' "the log"
+expect_has "$(cat slots.log)" 'o9=Normal:100 o10=Normal:0 frag=fragmented' "the log records orders 9 and 10 and a fragmented slot"
+expect_has "$(cat slots.log)" 'close 7 early blocks=' "the close is logged"
 
 # Too few free blocks: it gives up with 75 and leaves the build running.
 buddy 10
@@ -58,6 +60,22 @@ expect_eq "$(pstate $b)" S "nothing left paused"
 # zone counts: 10 + 2*25 in Normal and 4 in DMA32 make 64.
 printf 'Node 0, zone    DMA32 1 1 1 1 1 1 1 1 1 4 0\nNode 0, zone   Normal 1 1 1 1 1 1 1 1 1 10 25\n' >"$PWD/buddy"
 expect_has "$("$S" state)" "blocks=64" "order 10 and every zone count"
+
+# Per zone, and the threshold (PUP_SLOT_MIN_O9) from the environment.
+printf 'Node 0, zone    DMA32 1 1 1 1 1 1 1 1 1 4 0\nNode 0, zone   Normal 1 1 1 1 1 1 1 1 1 300 25\n' >"$PWD/buddy"
+export PUP_SLOT_TMP=$PWD/t4a; mkdir -p "$PUP_SLOT_TMP"
+out=$("$S" open 6 5 board 2>&1); rc=$?
+expect_rc $rc 0 "a roomy slot opens"
+[[ $out != *WARNING* ]] || fail "a slot with 304 order-9 blocks warned"
+"$S" close 6 >/dev/null
+expect_has "$(cat slots.log)" 'o9=DMA32:4,Normal:300 o10=DMA32:0,Normal:25 frag=ok' "per-zone orders, not fragmented"
+export PUP_SLOT_TMP=$PWD/t4b; mkdir -p "$PUP_SLOT_TMP"
+out=$(PUP_SLOT_MIN_O9=400 "$S" open 5 5 board 2>&1); rc=$?
+expect_rc $rc 0 "a fragmented slot still opens"
+expect_has "$out" "WARNING slot 5 is fragmented: 304 free order-9 blocks (< 400)" "the warning"
+"$S" close 5 >/dev/null
+expect_has "$(tail -1 slots.log)" 'close 5 early' "closed"
+expect_has "$(grep 'open 5' slots.log)" 'frag=fragmented' "the threshold is the environment's"
 
 # A test suite running: it waits rather than pausing the suite's builds.
 buddy 100
