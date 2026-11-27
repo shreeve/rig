@@ -15,7 +15,7 @@ and run the suite after.
 
 - **Statement temporaries** (Core §3). A header whose subject makes a
   temporary and reaches a place outside it binds the place's own: emit
-  points at it (`storage.headerPoints`, the storage fact `header_value`
+  points at it (`lower.headerPoints`, the storage fact `header_value`
   held by pointer). One that reaches no place copies a value made in the
   header (`copiesHeader`, the storage fact `header_copy`) and is
   rejected, unless it takes its subject or binds plain data of a value
@@ -30,7 +30,7 @@ and run the suite after.
     temporaries reach, never into one" and the case
     `header place inside temporary` of `test/rig/ownership-header.rig.test`.
 - **Payload views.** A read match's binding that is no plain data views
-  the subject where emit matches it (`storage.matchesInPlace`: a place,
+  the subject where emit matches it (`lower.matchesInPlace`: a place,
   a held part, a view a call returns, a value branching over views,
   through temporaries or a guard), so a view of it carries the subject's
   loan past the arm. Where a read match matches a copy, such a binding
@@ -68,7 +68,7 @@ and run the suite after.
   fields and signatures.
 - **Evaluation order versus what is emitted:** call arguments, and
   `print` and `String(...)` arguments. Assignments share one recorded
-  order (`storage.SetOrder`).
+  order (`lir.SetOrder`).
 - **`defer`/`errdefer` at exits,** owners behind `Cell`, `^T`, and
   `*T`, and generic instances.
 - **Review findings not fixed:**

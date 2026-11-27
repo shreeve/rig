@@ -10,7 +10,7 @@ release's notes, its summary, are in [docs/releases/](docs/releases/),
 [HANDOFF](HANDOFF.md) says where the work stands, and
 [docs/ROADMAP.md](docs/ROADMAP.md) lists what is planned.
 
-## v0.4.0 (2026-11-26)
+## v0.4.0 (2026-11-27)
 
 `v0.4.0` follows `v0.3.0` (Zig 0.17.0, Nexus 2.0.0); its summary is
 [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md).
@@ -732,16 +732,56 @@ No script rewrites these; Trig and loco have none.
 - **The compiler rebuild** ([docs/internals/rebuild.md](docs/internals/rebuild.md),
   its [ledger](docs/history/records/rebuild/ledger.md)): rebuilt pass
   by pass, each step's emitted Zig identical or every difference
-  explained, `rig check` of Trig takes 1.95 s and 397 MB, where it took
-  3.95 s and 620 MB at the tag `revamp-base` (fastest of 7 on burst, a
-  shared x86-64 Linux VM, under load). Every module interns in one type store for the program, a type names
-  its symbol by its declaration's ref, and the built-ins are registered
-  once; the facts about a leaf, and the name it binds, are keyed by its
-  leaf id in dense arrays; one evaluator folds every constant; each
-  module is lowered to LIR as it is checked, and the ownership checker,
-  the proofs, frame accounts, and the inlining rule read it; and emit
-  reads every storage decision and coercion it prints from the LIR. The
-  entries below describe each step.
+  explained. `rig check` of Trig took 1.95 s and 397 MB at main
+  87e9b559a, where it took 3.95 s and 620 MB at the tag `revamp-base`
+  (fastest of 7 on burst, a shared x86-64 Linux VM, under load); on
+  the Mac, Trig's `rig check` retired 16.41G instructions before typed
+  operations and 16.18G after the last-use step. Every module interns in one type
+  store for the program, a type names its symbol by its declaration's
+  ref, and the built-ins are registered once; the facts about a leaf,
+  and the name it binds, are keyed by its leaf id in dense arrays; one
+  evaluator folds every constant; each module is lowered to LIR as it
+  is checked, with each operation's kind, each call's record, and each
+  operand's role decided there once; the ownership checker walks each
+  body region by region and finds a view's last use on its LIR, and
+  the proofs, frame accounts, and the inlining rule read the LIR too;
+  and emit reads every storage decision, coercion, and call form it
+  prints from the LIR. Emit with facts is 13,470 lines and ownership
+  11,508, over the budgets of about 12,000 and 9,000 the rebuild set;
+  both go to the cleanup round. The entries below describe each step.
+- **Lowering records each operation's kind and each call's form**
+  (`lir.OpKind`, `lir.Call`): a call's record holds the first of
+  `lir.CallKind`'s forms it fits, in the order emit's ladder asked, its
+  callee's form, its self's mode, its arguments in the order they are
+  written, and the wrappers emit opens around it; each operand's role
+  (`lir.Operand`: read, move, read view, write view, a held write view
+  passed on, or made, and where a consumed value goes) and each place's
+  path are recorded too, and the answers emit asked of each node
+  (`answerAll`) are fields of the step that owns them. A defer's one
+  statement is a statement of its own, and the checkers' LIR declares
+  each Zig temporary a self view reaches in the region that ends it.
+  Emit writes a call by one `switch` over its kind, and a call with no
+  record is an internal error, never Zig written from a guess; the
+  ownership checker reads a call's callee, self, held parts, and
+  implicit views from the record. The emitted Zig is the same.
+- **The ownership checker walks each body region by region.** A body or
+  block is walked by its LIR statement regions, a statement's set, drop,
+  destructure, return, jump, or defer from its region's steps, and a
+  branch, loop body, or `catch` handler from its region as a statement
+  is; a hidden var ends where its region ends, and a header's or a
+  call's temporaries end by the region their expression is. A node the
+  walk reaches with no LIR is an internal error in every build, the
+  tree walk it fell back to is gone, and so is the hold of an argument
+  as a copy, which lowering never makes. Every program's diagnostics are
+  the same.
+- **The compiler and the runtime share their arithmetic rules and
+  names:** `src/arith.zig`, written beside the runtime, holds the
+  longest length, a shift amount's range and its message, a signed `%`
+  by -1, a `Duration`'s range, and the conversion of seconds to
+  nanoseconds, which cteval, the proofs, sema, and the checker read as
+  source; `src/names.zig` holds a renamed name's mark and the
+  `__rig_*` declarations the runtime finds by name. The emitted Zig is
+  the same.
 - **A call evaluates its arguments in the order it writes them** (CORE §6, "Evaluation order"; CORE sentence 6 and §7 "Defer" state the drop and the defer orders the checker already kept). A fixed view binding (`r =! ?v[0]`) read as an argument is copied where it stands, as a plain binding is, where emit read it late (`lower.isPureArg` no longer counts it pure), and the checker's rule that read a call's pure arguments after the others is gone, so the checker checks the order emit runs. A held write view read as plain data by a parameter of a plain type is copied there and passes no view on (`sema.copiedOut`). These are accepted now, and run clean: a keyword argument `f(b: r, a: bump(!v))`, a write view one `f(b: w, a: bump(!v))`, a hoisted argument beside a fallible one `g(String("x"), r, bump(!v)!)`, an argument beside a closure literal `apply(r, |x| x + 1, bump(!v))`, an assigned value before its index `xs[bump(!v)] = r`, and a compound one `xs[bump(!v)] += w`, with `r =! ?v[0]` and `w =! !v[0]`; and a held write view given twice as a constructor's plain fields, `Q(p: w, o: w)`. The reference checker drops the old value of a reassigned name whose `drop` body reads views after the new value is made, and keeps a write-view `break` value's loan through the loop body's defers, as the compiler does; nothing is newly rejected.
 - **A view ends at its last use on the paths the code runs** (Core sentences 5 and 6; INTERNALS "Liveness"). The ownership checker finds a binding's last use on its body's LIR, in the order it runs, in place of its source positions: deferred code counts where it runs, at its scope's exits, and not where it is written; a `while` step and a later arm's guard count only on the paths that reach them; a name re-pointed by a store holds its old view only up to the store; a value that fails or is `none` holds no view in its `catch` handler or the right of its `??`, which ends the views it carried and never an equal view another part of the statement holds; an exit that leaves a statement unfinished ends the statement's temporary views before its defers run; and a write view that no result of a call with several results carries ends as the call returns. The checker accepts programs it rejected and nothing it accepted before is rejected; two kinds stay rejected for how emit holds their values (a value with a `drop` body uses its views where it is dropped, a loop's `break` value keeps its views while the body's defers run). The positional machinery (`uses`, `walked`, `late`, `after_value`, `useBranchesAfter`, `defer_used`) is gone. The emitted Zig of every program accepted before is the same.
 - **The storage deciders live in lowering** (`src/lower.zig`), and `src/storage.zig` is gone: the types they answer with, which the LIR records (`StorageKind`, `SetOrder`, `LeafStep`, and the rest), are in `src/lir.zig`, and the checkers ask the deciders they share of `lower.zig`. The emitted Zig is the same.
@@ -1087,6 +1127,26 @@ arms.
 
 ### Tests
 
+- **An unlisted difference fails the oracle run.** A compiler
+  rejection the reference checker accepts fails the run unless
+  `test/oracle/differences` lists it, as a listed one that is gone
+  already did; the file lists the 109 that were unlisted (224 in all),
+  each classed `ref-gap`, `prod-strict`, or `core-gap`, and
+  `test/cli/oracle_differences.sh` checks both failures.
+- **`oracle.trig`** checks Trig with the reference checker when `TRIG`
+  names a checkout or `~/Data/Code/trig` exists, held to `differences`
+  and `rejections` under the program name `trig`: it decides 10,275 of
+  Trig's functions and rejects none. A task's waited result narrows
+  the views it holds through a write view, as Core sentence 7 says.
+- **Cases for 18 blocks of `src/emit.zig` no test reached,** found by
+  a coverage run, each clean under `RIG_SANITIZE=1`; and
+  `ownership-last-use.rig.test`, the views that end at their last use
+  and the eight that must stay rejected.
+- **The runners take their parallelism without `$CPUQ_CORES`:** each
+  command a case runs starts as `cpuq run -- CMD` where `cpuq` is on
+  `PATH` (`RIG_NO_CPUQ=1` starts them plain), and a script marked
+  `# cpus: N` with N above 1 runs outside the pool.
+
 - The test runner tells a case ended by a signal from one that ran past its limit: "killed by signal SIGABRT (6) after 0.3s", or "timed out after 120s", where both said "timed out".
 
 - `tools/jiff-oracle/` answers generated date, time, and zone cases
@@ -1204,6 +1264,10 @@ arms.
 
 ### Docs
 
+- [docs/design/reactivity.md](docs/design/reactivity.md) plans
+  reactivity as a library, `std.signal` (`Signal`, `Computed`,
+  `Effect`), never syntax, and says what must be true before it is
+  built.
 - STD's "Table and Slot" teaches a store of several Tables of one `n`:
   one Table gives each id by `push` and the others are written at it,
   a slot of any of them reads with no test, and their lengths need not

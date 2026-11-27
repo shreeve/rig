@@ -1798,9 +1798,10 @@ holds a copy (`sema.viewByValue`), so there the literal is that copy,
 typed as the view, wherever the view goes.
 
 **How the facts are kept.** A fact about a list node is keyed by its
-node id, and one about a leaf by its source position (`exprKey`). The
-densest, an expression's type, is kept by node id, in an array indexed
-by the id (`fastmap.DenseMap`); a leaf's goes to a hash map. The other
+node id, and one about a leaf by its leaf id (`exprKey`). The
+densest, an expression's type and the symbol a name binds, are kept in
+two arrays, one indexed by node id and one by leaf id
+(`fastmap.DenseMap`). The other
 tables, and the memos, are hash maps keyed by integers, addresses, or
 objects of them (`fastmap.Map`), hashed by one 128-bit multiply rather
 than by Wyhash over the key's bytes. What a view of a type points into,
@@ -1930,15 +1931,16 @@ unless its value is made first (`storesAfterValue`), in the local, by
 `@memset`). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, and lowering all ask the same functions. Emit
-reads each answer from its lowered module: lowering asks each question
-emit reads of every node of its kind in the module, once (`lower.Ask`,
-`Module.answer`), and an answer emit finds missing is an internal
-error.
+reads each answer from its lowered module: lowering records it as it
+lowers the node, on the step, arm, var, or node it is of
+(`Module.answersOf`, `assignOf`, `stepOf`, `choiceOf`, `armOf`,
+`lir.Var`), and an answer emit finds missing is an internal error.
 
-Leaves are keyed by source position and list nodes by their node id:
-the parser numbers every node it builds (`List.id`), and the Parser
-wrapper's rewrites keep the number (the `captures` node it builds gets
-its own). Binding facts live on the `Symbol`: whether it is
+Leaves are keyed by their leaf id and list nodes by their node id:
+the parser numbers every node it builds (`List.id`) and every leaf,
+and the Parser wrapper's rewrites keep the numbers (the `captures`
+node it builds gets its own, and a leaf it makes takes an id of its
+own). Binding facts live on the `Symbol`: whether it is
 reassigned, written through, fixed, known at compile time, or bound by
 a pattern, and for a capture the binding it captures.
 
@@ -2223,9 +2225,13 @@ result keeps no loan, a swap). Each lowering records what its reader
 takes: emit's the kind and what is opened around the call, the
 checkers' the flags, both the callee and the self; the checkers'
 lowering classifies the call too in a self-checking build, where
-`rig check` pays for it. In a self-checking build, emit asserts
-at each rung of its ladder, and the ownership checker at each form of
-callee it walks, that the record says what they chose.
+`rig check` pays for it. Emit writes a call by one `switch` over its
+kind, and a call with no record is an internal error (`callRecord`).
+Each operand has a role (`lir.Operand`, by its expression: read,
+move, read view, write view, a held write view passed on, or made,
+and where a consumed value goes), and each place its path; in a
+self-checking build the ownership checker asserts that the role it
+works out is the one lowering recorded (`expectRole`).
 `rig check --facts=lir` prints the root module's LIR, each call with
 its kind (`call/plain(...)`), and lists each body not lowered with the
 construct that stopped it.
@@ -2265,14 +2271,14 @@ graph frees it once the module's checks finish, so no more than one
 module's LIR is held at once. Lowering also lowers each compile-time
 function's body, which no program runs but the ownership checker
 walks. Emit lowers each module again as it writes it (`Facts.lower`),
-and asks its questions (`lower.Ask`) of every node then
-(`lower.answerAll`). In a self-checking build, each statement's and
+and reads what lowering decided of each node from its records. In a
+self-checking build, each statement's and
 header's temporaries are checked against `sema.stmtTemps`, in its
 order.
 
 A node's vars are numbered after its operands', and its steps are
-placed in the order they run. The back track of
-docs/internals/architecture.md makes emit a printer of LIR.
+placed in the order they run. Emit prints the storage, coercions, and
+call forms LIR records; how it spells each in Zig stays its own.
 
 ### Proven checks
 
@@ -3394,21 +3400,26 @@ call names the file it calls into (`rules.checkLive(self, ...)`):
 lowers every body the checker walks: the module's constants and what
 its types declare by value are one compile-time body, whose root is
 the module, and the closures of compile-time functions are owners of
-their own. Every walk reads the statements of a body or block from
-its regions (`lowered.stmtsOf`), and the value an assignment stores, a
-jump leaves with, a drop or a destructure takes, and a body yields from
-its statement's step (`lowered.stepOf`, `lowered.stepOperand`). It
-takes the operands
+their own. The walk goes region by region: a body or block is the
+statement regions it holds (`lowered.stmtsOf`), each statement is read
+from its region (`lowered.stmtAt`), and the value an assignment stores,
+a jump leaves with, a drop or a destructure takes, and a body yields
+are read from its region's steps (`lowered.stepsIn`,
+`lowered.stepValue`, `lowered.stepOperand`). It takes the operands
 of an expression from the LIR operation made for its node
 (`lowered.Expr`, `lowered.operand`): those of plain operators, `and`
 and `or`, members, indexes, and every operation walked by its
-children. A part a region holds first in a var is walked as the value
-the var holds, where it stands. A statement is reached by the
-expression its region evaluates or yields (`lowered.stmtExpr`); an
-`if`, a loop, or a `match` by its LIR step or expression
+children; a call's callee, self, held parts, and implicit views from
+the call's record (`lowered.callOf`, `lir.Call`). A part a region holds
+first in a var is walked as the value the var holds, where it stands.
+An `if`, a loop, or a `match` is found by its LIR step or expression
 (`lowered.controlOf`), whose condition, subject, or source is that
-step's operand, and each of whose branches, arms, and bodies is the
-region made for it (`lowered.partExpr`). The place walker (views,
+step's operand, and each of whose branches, arms, bodies, and handlers
+is read from the region made for it as a statement is
+(`lowered.exprIn`, `lowered.armBody`, `lowered.bodyStmt`). A hidden
+var ends where its region ends (`lowered.endsOf`), and a header's or a
+call's temporaries end by the region their expression is
+(`lowered.endsAt`). The place walker (views,
 moves, slices, takes) and the path of an assignment's target take each
 part as an operand of the part that holds it. Liveness reads the LIR's
 flow (`live.Flow`, "Liveness" below): each name a var is read or
@@ -4709,8 +4720,8 @@ keyword, which holds no leaf, whose `id` says which name they are
 (`rig.leafText`, which every pass reads a name through). `h` is named
 `for iterator`, which no program can write, is declared with the op of
 `new` so an enclosing loop's does not clash with it, and is quoted in the
-emitted Zig. So every position the checkers order by (liveness, scope
-ends, loop extents) lies in the loop, as it does in the `h = …; while
+emitted Zig. So every position the checkers read (scope ends, loop
+extents, the spans of their messages) lies in the loop, as it does in the `h = …; while
 !h.next() as x` written by hand, and the ownership checker walks the
 same thing: a view of `h` that outlives the block is reported where the
 block ends. A node keeps its id and span (the `while` has the `for`'s).
@@ -5004,12 +5015,12 @@ imports any other file of the compiler, reaches the context behind
 `Facts`, or asks whether a type moves. Emit asks a node fact as
 `facts.node(.viewOf, e)` and how a type or symbol is held as
 `facts.layout(.viewHeldAsPointer, ty)`, each answered by the
-`SemContext` method, or the `sema` or `storage` function, of that name;
+`SemContext` method, or the `sema` or `lower` function, of that name;
 it may ask only what `Facts.node_facts` and `Facts.layouts` list, which
 a compile error enforces. A node fact, and a method of `Facts` that
 takes a node, reads a record: the facts table, or the storage facts. A
 second unit test reads `facts.zig` the same way and fails on such a
-method that calls a function of `storage` or `sema` instead, or on a
+method that calls a function of `lower` or `sema` instead, or on a
 node fact no `SemContext` method answers, but for a listed few that
 combine recorded facts by the node's shape without a classifier of
 their own (`selfOf`, `argParams`, and `selfWrites` read

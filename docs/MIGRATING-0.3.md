@@ -1046,3 +1046,21 @@ Also refused, and left to you:
 | `fun mid(a: Int, b: Int = 2, c: Int)` | `c` before `b`, or a default for `c` |
 | `g = connect`, a function with options as a value | `g = \|h, p\| connect(h, p)` |
 | `dt.add(span)`, `dt.add(d: span)` on a `DateTime` | `dt.add(duration: span)`, or a unit, `dt.add(seconds: 0.5)` |
+
+### The rest, by hand
+
+No script rewrites the other forms 0.4.0 rejects; each message gives
+its fix, and [docs/releases/v0.4.0.md](releases/v0.4.0.md), "Rejected
+now, with the fix", lists them all: the ownership forms, which built
+in 0.3.0 and some of which broke a rule as they ran, the names that
+hide another, and a few others. One of them changes no code's
+meaning, only where its mistake is found:
+
+| 0.3.0 | Now |
+|---|---|
+| `R.max * 2.0` for `type R = F32`, computed as an infinity | rejected: "this constant expression overflows `F32`"; write a constant that fits |
+
+A view now ends at its last use on the paths the code runs, and a
+call evaluates its arguments in the order it writes them, so 0.4.0
+accepts programs 0.3.0 rejected; neither rule changes what a program
+0.3.0 accepted does.
