@@ -529,7 +529,11 @@ fn Unordered(comptime K: type, comptime V: type) type {
 
         /// The slot of `k`, whose hash is `hash`. The home group is peeled
         /// from the probe: a hit in its first matching lane takes no loop,
-        /// and the overflow byte is read only on the way to a miss.
+        /// and the overflow byte is read only on the way to a miss. The
+        /// slot's index is made from its group and lane, not divided out of
+        /// its address: with the division untested, LLVM laid the miss
+        /// path out with a second taken branch, and bench/hash's misses ran
+        /// 3 to 11% slower on an M5.
         inline fn locate(self: *const Self, k: KeyView, hash: u64) ?Found {
             const h = homeOf(hash, self.shift);
             const pg = &self.groups[h.pos];
@@ -540,12 +544,12 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 const p = slotOf(es, h.pos, m);
                 if (keyMatches(p, k)) {
                     @branchHint(.likely);
-                    return .{ .pg = pg, .lane = laneOf(m), .i = indexOf(es, p), .p = p };
+                    return .{ .pg = pg, .lane = laneOf(m), .i = slotIndex(h.pos, laneOf(m)), .p = p };
                 }
                 m &= m - 1;
                 while (m != 0) : (m &= m - 1) {
                     const q = slotOf(es, h.pos, m);
-                    if (keyMatches(q, k)) return .{ .pg = pg, .lane = laneOf(m), .i = indexOf(es, q), .p = q };
+                    if (keyMatches(q, k)) return .{ .pg = pg, .lane = laneOf(m), .i = slotIndex(h.pos, laneOf(m)), .p = q };
                 }
             }
             if (classClear(pg, h.class)) {
@@ -566,7 +570,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 var m = matchTag(load(pg), h.vtag);
                 while (m != 0) : (m &= m - 1) {
                     const p = slotOf(self.slots(), pos, m);
-                    if (keyMatches(p, k)) return .{ .pg = pg, .lane = laneOf(m), .i = indexOf(self.slots(), p), .p = p };
+                    if (keyMatches(p, k)) return .{ .pg = pg, .lane = laneOf(m), .i = slotIndex(pos, laneOf(m)), .p = p };
                 }
                 if (classClear(pg, h.class)) return null;
             }
