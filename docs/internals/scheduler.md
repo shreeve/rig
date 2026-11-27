@@ -585,20 +585,20 @@ Tokio's task holds about 300 bytes and Go's about 3 KiB
 
 ## The teardown at `os.exit`
 
-On the Mac a process's exit is the kernel freeing its page-table pages,
-about 13 µs each, one for each Table written, each fiber stack touched,
-and each 32 MiB of segments, and its resident pages, all on one core.
-So a release build's `os.exit`, after it flushes the output, first has
-every worker unmap the program's memory in parallel when it can stop
-them all (`sched.tearDown`), and the process then ends as before. The
+A process's exit is the kernel freeing its resident pages and its
+page-table pages, all on one core: on the Mac about 13 µs a page-table
+page, one for each Table written, each fiber stack touched, and each
+32 MiB of segments; on Linux mostly the pages themselves. So a release
+build's `os.exit`, after it flushes the output, first has every worker
+give the program's memory back in parallel when it can stop them all
+(`sched.tearDown`), and the process then ends as before. The
 work stays in the process, so its time, CPU time, and peak are counted
 as before.
 
 - **When.** The scheduler runs at least two workers, `main` has not
   returned, no other worker runs a task, the blocking pool is idle, and
   there is at least about 0.4 ms of kernel time to save. Otherwise, and
-  on Linux, whose parallel unmapping is unmeasured, and in debug builds,
-  the process ends at once, as it always did.
+  in debug builds, the process ends at once, as it always did.
 - **Stopping.** A worker waiting in its poller is claimed there by a
   compare-and-swap (`Poller.parked`) and stops as it wakes, before it
   reads an event; an awake one stops at the top of its loop, before it
@@ -612,7 +612,11 @@ as before.
   then take pieces of the segments' region and the Tables' regions, whole
   (`alloc.exitRanges`: the kernel walks even a range never touched),
   from one counter, cut on page-table boundaries. Stacks of parked tasks
-  and large blocks are left to the kernel.
+  and large blocks are left to the kernel. On Linux each piece's pages
+  are dropped (`MADV_DONTNEED`), not unmapped: `munmap` holds the
+  address space's lock for writing, so each worker's call would wait for
+  the others' to end, where `madvise` holds it for reading; the page
+  tables and mappings are left to the process's end.
 
 `RIG_SCHED_STATS=1` prints which path it took (`test/cli/exit_teardown.sh`).
 The design and its soundness argument are in

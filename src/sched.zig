@@ -2856,7 +2856,11 @@ const Poller = struct {
             const linux_ = std.os.linux;
             const evs = &p.evs;
             const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
+            // A wait, not a look: `os.exit` may claim this worker while it
+            // waits, and it then stops before it reads what woke it.
+            if (tears_down and !look) p.parked.store(.waiting, .seq_cst);
             const rc: isize = @bitCast(linux_.epoll_wait(p.fd, evs, max_events, ms));
+            if (tears_down and !look and p.parked.swap(.awake, .seq_cst) == .claimed) stopForExit(me().?, true);
             if (rc <= 0) return false;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
@@ -5109,19 +5113,20 @@ fn freeStacks(w: *Worker) void {
 // The teardown at `os.exit`
 // -----------------------------------------------------------------------------
 //
-// On the Mac a process's exit is the kernel freeing its page-table pages,
-// about 13 µs each (one for each Table, each fiber stack touched, and
-// each 32 MiB of segments), and its resident pages, on one core. When
-// `os.exit` is called while every other worker can be stopped,
-// `tearDown` has them all unmap the program's memory in parallel first,
-// so the kernel is left little, and the process then ends as before.
-// The work stays in the process: its time, its CPU time, and its peak
-// are counted as before. The design and why it is sound:
+// A process's exit is the kernel freeing its resident pages and its
+// page-table pages on one core: on the Mac about 13 µs a page-table page
+// (one for each Table, each fiber stack touched, and each 32 MiB of
+// segments); on Linux mostly the pages themselves, each folio freed and
+// uncharged. When `os.exit` is called while every other worker can be
+// stopped, `tearDown` has them all give the program's memory back in
+// parallel first, so the kernel is left little, and the process then
+// ends as before. The work stays in the process: its time, its CPU time,
+// and its peak are counted as before. The design and why it is sound:
 // docs/history/records/2026-11/exit/parallel-teardown.md.
 
-/// Whether `os.exit` tears down in parallel: release builds on the Mac.
-/// Linux's parallel unmapping is unmeasured, so it ends as before.
-const tears_down = builtin.os.tag.isDarwin() and builtin.optimize != .debug;
+/// Whether `os.exit` tears down in parallel: release builds on the Mac
+/// and Linux.
+const tears_down = (builtin.os.tag.isDarwin() or builtin.os.tag == .linux) and builtin.optimize != .debug;
 
 const ExitPhase = enum(u32) { idle, gathering, go, plain };
 
@@ -5179,15 +5184,22 @@ fn tableSpan() usize {
     return page * (page / @sizeOf(usize));
 }
 
-/// Unmap `len` bytes at `start`, a range Rig mapped and never gave back,
-/// ignoring the result: a call that fails leaves the kernel the work.
+/// Give back the pages of the `len` bytes at `start`, a range Rig mapped
+/// and never gave back, ignoring the result: a call that fails leaves the
+/// kernel the work. On the Mac it unmaps them. On Linux it drops their
+/// pages (`MADV_DONTNEED`), under the address space's lock held for
+/// reading, so the workers free pages at once, where `munmap` takes it
+/// for writing and each worker's call would wait for the others' to end;
+/// the page tables and the mappings are left to the process's end.
 fn unmapForExit(start: usize, len: usize) void {
-    _ = std.c.munmap(@ptrFromInt(start), len);
+    if (builtin.os.tag == .linux) {
+        _ = std.os.linux.madvise(@ptrFromInt(start), len, std.os.linux.MADV.DONTNEED);
+    } else _ = std.c.munmap(@ptrFromInt(start), len);
 }
 
-/// `os.exit`, after it has flushed the output: on the Mac in a release
-/// build, unmap the program's segments, its Tables' regions and its free
-/// fiber stacks on every worker before the process ends, when every other
+/// `os.exit`, after it has flushed the output: on the Mac and Linux in a
+/// release build, give back the program's segments, its Tables' regions
+/// and its free fiber stacks on every worker before the process ends, when every other
 /// worker can be stopped first; otherwise return at once. With
 /// `RIG_SCHED_STATS=1` set it says which it did.
 pub noinline fn tearDown() void {
