@@ -239,7 +239,7 @@ pub fn viewedText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
 /// or the drop, at the end of its scope, of a task or of a value
 /// whose `drop` body reads it; or the `task.select` whose arms hold
 /// it. It mirrors `holderLive`, which decided the view is in force,
-/// and reads only what the walk keeps anyway (`uses`, `walked`), so a
+/// and reads only what the walk keeps anyway (the body's flow), so a
 /// program without errors pays nothing for it.
 pub fn noteStillUsed(self: *Checker, l: Loan, at: u32) Error!void {
     if (self.quiet > 0 or !self.last_err_kept) return;

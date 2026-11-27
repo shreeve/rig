@@ -534,27 +534,6 @@ pub fn operand(self: *const Checker, e: Expr, i: usize) Expr {
     return .{ .node = node, .id = id };
 }
 
-/// Whether call or array literal `e` evaluates parts first, in a region
-/// of its own, before it runs: then each operand no hidden var holds
-/// (`heldFirst`) is read where it runs. Null outside a lowered body.
-pub fn holdsParts(self: *const Checker, e: Expr) ?bool {
-    const b = self.lir_body orelse return null;
-    if (e.id == null) return null;
-    return b.calls.contains(sema.decisionKeyOf(e.node) orelse return false);
-}
-
-/// Whether operand `e` is a part its region evaluates first, held in a
-/// hidden var, under the coercions made where the var is read.
-pub fn heldFirst(self: *const Checker, e: Expr) bool {
-    const b = self.lir_body orelse return false;
-    var id = e.id orelse return false;
-    while (true) switch (b.f.exprs.items[id]) {
-        .coerce => |c| id = c.value,
-        .@"var" => |x| return hoistedOf(b, x.v) != null,
-        else => return false,
-    };
-}
-
 /// How many operands `e` has: its tree children.
 pub fn operandCount(e: Expr) usize {
     return rig.children(e.node).len;
