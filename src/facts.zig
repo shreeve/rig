@@ -8,9 +8,9 @@
 //! decisions here and decides none of them again (AGENTS.md, "One
 //! classifier per fact" and "The checker checks exactly what is emitted").
 //!
-//! `src/emit.zig` imports this file and not `sema.zig`, `storage.zig`, or
+//! `src/emit.zig` imports this file and not `sema.zig`, `lower.zig`, or
 //! `resolve.zig`, so the classifiers there are out of its reach: a call of
-//! `sema.copies` or `storage.matchesInPlace` from emit does not compile. A
+//! `sema.copies` or `lower.matchesInPlace` from emit does not compile. A
 //! unit test below fails if emit imports anything else. What `Facts` offers
 //! is of two kinds:
 //!
@@ -31,7 +31,6 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
-const storage = @import("storage.zig");
 const resolve = @import("resolve.zig");
 const lowering = @import("lower.zig");
 pub const lir = @import("lir.zig");
@@ -46,9 +45,9 @@ pub const SymbolId = sema.SymbolId;
 pub const SymbolRef = sema.SymbolRef;
 pub const MemberCompares = sema.MemberCompares;
 
-pub const ThroughWrite = storage.ThroughWrite;
-pub const CompoundCall = storage.CompoundCall;
-pub const BindHold = storage.BindHold;
+pub const ThroughWrite = lir.ThroughWrite;
+pub const CompoundCall = lir.CompoundCall;
+pub const BindHold = lir.BindHold;
 pub const SwapCall = sema.SwapCall;
 pub const Builtin = sema.Builtin;
 pub const Wide = sema.Wide;
@@ -86,8 +85,8 @@ pub const Lowered = lowering.Module;
 pub const Coercion = @import("lir.zig").Coercion;
 pub const liftLevels = @import("lir.zig").liftLevels;
 pub const Hands = sema.Hands;
-pub const StorageKind = storage.StorageKind;
-pub const StorageBy = storage.StorageBy;
+pub const StorageKind = lir.StorageKind;
+pub const StorageBy = lir.StorageBy;
 pub const Clone = sema.Clone;
 pub const SelfMode = sema.SelfMode;
 pub const Upgrade = sema.Upgrade;
@@ -99,15 +98,15 @@ pub const DurationHow = sema.DurationHow;
 pub const slotOf = sema.slotOf;
 pub const Instance = sema.Instance;
 pub const HandsKind = sema.Hands.Kind;
-pub const LeafStep = storage.LeafStep;
-pub const MatchMode = storage.MatchMode;
-pub const SelfHold = storage.SelfHold;
-pub const ArgumentHold = storage.ArgumentHold;
-pub const SetOrder = storage.SetOrder;
+pub const LeafStep = lir.LeafStep;
+pub const MatchMode = lir.MatchMode;
+pub const SelfHold = lir.SelfHold;
+pub const ArgumentHold = lir.ArgumentHold;
+pub const SetOrder = lir.SetOrder;
 pub const ResourceKind = sema.ResourceKind;
-pub const SetStep = storage.SetStep;
-pub const StepPoint = storage.StepPoint;
-pub const Fold = storage.Fold;
+pub const SetStep = lowering.SetStep;
+pub const StepPoint = lir.StepPoint;
+pub const Fold = lir.Fold;
 pub const JumpDest = sema.JumpDest;
 pub const CallTarget = sema.CallTarget;
 pub const Dispatch = sema.Dispatch;
@@ -158,7 +157,7 @@ pub const Facts = struct {
     }
 
     /// What a checker recorded about a node, read from the module's
-    /// record: a method of `SemContext`, or a helper of sema or storage
+    /// record: a method of `SemContext`, or a helper of sema or lowering
     /// over recorded symbols, types, and constants (the test below lists
     /// those), asked with the node and what else it takes:
     /// `f.node(.viewOf, e)`, `f.node(.callSlotsOf, .{ call })`. Emit
@@ -220,7 +219,8 @@ pub const Facts = struct {
     }
 
     /// The function that answers `name`: a method of `SemContext`, else
-    /// a function of sema or storage that takes the context first.
+    /// a function of sema or of lowering's storage deciders that takes
+    /// the context first.
     fn answerer(comptime name: []const u8) @TypeOf(@field(Answerer(name), name)) {
         return @field(Answerer(name), name);
     }
@@ -228,7 +228,7 @@ pub const Facts = struct {
     fn Answerer(comptime name: []const u8) type {
         if (@hasDecl(SemContext, name)) return SemContext;
         if (@hasDecl(sema, name)) return sema;
-        return storage;
+        return lowering;
     }
 
     fn Result(comptime name: []const u8) type {
@@ -365,7 +365,7 @@ pub const Facts = struct {
             return ctx.symbols.items[id].kind == .function;
         }
         if (!callee.isKind(.member)) return false;
-        if (storage.moduleMemberSym(ctx, callee)) |sym| return sym.kind == .function;
+        if (lowering.moduleMemberSym(ctx, callee)) |sym| return sym.kind == .function;
         const obj = ir.Member.object(callee);
         const name_leaf = ir.Member.name(callee);
         if (name_leaf != .src) return false;
@@ -374,7 +374,7 @@ pub const Facts = struct {
         const decl = if (ctx.typeOf(obj)) |t| sema.nominalDecl(ctx, t) else null;
         const sym: sema.Symbol = if (decl) |d| d.symbol() else blk: {
             const id = ctx.symbolOf(obj) orelse return false;
-            if (!storage.isTypeSym(ctx, id)) return false;
+            if (!lowering.isTypeSym(ctx, id)) return false;
             break :blk ctx.symbols.items[id];
         };
         if (sym.decl_pos == sema.builtin_decl_pos) return false;
@@ -623,13 +623,13 @@ pub const syntax = struct {
     /// first line, starts it with the cold hint, and `called` emits it
     /// `noinline fn`.
     pub const markerOf = rig.markerOf;
-    pub const viewedPlace = storage.viewedPlace;
-    pub const argValue = storage.argValue;
-    pub const eachTargetStep = storage.eachTargetStep;
-    pub const assignedThrough = storage.assignedThrough;
+    pub const viewedPlace = lowering.viewedPlace;
+    pub const argValue = lowering.argValue;
+    pub const eachTargetStep = lowering.eachTargetStep;
+    pub const assignedThrough = lowering.assignedThrough;
     pub const eachGuardPart = rig.eachGuardPart;
     pub const funRarely = rig.funRarely;
-    pub const contains = storage.contains;
+    pub const contains = lowering.contains;
     pub const isStringLiteralText = sema.isStringLiteralText;
     pub const SingleQuoted = sema.SingleQuoted;
     /// A template's slots and pieces, its pieces' text, and a show slot's
@@ -641,7 +641,7 @@ pub const syntax = struct {
     pub const writeTemplatePiece = rig.writeTemplatePiece;
     pub const isBlockText = rig.isBlockText;
     pub const zigLiteral = rig.zigLiteral;
-    pub const isLiteralText = storage.isLiteralText;
+    pub const isLiteralText = lowering.isLiteralText;
     pub const valueParts = sema.valueParts;
     pub const tailOf = sema.tailOf;
     pub const yieldsValue = sema.yieldsValue;
@@ -661,7 +661,7 @@ pub const syntax = struct {
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
-    // Emit imports no file that holds a classifier: sema.zig, storage.zig,
+    // Emit imports no file that holds a classifier: sema.zig, lower.zig,
     // and resolve.zig are reached only through this one. nametable.zig
     // builds the data of a table of names, and names.zig lists the
     // runtime's names; neither decides anything.
@@ -758,7 +758,7 @@ test "a Facts method about a node reads what a checker recorded" {
     // A method of `Facts` that takes a node, and a node fact (`node`),
     // answers from a record, the facts table or the storage facts, read
     // through the context. These still find their answer with a helper of
-    // storage, sema, or cteval, each by the node's shape over recorded
+    // lowering, sema, or cteval, each by the node's shape over recorded
     // symbols, types, and constants; the list only shrinks.
     const readers = [_][]const u8{
         "callsRigFunction", "patternConst",
@@ -793,8 +793,8 @@ test "a Facts method about a node reads what a checker recorded" {
         }
         while (t.tag != .l_brace) t = tokens.next();
         depth = 1;
-        // The last three tokens: `storage` `.` `name` before a `(` is a
-        // call of storage's `name`.
+        // The last three tokens: `lowering` `.` `name` before a `(` is a
+        // call of lowering's `name`.
         var last: [3]std.zig.Token = undefined;
         var count: usize = 0;
         var classifier: ?[]const u8 = null;
@@ -808,7 +808,10 @@ test "a Facts method about a node reads what a checker recorded" {
                 // `cteval.recorded` reads the checker's record of a
                 // compile-time call; cteval's other helpers fold.
                 const folds = std.mem.eql(u8, base, "cteval") and !std.mem.eql(u8, called, "recorded");
-                if (std.mem.eql(u8, base, "storage") or std.mem.eql(u8, base, "sema") or folds) classifier = called;
+                // `lowering.lowerModule` lowers the module; lowering's
+                // other helpers are its storage deciders.
+                const decides = std.mem.eql(u8, base, "lowering") and !std.mem.eql(u8, called, "lowerModule");
+                if (decides or std.mem.eql(u8, base, "sema") or folds) classifier = called;
             }
             last = .{ last[1], last[2], t };
             count += 1;
@@ -835,7 +838,7 @@ test "a Facts method about a node reads what a checker recorded" {
         seen[i] = true;
     };
     for (readers, seen) |r, s| if (!s) {
-        std.debug.print("Facts.{s} no longer calls a helper of storage, sema, or cteval: take it off the list\n", .{r});
+        std.debug.print("Facts.{s} no longer calls a helper of lowering, sema, or cteval: take it off the list\n", .{r});
         return error.TestUnexpectedResult;
     };
     try std.testing.expect(methods + Facts.node_facts.len > 50);

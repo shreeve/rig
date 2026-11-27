@@ -5,7 +5,7 @@ const std = @import("std");
 const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const diag = @import("../diag.zig");
 const self_check = @import("build_options").self_check;
 const Sexp = parser.Sexp;
@@ -1858,7 +1858,7 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
     const value_e = lowered.stepValue(self, set_steps, expr);
     if (target != .src) {
         // The steps in the order emit evaluates them
-        // (`storage.eachSetStep`): the value, the base of the target's
+        // (`lower.eachSetStep`): the value, the base of the target's
         // path, and its indexes from the base outward.
         const Steps = struct {
             c: *Checker,
@@ -1869,7 +1869,7 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
             base: ?Value = null,
             base_node: Sexp = .nil,
 
-            const Step = struct { e: lowered.Expr = .{ .node = .nil }, role: storage.SetStep.Role };
+            const Step = struct { e: lowered.Expr = .{ .node = .nil }, role: lowering.SetStep.Role };
 
             pub fn step(st: *@This(), s: Step) Error!void {
                 switch (s.role) {
@@ -1892,7 +1892,7 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
             }
 
             /// The steps of the target's path from `e`, as
-            /// `storage.eachTargetStep` lists them.
+            /// `lower.eachTargetStep` lists them.
             fn path(st: *@This(), e: lowered.Expr) Error!void {
                 switch (e.node.kind() orelse return st.step(.{ .e = e, .role = .base })) {
                     .member => try st.path(lowered.operand(st.c, e, 0)),
@@ -1907,10 +1907,10 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
             }
         };
         var steps: Steps = .{ .c = self, .set = node, .placed = resolvePlace(self, target) != null, .value_e = value_e };
-        // A value read where it runs (`storage.isPureArg`) is read at
+        // A value read where it runs (`lower.isPureArg`) is read at
         // the store, after the target's base and indexes.
         const late = self.late.items.len;
-        if (self.nll and storage.isPureArg(self.sema, expr)) try live.holdLate(self, expr);
+        if (self.nll and lowering.isPureArg(self.sema, expr)) try live.holdLate(self, expr);
         try steps.step(.{ .role = .value });
         try steps.path(if (target_id) |id| lowered.stepOperand(self, target, id) else lowered.uncovered(self, target));
         try walkFieldAssign(self, node, target, steps.value, steps.base, steps.base_node);
@@ -2337,12 +2337,12 @@ fn holdLateOperands(self: *Checker, e: lowered.Expr, parts: []const Sexp, first:
     const ctx = self.sema;
     // Outside a lowered body, whether the parts are evaluated first is
     // asked; in one, a region holds them but for an element operation's.
-    const holds = lowered.holdsParts(self, e) orelse return live.holdLateParts(self, parts, storage.hoistsArgs(ctx, e.node));
-    if (!holds) return live.holdLateParts(self, parts, e.node.isKind(.call) and ctx.elemCallOf(ctx.calleeOf(e.node)) != null and storage.hoistsArgs(ctx, e.node));
+    const holds = lowered.holdsParts(self, e) orelse return live.holdLateParts(self, parts, lowering.hoistsArgs(ctx, e.node));
+    if (!holds) return live.holdLateParts(self, parts, e.node.isKind(.call) and ctx.elemCallOf(ctx.calleeOf(e.node)) != null and lowering.hoistsArgs(ctx, e.node));
     for (parts, 0..) |a, i| {
         var part = lowered.operand(self, e, first + i);
         if (a.isKind(.kwarg)) part = lowered.operand(self, part, 1);
-        if (!lowered.heldFirst(self, part)) try live.holdLate(self, storage.argValue(a));
+        if (!lowered.heldFirst(self, part)) try live.holdLate(self, lowering.argValue(a));
     }
 }
 
@@ -2350,7 +2350,7 @@ fn holdLateOperands(self: *Checker, e: lowered.Expr, parts: []const Sexp, first:
 /// storage of its own (`storage.Var` of life `call`: a self, or
 /// a copied argument), in a hidden var the call views (`kind`), so
 /// a view of it is a view of that storage.
-pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind, sk: storage.StorageKind) Error!Value {
+pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind, sk: lir.StorageKind) Error!Value {
     const pos = notes.startOf(self, node);
     const id = try self.addVar(.{ .name = notes.spanText(self, node), .decl = pos, .ty = types.exprType(self, node), .kind = .hidden, .call_held = true }, .{ .loans = v.loans });
     try lowered.noteMade(self, lowered.hiddenOf(self, node, sk), id);
@@ -2361,9 +2361,9 @@ pub fn holdForCall(self: *Checker, node: Sexp, v: Value, kind: LoanKind, sk: sto
 /// it runs, and that it views (a copy, or a value the storage owns),
 /// when the storage facts record one of `kind` for it: a self
 /// without its view sigils, an argument as written.
-pub fn heldForCall(self: *const Checker, e: Sexp, kind: storage.StorageKind) ?Sexp {
+pub fn heldForCall(self: *const Checker, e: Sexp, kind: lir.StorageKind) ?Sexp {
     const ctx = self.sema;
-    const node = if (kind == .self) storage.viewedPlace(e) else e;
+    const node = if (kind == .self) lowering.viewedPlace(e) else e;
     const s = (ctx.lowered orelse return null).varOf(node, kind) orelse return null;
     if (s.life != .call or s.by == .pointer) return null;
     // An owned argument is the callee's own value, not a view of it.
@@ -2638,12 +2638,12 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         self.in_rejected_call = types.rejected(self, node);
         const found = self.errors_found;
         if (self_check) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .sink = .argument });
-        if (self_check and sameNode(a, storage.argValue(a)) and heldForCall(self, a, .argument) != null) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .held = true });
+        if (self_check and sameNode(a, lowering.argValue(a)) and heldForCall(self, a, .argument) != null) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .held = true });
         v.* = try walkConsumedE(self, lowered.operand(self, call, first_arg + i), .argument);
         if (self.errors_found == found) try holdRead(self, a, .argument);
         // An argument the call copies into storage of its own is viewed
         // from the copy.
-        if (rec.wrap.held) if (heldForCall(self, storage.argValue(a), .argument)) |held| {
+        if (rec.wrap.held) if (heldForCall(self, lowering.argValue(a), .argument)) |held| {
             v.* = try holdForCall(self, held, v.*, .read, .argument);
         };
         // A value handed over that carries a write loan (a write view
@@ -3710,10 +3710,10 @@ pub fn heldPath(self: *const Checker, e: Sexp) bool {
 }
 
 /// Whether `match` takes its subject, and its bindings own what they
-/// bind: `match <x`, or a value made there (`storage.matchMode`).
+/// bind: `match <x`, or a value made there (`lower.matchMode`).
 pub fn takesSubject(self: *const Checker, match: Sexp) bool {
     const ctx = self.sema;
-    return storage.matchMode(ctx, match) == .consume;
+    return lowering.matchMode(ctx, match) == .consume;
 }
 
 pub const Scrutinee = struct {
@@ -3916,7 +3916,7 @@ fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const
     // A view the subject yields, which the construct reads where it
     // points (its tag, its payloads) after the header: one that carries
     // a loan on a temporary the header made reads it after its drop.
-    if (storage.holdsView(self.sema, match)) {
+    if (lowering.holdsView(self.sema, match)) {
         for (value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null) {
             const temp = self.vars.items[l.root].name;
             try notes.err(self, l.pos, "this `{s}` reads the view its subject returns after its header drops the temporary `{s}` it points into; bind `{s}` to a name first", .{ word, temp, temp });
@@ -4015,7 +4015,7 @@ pub fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Val
         }
     }
     // A read match's binding that is no plain data of a subject emit
-    // matches as a copy (not `storage.matchesInPlace`) is usable
+    // matches as a copy (not `lower.matchesInPlace`) is usable
     // within its arm only, so a view of it never outlives the copy
     // (docs/internals/INTERNALS.md, "Header subjects").
     const ctx = self.sema;
@@ -4146,9 +4146,9 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
     // the loop walks what it gives.
     const vars_mark: VarId = @intCast(self.vars.items.len);
     var ends: ?[]const VarId = null;
-    // A source the loop consumes (`storage.forConsumes`) is taken,
+    // A source the loop consumes (`lower.forConsumes`) is taken,
     // as emit hands its elements over.
-    const consumes = storage.forConsumes(self.sema, node);
+    const consumes = lowering.forConsumes(self.sema, node);
     if (mode == .move) {
         spec.moved = (try walkMove(self, source_e)).loans;
     } else if (header == .taken or consumes) {
@@ -4160,10 +4160,10 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
         const value = try walkE(self, source_e);
         // The type checker let the loop read a source a call gives in
         // place where the recorded fact says its loans name only places
-        // (`storage.livesIn`, CORE §9); the loans walked here agree, or
+        // (`sema.livesIn`, CORE §9); the loans walked here agree, or
         // the fact is wrong.
         ends = try lowered.endsAt(self, source_e, vars_mark, .header);
-        if (self_check) if (storage.livesIn(self.sema, source).onlyPlaces()) if (loanOn(value, ends.?) != null) {
+        if (self_check) if (sema.livesIn(self.sema, source).onlyPlaces()) if (loanOn(value, ends.?) != null) {
             const lc = diag.lineCol(self.source, notes.startOf(self, source));
             std.debug.panic("{d}:{d}: internal error: the loop's source was decided to live only in places (`lives_in`), but its loans name a value made in its header", .{ lc.line, lc.col });
         };
@@ -4297,10 +4297,10 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     // The loop is `loop { x = a or break; body: { body }; step }`
     // (docs/internals/INTERNALS.md, "Loops"): a `continue` in the body leaves
     // the body's block for the step. A step that runs after the body
-    // (`storage.StepPoint`) runs in the bindings' scope, after the
+    // (`lir.StepPoint`) runs in the bindings' scope, after the
     // body's own scope ends; any other runs after the bindings' scope
     // ends.
-    const step_inside = spec.node.isKind(.@"while") and storage.stepPoint(self.sema, spec.node) == .after_body;
+    const step_inside = spec.node.isKind(.@"while") and lowering.stepPoint(self.sema, spec.node) == .after_body;
     if (step_inside) {
         ctx.step_point = try self.here();
         ctx.step_depth = self.scopes.items.len;

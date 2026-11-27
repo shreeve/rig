@@ -8,7 +8,7 @@ const std = @import("std");
 const parser = @import("../parser.zig");
 const lir = @import("../lir.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const diag = @import("../diag.zig");
 const self_check = @import("build_options").self_check;
 const Sexp = parser.Sexp;
@@ -473,7 +473,7 @@ pub const LoopCtx = struct {
     breaks: std.ArrayList(State) = .empty,
     conts: std.ArrayList(State) = .empty,
     /// While the body of a `while` whose step runs after it is walked
-    /// (`storage.StepPoint.after_body`): the state after the bindings,
+    /// (`lir.StepPoint.after_body`): the state after the bindings,
     /// with `step_depth` scopes open, where a `continue` to the step goes.
     /// `step_conts` are relative to it.
     step_point: ?Point = null,
@@ -680,7 +680,7 @@ pub const Checker = struct {
     /// walked, each statement's dropped when it ends (`walkStmtValue`).
     walked: std.ArrayList(u32) = .empty,
     /// The uses a consumer being walked reads where it runs, after the
-    /// operands that follow them (`storage.isPureArg` parts of a call
+    /// operands that follow them (`lower.isPureArg` parts of a call
     /// that evaluates its arguments first, an assignment's value): walked
     /// only once that consumer is done (`walkLate`).
     late: std.ArrayList(u32) = .empty,
@@ -991,10 +991,10 @@ pub const Checker = struct {
         var v = var_;
         const ctx = self.sema;
         // Emit holds a binding as lowering made its var
-        // (`storage.bindingDrop`): the checker treats as owning exactly
+        // (`lower.bindingDrop`): the checker treats as owning exactly
         // the bindings whose var holds a value that moves.
         if (self_check) if (v.sym) |sym| if (v.ty) |t| {
-            const drop = storage.bindingDrop(ctx, sym);
+            const drop = lowering.bindingDrop(ctx, sym);
             switch (ctx.symbols.items[sym].kind) {
                 .param, .local, .capture => if ((drop != null) != (types.owningKind(self, t) != null))
                     try notes.err(self, v.decl, "internal error: the checker holds `{s}` as {s}, but its var holds {s}", .{ v.name, if (types.owningKind(self, t) != null) "owning" else "owning nothing", if (drop) |h| @tagName(h) else "nothing to drop" }),

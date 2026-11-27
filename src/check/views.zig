@@ -8,7 +8,6 @@ const rig = @import("../rig.zig");
 const diag = @import("../diag.zig");
 const sema = @import("../sema.zig");
 const arith = @import("../arith.zig");
-const storage = @import("../storage.zig");
 const Wide = sema.Wide;
 const resolve = @import("../resolve.zig");
 const Sexp = parser.Sexp;

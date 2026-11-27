@@ -6,7 +6,7 @@ const std = @import("std");
 const parser = @import("../parser.zig");
 const rig = @import("../rig.zig");
 const sema = @import("../sema.zig");
-const storage = @import("../storage.zig");
+const lowering = @import("../lower.zig");
 const resolve = @import("../resolve.zig");
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -667,7 +667,7 @@ pub fn checkFor(self: *Checker, node: Sexp) Error!void {
             // `for x in e`. A view a call returns, whose loans name only
             // places, is passed on (`?first(?ls)` is the view
             // `first(?ls)` gives).
-            const views_on = sema.isReadOrWriteView(self.ctx, source_ty) and storage.livesIn(self.ctx, source).onlyPlaces();
+            const views_on = sema.isReadOrWriteView(self.ctx, source_ty) and sema.livesIn(self.ctx, source).onlyPlaces();
             if ((mode == .read or mode == .write) and !views_on and !(unbound and list) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
                 try self.errAt(source, "the loop would walk a view of the temporary `{s}` after its header drops it; take it with `for {s} in {s}`, or bind it to a name first", .{ CallCheck.sourceText(self, source), self.text(binding), CallCheck.sourceText(self, source) });
             }
@@ -970,7 +970,7 @@ pub fn resolveJump(self: *Checker, node: Sexp) Error!?*Checker.LoopFrame {
 /// (`lower.Lowerer.stepBindings` rejects that).
 pub fn settleConditionJumps(self: *Checker, frame: *const Checker.LoopFrame) Error!void {
     if (frame.cond_continues.items.len == 0) return;
-    const to: sema.JumpDest.To = switch (storage.stepPoint(self.ctx, frame.node)) {
+    const to: sema.JumpDest.To = switch (lowering.stepPoint(self.ctx, frame.node)) {
         .continue_expr => .step,
         .after_body => .head,
     };
@@ -1027,18 +1027,18 @@ pub fn sharedLoopElement(self: *Checker, source: Sexp, inner_source: Sexp, walke
 }
 
 /// Whether `e` is a write view whose loans name only places
-/// (`storage.livesIn`): what it points at outlives the statement.
+/// (`sema.livesIn`): what it points at outlives the statement.
 pub fn writeViewOfPlaces(self: *Checker, e: Sexp) bool {
     const ty = self.ctx.typeOf(e) orelse return false;
-    return self.ctx.types.get(ty) == .write_view and storage.livesIn(self.ctx, e).onlyPlaces();
+    return self.ctx.types.get(ty) == .write_view and sema.livesIn(self.ctx, e).onlyPlaces();
 }
 
 /// Whether a loop over `source` walks memory that outlives its header,
 /// so it reads the elements where they are: a place a name holds, or
 /// a field or element of one, or a view whose loans name only places
-/// (`storage.livesIn`, CORE §9): `first(?ls)` views `ls`.
+/// (`sema.livesIn`, CORE §9): `first(?ls)` views `ls`.
 pub fn walksPlace(self: *Checker, source: Sexp) bool {
-    return StmtCheck.placeOf(self, source).named() or storage.livesIn(self.ctx, source).onlyPlaces();
+    return StmtCheck.placeOf(self, source).named() or sema.livesIn(self.ctx, source).onlyPlaces();
 }
 
 pub fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, source_ty: TypeId, mode: ?Tag) Error!TypeId {
