@@ -1950,3 +1950,123 @@ code "a type carries how the checkers classify it", "pub const __rig_repr: rig.R
   xs: List[Named] = List()
   !xs.push(Named(x: 1, s: String("a")))
   print(xs.len, Pair().b)
+
+test "as that binds nothing over a place", '''
+  a
+  b
+'''
+  # `if o as _` over a field, or over a field of a value a call made, tests
+  # the optional and binds nothing.
+  obj H
+    s: String?
+
+  fun mk() -> H
+    H(s: String("a"))
+
+  h = H(s: String("x"))
+  if h.s as _
+    print("a")
+  if mk().s as _
+    print("b")
+
+test "catch as a statement that gives nothing", '''
+  caught
+  named E.bad
+'''
+  # A statement `f() catch handler` of a call that gives an `Int`, whose
+  # handler gives nothing: the value is dropped, and the handler runs on an
+  # error, with or without the error bound.
+  error E
+    bad
+
+  fun mkf(n: Int) -> Int!E
+    return E.bad if n < 0
+    n
+
+  mkf(1) catch print("never")
+  mkf(-1) catch print("caught")
+  mkf(-2) catch |e| print("named", e)
+
+test "read of a fallback over places", '''
+  ab
+  dflt
+  dflt
+  dflt
+  1
+'''
+  # A branching `catch` or `??` read in place, whose value holder is a
+  # call's result and whose fallback is a name's place: its leaf is reached
+  # by address, with the error bound or not.
+  error E
+    bad
+
+  obj HT
+    n: Int
+    t: String
+
+  fun mkf(n: Int) -> HT!E
+    return E.bad if n < 0
+    HT(n: n, t: String("ab"))
+
+  fun mko(n: Int) -> HT?
+    HT(n: n, t: String("op")) if n > 0 else none
+
+  d = HT(n: 9, t: String("dflt"))
+  print((mkf(1) catch d).t)
+  print((mkf(-1) catch d).t)
+  print((mkf(-1) catch |e| (d if e == E.bad else d)).t)
+  print((mko(-1) ?? d).t)
+  print((mko(1) ?? d).n)
+
+test "read of a fallback over places of a unique value", "2 9 2 9"
+  # The same where the holder's value is `unique` and drops nothing, so
+  # Zig's own temporary holds it.
+  error E
+    bad
+
+  obj Pt unique
+    x: Int
+    y: Int
+
+  fun mkp(n: Int) -> Pt!E
+    return E.bad if n < 0
+    Pt(x: n, y: n + 1)
+
+  fun mko(n: Int) -> Pt?
+    Pt(x: n, y: 0) if n > 0 else none
+
+  d = Pt(x: 9, y: 9)
+  print((mkp(1) catch d).y, (mkp(-1) catch d).y, (mko(2) ?? d).x, (mko(-2) ?? d).x)
+
+test "immediately invoked closures with captures", '''
+  15
+  2
+  2
+  2
+'''
+  # `(|+k, n| ...)(5)` builds the closure with its captures in a block and
+  # calls it.
+  k = 10
+  s = String("hi")
+  print((|+k, n: Int| n + k)(5))
+  print((|?s| s.len)())
+  print((|+s| s.len)())
+  print((|n: Int| n + 1)(1))
+
+test "closure clones an optional handle", '''
+  5
+  5
+'''
+  # `|+o|` of an optional handle counts the handle again.
+  obj Node
+    n: Int
+
+  o: (*Node)? = *Node(n: 5)
+  f = |+o|
+    if o as p
+      p.n
+    else
+      0
+  print(f())
+  if o as q
+    print(q.n)

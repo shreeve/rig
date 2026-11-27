@@ -1636,3 +1636,14 @@ test "fallible sub returns an error", '''
 
   forward(2) catch |e| print(e)
   pick(1) catch |e| print(e)
+
+test "extern variable", "1"
+  # `extern name: T` declares C data: a C variable read inside `raw`.
+  # `optind` is libc's index of the next command-line argument, which is 1
+  # before any option parsing.
+
+  extern optind: I32
+
+  sub main()
+    raw
+      print(optind)
