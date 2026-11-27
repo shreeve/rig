@@ -43,8 +43,9 @@
 //! its heap (`trimIdle`): it gives back the pages of its free spans and
 //! kept large blocks and, on Linux, each class page whose blocks are all
 //! free, and puts what stays free on its remote lists, where any heap that would
-//! otherwise take a new page may take it (`takeDonated`), so the memory
-//! a burst of tasks freed serves the thread that works on. On Linux,
+//! otherwise take a new page may take it, once for each class
+//! (`takeDonated`), so the memory a burst of tasks freed serves the
+//! thread that works on. On Linux,
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
 //! worth, faults in at once the memory it is about to fill (`prefault`).
@@ -321,6 +322,7 @@ const free_slots = 1 << @bitSizeOf(Class);
 comptime {
     std.debug.assert(classSize(class_count - 1) == max_small);
     std.debug.assert(class_count <= free_slots);
+    std.debug.assert(class_count <= 128);
 }
 
 const Block = struct { next: ?*Block };
@@ -405,6 +407,10 @@ pub const Heap = struct {
     /// Whether its thread sleeps and has given its free blocks away
     /// (`trimIdle`), for other heaps to take (`takeDonated`).
     donor: std.atomic.Value(bool) = .init(false),
+    /// The classes whose blocks it has taken from a donor, a bit each
+    /// (`takeDonated`): it takes a class's donated blocks once, and
+    /// afterwards carves its own.
+    took_donated: u128 = 0,
     /// The heap made before it (`all_heaps`).
     all_next: ?*Heap = null,
     /// Its large blocks under `span_max` bytes: its span segments' free
@@ -439,8 +445,11 @@ pub const Heap = struct {
         }
         const size = classSize(c);
         if (h.carve[c] + size > h.carve_end[c]) {
-            // Before a new page, blocks an idle heap gave away.
-            if (donors.load(.monotonic) != 0) if (takeDonated(h, c)) |list| {
+            // Before a new page, blocks an idle heap gave away, once a
+            // class (`takeDonated`).
+            const once = @as(u128, 1) << @intCast(c);
+            if (donors.load(.monotonic) != 0 and h.took_donated & once == 0) if (takeDonated(h, c)) |list| {
+                h.took_donated |= once;
                 h.free[c] = list.next;
                 return @ptrCast(list);
             };
@@ -2574,7 +2583,14 @@ const donors = split.cell(&donors_var, "alloc.donors");
 /// A donor's blocks of class `c`, for `h`, whose list ran out and whose
 /// page is full: the whole list of the first donor that has any, taken
 /// as its own thread would take it (`Heap.remote`). They stay the
-/// donor's: freed, each goes back on its list.
+/// donor's: freed, each goes back on its list. So a heap takes a class's
+/// donated blocks once (`Heap.took_donated`), and when its list of the
+/// class runs out again it carves a page of its own: taken again and
+/// again, the same blocks went back and forth, each free a
+/// compare-and-swap onto the donor's list, and the heap's own list never
+/// refilled. Trig's checkers at four on six workers so freed 800 thousand
+/// blocks onto two sleeping workers' heaps in webpack's check, 40% of
+/// them more than once.
 fn takeDonated(h: *Heap, c: usize) ?*Block {
     @branchHint(.unlikely);
     var it = all_heaps.load(.acquire);
@@ -4720,6 +4736,55 @@ test "a trim gives away a free list whole, in its order, with the blocks other t
     try expectRemote(&h, c, &blocks, &.{ 5, 4, 3, 2, 1, 0, 7 });
     h.donor.store(false, .monotonic);
     _ = donors.fetchSub(1, .monotonic);
+}
+
+test "a heap takes a class's donated blocks once, and when its list runs out again carves a page of its own" {
+    const c = classOf(48, .@"8").?;
+    const Step = std.atomic.Value(u32);
+    const T = struct {
+        fn wait(step: *Step, want: u32) void {
+            while (step.load(.acquire) != want) std.atomic.spinLoopHint();
+        }
+        // A worker that ran a burst, freed it, and sleeps: its heap a
+        // donor whose free list of the class is on its remote list. One
+        // block stays handed out, so no page of them is given back.
+        fn run(step: *Step) void {
+            var bs: [33][]u8 = undefined;
+            for (&bs) |*b| b.* = allocator.alloc(u8, 48) catch unreachable;
+            for (bs[1..]) |b| allocator.free(b);
+            _ = trimIdle();
+            step.store(1, .release);
+            wait(step, 2);
+            allocator.free(bs[0]);
+            wakeIdle();
+            threadExit();
+        }
+    };
+    var step: Step = .init(0);
+    const th = try std.Thread.spawn(.{}, T.run, .{&step});
+    T.wait(&step, 1);
+    var h = testHeap();
+    // Its list of the class empty and no page to carve: it takes the
+    // donor's list.
+    const first = h.alloc(c).?;
+    const donor = segmentOf(first).heap;
+    try std.testing.expect(donor != &h);
+    var taken: [4096][*]u8 = undefined;
+    var n: usize = 1;
+    taken[0] = first;
+    while (h.free[c] != null and n < taken.len) : (n += 1) taken[n] = h.alloc(c).?;
+    try std.testing.expect(h.free[c] == null);
+    for (taken[0..n]) |p| try std.testing.expectEqual(donor, segmentOf(p).heap);
+    // Freed, they go back on the donor's list; the next block is carved
+    // from a page of its own, and freed, it comes back from its own list.
+    for (taken[0..n]) |p| h.freeSmall(p, c);
+    try std.testing.expect(donor.remote[c].load(.acquire) != null);
+    const own = h.alloc(c).?;
+    try std.testing.expectEqual(&h, segmentOf(own).heap);
+    h.freeSmall(own, c);
+    try std.testing.expectEqual(own, h.alloc(c).?);
+    step.store(2, .release);
+    th.join();
 }
 
 /// `h`'s remote list of class `c` is `blocks` in the order `want` gives.

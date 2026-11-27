@@ -1234,6 +1234,16 @@ arms.
 
 ### Runtime
 
+- **A heap takes a class's donated blocks once** (`alloc.takeDonated`):
+  a heap whose list of a class runs out takes a sleeping worker's free
+  blocks of it the first time, and afterwards carves pages of its own.
+  The donated blocks stay their donor's, so each free of one was a
+  compare-and-swap onto the donor's remote list, and a heap that took
+  them again at every refill passed the same blocks back and forth for
+  as long as it ran: Trig's four checkers on six workers freed about
+  800 thousand blocks onto two sleeping workers' heaps in webpack's
+  check, where eight on eight freed almost none.
+
 - **std.text's search compares 32 bytes at a time past a text's first 256 places on x86-64 with AVX2, and 64 with AVX-512BW** (`step_lanes`, one step routine whose width std/text.zig chooses by target from bench/text/sweep.zig's measurements; bench/text/README.md, "The sweep"). Shorter texts and aarch64 run the code they ran. On pup's E-core a 3- or 12-byte search is 9 to 11% faster over 1 KiB, 25 to 30% over a 4 KiB miss, and 21 to 34% over the whole of lib.dom.d.ts; one of 320 bytes is 6 to 13% slower.
 - **An actor's method run from its mailbox is stopped by a signal:** the
   runtime's functions that run a method (`callAs`, `actorCall`, the
