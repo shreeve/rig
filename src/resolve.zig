@@ -5556,6 +5556,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id, null),
             try method(ctx, "keep", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
             try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
+            try method(ctx, "fit", .write, &.{write_self}, ctx.types.void_id, null),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t, &list_get),
             // It compares, so it keeps nothing it is given.
             copiesArgs(try method(ctx, "index_of", .read, &.{ read_self, try ctx.intern(.{ .read_view = t }) }, try ctx.intern(.{ .optional = ctx.types.int_id }), &list_index_of)),
@@ -6124,7 +6125,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const list = ctx.lookup(scope, "List").?;
     try std.testing.expectEqual(ctx.builtins.list, ctx.ref(list));
-    try std.testing.expectEqual(@as(usize, 14), ctx.symbols.items[list].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 15), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 

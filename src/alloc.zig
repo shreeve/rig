@@ -19,7 +19,10 @@
 //! A span that grows takes the free span after it, or is copied into a
 //! free span whose pages are resident, or takes the units after it at
 //! its segment's end, as a List that is its segment's last span does;
-//! else it is copied into a new block (`remap`). Any thread may free,
+//! else it is copied into a new block (`remap`). A large block that
+//! shrinks and stays large, as a List fitted to its length, keeps its
+//! place and gives back what lies past its new length (`shrinkLarge`).
+//! Any thread may free,
 //! grow, or take a heap's spans, so they are under the one lock a heap
 //! has (`Spans`), which no system call is made under. A heap keeps its
 //! free spans' pages resident while those spans are no more than its
@@ -3058,16 +3061,17 @@ extern "c" fn mach_vm_remap(target_task: std.c.mach_port_t, target_address: *u64
 /// copied into a kept block that fits, which then keeps the old one in
 /// turn, since a kept block's pages are resident and copying into them
 /// costs less than faulting in fresh ones; else, from `move_large`, it
-/// grows by moving its pages (`mremap` on Linux, `movePages` on macOS). Anything else, or a block that
-/// shrinks, is left to the caller, which copies it into a new block.
+/// grows by moving its pages (`mremap` on Linux, `movePages` on macOS). A large block that
+/// shrinks and stays large shrinks where it lies (`shrinkLarge`).
+/// Anything else is left to the caller, which copies it into a new block.
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
     // A mapped run is not this heap's: the caller copies it into a new
     // block and frees it (`mapRun`).
     if (memory.len >= map_min and isMapped(memory.ptr)) return null;
     if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;
     if (classOf(memory.len, alignment) != null or classOf(new_len, alignment) != null) return null;
-    if (new_len < memory.len) return null;
     const h = heap() orelse return null;
+    if (new_len < memory.len) return shrinkLarge(h, memory, new_len);
     const old_size = largeSize(memory.len);
     const new_size = largeSize(new_len);
     if (isSpan(@intFromPtr(memory.ptr))) {
@@ -3150,6 +3154,53 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     prefault(h, rc + old_pages, likelyFilled((new_pages - old_pages) / 2));
     if (counts) h.count(@intCast(new_size - old_size), 0);
     return @ptrFromInt(rc);
+}
+
+/// The large block `memory` cut to `new_len` bytes, still large, where
+/// it lies, with no copy: a List or String fitted to its length
+/// (`List.fit`). A span gives its units past the new length back to its
+/// heap as a free span, as `freeSpan` gives back a span freed, joined
+/// with the free span after it; a mapping of its own gives the system
+/// pages past the new length back to the system (`munmap`). On any
+/// thread, as a free is.
+fn shrinkLarge(h: *Heap, memory: []u8, new_len: usize) [*]u8 {
+    const at = @intFromPtr(memory.ptr);
+    const old_size = largeSize(memory.len);
+    const new_size = largeSize(new_len);
+    if (isSpan(at)) {
+        const seg = spanSegmentOf(at);
+        const sp = &seg.heap.spans;
+        const s = spanIndex(seg, at);
+        const n = spanUnits(old_size);
+        const keep = spanUnits(new_size);
+        if (keep < n) {
+            // Cut in two, both handed out, then the tail freed: it reads
+            // as handed out until `freeSpan` takes the lock again, so no
+            // thread takes it meanwhile.
+            sp.lock.lock();
+            if (check_owner and seg.tags[s] != n) {
+                sp.lock.unlock();
+                spanLost();
+            }
+            handOutSpan(seg, s, keep);
+            handOutSpan(seg, s + keep, n - keep);
+            sp.lock.unlock();
+            freeSpan(h, spanAt(seg, s + keep), (n - keep) * span_unit);
+        }
+    } else {
+        const old_pages = mappedSize(memory.len);
+        const new_pages = mappedSize(new_len);
+        if (new_pages < old_pages) {
+            const tail = old_pages - new_pages;
+            unmapLarge(at + new_pages, tail);
+            // As `freeLarge` counts a block freed: what stays handed
+            // out is the settled peak's measure.
+            h.large_live -|= tail;
+            h.large_peak = @max(h.large_peak, h.large_live);
+        }
+    }
+    if (counts) h.count(-@as(isize, @intCast(old_size - new_size)), 0);
+    return memory.ptr;
 }
 
 /// What `free`'s fast path leaves: a block of another thread's heap, a
@@ -3629,6 +3680,48 @@ test "a span grows where it lies: into the free span after it, at its segment's 
     a.free(big);
     a.free(w);
     a.free(z2);
+    trimAllForTest(h);
+}
+
+test "a large block that shrinks keeps its place and its bytes: a span's units past it serve the next block, a mapping's pages go back to the system" {
+    const a = allocator;
+    const h = heap().?;
+    trimAllForTest(h);
+    const kib: usize = 1 << 10;
+    // A span with one handed out after it: its tail is a free span the
+    // next block takes, and the span grows into it again.
+    const x = try a.alloc(u8, 256 * kib);
+    const y = try a.alloc(u8, 64 * kib);
+    @memset(x, 4);
+    const taken = h.taken;
+    const x2 = a.remap(x, 100 * kib).?;
+    try std.testing.expectEqual(x.ptr, x2.ptr);
+    try std.testing.expectEqual(@as(u8, 4), x2[100 * kib - 1]);
+    const w = try a.alloc(u8, 128 * kib);
+    try std.testing.expectEqual(@intFromPtr(x.ptr) + 100 * kib, @intFromPtr(w.ptr));
+    a.free(w);
+    const x3 = a.remap(x2, 200 * kib).?;
+    try std.testing.expectEqual(x.ptr, x3.ptr);
+    try std.testing.expectEqual(@as(u8, 4), x3[0]);
+    try std.testing.expectEqual(taken, h.taken);
+    // One shrunk to a small block's size is copied, as the caller does.
+    try std.testing.expect(a.remap(x3, 16 * kib) == null);
+    // A shrink within its units changes nothing.
+    try std.testing.expectEqual(x.ptr, a.remap(x3, 200 * kib - 100).?.ptr);
+    a.free(x3[0 .. 200 * kib - 100]);
+    a.free(y);
+    // A mapping of its own gives back its pages past the new length, and
+    // is freed at that length.
+    const mib: usize = 1 << 20;
+    const m = try a.alloc(u8, 40 * mib);
+    try std.testing.expect(!isSpan(@intFromPtr(m.ptr)));
+    @memset(m[0 .. 3 * mib], 6);
+    const unmaps = calls_for_test.munmap;
+    const m2 = a.remap(m, 3 * mib).?;
+    try std.testing.expectEqual(m.ptr, m2.ptr);
+    try std.testing.expectEqual(unmaps + 1, calls_for_test.munmap);
+    try std.testing.expectEqual(@as(u8, 6), m2[3 * mib - 1]);
+    a.free(m2);
     trimAllForTest(h);
 }
 
