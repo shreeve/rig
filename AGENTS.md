@@ -77,7 +77,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `test/cli/*.sh`, `test/torture/`, `test/oracle/` | command-line scripts, bad input, the reference ownership checker |
 | `examples/` | whole programs, each run by the suite against its `# expect:` block |
 | `bench/` | benchmarks against Zig, Tokio, Go, serde_json and others; each has a README, and the concurrency ones a PROGRESS.md |
-| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`, `migrate-matches.py`, `drop-write-parens.py`, `migrate-select.py`, `migrate-patterns.py`, `migrate-durations.py`, `migrate-loops.py`, `migrate-datetime.py`, `migrate-constant-makers.py`, `migrate-options.py`, `migrate-tov.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, the generators and their `--check`s (`gen-unicode.py`, `verify-unicode.py`, `x25519-table.zig`), the oracles the tests run (`terminal_ghostty.*`, `text_go.py`, `text_int_go.go`, `utf8_zig.zig`, `markers.py`, `map-trace.py`, `inline_budget.py`, `inline_grid.py`, `to-rig-test.py`, `zig-next.py`), `fetch-json-data.sh`, `basecheck` (HANDOFF's base check), `heavy` and `low` for sharing a machine, `gitdir`, which finds Rig's git directory for them, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs"); and `store-trim`, which keeps the build store under 40 GB |
+| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`, `rename-task-bounds.py`, `state-bounds.py`, `migrate-float-min.py`, `migrate-matches.py`, `drop-write-parens.py`, `migrate-select.py`, `migrate-patterns.py`, `migrate-durations.py`, `migrate-loops.py`, `migrate-datetime.py`, `migrate-constant-makers.py`, `migrate-options.py`, `migrate-tov.py`; docs/MIGRATING-0.3.md says which to run), `equiv.py`, the generators and their `--check`s (`gen-unicode.py`, `verify-unicode.py`, `x25519-table.zig`), the oracles the tests run (`terminal_ghostty.*`, `text_go.py`, `text_int_go.go`, `utf8_zig.zig`, `markers.py`, `map-trace.py`, `inline_budget.py`, `inline_grid.py`, `to-rig-test.py`, `zig-next.py`), `fetch-json-data.sh`, `basecheck` (HANDOFF's base check), `gitdir`, which finds Rig's git directory for the suite's build store and `baseline`, `baseline SHA`, the path of a `rig` built at a commit (cached), and `emit-diff BASE`, whether `bin/rig` emits the same Zig as `BASE` for the examples, benches, std, and Trig: an identical emit skips the timing round (docs/internals/tests.md, "Emit diffs"); and `store-trim`, which keeps the build store under 40 GB |
 | `ZIG-0.17.md` | the Zig 0.17 reference every project's agents read, edited only here; after a change lands on `main`, `gh gist edit 57a74df35e17dacb30dcaa5d5164a27f -f ZIG-0.17.md ZIG-0.17.md` copies it to the gist the other projects link (where Rig meets Zig is INTERNALS, "Where Rig meets Zig 0.17") |
 | `formal/` | λRig in Lean 4 (`cd formal && lake build`) |
 
@@ -303,19 +303,19 @@ until its rule is built. docs/internals/tests.md has the rest.
 
 Machine-specific practice (the owner's machines):
 
-- **Several agents on one machine:** run builds and Swarm runs through
-  `tools/heavy CMD`, which takes them two at a time (`RIG_HEAVY_SLOTS`)
-  in the order they ask, across every worktree. A gate a merge waits on
-  runs as `tools/heavy --class correctness CMD` and goes ahead of every
-  other waiter; a waiter names what holds the slots and gives up after 45
-  minutes (exit 75), and `tools/heavy --status` shows the holders and the
-  queue. Run proof runs, benchmarks, and profiles
-  through `tools/low CMD`. Heavy's lock and the suite's build store live
-  in Rig's git directory, which `tools/gitdir` finds: from a plain copy
-  of Rig with no `.git` of its own, these tools stop unless `GIT_DIR`
-  (or, for the suite, `RIG_BUILD_STORE`) is set, never using a
-  repository that encloses the copy. While iterating, run single
-  areas; the core suite runs once, before landing.
+- **Several agents on one machine** share its CPUs through cpuq, on
+  the Mac, pup, and burst alike. A build runs as `cpuq run --label
+  rig:TASK -t LIMIT -- zig build -j1` (a task holds one CPU); a Swarm
+  run as `cpuq run --driver --label rig:test -- swarm test/rig.rip -w N
+  -q`, whose cases each take a CPU of their own (test/rig.rip); a gate a
+  merge waits on adds `--urgent`. `cpuq status` shows who holds what and
+  why each waits. Every command test/rig.rip and tools/baseline start
+  runs with none of git's variables that name a repository, so a script
+  that makes a scratch repository never writes into Rig's. The suite's
+  build store lives in Rig's git directory, which `tools/gitdir` finds:
+  from a plain copy of Rig with no `.git` of its own, set `GIT_DIR` (or
+  `RIG_BUILD_STORE`), never a repository that encloses the copy. While
+  iterating, run single areas; the core suite runs once, before landing.
 - Before builds, tests, or benchmarks on the Mac, check
   `~/Data/Code/mumps-compare/.mac-quiet`; hold off while it exists.
 - **pup** (`ssh pup`) is a 22-core x86-64 Linux machine. A change to the
@@ -336,15 +336,15 @@ Machine-specific practice (the owner's machines):
   state; everything else runs on E-cores 12-19. `/tmp` is a 16 GB tmpfs shared
   with other projects' gates: binaries and outputs go on `/zfs`.
   `tools/pup-rig COMMIT` builds the Rig under test in its own folder.
-- **Timing on the Mac** runs as `tools/mac-claim LABEL CMD`: one board or
-  A/B a claim, at most 20 minutes, never while a correctness job waits
-  in `tools/heavy`. While a claim holds, heavy and the test runners start
-  no new job, and the claim's command starts once the whole machine has
-  gone quiet: a build run outside heavy holds every claim back. Never pause a running job (SIGSTOP) that has a timeout: it is
-  killed the moment it resumes.
-- **The Mac:** suites run as `tools/heavy swarm test/rig.rip -w 4`, and
-  `tools/heavy` takes a second slot only while the load is under the core
-  count, so the load stays near it when several sessions work.
+- **Timing** runs under `cpuq drain`: `-c N --label rig:TASK -t LIMIT --
+  CMD` gathers N CPUs ahead of the line and runs CMD alone on them,
+  pinned on Linux (`$CPUQ_CPUS` lists them; pin to those, never to CPUs
+  named by hand), while the rest of the machine keeps working; `--all`
+  empties the whole machine, for at most 20 minutes, for a board that
+  needs every core. `--max T` gives up waiting (exit 75). Never pause a
+  running job (SIGSTOP) that has a timeout: it is killed the moment it
+  resumes.
+- **The Mac:** suites run with `-w 4` under `cpuq run --driver`.
 - **burst** is billed by the minute: use it in short bursts, and shut it
   down (`sudo -n shutdown -h now`) when nothing runs on it.
 - **One session per worktree and branch.** A session never rebases,

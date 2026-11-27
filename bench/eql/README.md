@@ -7,7 +7,7 @@ text, string patterns, and the built-in tables' text keys, against
 ```sh
 zig build-exe -O ReleaseFast --dep runtime -Mroot=bench/eql/eql.zig -Mruntime=src/runtime.zig -femit-bin=/tmp/eql
 /tmp/eql check     # bytesEql agrees with std.mem.eql at every length to 300, alignment, and difference
-tools/low /tmp/eql # the table below
+cpuq drain --all --label rig:eql -- /tmp/eql # the table below
 ```
 
 Each row is one length; each round compares 4096 pairs of it at

@@ -3,8 +3,8 @@
 # name git knows: a hash, a branch, `origin/main`), building it the first
 # time into a cache keyed by the full hash, so a comparison against a
 # base commit never runs a stale bin/rig. The build is `zig build` (bin/rig,
-# ReleaseSafe) in a detached worktree in a temp dir, taken through
-# tools/heavy, and removed after. Nexus is -Dnexus=$NEXUS when NEXUS is
+# ReleaseSafe) in a detached worktree in a temp dir, as a `cpuq run`
+# where cpuq is installed, and removed after. Nexus is -Dnexus=$NEXUS when NEXUS is
 # set, else nexus/bin/nexus in the nearest parent directory of this
 # checkout, as build.zig looks. The cache is rig-baseline/ in Rig's git
 # directory (tools/gitdir), which every worktree shares. Progress goes to
@@ -46,9 +46,17 @@ cleanup() {
     rm -rf "$tmp"
 }
 trap cleanup EXIT
+# Inside a cpuq task already (CPUQ_CPU), or without cpuq, the build runs
+# as it is; otherwise it waits for its CPUs in cpuq's line, with no git
+# variable that names a repository.
+# A cpuq task holds one CPU, so its build runs at -j1.
+pool="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE"
+jobs=
+if [[ -n ${CPUQ_CPU:-} ]]; then jobs=-j1
+elif command -v cpuq >/dev/null; then pool="$pool cpuq run --label rig:baseline -t 30m --"; jobs=-j1; fi
 echo "tools/baseline: building rig at ${sha:0:12} (once; then cached in $cache)" >&2
 git --git-dir="$G" worktree add --detach --quiet "$tmp/src" "$sha"
-(cd "$tmp/src" && "$here/heavy" zig build -Dnexus="$nexus") >"$tmp/build.log" 2>&1 || {
+(cd "$tmp/src" && $pool zig build $jobs -Dnexus="$nexus") >"$tmp/build.log" 2>&1 || {
     tail -20 "$tmp/build.log" >&2
     echo "tools/baseline: the build at ${sha:0:12} failed" >&2
     exit 1

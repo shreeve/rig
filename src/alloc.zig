@@ -5,9 +5,10 @@
 //! from pages of its own segments; a block freed on the thread whose heap
 //! made it goes back on that heap's list with no atomic operation, and
 //! one freed on another thread (a task's value that moved to another
-//! core) goes on the owning heap's remote list, with one
-//! compare-and-swap, for the owner to take back when its own list runs
-//! out. A large block under 16 MiB (`span_max`) is a span: a run of
+//! core) goes on the owning heap's remote list, for the owner to take
+//! back when its own list runs out: a block of at most 1 KiB waits with
+//! others of its heap and class, and up to 16 go with one
+//! compare-and-swap (`freeSmall`). A large block under 16 MiB (`span_max`) is a span: a run of
 //! 4 KiB units of one of its heap's span segments, 32 MiB of the
 //! segments' region each, so taking one, growing one, and freeing one
 //! map and unmap nothing. A span freed, on any thread, goes back to its
@@ -413,6 +414,10 @@ pub const Heap = struct {
     /// Its large blocks under `span_max` bytes: its span segments' free
     /// spans, which other threads free into and take from (`Spans`).
     spans: Spans = .{},
+    /// Blocks of other heaps its thread freed, by class, that wait to go
+    /// onto their heap's remote list a batch at a time (`freeSmall`):
+    /// its own thread's alone, on lines of their own.
+    outgoing: [out_class + 1]Outgoing align(64) = @splat(.{}),
 
     /// `n` more bytes taken from the system.
     fn took(h: *Heap, n: usize) void {
@@ -553,24 +558,68 @@ pub const Heap = struct {
         _ = total_peak.fetchMax(now, .monotonic);
     }
 
+    /// Give back `p`, a block of class `c`, on `h`, the running thread's
+    /// heap, read in a frame that switches no fiber before this returns
+    /// (`freeSlow`, `freeRecord`). Its own block goes on its free list.
+    /// Another heap's of at most `small_table_max` bytes waits in
+    /// `h.outgoing[c]` with others of that heap, and they go onto its
+    /// remote list together once `out_batch` wait, when a block of
+    /// another heap takes the slot, or when the thread trims or ends:
+    /// so the frees of a value made on another thread, as a task's
+    /// result dropped where it was taken, cost one compare-and-swap a
+    /// batch, not one a block. A waiting block keeps its page from a
+    /// trim (`trimPages`), as a block handed out does.
     fn freeSmall(h: *Heap, p: [*]u8, c: usize) void {
-        const seg = segmentOf(p);
+        const owner = segmentOf(p).heap;
         const b = blockOf(p);
-        if (seg.heap == h) {
-            mustOwn(h);
+        mustOwn(h);
+        if (owner == h) {
             b.next = h.free[c];
             h.free[c] = b;
             return;
         }
-        // Another thread's block: onto its heap's remote list.
-        const owner = seg.heap;
-        var top = owner.remote[c].load(.monotonic);
-        while (true) {
-            b.next = top;
-            top = owner.remote[c].cmpxchgWeak(top, b, .release, .monotonic) orelse return;
+        if (c > out_class) return pushRemote(owner, c, b, b);
+        const o = &h.outgoing[c];
+        if (o.owner != owner) {
+            o.flush(c);
+            o.* = .{ .owner = owner, .last = b };
         }
+        b.next = o.first;
+        o.first = b;
+        o.count += 1;
+        if (o.count == out_batch) o.flush(c);
     }
 };
+
+/// The blocks from `first` to `last`, linked, onto `owner`'s remote list
+/// of class `c` with one compare-and-swap, on any thread: its release
+/// publishes their links to the owner, which takes the list with acquire.
+fn pushRemote(owner: *Heap, c: usize, first: *Block, last: *Block) void {
+    var top = owner.remote[c].load(.monotonic);
+    while (true) {
+        last.next = top;
+        top = owner.remote[c].cmpxchgWeak(top, first, .release, .monotonic) orelse return;
+    }
+}
+
+/// A heap's waiting blocks of one class, all of `owner`'s: `count` of
+/// them, linked from `first` to `last` (`Heap.freeSmall`).
+const Outgoing = struct {
+    owner: ?*Heap = null,
+    first: ?*Block = null,
+    last: ?*Block = null,
+    count: u8 = 0,
+
+    fn flush(o: *Outgoing, c: usize) void {
+        if (o.first) |f| pushRemote(o.owner.?, c, f, o.last.?);
+        o.* = .{};
+    }
+};
+
+/// The blocks a batch holds, and the largest class batched: a block of
+/// at most `small_table_max` bytes, as the fast paths serve.
+const out_batch = 16;
+const out_class = small_table[small_table_max / 8];
 
 // -----------------------------------------------------------------------------
 // An idle heap
@@ -620,6 +669,7 @@ fn trimGrowth(at_trim: usize) usize {
 
 fn trimHeap(h: *Heap) usize {
     mustOwn(h);
+    for (&h.outgoing, 0..) |*o, c| o.flush(c);
     h.taken_at_trim = h.taken;
     // Every page the trim gives back goes in one batch (`Batch`), given
     // back last, with its spans' (`coolSpans`). A kept block is this
@@ -660,12 +710,7 @@ fn trimHeap(h: *Heap) usize {
     for (0..class_count) |c| {
         const list = h.free[c] orelse continue;
         h.free[c] = null;
-        const tail = tails[c].?;
-        var top = h.remote[c].load(.monotonic);
-        while (true) {
-            tail.next = top;
-            top = h.remote[c].cmpxchgWeak(top, list, .release, .monotonic) orelse break;
-        }
+        pushRemote(h, c, list, tails[c].?);
     }
     if (!h.donor.load(.monotonic)) {
         h.donor.store(true, .monotonic);
@@ -2680,6 +2725,7 @@ pub fn wakeIdle() void {
 /// again.
 pub noinline fn threadExit() void {
     const h = my_heap().* orelse return;
+    for (&h.outgoing, 0..) |*o, c| o.flush(c);
     if (counts) h.flush();
     my_heap().* = null;
     spare_lock.lock();
@@ -2864,8 +2910,8 @@ pub fn startSmall() void {
 }
 
 /// Give back `p`, a block of `len` bytes `allocRecord` made with
-/// `alignment`, on any thread: one that did not make it puts it on its
-/// heap's remote list. Its class is found at compile time, as
+/// `alignment`, on any thread: one that did not make it gives it back to
+/// its heap (`Heap.freeSmall`). Its class is found at compile time, as
 /// `allocRecord`'s is.
 pub noinline fn freeRecord(p: [*]u8, comptime len: usize, comptime alignment: std.mem.Alignment) void {
     const h = heap() orelse return;
@@ -3364,6 +3410,115 @@ test "blocks are reused, large ones kept, and a block freed on another thread go
     }
     for (held[0..n]) |p| a.free(p);
     try std.testing.expect(got);
+}
+
+test "a heap's frees of another heap's small blocks go onto its remote list a batch at a time" {
+    var h = testHeap();
+    var a = testHeap();
+    var b = testHeap();
+    const c = classOf(48, .@"8").?;
+    var blocks: [out_batch + 1][*]u8 = undefined;
+    for (&blocks) |*p| p.* = a.alloc(c).?;
+    // A batch but one waits; the last sends the batch.
+    for (blocks[0 .. out_batch - 1]) |p| h.freeSmall(p, c);
+    try std.testing.expectEqual(@as(usize, 0), remoteLen(&a, c));
+    h.freeSmall(blocks[out_batch - 1], c);
+    try std.testing.expectEqual(@as(usize, out_batch), remoteLen(&a, c));
+    // One more waits until a block of another heap takes its slot.
+    h.freeSmall(blocks[out_batch], c);
+    try std.testing.expectEqual(@as(usize, out_batch), remoteLen(&a, c));
+    h.freeSmall(b.alloc(c).?, c);
+    try std.testing.expectEqual(@as(usize, out_batch + 1), remoteLen(&a, c));
+}
+
+/// How many blocks `h`'s remote list of class `c` holds.
+fn remoteLen(h: *Heap, c: usize) usize {
+    var n: usize = 0;
+    var b = h.remote[c].load(.acquire);
+    while (b) |x| : (b = x.next) n += 1;
+    return n;
+}
+
+test "four threads take, write, and free small blocks, most of them one another's, and no block is handed out twice" {
+    const Shared = struct {
+        // Blocks one thread made for another to check and free: an
+        // address and a length, taken with a swap.
+        slots: [256]std.atomic.Value(usize) = @splat(.init(0)),
+        lens: [256]std.atomic.Value(usize) = @splat(.init(0)),
+        bad: std.atomic.Value(usize) = .init(0),
+
+        // Every byte of a block holds its own tag, so a block handed out
+        // twice at once, written by both, fails the check of one.
+        fn tag(b: []u8) u8 {
+            return @truncate((@intFromPtr(b.ptr) >> 3) ^ b.len);
+        }
+
+        fn check(sh: *@This(), b: []u8) void {
+            const want = tag(b);
+            for (b) |x| if (x != want) {
+                _ = sh.bad.fetchAdd(1, .monotonic);
+                return;
+            };
+        }
+
+        // Thread `t` puts its blocks in its quarter of the slots and takes
+        // from the next thread's, so its batches fill with one heap's
+        // blocks, and one time in eight from any thread's.
+        fn run(sh: *@This(), t: usize) void {
+            var rng = std.Random.DefaultPrng.init(t);
+            const r = rng.random();
+            const a = allocator;
+            // Some blocks this thread keeps a while, freed by itself.
+            var own: [32]?[]u8 = @splat(null);
+            const q = sh.slots.len / 4;
+            for (0..60_000) |_| {
+                const from = if (r.uintLessThan(u8, 8) == 0) r.uintLessThan(usize, 4) else (t + 1) % 4;
+                const i = from * q + r.uintLessThan(usize, q);
+                const len = sh.lens[i].swap(0, .acquire);
+                const at = if (len != 0) sh.slots[i].swap(0, .acquire) else 0;
+                if (at != 0) {
+                    const b = @as([*]u8, @ptrFromInt(at))[0..len];
+                    sh.check(b);
+                    a.free(b);
+                }
+                const size = 8 + r.uintLessThan(usize, if (r.uintLessThan(u8, 8) == 0) 4096 else 512);
+                const b = a.alloc(u8, size) catch unreachable;
+                @memset(b, tag(b));
+                const k = r.uintLessThan(usize, own.len);
+                const to = t * q + r.uintLessThan(usize, q);
+                if (r.boolean()) {
+                    if (own[k]) |o| {
+                        sh.check(o);
+                        a.free(o);
+                    }
+                    own[k] = b;
+                } else if (sh.slots[to].cmpxchgStrong(0, @intFromPtr(b.ptr), .release, .monotonic) == null) {
+                    sh.lens[to].store(b.len, .release);
+                } else {
+                    sh.check(b);
+                    a.free(b);
+                }
+            }
+            for (own) |o| if (o) |b| {
+                sh.check(b);
+                a.free(b);
+            };
+            threadExit();
+        }
+    };
+    const sh = try std.testing.allocator.create(Shared);
+    defer std.testing.allocator.destroy(sh);
+    sh.* = .{};
+    var threads: [4]std.Thread = undefined;
+    for (&threads, 0..) |*t, k| t.* = try std.Thread.spawn(.{}, Shared.run, .{ sh, k });
+    for (threads) |t| t.join();
+    try std.testing.expectEqual(@as(usize, 0), sh.bad.load(.monotonic));
+    for (&sh.slots, &sh.lens) |*slot, *len| if (len.load(.monotonic) != 0) {
+        const b = @as([*]u8, @ptrFromInt(slot.load(.monotonic)))[0..len.load(.monotonic)];
+        sh.check(b);
+        allocator.free(b);
+    };
+    try std.testing.expectEqual(@as(usize, 0), sh.bad.load(.monotonic));
 }
 
 test "the heap that does the work faults in ahead, beside a thread that takes little, and two busy heaps fault lazily" {
@@ -4892,6 +5047,7 @@ test "an idle heap gives back its kept large blocks' pages and, on Linux, its wh
     const first = @intFromPtr(blocks[0]);
     for (blocks[0 .. 2 * per - 1]) |p| h.freeSmall(p, c);
     other.freeSmall(blocks[2 * per - 1], c);
+    other.outgoing[c].flush(c);
     for (blocks[2 * per + 1 ..]) |p| h.freeSmall(p, c);
     const given = trimHeap(&h);
     try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes);
@@ -4921,6 +5077,7 @@ test "a trim gives away a free list whole, in its order, with the blocks other t
     for (blocks[0..6]) |p| h.freeSmall(p, c);
     _ = trimHeap(&h);
     other.freeSmall(blocks[6], c);
+    other.outgoing[c].flush(c);
     // Its list as the first trim gave it away, with the block another
     // thread freed since on top: the second trim keeps its order, as it
     // rewrites no block's link but a list's last.
@@ -4930,6 +5087,7 @@ test "a trim gives away a free list whole, in its order, with the blocks other t
     // thread freed meanwhile: that block follows the list.
     try std.testing.expectEqual(@intFromPtr(blocks[6]), @intFromPtr(h.alloc(c).?));
     other.freeSmall(blocks[7], c);
+    other.outgoing[c].flush(c);
     _ = trimHeap(&h);
     try expectRemote(&h, c, &blocks, &.{ 5, 4, 3, 2, 1, 0, 7 });
     h.donor.store(false, .monotonic);
