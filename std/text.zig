@@ -1,4 +1,4 @@
-//! `std.text`: searching text (`?String`s) 16 bytes at a time, comparing
+//! `std.text`: searching text (`?String`s) 16 bytes at a time (32 on x86-64 with AVX2), comparing
 //! it on Zig's `std.mem`, and parsing numbers with `std.fmt`. A parse fails with the errors of
 //! `std.text.ParseError`, which the emitter names
 //! `error.@"std.text.ParseError.name"`.
@@ -84,7 +84,9 @@ inline fn countIn(s: []const u8, pat: []const u8) i64 {
 // is a candidate when two bytes of the needle match there, the bytes at
 // its indexes `a` and `b`: two compares of 16 bytes, read at `i + a` and
 // `i + b`, give the candidates among the places `i` to `i + 15`, and each
-// candidate is confirmed by comparing the whole needle. `many` tests the
+// candidate is confirmed by comparing the whole needle (on x86-64 with
+// AVX2, two compares of 32 bytes give the places `i` to `i + 31`;
+// `wide`). `many` tests the
 // first 256 places 32 at a time; `far` tests the rest 64 at a time, out
 // of line, so a match near the start pays for none of its frame. Each
 // asks first whether any place of the step is a candidate, and ends by
@@ -215,7 +217,13 @@ inline fn many(h: []const u8, n: []const u8) ?usize {
     if (places < 16) return head(h, n, places);
     const p = pairAt(n, 0, n.len - 1);
     var i: usize = 0;
-    while (i < near_places and i + 32 <= places) : (i += 32) {
+    if (comptime wide) {
+        const w = widePair(p);
+        while (i < near_places and i + 32 <= places) : (i += 32) {
+            const c = rig.maskTrueLanes(Lanes, wideCandidates(h, i, w));
+            if (c.bits != 0) if (confirm(h, n, i, c)) |at| return at;
+        }
+    } else while (i < near_places and i + 32 <= places) : (i += 32) {
         const c0 = candidates(h, i, p);
         const c1 = candidates(h, i + 16, p);
         if (rig.maskAny(c0 | c1)) {
@@ -255,7 +263,13 @@ inline fn farFrom(h: []const u8, n: []const u8, start: usize) ?usize {
     const places = h.len - n.len + 1;
     const p = if (places - start >= rare_from) rarest(n) else pairAt(n, 0, n.len - 1);
     var i = start;
-    while (i + 64 <= places) : (i += 64) {
+    if (comptime wide) {
+        const w = widePair(p);
+        while (i + 64 <= places) : (i += 64) {
+            const bits = rig.maskBits(wideCandidates(h, i, w)) | rig.maskBits(wideCandidates(h, i + 32, w)) << 32;
+            if (bits != 0) if (confirm(h, n, i, .{ .bits = bits, .shift = 0 })) |at| return at;
+        }
+    } else while (i + 64 <= places) : (i += 64) {
         const c0 = candidates(h, i, p);
         const c1 = candidates(h, i + 16, p);
         const c2 = candidates(h, i + 32, p);
@@ -275,6 +289,31 @@ inline fn farFrom(h: []const u8, n: []const u8, start: usize) ?usize {
 /// The two bytes of the needle a candidate matches: `x`, the byte at
 /// index `a`, and `y`, the byte at index `b`.
 const Pair = struct { a: usize, b: usize, x: Block, y: Block };
+
+/// Whether `many` and `far` test 32 places a compare, not 16: on x86-64
+/// with AVX2, where a compare of 32 bytes costs what one of 16 does, so
+/// a step of 64 places takes 4 loads, not 8. Every other target, and the
+/// ends of a search (`tail`, `head`, `short`), test 16.
+const wide = @import("builtin").cpu.arch == .x86_64 and
+    std.Target.x86.featureSetHas(@import("builtin").cpu.features, .avx2);
+
+const Wide = @Vector(32, u8);
+
+/// A pair's bytes, 32 of each.
+const WidePair = struct { a: usize, b: usize, x: Wide, y: Wide };
+
+inline fn widePair(p: Pair) WidePair {
+    return .{ .a = p.a, .b = p.b, .x = @splat(p.x[0]), .y = @splat(p.y[0]) };
+}
+
+/// The places `i` to `i + 31` where the pair matches; each is a place,
+/// so `i + 31 + b < h.len`.
+inline fn wideCandidates(h: []const u8, i: usize, p: WidePair) @Vector(32, bool) {
+    @setRuntimeSafety(rig.proven_checks);
+    const x: Wide = h[i + p.a ..][0..32].*;
+    const y: Wide = h[i + p.b ..][0..32].*;
+    return (x == p.x) & (y == p.y);
+}
 
 fn pairAt(n: []const u8, a: usize, b: usize) Pair {
     return .{ .a = a, .b = b, .x = @splat(n[a]), .y = @splat(n[b]) };

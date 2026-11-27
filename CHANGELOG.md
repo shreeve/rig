@@ -1203,6 +1203,7 @@ arms.
 
 ### Runtime
 
+- **std.text's search tests 32 places a compare on x86-64 with AVX2.** A needle of two bytes or more is searched past its first 16 places with compares of 32 bytes, so a step of 64 places takes 4 loads, not 8; every other target, and a search's ends, test 16 as before, and aarch64's code is unchanged. On pup (E-core, lib.dom.d.ts), a 3- to 40-byte needle that misses is 17 to 25% faster in 1 KiB, 34 to 54% in 4 KiB, and 26 to 33% over the whole 2.3 MB text.
 - **An actor's method run from its mailbox is stopped by a signal:** the
   runtime's functions that run a method (`callAs`, `actorCall`, the
   mailbox's `Call.run`, and `actorSpawn`'s task) lie in the program's
