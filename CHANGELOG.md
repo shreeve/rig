@@ -1240,6 +1240,7 @@ arms.
 
 ### Runtime
 
+- **A dropped Table's range keeps its advice for huge pages** (`alloc.unreserveTable`): on Linux it is no longer advised for small pages again as it is given back, which changed the region's mapping under the lock every running thread's faults wait on; a Table that takes the range when no 2 MiB blocks are spare asks for small pages then (`reserveTable`). On Trig at eight checkers the advice calls at a drop fall from 380 a run to 2.
 - **A large block that shrinks keeps its place** (`alloc.shrinkLarge`):
   a span gives the units past its new length back to its heap as a free
   span, joined with the free span after it, and a mapping of its own
