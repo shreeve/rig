@@ -305,10 +305,7 @@ pub const Operand = packed struct(u16) {
     elems: bool = false,
     /// A held write view passed on where a read view is expected.
     read_only: bool = false,
-    /// Held first in a hidden var of its call or array literal
-    /// (`argument`).
-    held: bool = false,
-    _: u5 = 0,
+    _: u6 = 0,
 
     /// What an operand's user does with it (Core sentences 1, 2, 4, 5).
     pub const Use = enum(u3) {

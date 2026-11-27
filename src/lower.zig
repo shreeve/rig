@@ -261,7 +261,7 @@ pub const Module = struct {
 
 /// Whether call `c` evaluates its parts first, in a region of kind
 /// `call` (`hoistsArgs`): an element operation's never do.
-pub fn holdsParts(ctx: *const SemContext, c: Sexp) bool {
+fn holdsParts(ctx: *const SemContext, c: Sexp) bool {
     return ctx.elemCallOf(ctx.calleeOf(c)) == null and hoistsArgs(ctx, c);
 }
 
@@ -2371,9 +2371,6 @@ const Lowerer = struct {
         const shown = if (hold == .viewed) param else ty;
         const lifted = shown != ty;
         try l.hoistHeld(v, .argument, by, life, if (by == .pointer or ctx.viewsTempArray(v)) null else dropOf(ctx, v), r, if (lifted) .lifted else .read);
-        if (enabled) if (l.exprOf(v)) |id| if (id < l.f.roles.items.len) {
-            l.f.roles.items[id].held = true;
-        };
     }
 
     /// A call through an API object's table: the object, read once
@@ -2403,9 +2400,7 @@ const Lowerer = struct {
         if (!enabled) return;
         const roles = &l.f.roles;
         if (roles.items.len <= id) try roles.appendNTimes(l.a, .{}, id + 1 - roles.items.len);
-        var o = useOf(l.ctx, e, sink);
-        o.held = roles.items[id].held;
-        roles.items[id] = o;
+        roles.items[id] = useOf(l.ctx, e, sink);
     }
 
     /// The roles operation `o` gives its operands, the tree's `kids`:
@@ -2728,7 +2723,7 @@ pub fn classifyCall(ctx: *const SemContext, c: Sexp, stack_closures: *const sema
 /// The record the checkers read of call `c`: how its callee is written,
 /// how it takes its self, and its flags. The ownership checker reads it
 /// from the LIR (`lowered.callOf`).
-pub fn checkedCall(ctx: *const SemContext, c: Sexp) lir.Call {
+fn checkedCall(ctx: *const SemContext, c: Sexp) lir.Call {
     const callee = ctx.calleeOf(c);
     var rec = callShape(ctx, c, callee);
     rec.flags.text_only = ctx.isPrintCall(c) or (ctx.stringCallOf(c) orelse ctx.stringCallOf(callee)) != null;
