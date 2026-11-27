@@ -1,6 +1,6 @@
-# On the Mac a release build's `os.exit` first stops the other workers
-# and unmaps the program's Tables, segments and free fiber stacks on all
-# of them, when every other worker can be stopped (`sched.tearDown`;
+# On the Mac and Linux a release build's `os.exit` first stops the other
+# workers and gives back the program's Tables, segments and free fiber
+# stacks on all of them, when every other worker can be stopped (`sched.tearDown`;
 # docs/history/records/2026-11/exit/parallel-teardown.md). With
 # RIG_SCHED_STATS=1 it says which path it took. Elsewhere, and in a
 # debug build, `os.exit` ends the process as before, and says nothing.
@@ -91,7 +91,7 @@ sub main()!
   _ = >ts!
 EOF
 
-mac=0; [[ $(uname) == Darwin ]] && mac=1
+td=0; [[ $(uname) == Darwin || $(uname) == Linux ]] && td=1
 for mode in "" --release; do
     for prog in parked running small; do
         rig build $mode -o $prog $prog.rig >build.log 2>&1 || fail "build $prog $mode: $(cat build.log)"
@@ -100,7 +100,7 @@ for mode in "" --release; do
         RIG_SCHED_STATS=1 RIG_WORKERS=4 ./parked >out.txt 2>err.txt; expect_rc $? 4 "parked $mode"
         expect_eq "$(cat out.txt)" "exiting 64" "parked's output $mode"
         exits=$(grep '^rig: exit:' err.txt)
-        if [[ -n $mode && $mac == 1 ]]; then
+        if [[ -n $mode && $td == 1 ]]; then
             expect_has "$exits" "rig: exit: torn down on 4 of 4 workers" "parked tears down $mode"
         else
             expect_eq "$exits" "" "parked: no teardown $mode"
@@ -108,14 +108,14 @@ for mode in "" --release; do
         RIG_SCHED_STATS=1 RIG_WORKERS=4 ./running >out.txt 2>err.txt; expect_rc $? 6 "running $mode"
         expect_eq "$(cat out.txt)" "exiting 64" "running's output $mode"
         exits=$(grep '^rig: exit:' err.txt)
-        if [[ -n $mode && $mac == 1 ]]; then
+        if [[ -n $mode && $td == 1 ]]; then
             expect_eq "$exits" "rig: exit: plain, a task runs" "running ends plainly $mode"
         else
             expect_eq "$exits" "" "running: no teardown $mode"
         fi
         RIG_SCHED_STATS=1 RIG_WORKERS=4 ./small >out.txt 2>err.txt; expect_rc $? 3 "small $mode"
         exits=$(grep '^rig: exit:' err.txt)
-        if [[ -n $mode && $mac == 1 ]]; then
+        if [[ -n $mode && $td == 1 ]]; then
             expect_eq "$exits" "rig: exit: plain, little to free" "small ends plainly $mode"
         fi
     done
@@ -124,7 +124,7 @@ done
 # One worker: nothing to stop, nothing to help.
 rig build --release -o parked parked.rig >build.log 2>&1 || fail "build parked: $(cat build.log)"
 RIG_SCHED_STATS=1 RIG_WORKERS=1 ./parked >out.txt 2>err.txt; expect_rc $? 4 "parked on one worker"
-if [[ $mac == 1 ]]; then
+if [[ $td == 1 ]]; then
     expect_eq "$(grep '^rig: exit:' err.txt)" "rig: exit: plain, one worker" "one worker ends plainly"
 fi
 
@@ -144,7 +144,7 @@ for workers in 8 10; do
     for round in 1 2 3 4 5; do
         RIG_SCHED_STATS=1 RIG_WORKERS=$workers ./sudden >out.txt 2>err.txt; expect_rc $? 4 "sudden on $workers"
         expect_eq "$(cat out.txt)" "exiting 64" "sudden's output on $workers"
-        if [[ $mac == 1 ]]; then
+        if [[ $td == 1 ]]; then
             exits=$(grep '^rig: exit:' err.txt)
             [[ $exits == "rig: exit: torn down on "* || $exits == "rig: exit: plain, a task runs" ]] ||
                 fail "sudden on $workers workers: $exits"
@@ -163,7 +163,7 @@ for workers in 4 10; do
     for round in 1 2 3 4 5; do
         RIG_SCHED_STATS=1 RIG_WORKERS=$workers ./awake >out.txt 2>err.txt; expect_rc $? 4 "awake on $workers"
         expect_eq "$(cat out.txt)" "exiting 64" "awake's output on $workers"
-        if [[ $mac == 1 ]]; then
+        if [[ $td == 1 ]]; then
             exits=$(grep '^rig: exit:' err.txt)
             [[ $exits == "rig: exit: torn down on "* || $exits == "rig: exit: plain, a task runs" || $exits == "rig: exit: plain, the workers did not stop" ]] ||
                 fail "awake on $workers workers: $exits"
@@ -230,7 +230,7 @@ for workers in 2 2 2 2 3; do
     for round in 1 2 3 4 5; do
         RIG_SCHED_STATS=1 RIG_WORKERS=$workers ./elsewhere >out.txt 2>err.txt; expect_rc $? 5 "elsewhere on $workers: $(cat err.txt)"
         expect_eq "$(cat out.txt)" "exiting 64" "elsewhere's output on $workers"
-        if [[ $mac == 1 ]]; then
+        if [[ $td == 1 ]]; then
             exits=$(grep '^rig: exit:' err.txt)
             [[ $exits == "rig: exit: torn down on "* || $exits == "rig: exit: plain, a task runs" || $exits == "rig: exit: plain, the workers did not stop" ]] ||
                 fail "elsewhere on $workers workers: $exits"
@@ -244,7 +244,7 @@ rig build --release -o parked_pre parked.rig >build.log 2>&1 || fail "build park
 for round in 1 2 3; do
     RIG_SCHED_STATS=1 RIG_WORKERS=4 ./parked_pre >out.txt 2>err.txt; expect_rc $? 4 "parked, preempted"
     expect_eq "$(cat out.txt)" "exiting 64" "parked's output, preempted"
-    if [[ $mac == 1 ]]; then
+    if [[ $td == 1 ]]; then
         expect_has "$(grep '^rig: exit:' err.txt)" "rig: exit: torn down on 4 of 4 workers" "preempted parked tears down"
     fi
 done
@@ -253,7 +253,7 @@ done
 # any release build does: the build that trains, whose `os.exit` writes
 # its profile first, and the build it optimizes. Both links share one
 # bitcode, so the build's flag cannot tell them apart.
-if [[ $mac == 1 ]] && xcrun --find llvm-profdata >/dev/null 2>&1; then
+if [[ $td == 1 ]] && xcrun --find llvm-profdata >/dev/null 2>&1; then
     cat >train.sh <<'EOF2'
 RIG_SCHED_STATS=1 RIG_WORKERS=4 ./parked_pgo >train.out 2>train.err
 exit 0
