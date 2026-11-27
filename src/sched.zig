@@ -270,6 +270,12 @@ const Worker = struct {
     /// How long it sleeps before it gives back what its heap holds free
     /// (`trimIdle`).
     trim_wait: i96 = trim_first,
+    /// What its heap had taken from the system (`fast_alloc.heapTaken`)
+    /// when a sleep that would trim last found it grown, and when
+    /// (`nowReal`): a heap trims only once it has not grown for
+    /// `trim_calm` (`trimAt`).
+    taken_seen: usize = 0,
+    grew_at: i96 = 0,
     thread: ?std.Thread align(std.atomic.cache_line) = null,
     /// On the Mac, its fibers' lengths and the batch it keeps
     /// (`keeps_short`); nothing on Linux, whose workers keep none.
@@ -4850,11 +4856,21 @@ fn sleep(w: *Worker) void {
         return;
     }
     defer leaveWait(w);
-    // Once asleep `trim_wait`, it gives back what its heap holds free
+    // Once asleep `trim_wait`, and once its heap has not grown for
+    // `trim_calm` (`trimAt`), it gives back what its heap holds free
     // (`trimIdle`), once a sleep, if its heap has grown since its last
     // trim (`trimWorth`); otherwise it sleeps with no timeout of its own.
-    var trim_due = rt.fast_alloc.trimWorth() or (builtin.is_test and trim_worker_for_test.load(.seq_cst) == w);
+    const forced = builtin.is_test and trim_worker_for_test.load(.seq_cst) == w;
+    var trim_due = rt.fast_alloc.trimWorth() or forced;
     const since = if (trim_due) nowReal() else 0;
+    if (trim_due and !forced) {
+        const taken = rt.fast_alloc.heapTaken();
+        if (taken != w.taken_seen) {
+            w.taken_seen = taken;
+            w.grew_at = since;
+        }
+    }
+    const trim_at = if (forced) since + w.trim_wait else trimAt(since, w.trim_wait, w.grew_at);
     var trimmed = false;
     defer if (trimmed) rt.fast_alloc.wakeIdle();
     // What its looks and waits make ready, and the timers it fires, until
@@ -4872,7 +4888,7 @@ fn sleep(w: *Worker) void {
             if (Poller.darwin and first and connecting.*.load(.monotonic) != 0) timeout = if (timeout) |t| @min(t, connect_wait) else connect_wait;
             first = false;
             if (trim_due) {
-                const left = @max(since + w.trim_wait - nowReal(), 0);
+                const left = @max(trim_at - nowReal(), 0);
                 timeout = if (timeout) |t| @min(t, left) else left;
             }
             sleepIn(w, timeout);
@@ -4890,7 +4906,7 @@ fn sleep(w: *Worker) void {
                 } else waitWoken(w);
                 return;
             }
-            if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
+            if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() >= trim_at) {
                 trim_due = false;
                 trimmed = true;
                 // Out of its wait while it trims, so watched as an awake
@@ -5011,6 +5027,23 @@ fn takeWaiting(w: *Worker) bool {
 /// back little.
 const trim_first: i96 = 10 * std.time.ns_per_ms;
 const trim_most: i96 = 1 * std.time.ns_per_s;
+
+/// How long a heap goes without growing before its worker's sleep trims
+/// it (`trimAt`). A worker of a program still loading sleeps in the
+/// load's pauses, a stretch waiting on another thread's step, and gives
+/// back pages its next tasks fault in again: Trig's parallel front end
+/// gave back 9 to 20 MiB that way on pup at four checkers, each page
+/// then faulted in again. A server that goes idle gives back what its
+/// workers hold free `trim_calm` after their heaps last grew, rather than
+/// `trim_first` after they fall asleep.
+const trim_calm: i96 = 100 * std.time.ns_per_ms;
+
+/// When a worker asleep since `since`, whose heap last grew at `grew_at`
+/// (as a sleep that would trim found it), trims: once asleep `wait`
+/// (`Worker.trim_wait`) and once its heap has not grown for `trim_calm`.
+fn trimAt(since: i96, wait: i96, grew_at: i96) i96 {
+    return @max(since + wait, grew_at + trim_calm);
+}
 
 /// A trim that gives back less than this doubles the worker's wait
 /// before the next (`Worker.trim_wait`), so a server's worker whose heap
@@ -10017,6 +10050,20 @@ test "an idle worker wakes for the descriptors of a busy one" {
     try std.testing.expect(Run.asleep);
     try std.testing.expect(on != null);
     try std.testing.expect(on != Run.home);
+}
+
+test "a sleeping worker trims once asleep its wait and once its heap has not grown for `trim_calm`" {
+    const ms = std.time.ns_per_ms;
+    // A heap that grew long ago trims once its worker has slept its wait.
+    try std.testing.expectEqual(@as(i96, 1000 * ms + trim_first), trimAt(1000 * ms, trim_first, 0));
+    // One that grew just before its worker fell asleep waits `trim_calm`
+    // from then, as a worker in a load's pause does.
+    try std.testing.expectEqual(@as(i96, 1000 * ms + trim_calm), trimAt(1000 * ms, trim_first, 1000 * ms));
+    // One that grew a while before waits the rest of it.
+    try std.testing.expectEqual(@as(i96, 1000 * ms + trim_calm - 60 * ms), trimAt(1000 * ms, trim_first, 940 * ms));
+    // A wait doubled past `trim_calm` by trims that gave back little
+    // stays the wait.
+    try std.testing.expectEqual(@as(i96, 1000 * ms + trim_most), trimAt(1000 * ms, trim_most, 1000 * ms));
 }
 
 test "a sleeping worker that leaves its wait to trim its heap has another watch its descriptors" {
