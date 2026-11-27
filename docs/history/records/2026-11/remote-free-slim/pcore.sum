@@ -1,0 +1,18 @@
+nuxt c4 remote CAS: base=447180  hash=20992  slim=1001
+nuxt c8 remote CAS: base=313946  hash=48851  slim=1065
+webpack c4 remote CAS: base=386778  hash=14335  slim=819
+nuxt c4  stat n={'base': 9, 'slim': 9, 'hash': 9}  rec n={'base': 3, 'slim': 3, 'hash': 3}
+  arm          wall    front    check   cpu ms      uGc      kGc   faults   rss MB  alloc%front alloc%check allocGc(all)
+  base       396.37    83.00   306.00  1518.34     6.22     0.84 35891.00   388.65        6.94%       3.32%      0.256
+  hash       402.65    81.00   308.00  1526.19     6.24     0.84 36200.00   385.60        6.39%       3.04%      0.242
+  slim       404.35    84.00   308.00  1525.41     6.27     0.83 35965.00   386.70        6.90%       3.29%      0.256
+nuxt c8  stat n={'hash': 9, 'base': 9, 'slim': 9}  rec n={}
+  arm          wall    front    check   cpu ms      uGc      kGc   faults   rss MB  alloc%front alloc%check allocGc(all)
+  base       381.12    80.00   280.00  2141.12     8.31     1.17 48866.00   446.55
+  hash       384.22    78.00   285.00  2132.53     8.31     1.15 48631.00   447.73
+  slim       381.07    78.00   282.00  2132.87     8.23     1.14 48798.00   449.54
+webpack c4  stat n={'hash': 9, 'slim': 9, 'base': 9}  rec n={'base': 3, 'hash': 3, 'slim': 3}
+  arm          wall    front    check   cpu ms      uGc      kGc   faults   rss MB  alloc%front alloc%check allocGc(all)
+  base       413.57    65.00   340.00  1495.40     6.34     0.60 39583.00   346.70        4.50%       2.95%      0.213
+  hash       431.45    63.00   347.00  1508.74     6.38     0.63 39637.00   343.39        4.51%       2.47%      0.180
+  slim       425.05    63.00   346.00  1501.56     6.36     0.62 39570.00   347.16        4.53%       2.31%      0.169

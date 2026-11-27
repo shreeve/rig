@@ -1226,6 +1226,17 @@ arms.
 
 ### Runtime
 
+- **Frees of another thread's small blocks go to their heap a batch at a
+  time** (`alloc.Heap.freeSmall`): a block of at most 1 KiB freed on a
+  thread whose heap did not make it waits on that thread's heap, in a
+  slot per class, with others of its heap, and up to 16 go onto the
+  owner's remote list with one compare-and-swap, when the slot is full,
+  when a block of another heap takes it, or when the thread trims or
+  ends. A value made on one worker and dropped on another took a
+  compare-and-swap per block. On Trig on pup the remote compare-and-swaps fall by 75% on webpack at
+  four checkers and by 59 to 63% on nuxt at four and eight, and the
+  allocator's cycles on webpack by 21%, with CPU time and peak memory
+  unchanged.
 - **An allocation fetches the line of its class's next free block** (`alloc.prefetchNext`): the free list's new head is prefetched for writing as a block is handed out, so the next allocation of the class does not wait on memory for its link. On Trig at four checkers (pup, P-cores) the allocator's own cycles are 6 to 17% fewer.
 - **A dropped Table's range keeps its advice for huge pages** (`alloc.unreserveTable`): on Linux it is no longer advised for small pages again as it is given back, which changed the region's mapping under the lock every running thread's faults wait on; a Table that takes the range when no 2 MiB blocks are spare asks for small pages then (`reserveTable`). On Trig at eight checkers the advice calls at a drop fall from 380 a run to 2.
 - **A large block that shrinks keeps its place** (`alloc.shrinkLarge`):
