@@ -378,16 +378,16 @@ fn Unordered(comptime K: type, comptime V: type) type {
         }
 
         /// The quadratic probe over groups. `pos` is at most `mask` and
-        /// `step` at most `mask + 1`, so neither sum can wrap; and as the
-        /// groups are a power of two, a wrapped sum masked would be the
-        /// same group.
+        /// `step` at most `mask + 1`, so neither sum can wrap; their tests
+        /// stay, as without them bench/hash's misses and small inserts
+        /// measured 2 to 4% slower on an M5, their instructions fewer.
         const Prober = struct {
             pos: usize,
             step: usize = 0,
 
             inline fn next(pb: *Prober, mask: usize) bool {
-                pb.step +%= 1;
-                pb.pos = (pb.pos +% pb.step) & mask;
+                pb.step += 1;
+                pb.pos = (pb.pos + pb.step) & mask;
                 return pb.step <= mask;
             }
         };
