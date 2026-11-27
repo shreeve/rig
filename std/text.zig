@@ -85,10 +85,10 @@ inline fn countIn(s: []const u8, pat: []const u8) i64 {
 // is a candidate when two bytes of the needle match there, the bytes at
 // its indexes `a` and `b`: two compares of 16 bytes, read at `i + a` and
 // `i + b`, give the candidates among the places `i` to `i + 15`, and each
-// candidate is confirmed by comparing the whole needle. Their steps
-// compare 32 bytes at a time on x86-64 with AVX2 (`step_lanes`). `many` tests the
+// candidate is confirmed by comparing the whole needle. `many` tests the
 // first 256 places 32 at a time; `far` tests the rest 64 at a time, out
-// of line, so a match near the start pays for none of its frame. Each
+// of line, with compares of `step_lanes` bytes (32 with AVX2, 64 with
+// AVX-512BW), so a match near the start pays for none of its frame. Each
 // asks first whether any place of the step is a candidate, and ends by
 // testing the last 16 places again without those already tested, as
 // `find_any` does. Near the start, and in a text of fewer than 64 KiB, `a`
@@ -218,7 +218,7 @@ inline fn many(h: []const u8, n: []const u8) ?usize {
     const p = pairAt(n, 0, n.len - 1);
     var i: usize = 0;
     while (i < near_places and i + 32 <= places) : (i += 32) {
-        if (step(h, n, i, 32, @min(step_lanes, 32), p)) |at| return at;
+        if (step(h, n, i, 32, 16, p)) |at| return at;
     }
     if (i + 32 <= places) return found(far(h, n, i));
     if (i + 16 <= places) {
@@ -276,12 +276,13 @@ inline fn candidates(h: []const u8, i: usize, p: Pair) @Vector(16, bool) {
     return (load(h, i + p.a) == p.x) & (load(h, i + p.b) == p.y);
 }
 
-/// The search's tiers, by target, as bench/text/sweep.zig measured them
-/// (bench/text/README.md, "The sweep"): a text of fewer than 8 bytes is
-/// walked a byte at a time, one of 8 to 15 bytes is compared 8 bytes at a
-/// time (`short`), and a longer one 16 at a time, or `step_lanes` at a
-/// time while that many places are left: 32 on x86-64 with AVX2, 64 with
-/// AVX-512BW in `far`'s steps, and 16 elsewhere.
+/// The search's tiers, by target, as bench/text/sweep.zig and
+/// bench/text/bench-text measured them (bench/text/README.md, "The
+/// sweep"): a text of fewer than 8 bytes is walked a byte at a time, one
+/// of 8 to 15 bytes is compared 8 bytes at a time (`short`), and a
+/// longer one 16 at a time through its first `near_places` places; the
+/// places after them (`far`) `step_lanes` at a time: 64 on x86-64 with
+/// AVX-512BW, 32 with AVX2, and 16 elsewhere.
 const step_lanes = if (x86 and hasX86(.avx512bw)) 64 else if (x86 and hasX86(.avx2)) 32 else 16;
 
 const x86 = builtin.cpu.arch == .x86_64;
@@ -290,8 +291,8 @@ fn hasX86(comptime f: std.Target.x86.Feature) bool {
     return std.Target.x86.featureSetHas(builtin.cpu.features, f);
 }
 
-/// Whether a mask's bits are one per lane (`rig.maskTrueLanes`'s shift
-/// 0), so a step's masks join into one `u64`: on x86-64.
+/// Whether a step's masks of more than 16 lanes join into one `u64`:
+/// on x86-64, where a mask's bits are one per lane.
 const flat_masks = x86;
 
 /// The places `i` to `i + width - 1`, `lanes` a compare: whether any of
@@ -307,7 +308,7 @@ inline fn step(h: []const u8, n: []const u8, i: usize, comptime width: usize, co
         c[j] = if (lanes == 16) candidates(h, at, p) else (@as(V, h[at + p.a ..][0..lanes].*) == @as(V, @splat(p.x[0]))) &
             (@as(V, h[at + p.b ..][0..lanes].*) == @as(V, @splat(p.y[0])));
     }
-    if (comptime flat_masks) {
+    if (comptime flat_masks and lanes > 16) {
         var bits: u64 = 0;
         inline for (0..k) |j| bits |= rig.maskBits(c[j]) << (lanes * j);
         if (bits == 0) return null;
