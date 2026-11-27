@@ -207,6 +207,70 @@ bomb "table push into a full table", "a table of 2 slots is full"
   _ = (!t).push(2)
   _ = (!t).push(3)
 
+test "table grow of an empty table pushes slots that read T()", "3 0 0 0"
+  t: Table[Int, 8] = Table()
+  !t.grow(3)
+  print(t.len, t[0], t[1], t[2])
+
+test "table grow by 0 does nothing", "0 1 0"
+  t: Table[Int, 4] = Table()
+  !t.grow(0)
+  a = t.len
+  s = !t.push(5)
+  !t.grow(0)
+  print(a, t.len, s)
+
+test "table grow of objects reads each field's default", "2 0 false 0 false"
+  obj P
+    x: Int = 0
+    on: Bool = false
+  t: Table[P, 16] = Table()
+  !t.grow(2)
+  print(t.len, t[0].x, t[0].on, t[1].x, t[1].on)
+
+test "table grow of made slots reads T()", "3 1.5 none"
+  obj F
+    v: Float = 1.5
+    name: String? = none
+  t: Table[F, 4] = Table()
+  !t.grow(3)
+  print(t.len, t[2].v, t[2].name)
+
+test "table push after grow lands past the grown slots", "5 2 4 9 0 7"
+  t: Table[Int, 8] = Table()
+  _ = !t.push(4)
+  !t.grow(1)
+  t[1] = 7
+  s = !t.push(9)
+  !t.grow(2)
+  print(t.len, s, t[0], t[s], t[4], t[1])
+
+test "table grow fills a table exactly", "4 6"
+  t: Table[Int, 4] = Table()
+  _ = !t.push(6)
+  !t.grow(3)
+  print(t.len, t[0])
+
+bomb "table grow past n", "a table of 4 slots is full"
+  t: Table[Int, 4] = Table()
+  _ = !t.push(1)
+  !t.grow(3)
+  !t.grow(1)
+
+bomb "table grow of made slots past n", "a table of 4 slots is full"
+  t: Table[String, 4] = Table()
+  !t.grow(5)
+
+bomb "table grow by a negative count", "negative size"
+  t: Table[Int, 4] = Table()
+  k = 0 - 1
+  !t.grow(k)
+
+fail "table grow gives nothing", "2:6: `x` would be bound to a value of type `Void`; this expression produces no value"
+  t: Table[Int, 4] = Table()
+  x = !t.grow(1)
+  print(x)
+
 bomb "table index by Int past n", "index out of bounds"
   t: Table[Int, 4] = Table()
   i = 4

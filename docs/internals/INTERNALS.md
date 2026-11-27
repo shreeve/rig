@@ -3163,7 +3163,7 @@ registered by `resolve.registerBuiltins`, after `Simd`, with an `Int`
 parameter `n`, and neither name is reserved: a module's own declaration
 hides the built-in one, as its `Order` does. A table is a generic
 instance, `parameterized_nominal` of `builtins.table` over `[T, n]`; its
-one member is `push(!@, T) -> Slot[n]`, and typing knows `len`, `t[s]`
+members are `push(!@, T) -> Slot[n]` and `grow(!@, Int)`, and typing knows `len`, `t[s]`
 (`Checker.tableIndex`), `for`, and `Table()`
 (`Checker.checkTableConstruction`). A slot is a type of its own kind,
 `Type.slot`, whose operand is the count (`ct_value`, or `ct_param` in a
@@ -3205,8 +3205,9 @@ and a generic type's instances, whose marker leaves `drops` and
 
 The table owns its slots' memory (`symbolContents` gives it glue,
 `isHeapBuiltin` puts its slots behind it), so its slots are places
-behind the table as a List's elements are, and `push` is a write call
-on it. Which slots are written is a fact: `Checker.requireAccess`, which
+behind the table as a List's elements are, and `push` and `grow` are
+write calls on it; `grow` is `table.zig`'s `pushRuns`, then on Linux one
+`MADV_POPULATE_WRITE` over a reserved table's grown slots. Which slots are written is a fact: `Checker.requireAccess`, which
 every write of a place passes, records each table index on the written
 place's path (`Facts.table_writes`), and emit reaches those with `slot` and
 every other slot with `constSlot` or `at` (the node fact `isTableWrite`), so a
