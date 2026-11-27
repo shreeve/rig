@@ -8,8 +8,8 @@ runs of uneven sizes (most 20 to 400 records, one in forty 1,500 to
 index and its base.
 
 ```sh
-tools/heavy bin/rig build --release bench/par-push/fill.rig -o /tmp/fill
-tools/mac-claim parpush tools/low /tmp/fill
+cpuq run --label rig:build -- bin/rig build --release bench/par-push/fill.rig -o /tmp/fill
+cpuq drain --max 20m --label rig:parpush -- /tmp/fill
 ```
 
 | Form | How the records reach the table |
@@ -28,7 +28,7 @@ counts. Each prints `NAME MS CHECK`; the checks agree.
 |---|---|---|---|---|---|
 | Mac (arm64, 10 cores), 2026-11-13 | 11.14 ms | 10.26 ms | 8.25 ms | 7.39 ms | 9.37 ms |
 
-The fastest of three runs of the program under `tools/mac-claim`, each
+The fastest of three runs of the program under `cpuq drain`, each
 the fastest of its 15 reps; the three runs agree within 3%. At four
 tasks the fill is 1.51 times as fast as the serial loop, and at eight
 slower than at four: the fill is bound by memory and by page faults,

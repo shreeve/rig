@@ -36,7 +36,6 @@ import { swarm, init, todo, args } from 'rip/swarm'
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync, rmSync, renameSync, statSync, symlinkSync } from 'fs'
 import { join, resolve, basename, dirname, relative } from 'path'
 import { constants as osConstants } from 'os'
-import { claimWait, claimHeld } from './claim.rip'
 
 root = resolve(import.meta.dir, '..')
 rig  = join(root, 'bin', 'rig')
@@ -767,6 +766,12 @@ setup = ->
 # pooled CPU cannot show, so it runs directly.
 cpuq = if process.env.RIG_NO_CPUQ then null else Bun.which('cpuq')
 
+# The environment a command runs in: the suite's, with none of git's
+# variables that name a repository, so a script that makes a scratch
+# repository of its own never writes into one the suite was started from.
+gitVars = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CEILING_DIRECTORIES']
+baseEnv = Object.fromEntries(Object.entries(process.env).filter((kv) -> !gitVars.includes(kv[0])))
+
 # Run a command; its status, stdout, and stderr. A command that did not
 # exit has no status, and `ended` says why: its time limit ended it
 # ("timed out after 120s"), or a signal did ("killed by signal SIGABRT
@@ -774,7 +779,7 @@ cpuq = if process.env.RIG_NO_CPUQ then null else Bun.which('cpuq')
 run = (cmd, env, seconds, cwd = root, pooled = true) ->
   cmd = [cpuq, 'run', '--', ...cmd] if cpuq and pooled
   start = performance.now()
-  r = Bun.spawnSync({ cmd, cwd, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe', timeout: seconds * 1000 })
+  r = Bun.spawnSync({ cmd, cwd, env: { ...baseEnv, ...env }, stdout: 'pipe', stderr: 'pipe', timeout: seconds * 1000 })
   ended = null
   unless r.exitCode?
     took = ((performance.now() - start) / 1000).toFixed(1)
@@ -888,9 +893,6 @@ packed = (c) ->
     if existsSync(join(c.pack, 'key')) and readFileSync(join(c.pack, 'key'), 'utf8') is c.packKey and existsSync(join(c.pack, 'bin'))
       return numbers()
     throw Error.new('its pack was never built') if Date.now() - waited > 1800 * 1000
-    # A claim holds the pack's build job before it starts: that time is
-    # not the build's.
-    waited += 100 if claimHeld()
     await Bun.sleep(100)
 
 # A case with `seeds: K` runs again deterministically with each seed
@@ -1170,8 +1172,6 @@ checkUnit = (c) ->
 
 perform = (task, ctx) ->
   c = JSON.parse(readFileSync(task, 'utf8'))
-  # A job starts no process while the Mac is held for timing (test/claim.rip).
-  claimWait()
   # Each job's time goes to .swarm/times, `MS<TAB>JOB` a line, so the
   # slowest are easy to find: `sort -rn .swarm/times | head`.
   started = Date.now()

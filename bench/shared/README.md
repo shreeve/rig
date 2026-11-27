@@ -11,7 +11,7 @@ suite or CI.
 bench/shared/bench-shared                       # builds with bin/rig, 7 rounds
 D=$(mktemp -d)
 bin/rig build --release bench/shared/shared.rig -o $D/shared
-tools/mac-claim shared-map bench/shared/bench-shared --exe $D/shared --rounds 9
+cpuq drain --max 20m --label rig:shared-map -- bench/shared/bench-shared --exe $D/shared --rounds 9
 ```
 
 On pup, in a quiet slot, the build on E-cores and the runs on P-cores:
@@ -48,7 +48,7 @@ operations).
 ## Results
 
 Mac (M5, 4 fast and 6 slow cores), 2026-11-11, branch `concurrent-map`,
-9 rounds under `tools/mac-claim`. Milliseconds of wall time, and in
+9 rounds under `cpuq drain`. Milliseconds of wall time, and in
 parentheses nanoseconds of CPU an operation. 12 tasks is more than the
 cores.
 
