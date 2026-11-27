@@ -5,7 +5,7 @@ Times std.text's `find` (`std/text.zig`) and holds it to what it has won.
 ```sh
 zig build                                              # bin/rig
 bench/text/guard.py                                    # the guard: no row more than 2% above guard.txt
-tools/low bench/text/bench-text "$(tools/baseline origin/main)" bin/rig lib.dom.d.ts 9
+cpuq drain --max 20m --label rig:bench-text -- bench/text/bench-text "$(tools/baseline origin/main)" bin/rig lib.dom.d.ts 9
 ```
 
 ## The guard
@@ -92,7 +92,7 @@ best when one needle is searched for many times. Every program prints
 where it found each needle, and the run stops if two disagree.
 
 ```sh
-tools/low bench/text/bench-text --rivals bin/rig lib.dom.d.ts 20
+cpuq drain --max 20m --label rig:bench-text -- bench/text/bench-text --rivals bin/rig lib.dom.d.ts 20
 ```
 
 The std.text column was measured in Zig's fast mode, which Rig no

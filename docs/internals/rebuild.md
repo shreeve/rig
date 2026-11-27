@@ -211,7 +211,7 @@ gate.
 6. **Prove it:**
    - `tools/emit-diff BASE`: `identical` for an identity step, every
      hunk classified for a behaviour step;
-   - the core suite, `tools/heavy --class correctness swarm test/rig.rip -w 4 -q`,
+   - the core suite, `cpuq run --driver --urgent --label rig:test -- swarm test/rig.rip -w 4 -q`,
      green, with the oracle silent and never weakened;
    - `bench/check/guard.py` within 2% of its baseline in instructions;
    - for a compiler, runtime, or std change: Trig's and loco's light
@@ -242,7 +242,7 @@ gate.
 
 The bars of AGENTS.md hold: Trig's bar (more than 1.5% faster, or at
 least 1% fewer instructions on one checker), the 2% guards, timing
-only on the Mac through `tools/mac-claim` and on pup in a board slot.
+only on the Mac through `cpuq drain` and on pup in a board slot.
 The records list what was measured and failed; a step does not redo
 one without new evidence (docs/history/records/INDEX.md).
 

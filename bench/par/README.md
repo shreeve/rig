@@ -5,8 +5,8 @@ tasks") against two hand-built forms of the same work: uneven items,
 each checked by one of four states, as Trig's checkers check files.
 
 ```sh
-tools/low bin/rig build --release bench/par/workers.rig -o /tmp/workers
-tools/low /tmp/workers
+cpuq run --label rig:build -- bin/rig build --release bench/par/workers.rig -o /tmp/workers
+cpuq drain --max 20m --label rig:bench-par -- /tmp/workers
 ```
 
 | Form | How the items reach the states |
@@ -42,8 +42,8 @@ files sit together in one folder: the giants hold about a quarter of
 the work. One worker per core.
 
 ```sh
-tools/low bin/rig build --release bench/par/cost.rig -o /tmp/cost
-tools/low /tmp/cost
+cpuq run --label rig:build -- bin/rig build --release bench/par/cost.rig -o /tmp/cost
+cpuq drain --max 20m --label rig:bench-par -- /tmp/cost
 ```
 
 | Form | How the items reach the tasks |

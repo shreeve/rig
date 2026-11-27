@@ -551,8 +551,8 @@ Waiting on the owner's go, each in a fresh session:
   in any language (yyjson for std.json, Ghostty for std.terminal), with
   the gap, then the gaps one at a time, each behind a speed guard.
 - **A worker cap by default:** the test runner uses about 60% of the
-  cores when not under `tools/heavy`, and cross-builds go through
-  `tools/heavy`, so several sessions never overload the Mac.
+  cores when not under `cpuq run --driver`, and cross-builds go through
+  cpuq, so several sessions never overload the Mac.
 - **The oracle's value loops:** `test/oracle/lower.zig` decides no
   function whose `while` yields a value, the shape a chain's rewrite
   makes. Measure its share, then lower that loop; its floors rise.
