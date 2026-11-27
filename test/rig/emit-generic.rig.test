@@ -635,3 +635,23 @@ test "a compile-time query of a type that is never plain", "false false"
     $plain(*T)
 
   print(pl[Int](), p2[Int]())
+
+test "match on an element of an array a generic view holds", "0 1"
+  # A generic type's field of type `?[2]Opt[T]` is a generic read view of a
+  # type that holds `T` by value; the match on one of its elements reaches
+  # the element where the view points, or in the view's copy.
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj W[T]
+    a: ?[2]Opt[T]
+
+  fun f[T](w: ?W[T]) -> Int
+    match w.a[1]
+      .some => 1
+      .nothing => 0
+
+  a = [Opt.some(v: 1), Opt[Int].nothing]
+  b = [Opt.some(v: 1), Opt[Int].some(v: 2)]
+  print(f(?W(a: ?a)), f(?W(a: ?b)))
