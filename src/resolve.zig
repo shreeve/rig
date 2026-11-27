@@ -5737,7 +5737,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
 
     // Table[T, n: Int]: `n` slots from the start, each `T()` until
     // written (`tableElementError`); `!t.push(x)` writes slot `len` and
-    // gives it as a `Slot[n]`. Typing knows `len`, `t[s]`, and `for`, as
+    // gives it as a `Slot[n]`, and `!t.grow(k)` pushes `k` slots at once,
+    // each as it reads. Typing knows `len`, `t[s]`, and `for`, as
     // a List's. Slot[n: Int]: a number below `n`, a type of its own kind
     // (`slotInstance`), whose `of` typing knows. Neither name is reserved:
     // a module's own `Table` or `Slot` hides the built-in one.
@@ -5753,6 +5754,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const slot = try ctx.intern(.{ .slot = n_ty });
         try setFields(ctx, g.sym, &.{
             try method(ctx, "push", .write, &.{ write_self, g.params[0] }, slot, null),
+            try method(ctx, "grow", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
         });
         const s = try addGeneric(ctx, module_scope, module_scope, "Slot", &.{"n"});
         b.slot = ctx.ref(s.sym);

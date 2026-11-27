@@ -498,6 +498,17 @@ serve no HTTP.
   of the select's union. A loop takes each result that is ready and
   does other work between them, as Trig's file loader interns names
   between results.
+- **`!t.grow(k)` pushes `k` slots of a Table at once**
+  ([SPEC "Table"](SPEC.md#table), [STD "Table and Slot"](docs/STD.md#table-and-slot)),
+  each holding what it reads as, `T()` unless written by slot, and gives
+  nothing. It panics as `push` does when `len + k` would pass `n`
+  ("a table of 4 slots is full"), and on a negative `k`; `k = 0` does
+  nothing. On Linux a reserved table then faults in the grown slots'
+  pages for writing with one `MADV_POPULATE_WRITE` (Linux 5.14; ignored
+  where refused), so a slot read before it is written finds a page of its
+  own rather than the shared zero page, whose first write copies it and
+  flushes every other core's TLB of it. Trig grows its link indexes this
+  way when it makes a checker.
 - **`cost:` on `par.map`, `par.each`, `par.workers`, and `par.push`**
   ([SPEC "Each element on several tasks"](SPEC.md#each-element-on-several-tasks),
   [std.par](docs/STD.md#stdpar)). It gives each element's cost, an
