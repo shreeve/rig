@@ -2894,7 +2894,7 @@ fail "review-copies-2-q07k-assign-field-view", "cannot assign to `a.x` while a r
   a.x = 5
   print(t.r.x)
 
-fail "review-copies-2-q07l-write-catch-same-owner", "cannot change `vs` while a write view of it is still in use"
+test "review-copies-2-q07l-write-catch-same-owner", "1"
   error Bad
     oops
 

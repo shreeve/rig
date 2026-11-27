@@ -847,11 +847,15 @@ test "defer at a return or jump in a pending call", '''
   skip(!m, xs)
   print(m)
 
-fail "defer at a failure after a view in the call", "cannot use `nums` while a write view of it is still in use", "cannot use `b.v` while a write view of `b` is still in use", errors: 2
-  # A view an argument has already made stays in force while the defers
-  # of a failure in a later argument run: `!nums` given to `keep`, and the
-  # write view `slot` returned once its call had started and run. Only a
-  # hold that waits for the call to start ends at the exit.
+test "defer at a failure after a view in the call", '''
+  x
+  x
+  0 0
+'''
+  # A view an argument has made has had its last use at a failure in a
+  # later argument: the call never starts, so the defers of the failure
+  # may use the place, whether the view is `!nums` given to `keep` or the
+  # write view `slot` returned once its call had run.
   use std.text
 
   sub keep(v: !List[Int], k: Int)
@@ -874,7 +878,10 @@ fail "defer at a failure after a view in the call", "cannot use `nums` while a w
       keep(!b.slot(), text.parse_int(w)!)
 
   ws: List[String] = List()
+  !ws.push(String("1"))
+  !ws.push(String("z"))
   nums: List[Int] = List()
   viewed(!nums, ws) catch print("x")
   b = Box(v: List())
   started(!b, ws) catch print("x")
+  print(nums.len, b.v.len)

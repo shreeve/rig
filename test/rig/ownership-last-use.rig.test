@@ -1,33 +1,37 @@
 # ownership: views that end at their last use.
 #
 # Core sentences 5 and 6 leave a place read-only or unusable until the
-# last use of every view of it. The ownership checker ends some views
-# later than that: where deferred code is written as well as where it
-# runs, where a loop's step or a later arm's guard is written rather
-# than on the paths that reach it, at the end of a statement or a loop
-# whose header made them, or at a re-pointing's value rather than at
-# the old view's last use. The reference checker (bin/rig-oracle)
-# accepts each `test` case below; each is written as Rig should behave
-# and is `known` by the error the checker gives it. Each was built and
-# run under RIG_SANITIZE=1 with that error suppressed and printed the
-# result given.
+# last use of every view of it. The checker finds that use on the
+# body's LIR, in the order it runs: deferred code where it runs, a
+# loop's step and a later arm's guard on the paths that reach them, a
+# re-pointed name's old view up to the store, and a value's views up
+# to the path where it fails or is `none`. Each `test` case is
+# accepted by the reference checker (bin/rig-oracle) too, and runs
+# clean under RIG_SANITIZE=1. The two cases still `known` need more
+# than liveness: a capture of a write-view binding that keeps what the
+# binding views, and a view whose branch differs in each pass.
 #
 # The `fail` cases at the end are accepted by the reference checker too,
-# but are unsafe as emit holds their values: the view is used where
-# emit reads it or where a drop reads it, after the write. They stay
-# rejected when the views above end at their last use.
+# but are unsafe as emit holds their values, and stay rejected: a value
+# whose type has a `drop` body uses its views where it is dropped, a
+# fixed view binding is read where emit reads it, after the operands
+# emit evaluates first, and a loop's `break` value keeps its views in
+# force while the body's defers run. The last ones are unsafe, and the
+# reference checker rejects them: a failed or `none` value ends only the
+# views it carried, never an equal view another part of the statement
+# holds.
 
 # Deferred code runs at its scope's exit, after the views declared after
 # it were last used.
 
-test "last use of a write view before a defer that writes its place", "1", known: "cannot use `v` while a write view of it is still in use"
+test "last use of a write view before a defer that writes its place", "1"
   v: List[Int] = List()
   defer !v.push(3)
   w = !v
   !w.push(1)
   print(v.len)
 
-test "last use of a read view before a defer that writes a match payload", "ello", known: "cannot change `t` while a read view of it is still in use"
+test "last use of a read view before a defer that writes a match payload", "ello"
   enum E
     a(t: String)
     b
@@ -40,7 +44,7 @@ test "last use of a read view before a defer that writes a match payload", "ello
       print(s)
     .b => pass
 
-test "last use of a read view before a defer that writes a parameter", ''', known: "cannot change `t` while a read view of it is still in use"
+test "last use of a read view before a defer that writes a parameter", '''
   ello
   hellox
 '''
@@ -53,7 +57,7 @@ test "last use of a read view before a defer that writes a parameter", ''', know
   f(!t)
   print(t)
 
-test "last use of a read view before a defer that writes an if as binding", ''', known: "cannot change `t` while a read view of it is still in use"
+test "last use of a read view before a defer that writes an if as binding", '''
   ello
   hellox
 '''
@@ -64,21 +68,21 @@ test "last use of a read view before a defer that writes an if as binding", ''',
     print(s)
   print(o ?? String("none"))
 
-test "last use of an element view before a defer that writes the element", "a", known: "cannot change `v` while a read view of it is still in use"
+test "last use of an element view before a defer that writes the element", "a"
   v: List[String] = List()
   !v.push(String("a"))
   defer !v[0].add("!")
   x = ?v[0]
   print(x)
 
-test "last use of a List view before a defer that pushes", "[1]", known: "cannot change `v` while a read view of it is still in use"
+test "last use of a List view before a defer that pushes", "[1]"
   v: List[Int] = List()
   !v.push(1)
   defer !v.push(2)
   x = ?v
   print(x)
 
-test "last use of a re-pointed write view before its block's defer", "bd", known: "cannot use `b` while a write view of it is still in use"
+test "last use of a re-pointed write view before its block's defer", "bd"
   b = String("b")
   w = !b
   if true
@@ -88,7 +92,7 @@ test "last use of a re-pointed write view before its block's defer", "bd", known
     w = !b
   print(b)
 
-test "last use of a read view before a defer that moves a field out", ''', known: "cannot change `s.a` while a read view of `s` is still in use"
+test "last use of a read view before a defer that moves a field out", '''
   S(a: R(n: 1))
   deferred R(n: 1)
   drop 1
@@ -109,7 +113,7 @@ test "last use of a read view before a defer that moves a field out", ''', known
     print("deferred", x)
   print(r)
 
-test "last use of a write view in a defer before an earlier defer moves a field out", ''', known: "cannot change `s.a` while a write view of `s` is still in use"
+test "last use of a write view in a defer before an earlier defer moves a field out", '''
   end
   S(a: R(n: 1))
   R(n: 1)
@@ -130,7 +134,7 @@ test "last use of a write view in a defer before an earlier defer moves a field 
   defer print(w)
   print("end")
 
-test "last use of a closure's view where its errdefer never runs", "1", known: "cannot drop `v` while a read view of it is still in use"
+test "last use of a closure's view where its errdefer never runs", "1"
   v: List[Int] = List()
   !v.push(1)
   f = |?v| print(v.len)
@@ -138,7 +142,7 @@ test "last use of a closure's view where its errdefer never runs", "1", known: "
   <v
   print(1)
 
-test "last use of a closure's write view in a defer before the defer reads its place", "3", known: "cannot use `x` while a write view of it is still in use"
+test "last use of a closure's write view in a defer before the defer reads its place", "3"
   x = 1
   f = |!x|
     x += 1
@@ -151,7 +155,7 @@ test "last use of a closure's write view in a defer before the defer reads its p
 # `break` or `return` never reaches, a name re-pointed before its next
 # read, or a later arm's guard where an earlier arm matched.
 
-test "last use of a step's view on a path that returns", "4", known: "cannot change `v` while a read view of it is still in use"
+test "last use of a step's view on a path that returns", "4"
   obj S
     s: []Int
 
@@ -174,7 +178,7 @@ test "last use of a step's view on a path that returns", "4", known: "cannot cha
 
   print(run())
 
-test "last use of a step's view re-pointed before the step", "5", known: "cannot change `v` while a read view of it is still in use"
+test "last use of a step's view re-pointed before the step", "5"
   v: List[Int] = List()
   !v.push(1)
   s = ?v[..]
@@ -186,7 +190,7 @@ test "last use of a step's view re-pointed before the step", "5", known: "cannot
     i += 1
   print(k)
 
-test "last use of a step's view on a path that breaks", "1 2", known: "cannot change `v` while a read view of it is still in use"
+test "last use of a step's view on a path that breaks", "1 2"
   fun mk(v: ?List[Int], n: Int) -> ([]Int)?
     if n < 3
       return ?v[..]
@@ -207,7 +211,7 @@ test "last use of a step's view on a path that breaks", "1 2", known: "cannot ch
       break
   print(k, n)
 
-test "last use of a step's method view on a path that breaks", "1 2", known: "cannot change `v` while a read view of it is still in use"
+test "last use of a step's method view on a path that breaks", "1 2"
   obj H
     r: []Int
 
@@ -234,7 +238,7 @@ test "last use of a step's method view on a path that breaks", "1 2", known: "ca
       break
   print(k, n)
 
-test "last use of a view declared before a loop and re-pointed in each pass", ''', known: "cannot change `e` while a read view of it is still in use"
+test "last use of a view declared before a loop and re-pointed in each pass", '''
   hello
   ello!
   .a(t: "hello!!")
@@ -254,7 +258,7 @@ test "last use of a view declared before a loop and re-pointed in each pass", ''
       .b => pass
   print(e)
 
-test "last use of a field view carried around a loop and re-pointed", ''', known: "cannot change `p.items` while a read view of it is still in use"
+test "last use of a field view carried around a loop and re-pointed", '''
   1
   2
   3
@@ -271,7 +275,7 @@ test "last use of a field view carried around a loop and re-pointed", ''', known
     !p.items.push(i)
     prev = ?p.items[..]
 
-test "last use of a view in a later arm's guard where an earlier arm writes", "51", known: "cannot change `v` while a read view of it is still in use"
+test "last use of a view in a later arm's guard where an earlier arm writes", "51"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..50
       !v.push(1)
@@ -290,7 +294,7 @@ test "last use of a view in a later arm's guard where an earlier arm writes", "5
 # Re-pointing a name ends its old view at the old view's last use, not at
 # the assignment.
 
-test "last use of a read view re-pointed by a match whose arm writes", ''', known: "cannot change `v` while a read view of it is still in use"
+test "last use of a read view re-pointed by a match whose arm writes", '''
   7
   8 4
 '''
@@ -359,7 +363,7 @@ test "last use of a write view re-pointed while a closure holds what it saw", "1
 # a call's arguments on a failure before the call starts, and a header's
 # views once the part it copies is made.
 
-test "last use of a call's write view before its catch handler's", "1", known: "cannot change `vs` while a write view of it is still in use"
+test "last use of a call's write view before its catch handler's", "1"
   error Bad
     oops
 
@@ -372,7 +376,7 @@ test "last use of a call's write view before its catch handler's", "1", known: "
   !k.push(1)
   print(vs.len)
 
-test "last use of a write argument whose call's result holds another", "3 2", known: "cannot reassign `y` while a write view of it is still in use"
+test "last use of a write argument whose call's result holds another", "3 2"
   fun pair(a: !Int, b: !Int) -> (!Int, Int) from a
     b += 1
     return a, b
@@ -383,7 +387,7 @@ test "last use of a write argument whose call's result holds another", "3 2", kn
   w += y
   print(x, y)
 
-test "last use of a write view in a call's none before the fallback's", "1 7", known: "cannot change `q` while a write view of it is still in use"
+test "last use of a write view in a call's none before the fallback's", "1 7"
   obj P
     x: Int
 
@@ -397,7 +401,7 @@ test "last use of a write view in a call's none before the fallback's", "1 7", k
   (!p if c else pick(!q, true) ?? !q).x = 7
   print(p.x, q.x)
 
-test "last use of an argument's write view on a failure before its call", ''', known: "cannot use `nums` while a write view of it is still in use"
+test "last use of an argument's write view on a failure before its call", '''
   failed
   0
 '''
@@ -423,7 +427,7 @@ test "last use of an argument's write view on a failure before its call", ''', k
   viewed(!nums, ?ws) catch print("failed")
   print(nums.len)
 
-test "last use of a returned write view on a failure before its call", ''', known: "cannot use `b.v` while a write view of `b` is still in use"
+test "last use of a returned write view on a failure before its call", '''
   failed
   0
 '''
@@ -455,7 +459,7 @@ test "last use of a returned write view on a failure before its call", ''', know
   started(!b, ?ws) catch print("failed")
   print(b.v.len)
 
-test "last use of a branch's write views in a for header that copies a part", "6", known: "cannot use `xs` while a write view of it is still in use"
+test "last use of a branch's write views in a for header that copies a part", "6"
   obj A3
     arr: [3]Int
 
@@ -473,7 +477,7 @@ test "last use of a branch's write views in a for header that copies a part", "6
     n += x
   print(n)
 
-test "last use of a branch's write views in a for header, then a write to the part", "6", known: "cannot assign to `xs[0].arr[2]` while a write view of `xs` is still in use"
+test "last use of a branch's write views in a for header, then a write to the part", "6"
   obj A3
     arr: [3]Int
 
@@ -654,3 +658,146 @@ fail "last use break value's write view while the body's defer replaces its List
   !t.xs.push(Slot(key: 1))
   w = (!t).broke()
   print(w.key)
+
+# Where a `catch` handler or the right of `??` runs, the value before it
+# holds nothing, so the views it carried, and only those, have had their
+# last use (Core §4). A view of the same place that another part of the
+# statement holds stays in use.
+
+fail "last use ends only a none's own views where another argument views its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(both(?v[..], pick(?v[..], false) ?? grow(!v)))
+
+fail "last use ends only a failure's own views where another argument views its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  error E
+    bad
+
+  fun first(v: []Int, ok: Bool) -> ([]Int)!
+    return E.bad if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(both(?v[..], first(?v[..], false) catch grow(!v)))
+
+fail "last use ends only a failure's own views where another argument passes the same name", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  error E
+    bad
+
+  fun first(v: []Int, ok: Bool) -> ([]Int)!
+    return E.bad if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  a = ?v[..]
+  print(both(a, first(a, false) catch grow(!v)))
+
+fail "last use ends only a none's own views where another argument passes the same name", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  a = ?v[..]
+  print(both(a, pick(a, false) ?? grow(!v)))
+
+fail "last use ends only a none's own views of a field another argument views", "cannot change `o.items` while a read view of it is still in use"
+  # oracle: main reject C4
+  obj O
+    items: List[Int]
+
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  o = O(items: List())
+  !o.items.push(1)
+  print(both(?o.items[..], pick(?o.items[..], false) ?? grow(!o.items)))
+
+fail "last use ends only a none's own views where two arguments view its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun three(a: []Int, b: []Int, c: []Int) -> Int
+    a.len + b.len + c.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(three(?v[..], ?v[..], pick(?v[..], false) ?? grow(!v)))
+
+fail "last use ends only a branching none's own views where another argument views its place", "cannot change `v` while a read view of it is still in use"
+  # oracle: main reject C4
+  fun pick(v: []Int, ok: Bool) -> ([]Int)?
+    return none if not ok
+    v
+
+  fun grow(v: !List[Int]) -> []Int
+    for i in 0..10000
+      !v.push(i)
+    ?v[..]
+
+  fun both(a: []Int, b: []Int) -> Int
+    a.len + b.len + a[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  c = false
+  print(both(?v[..], (pick(?v[..], false) if c else pick(?v[..], true)) ?? grow(!v)))

@@ -609,7 +609,7 @@ fail "review-payload-view-1-p14 defer in arm", "cannot change `t` while a read v
         !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
     .b => pass
 
-fail "review-payload-view-1-p15 defer write after view", "cannot change `t` while a read view of it is still in use"
+test "review-payload-view-1-p15 defer write after view", "ello"
   enum E
     a(t: String)
     b
@@ -903,7 +903,11 @@ test "review-payload-view-1-v08 return whole view of payload", "hello"
   d = String("d")
   print(peek(!e, ?d))
 
-fail "review-payload-view-1-v10 loop outer var", "cannot change `e` while a read view of it is still in use"
+test "review-payload-view-1-v10 loop outer var", '''
+hello
+ello!
+.a(t: "hello!!")
+'''
   enum E
     a(t: String)
     b
@@ -961,7 +965,10 @@ test "review-payload-view-1-v12 struct payload view then write after", '''
       print(p.t, p.xs.len)
     .b => pass
 
-fail "review-payload-view-1-v15 defer param", "cannot change `t` while a read view of it is still in use"
+test "review-payload-view-1-v15 defer param", '''
+ello
+hellox
+'''
   sub f(t: !String)
     defer !t.add("x")
     s = ?t[1..]
@@ -971,7 +978,10 @@ fail "review-payload-view-1-v15 defer param", "cannot change `t` while a read vi
   f(!t)
   print(t)
 
-fail "review-payload-view-1-v15b defer ifas", "cannot change `t` while a read view of it is still in use"
+test "review-payload-view-1-v15b defer ifas", '''
+ello
+hellox
+'''
   o: String? = String("hello")
   if !o as t
     defer !t.add("x")
