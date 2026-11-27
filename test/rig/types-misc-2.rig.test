@@ -4181,3 +4181,352 @@ bomb "zero len index write", "index out of bounds", prints: "[]"
   s = S(xs: [])
   !s.put(i)
   print(s.xs)
+
+test "integer conversion edges in range", '''
+  0 0 255
+  0 0 65535
+  0 0 4294967295
+  0 0 255
+  0 0 65535
+  0 0 255
+  0 0 9223372036854775807
+  0 0 2147483647
+  0 0 127
+  0 0 4294967295
+  0 0 255
+  0 0 255
+  0 0 4294967295
+  -128 -1 0 127
+  -2147483648 -1 0 2147483647
+  -32768 -1 0 32767
+  0 0 2147483647
+  0 0 127
+  0 0 127
+'''
+  # Each target's smallest and largest value, 0, and -1, from a value
+  # only known when the program runs, convert exactly.
+  fun ri16(n: I16) -> I16
+    n
+
+  fun ri32(n: I32) -> I32
+    n
+
+  fun ri8(n: I8) -> I8
+    n
+
+  fun rint(n: Int) -> Int
+    n
+
+  fun ru16(n: U16) -> U16
+    n
+
+  fun ru32(n: U32) -> U32
+    n
+
+  fun ru64(n: U64) -> U64
+    n
+
+  fun ru8(n: U8) -> U8
+    n
+
+  print(U8(rint(Int(U8.min))), U8(rint(0)), U8(rint(Int(U8.max))))
+  print(U16(rint(Int(U16.min))), U16(rint(0)), U16(rint(Int(U16.max))))
+  print(U32(rint(Int(U32.min))), U32(rint(0)), U32(rint(Int(U32.max))))
+  print(U8(ri32(I32(U8.min))), U8(ri32(0)), U8(ri32(I32(U8.max))))
+  print(U16(ri32(I32(U16.min))), U16(ri32(0)), U16(ri32(I32(U16.max))))
+  print(U8(ri16(I16(U8.min))), U8(ri16(0)), U8(ri16(I16(U8.max))))
+  print(U64(rint(Int(U64.min))), U64(rint(0)), U64(rint(Int.max)))
+  print(U32(ri32(I32(U32.min))), U32(ri32(0)), U32(ri32(I32.max)))
+  print(U8(ri8(I8(U8.min))), U8(ri8(0)), U8(ri8(I8.max)))
+  print(U32(ru64(U64.min)), U32(ru64(0)), U32(ru64(U64(U32.max))))
+  print(U8(ru32(U32.min)), U8(ru32(0)), U8(ru32(U32(U8.max))))
+  print(U8(ru16(U16.min)), U8(ru16(0)), U8(ru16(U16(U8.max))))
+  print(U64(ru32(U32.min)), U64(ru32(0)), U64(ru32(U32.max)))
+  print(I8(rint(Int(I8.min))), I8(rint(-1)), I8(rint(0)), I8(rint(Int(I8.max))))
+  print(I32(rint(Int(I32.min))), I32(rint(-1)), I32(rint(0)), I32(rint(Int(I32.max))))
+  print(I16(ri32(I32(I16.min))), I16(ri32(-1)), I16(ri32(0)), I16(ri32(I32(I16.max))))
+  print(I32(ru64(U64.min)), I32(ru64(0)), I32(ru64(U64(I32.max))))
+  print(I8(ru32(U32.min)), I8(ru32(0)), I8(ru32(U32(I8.max))))
+  print(I8(ru8(U8.min)), I8(ru8(0)), I8(ru8(U8(I8.max))))
+
+bomb "integer conversion Int to U8 -1", "integer does not fit in destination type", prints: "before"
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U8(rint(-1)))
+
+bomb "integer conversion Int to U8 min", "integer does not fit in destination type", prints: "before", release: true
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U8(rint(Int.min)))
+
+bomb "integer conversion Int to U8 max+1", "integer does not fit in destination type", prints: "before"
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U8(rint(Int(U8.max) + 1)))
+
+bomb "integer conversion Int to U16 -1", "integer does not fit in destination type", prints: "before", release: true
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U16(rint(-1)))
+
+bomb "integer conversion Int to U16 min", "integer does not fit in destination type", prints: "before"
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U16(rint(Int.min)))
+
+bomb "integer conversion Int to U16 max+1", "integer does not fit in destination type", prints: "before", release: true
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U16(rint(Int(U16.max) + 1)))
+
+bomb "integer conversion Int to U32 -1", "integer does not fit in destination type", prints: "before"
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U32(rint(-1)))
+
+bomb "integer conversion Int to U32 min", "integer does not fit in destination type", prints: "before", release: true
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U32(rint(Int.min)))
+
+bomb "integer conversion Int to U32 max+1", "integer does not fit in destination type", prints: "before"
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U32(rint(Int(U32.max) + 1)))
+
+bomb "integer conversion I32 to U8 -1", "integer does not fit in destination type", prints: "before", release: true
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(U8(ri32(-1)))
+
+bomb "integer conversion I32 to U8 min", "integer does not fit in destination type", prints: "before"
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(U8(ri32(I32.min)))
+
+bomb "integer conversion I32 to U8 max+1", "integer does not fit in destination type", prints: "before", release: true
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(U8(ri32(I32(U8.max) + 1)))
+
+bomb "integer conversion I32 to U16 -1", "integer does not fit in destination type", prints: "before"
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(U16(ri32(-1)))
+
+bomb "integer conversion I32 to U16 min", "integer does not fit in destination type", prints: "before", release: true
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(U16(ri32(I32.min)))
+
+bomb "integer conversion I32 to U16 max+1", "integer does not fit in destination type", prints: "before"
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(U16(ri32(I32(U16.max) + 1)))
+
+bomb "integer conversion I16 to U8 -1", "integer does not fit in destination type", prints: "before", release: true
+  fun ri16(n: I16) -> I16
+    n
+
+  print("before")
+  print(U8(ri16(-1)))
+
+bomb "integer conversion I16 to U8 min", "integer does not fit in destination type", prints: "before"
+  fun ri16(n: I16) -> I16
+    n
+
+  print("before")
+  print(U8(ri16(I16.min)))
+
+bomb "integer conversion I16 to U8 max+1", "integer does not fit in destination type", prints: "before", release: true
+  fun ri16(n: I16) -> I16
+    n
+
+  print("before")
+  print(U8(ri16(I16(U8.max) + 1)))
+
+bomb "integer conversion Int to U64 -1", "integer does not fit in destination type", prints: "before"
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U64(rint(-1)))
+
+bomb "integer conversion Int to U64 min", "integer does not fit in destination type", prints: "before", release: true
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(U64(rint(Int.min)))
+
+bomb "integer conversion I32 to U32 -1", "integer does not fit in destination type", prints: "before"
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(U32(ri32(-1)))
+
+bomb "integer conversion I32 to U32 min", "integer does not fit in destination type", prints: "before", release: true
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(U32(ri32(I32.min)))
+
+bomb "integer conversion I8 to U8 -1", "integer does not fit in destination type", prints: "before"
+  fun ri8(n: I8) -> I8
+    n
+
+  print("before")
+  print(U8(ri8(-1)))
+
+bomb "integer conversion I8 to U8 min", "integer does not fit in destination type", prints: "before", release: true
+  fun ri8(n: I8) -> I8
+    n
+
+  print("before")
+  print(U8(ri8(I8.min)))
+
+bomb "integer conversion U64 to U32 max+1", "integer does not fit in destination type", prints: "before"
+  fun ru64(n: U64) -> U64
+    n
+
+  print("before")
+  print(U32(ru64(U64(U32.max) + 1)))
+
+bomb "integer conversion U64 to U32 max", "integer does not fit in destination type", prints: "before", release: true
+  fun ru64(n: U64) -> U64
+    n
+
+  print("before")
+  print(U32(ru64(U64.max)))
+
+bomb "integer conversion U32 to U8 max+1", "integer does not fit in destination type", prints: "before"
+  fun ru32(n: U32) -> U32
+    n
+
+  print("before")
+  print(U8(ru32(U32(U8.max) + 1)))
+
+bomb "integer conversion U32 to U8 max", "integer does not fit in destination type", prints: "before", release: true
+  fun ru32(n: U32) -> U32
+    n
+
+  print("before")
+  print(U8(ru32(U32.max)))
+
+bomb "integer conversion U16 to U8 max+1", "integer does not fit in destination type", prints: "before"
+  fun ru16(n: U16) -> U16
+    n
+
+  print("before")
+  print(U8(ru16(U16(U8.max) + 1)))
+
+bomb "integer conversion U16 to U8 max", "integer does not fit in destination type", prints: "before", release: true
+  fun ru16(n: U16) -> U16
+    n
+
+  print("before")
+  print(U8(ru16(U16.max)))
+
+bomb "integer conversion Int to I8 max+1", "integer does not fit in destination type", prints: "before"
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(I8(rint(Int(I8.max) + 1)))
+
+bomb "integer conversion Int to I8 min-1", "integer does not fit in destination type", prints: "before", release: true
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(I8(rint(Int(I8.min) - 1)))
+
+bomb "integer conversion Int to I32 max+1", "integer does not fit in destination type", prints: "before"
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(I32(rint(Int(I32.max) + 1)))
+
+bomb "integer conversion Int to I32 min-1", "integer does not fit in destination type", prints: "before", release: true
+  fun rint(n: Int) -> Int
+    n
+
+  print("before")
+  print(I32(rint(Int(I32.min) - 1)))
+
+bomb "integer conversion I32 to I16 max+1", "integer does not fit in destination type", prints: "before"
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(I16(ri32(I32(I16.max) + 1)))
+
+bomb "integer conversion I32 to I16 min-1", "integer does not fit in destination type", prints: "before", release: true
+  fun ri32(n: I32) -> I32
+    n
+
+  print("before")
+  print(I16(ri32(I32(I16.min) - 1)))
+
+bomb "integer conversion U64 to I32 max+1", "integer does not fit in destination type", prints: "before"
+  fun ru64(n: U64) -> U64
+    n
+
+  print("before")
+  print(I32(ru64(U64(I32.max) + 1)))
+
+bomb "integer conversion U32 to I8 max+1", "integer does not fit in destination type", prints: "before", release: true
+  fun ru32(n: U32) -> U32
+    n
+
+  print("before")
+  print(I8(ru32(U32(I8.max) + 1)))
+
+bomb "integer conversion U8 to I8 max+1", "integer does not fit in destination type", prints: "before"
+  fun ru8(n: U8) -> U8
+    n
+
+  print("before")
+  print(I8(ru8(U8(I8.max) + 1)))
+
+code "integer conversion narrowed to unsigned tests once", "@as(u32, @intCast(@as(u64, @bitCast(@as(i64, "
+  # A signed value narrowed to an unsigned type is one unsigned test of its
+  # bits: a negative value's bits are above `U32.max`.
+  fun rint(n: Int) -> Int
+    n
+
+  n = 7
+  print(U32(rint(n)))
