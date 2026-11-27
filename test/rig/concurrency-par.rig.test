@@ -1092,8 +1092,9 @@ test "par cost fails", seeds: 20, release: true, "Bad.odd true"
     print(e, start.elapsed() < time.duration(ms: 500))
     List[Int]()
 
-test "par cost one task", seeds: 20, "[0, 11, 22, 33]"
-  # With one task, the calls run in turn on the calling task, in order.
+test "par cost one task", seeds: 20, "[30, 21, 12, 3]"
+  # With one task, the calls run in turn on the calling task, costliest
+  # first, as on any number of tasks.
   use std.par
 
   t: Table[Int, 8] = Table()
