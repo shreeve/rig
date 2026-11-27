@@ -1380,10 +1380,10 @@ in the call, whose captures must sync, or a function's name.
 
 | Member | Result |
 |---|---|
-| `map(?xs, f, limit: n)` | a `List` of `f(x)` for each element, in the order of `xs`; `f` takes each as `?T` |
-| `each(!xs, f, limit: n)` | call `f` on each element, as `!T`, which it may write |
-| `workers(!states, ?items, f)` | one task for each state; each calls `f(!s, x)` with its own state on the next item it takes, in the order of `items`, until none is left: a `List` of the values in the order of the items, or nothing when `f` gives nothing |
-| `push(!t, ?sizes, f, limit: n)` | push `sizes.sum()` slots onto the Table `t` at once, then call `f(!run, k)` for each run `k`, the next `sizes[k]` of those slots in order, as a `![]T` it writes |
+| `map(?xs, f, cost: c, limit: n)` | a `List` of `f(x)` for each element, in the order of `xs`; `f` takes each as `?T` |
+| `each(!xs, f, cost: c, limit: n)` | call `f` on each element, as `!T`, which it may write |
+| `workers(!states, ?items, f, cost: c)` | one task for each state; each calls `f(!s, x)` with its own state on the next item it takes, in the order of `items`, until none is left: a `List` of the values in the order of the items, or nothing when `f` gives nothing |
+| `push(!t, ?sizes, f, cost: c, limit: n)` | push `sizes.sum()` slots onto the Table `t` at once, then call `f(!run, k)` for each run `k`, the next `sizes[k]` of those slots in order, as a `![]T` it writes |
 
 `limit`, of `map`, `each`, and `push`, is how many tasks run at once,
 by default one per worker; it comes after `f`, or before a closure
@@ -1391,9 +1391,23 @@ written last. When
 `f` can fail, so can the call: the first failure cancels the rest, and
 the call fails with its error.
 
+`cost`, of all four, says what each element costs, an `Int`, so the
+tasks take the costliest first and finish together: a closure,
+`cost: |f| f.text.len`, or a function's name, called on each element
+before the tasks start (on each run's index for `push`), or the costs
+themselves, `cost: ?weights`, one for each element, computed once and
+given to several calls. A negative cost counts as 0, and costs of
+another length panic. Each task takes its share of the cost left, so
+the costliest elements go out one at a time and cheap ones together at
+the end. The results stay in the order of the elements, and each
+element is still written by one task; without `cost:`, the tasks take
+chunks of the same size. A few giants among many small elements is
+where it helps: timed in [bench/par](../bench/par/README.md).
+
 `workers` is for work whose tasks each keep something of their own, a
 cache or a checker, that the calls build on. The items are taken one at
-a time, so a caller that puts the heaviest first gets an even load. The
+a time, so a caller that puts the heaviest first gets an even load, as
+`cost:` does without reordering them. The
 states stay the caller's, so it reads them afterwards; each goes to one
 task, so it must be sendable.
 
@@ -1443,6 +1457,23 @@ sub main()
 ```output
 [1, 4, 9, 16]
 100
+```
+
+```rig
+use std.par
+
+sub main()
+  files = List(["a", "bbbbbbbb", "cc", "dddd"])
+  print(par.map(?files, |f| f.len, cost: |f| f.len))
+  sizes = par.map(?files, |f| f.len * 100)
+  lens = List([0, 0, 0, 0])
+  par.each(!lens, cost: ?sizes, |n| n = 1)
+  print(lens)
+```
+
+```output
+[1, 8, 2, 4]
+[1, 1, 1, 1]
 ```
 
 ```rig

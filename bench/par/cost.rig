@@ -1,0 +1,62 @@
+# par.map with and without `cost:` (README.md): many small items and a
+# few giants, as a project's files are, three ways.
+#
+# - `plain`: `par.map(?items, f)`, chunks of the same size in order.
+# - `cost`: `par.map(?items, f, cost: |i| weights[i])`, the costliest
+#   first, each task taking its share of the cost left.
+# - `listed`: the same costs given as a list, `cost: ?weights`.
+#
+# Each run is timed with the monotonic clock; the forms interleave, and
+# the fastest of REPS counts. Prints `NAME US CHECK`; the checks must
+# agree.
+
+use std.par
+use std.time
+
+ITEMS = 2000
+REPS = 15
+UNIT = 20000
+
+# The weight of item `i`: 1 to 5 units, but six giants of 300, in three
+# pairs of neighbours, as big files sit together in one folder.
+fun weight(i: Int) -> Int
+  return 300 if i == 400 or i == 401 or i == 1100 or i == 1101 or i == 1700 or i == 1701
+  1 + (i * 7) % 5
+
+# Item `i`'s work: in proportion to its weight.
+fun work(i: Int, w: Int) -> Int
+  total = i
+  for k in 0..w * UNIT
+    total = (total + k * 7) % 1000003
+  total
+
+fun sum(xs: ?List[Int]) -> Int
+  total = 0
+  for x in xs
+    total = (total + x) % 1000000007
+  total
+
+sub main()
+  items: List[Int] = List()
+  weights: List[Int] = List()
+  for i in 0..ITEMS
+    !items.push(i)
+    !weights.push(weight(i))
+  best = List([0, 0, 0])
+  checks = List([0, 0, 0])
+  for _ in 0..REPS
+    for form in 0..3
+      t = time.monotonic()
+      out = List[Int]()
+      if form == 0
+        out = par.map(?items, |?weights, i| work(i, weights[i]))
+      else if form == 1
+        out = par.map(?items, |?weights, i| work(i, weights[i]), cost: |?weights, i| weights[i])
+      else
+        out = par.map(?items, |?weights, i| work(i, weights[i]), cost: ?weights)
+      ns = Int(t.elapsed().ns())
+      best[form] = ns if best[form] == 0 or ns < best[form]
+      checks[form] = sum(?out)
+  print("plain", best[0] / 1000, checks[0])
+  print("cost", best[1] / 1000, checks[1])
+  print("listed", best[2] / 1000, checks[2])

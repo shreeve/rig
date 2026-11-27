@@ -3,16 +3,16 @@
 # turn, or each holding a state of its own. The checker types the
 # calls, as it does `task.all`.
 #
-# - `par.map(?xs, f, limit: n)` gives a List of `f(x)` for each `x`, in
-#   the order of `xs`.
-# - `par.each(!xs, f, limit: n)` calls `f(!x)` for each element, which
-#   it may write.
-# - `par.workers(!states, ?items, f)` runs a task for each state, which
+# - `par.map(?xs, f, cost: c, limit: n)` gives a List of `f(x)` for each
+#   `x`, in the order of `xs`.
+# - `par.each(!xs, f, cost: c, limit: n)` calls `f(!x)` for each element,
+#   which it may write.
+# - `par.workers(!states, ?items, f, cost: c)` runs a task for each state, which
 #   calls `f(!s, x)` with its own state on the next item it takes, in
 #   the order of `items`, until none is left. It gives a List of the
 #   values in the order of the items, or nothing when `f` gives nothing. Each
 #   state goes to one task, to write, so it must be sendable.
-# - `par.push(!t, ?sizes, f, limit: n)` pushes `sizes.sum()` slots onto
+# - `par.push(!t, ?sizes, f, cost: c, limit: n)` pushes `sizes.sum()` slots onto
 #   the Table `t` at once, then calls `f(!run, k)` for each run `k`, the
 #   next `sizes[k]` of those slots in order, as a `![]T`.
 #
@@ -22,3 +22,15 @@
 # cancels the other tasks, and the call fails with it. `limit`, of `map`,
 # `each`, and `push`, is how many tasks run at once, by default one per worker; with one, or few
 # elements, the calls run in turn on the calling task.
+#
+# `cost`, of all four, is each element's cost, an `Int` (a negative one
+# counts as 0): a closure, `cost: |x| x.len`, or a function's name,
+# which the calling task calls on each element as `?T` (on each run's
+# index `k` for `push`) before the tasks start, or the costs themselves,
+# `cost: ?weights`, one for each element, which panic at another length.
+# With it, the tasks take the costliest elements first, each taking its
+# share of the cost left: the costliest go out one at a time, and cheap
+# ones together at the end. The values stay in the order of the
+# elements, and each element is still written by one task. Without it,
+# `map`, `each`, and `push` hand out chunks of the same size, and
+# `workers` the items in their order.

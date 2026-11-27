@@ -3816,10 +3816,11 @@ pub fn taskJoin(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     return result;
 }
 
-/// `par.map(?xs, f, limit: n)` and `par.each(!xs, f, limit: n)` of
-/// `std.par`: call `f` on each element of `xs`, on up to `n` tasks at
-/// once. `map` gives each call's value, in the order of `xs`; `each`
-/// writes each element. When `f` can fail, so can the call. The call
+/// `par.map(?xs, f, cost: c, limit: n)` and `par.each(!xs, f, cost: c,
+/// limit: n)` of `std.par`: call `f` on each element of `xs`, on up to
+/// `n` tasks at once, the costliest elements by `c` first when it is
+/// given (`parCost`). `map` gives each call's value, in the order of
+/// `xs`; `each` writes each element. When `f` can fail, so can the call. The call
 /// is typed here, as `taskJoin` types its own: `f` is a closure written
 /// in the call, whose result decides whether it fails, or a function's
 /// name. Every task reads what `f` captures, and `map`'s elements, so
@@ -3829,14 +3830,15 @@ pub fn parCall(self: *Checker, kind: sema.ParCall, pos: u32, args: []const Sexp)
     const shown = if (kind == .map) "par.map" else "par.each";
     const example = if (kind == .map) "par.map(?xs, |x| x * 2)" else "par.each(!xs, |x| x *= 2)";
     var positional: usize = 0;
+    var options: ParOptions = .{};
     for (args) |a| {
         if (!a.isKind(.kwarg)) {
             positional += 1;
             continue;
         }
-        if (!std.mem.eql(u8, self.text(ir.Kwarg.name(a)), "limit")) return try CallCheck.badCall(self, args, a, "`{s}` takes the elements, a function, and at most `limit:`, how many tasks run at once: `{s}`", .{ shown, example });
+        if (!options.take(self, a)) return try CallCheck.badCall(self, args, a, "`{s}` takes the elements, a function, and at most `cost:`, each element's cost, and `limit:`, how many tasks run at once: `{s}`", .{ shown, example });
     }
-    if (positional != 2 or args.len > 3) return try CallCheck.badCall(self, args, pos, "`{s}` takes the elements and a function, `{s}`, and `limit:`, how many tasks run at once", .{ shown, example });
+    if (positional != 2 or args.len > 4) return try CallCheck.badCall(self, args, pos, "`{s}` takes the elements and a function, `{s}`, then `cost:`, each element's cost, and `limit:`, how many tasks run at once", .{ shown, example });
     // The function comes second, or last, after `limit:`, when it is a
     // closure written there (`trailingParam`).
     const xs = args[0];
@@ -3879,10 +3881,16 @@ pub fn parCall(self: *Checker, kind: sema.ParCall, pos: u32, args: []const Sexp)
         .each => if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id, .set = try waitSet(self, &.{self.ctx.types.get(returns).fallible.set}) } }) else self.t().void_id,
         .workers, .push => unreachable,
     };
-    const params: []const TypeId = &.{ xs_param, try sema.callableOfFn(self.ctx, fn_ty), self.t().int_id };
-    const call: FunctionType = .{ .params = try self.ctx.dupeIds(params[0..args.len]), .returns = result, .is_sub = kind == .each };
+    const cost_param = try self.ctx.intern(.{ .read_view = elem });
+    const cost_ty = if (options.cost) |c| (try parCost(self, c, cost_param, shown, "element")) orelse return try CallCheck.skipClosureCall(self, args, f, &.{each_param}, kind == .each) else null;
+    var params: ParParams = .{};
+    params.add("xs", xs_param);
+    params.add("f", try sema.callableOfFn(self.ctx, fn_ty));
+    if (cost_ty) |c| params.add("cost", c);
+    if (options.limit) params.add("limit", self.t().int_id);
+    const call: FunctionType = .{ .params = try self.ctx.dupeIds(params.types()), .returns = result, .is_sub = kind == .each };
     try noteCallee(self, call);
-    try CallCheck.checkArgs(self, args, call, .{ .names = &.{ "xs", "f", "limit" } }, shown, pos, .{ .declared = call.params });
+    try CallCheck.checkArgs(self, args, call, .{ .names = try params.names(self) }, shown, pos, .{ .declared = call.params });
     // Each task reads what `f` captures, and `map`'s elements; `each`'s
     // elements and `map`'s values go to the tasks that make them.
     if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
@@ -3908,6 +3916,122 @@ pub fn parCall(self: *Checker, kind: sema.ParCall, pos: u32, args: []const Sexp)
     return closureResult(self, f, result);
 }
 
+/// The options a `par` call is given by name: `cost:`, the closure that
+/// gives each element's cost, and whether `limit:` is given. A name
+/// given twice is `checkArgs`'s to report.
+const ParOptions = struct {
+    cost: ?Sexp = null,
+    limit: bool = false,
+
+    /// Take keyword argument `a`; false when it is neither option.
+    fn take(self: *ParOptions, c: *Checker, a: Sexp) bool {
+        const name = c.text(ir.Kwarg.name(a));
+        if (std.mem.eql(u8, name, "cost")) {
+            self.cost = ir.Kwarg.value(a);
+        } else if (std.mem.eql(u8, name, "limit")) {
+            self.limit = true;
+        } else return false;
+        return true;
+    }
+};
+
+/// The parameters a `par` call is checked against (`checkArgs`), its
+/// options among them only when given, in the order the runtime takes
+/// them: the positional ones, then `cost`, then `limit`.
+const ParParams = struct {
+    name_buf: [5][]const u8 = undefined,
+    type_buf: [5]TypeId = undefined,
+    len: usize = 0,
+
+    fn add(self: *ParParams, name: []const u8, ty: TypeId) void {
+        self.name_buf[self.len] = name;
+        self.type_buf[self.len] = ty;
+        self.len += 1;
+    }
+
+    fn names(self: *const ParParams, c: *Checker) Error![]const []const u8 {
+        return try c.ctx.arena.allocator().dupe([]const u8, self.name_buf[0..self.len]);
+    }
+
+    fn types(self: *const ParParams) []const TypeId {
+        return self.type_buf[0..self.len];
+    }
+};
+
+/// The parameter type of `cost`, the `cost:` of the `par` call `shown`:
+/// the costs themselves, an `Int` for each `what` from a List, an array,
+/// or a slice (a slice of `Int`s, whose length the runtime holds to the
+/// elements'), or a function that takes `param`, what each `what` is
+/// passed as (a read view of an element or an item, or a run's index),
+/// and gives its cost, an `Int`: a closure written in the call, or a
+/// function's name. The calling task calls it on each before the tasks
+/// start, so it only reads: no capture is a write view. Null after a
+/// diagnostic, its closure reported (`closures_reported`).
+pub fn parCost(self: *Checker, cost: Sexp, param: TypeId, shown: []const u8, what: []const u8) Error!?TypeId {
+    if (cost.isKind(.lambda)) {
+        const got = try costClosure(self, cost, param, shown, what);
+        if (got == null) try self.ctx.putIn(.check, .closures_reported, CompatCheck.nodeId(cost), {});
+        return if (got) |g| try sema.callableOfFn(self.ctx, g) else null;
+    }
+    const int = self.t().int_id;
+    const ty = try CallCheck.argType(self, cost);
+    if (self.isPoison(ty)) return null;
+    const listed = sema.viewedElem(self.ctx, ty) orelse switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
+        .slice => |sl| sl.elem,
+        else => null,
+    };
+    if (listed) |elem| {
+        if (elem == int) return try self.ctx.intern(.{ .slice = .{ .elem = int } });
+        try self.errAt(cost, "`cost:` takes an `Int` for each {s}, a `List[Int]` of the costs or a closure that gives one; `{s}` holds `{s}`", .{ what, CallCheck.sourceText(self, cost), try self.tyName(elem) });
+        return null;
+    }
+    switch (ViewCheck.fnArg(self, cost, ty)) {
+        .named => {
+            const got = self.ctx.types.get(ty).function;
+            // The parameter takes what the runtime passes: the view
+            // itself, or the value of a scalar's read view.
+            const fits = got.params.len == 1 and (got.params[0] == param or self.ctx.types.get(param) == .read_view and got.params[0] == CompatCheck.readValue(self.ctx, param));
+            if (fits and got.returns == int) return try sema.callableOfFn(self.ctx, ty);
+            try self.errAt(cost, "`cost:` of `{s}` calls `{s}` with each {s} as `{s}` and takes an `Int`, and `{s}` is a `{s}`", .{ shown, CallCheck.sourceText(self, cost), what, try self.tyName(param), CallCheck.sourceText(self, cost), try self.tyName(ty) });
+        },
+        .binding, .view => try self.errAt(cost, "`cost:` takes a closure written in the call or a function's name, as `f` does; `{s}` is neither: `cost: |x| ...`", .{CallCheck.sourceText(self, cost)}),
+        .literal, .other => try self.errAt(cost, "`cost:` takes an `Int` for each {s}, a `List[Int]` of the costs or a closure that gives one; `{s}` is a `{s}`", .{ what, CallCheck.sourceText(self, cost), try self.tyName(ty) }),
+    }
+    return null;
+}
+
+/// `parCost` of a closure written in the call.
+fn costClosure(self: *Checker, cost: Sexp, param: TypeId, shown: []const u8, what: []const u8) Error!?TypeId {
+    const int = self.t().int_id;
+    const takes = ir.Lambda.params(cost).items().len;
+    if (takes > 1) {
+        try self.errAt(cost, "this closure takes {d} parameters, but `cost:` of `{s}` passes one, each {s}", .{ takes, shown, what });
+        return null;
+    }
+    const ty = try closureType(self, cost, &.{param}, false);
+    if (self.ctx.closures_in_error.contains(CompatCheck.nodeId(cost)) or self.isPoison(ty) or self.ctx.types.get(ty) != .function) {
+        try closureErrors(self, cost, &.{param}, false);
+        return null;
+    }
+    const returns = self.ctx.types.get(ty).function.returns;
+    if (self.ctx.types.get(returns) == .fallible) {
+        try self.errAt(cost, "`cost:` gives an `Int` for each {s}, and this closure can fail: give a cost that cannot fail", .{what});
+        return null;
+    }
+    const value = CompatCheck.readValue(self.ctx, returns);
+    if (value != int) {
+        try self.errAt(cost, "`cost:` gives an `Int` for each {s}; this closure gives a `{s}`", .{ what, try self.tyName(value) });
+        return null;
+    }
+    for (sema.captureList(ir.Lambda.captures(cost))) |cap| {
+        if (sema.captureModeOf(cap) != .cap_write) continue;
+        const name_node = sema.captureNameNode(cap) orelse continue;
+        try self.errAt(name_node, "`cost:` only reads, to give each {s}'s cost, and `|!{s}|` makes a write view of `{s}`: capture it `|?{s}|`", .{ what, self.text(name_node), self.text(name_node), self.text(name_node) });
+        return null;
+    }
+    return try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{param}), .returns = int, .is_sub = false } });
+}
+
 /// Reports `f`, the function `par.map` or `par.workers` (`shown`)
 /// calls, whose value `value` holds a write view, which nothing the
 /// call gives back may hold: it would reach what a task was given a
@@ -3920,9 +4044,10 @@ pub fn givesWriteView(self: *Checker, args: []const Sexp, f: Sexp, params: []con
     return try CallCheck.skipClosureCall(self, args, f, params, false);
 }
 
-/// `par.workers(!states, ?items, f)` of `std.par`: one task for each
-/// state, each calling `f(!s, x)` with its own state on the next item
-/// it takes, in the order of `items`, until none is left. It gives each
+/// `par.workers(!states, ?items, f, cost: c)` of `std.par`: one task for
+/// each state, each calling `f(!s, x)` with its own state on the next
+/// item it takes, in the order of `items`, or costliest first by `c`
+/// when it is given (`parCost`), until none is left. It gives each
 /// call's value in the order of the items, or nothing when `f` gives
 /// nothing; when `f` can fail, so can the call. Typed here, as
 /// `parCall` types `map` and `each`: each state goes to one task to
@@ -3933,11 +4058,23 @@ pub fn givesWriteView(self: *Checker, args: []const Sexp, f: Sexp, params: []con
 pub fn parWorkers(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     const shown = "par.workers";
     const example = "par.workers(!states, ?items, |s, x| ...)";
-    for (args) |a| if (a.isKind(.kwarg)) return try CallCheck.badCall(self, args, a, "`par.workers` runs one task for each state, and takes the states, the items, and a function: `{s}`", .{example});
-    if (args.len != 3) return try CallCheck.badCall(self, args, pos, "`par.workers` takes the states, the items, and a function, `{s}`", .{example});
+    var positional: usize = 0;
+    var cost: ?Sexp = null;
+    for (args) |a| {
+        if (!a.isKind(.kwarg)) {
+            positional += 1;
+            continue;
+        }
+        if (!std.mem.eql(u8, self.text(ir.Kwarg.name(a)), "cost")) return try CallCheck.badCall(self, args, a, "`par.workers` runs one task for each state, and takes the states, the items, a function, and at most `cost:`, each item's cost: `{s}`", .{example});
+        cost = ir.Kwarg.value(a);
+    }
+    if (positional != 3 or args.len > 4) return try CallCheck.badCall(self, args, pos, "`par.workers` takes the states, the items, and a function, `{s}`, then `cost:`, each item's cost", .{example});
     const states = args[0];
     const items = args[1];
-    const f = args[2];
+    // The function comes third, or last, after `cost:`, when it is a
+    // closure written there (`trailingParam`).
+    const f = if (CallCheck.hasTrailingClosure(args)) args[args.len - 1] else args[2];
+    for ([_]Sexp{ states, items, f }) |a| if (a.isKind(.kwarg)) return try CallCheck.badCall(self, args, a, "positional arguments must come before keyword arguments: `par.workers` takes the states, the items, then the function, `par.workers(!states, ?items, f, cost: c)`, or `cost:` before a closure written last, `par.workers(!states, ?items, cost: c, |s, x| ...)`", .{});
     const states_ty = try CallCheck.argType(self, states);
     if (self.isPoison(states_ty)) return try CallCheck.skipCall(self, args);
     const state = sema.writeSliceElem(self.ctx, states_ty) orelse sema.viewedElem(self.ctx, states_ty) orelse switch (self.ctx.types.get(states_ty)) {
@@ -3975,12 +4112,18 @@ pub fn parWorkers(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     }
     const ok = if (none) value else try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.builtins.list, .args = try self.ctx.dupeIds(&.{value}) } });
     const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = ok, .set = try waitSet(self, &.{self.ctx.types.get(returns).fallible.set}) } }) else ok;
-    const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ states_param, items_param, try sema.callableOfFn(self.ctx, fn_ty) }), .returns = result, .is_sub = none };
+    const cost_ty = if (cost) |c| (try parCost(self, c, item_param, shown, "item")) orelse return try CallCheck.skipClosureCall(self, args, f, &.{ state_param, item_param }, false) else null;
+    var params: ParParams = .{};
+    params.add("states", states_param);
+    params.add("items", items_param);
+    params.add("f", try sema.callableOfFn(self.ctx, fn_ty));
+    if (cost_ty) |c| params.add("cost", c);
+    const call: FunctionType = .{ .params = try self.ctx.dupeIds(params.types()), .returns = result, .is_sub = none };
     try noteCallee(self, call);
     // The call stores nothing in the states but what the closure
     // stores there, a view of what it captures: never an item, which
     // no state may keep past its call.
-    try CallCheck.checkArgs(self, args, call, .{ .names = &.{ "states", "items", "f" } }, shown, pos, .{ .declared = call.params, .origins = .{ .stores = sema.paramBit(2) } });
+    try CallCheck.checkArgs(self, args, call, .{ .names = try params.names(self) }, shown, pos, .{ .declared = call.params, .origins = .{ .stores = sema.paramBit(2) } });
     // Every task reads what `f` captures and the items; each state
     // goes to one task, and each value comes from one.
     if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
@@ -4011,10 +4154,11 @@ pub fn parWorkers(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     return closureResult(self, f, result);
 }
 
-/// `par.push(!t, ?sizes, f, limit: n)` of `std.par`: push
+/// `par.push(!t, ?sizes, f, cost: c, limit: n)` of `std.par`: push
 /// `sizes.sum()` slots onto the table `t` at once, then call
 /// `f(!run, k)` for each run `k`, the next `sizes[k]` of those slots
-/// in order, on up to `n` tasks at once. It is `par.each` over the
+/// in order, on up to `n` tasks at once, the costliest runs by `c(k)`
+/// first when it is given (`parCost`). It is `par.each` over the
 /// runs, typed as `parCall` types it: the runs are disjoint slices of
 /// the slots `t` owns, each a write view for one task, so `T` must be
 /// sendable, as `each`'s elements; every task reads what `f` captures,
@@ -4024,14 +4168,15 @@ pub fn parPush(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     const shown = "par.push";
     const example = "par.push(!t, ?sizes, |run, k| ...)";
     var positional: usize = 0;
+    var options: ParOptions = .{};
     for (args) |a| {
         if (!a.isKind(.kwarg)) {
             positional += 1;
             continue;
         }
-        if (!std.mem.eql(u8, self.text(ir.Kwarg.name(a)), "limit")) return try CallCheck.badCall(self, args, a, "`par.push` takes the table, the sizes of the runs, a function, and at most `limit:`, how many tasks run at once: `{s}`", .{example});
+        if (!options.take(self, a)) return try CallCheck.badCall(self, args, a, "`par.push` takes the table, the sizes of the runs, a function, and at most `cost:`, each run's cost, and `limit:`, how many tasks run at once: `{s}`", .{example});
     }
-    if (positional != 3 or args.len > 4) return try CallCheck.badCall(self, args, pos, "`par.push` takes the table, the sizes of the runs, and a function, `{s}`, and `limit:`, how many tasks run at once", .{example});
+    if (positional != 3 or args.len > 5) return try CallCheck.badCall(self, args, pos, "`par.push` takes the table, the sizes of the runs, and a function, `{s}`, then `cost:`, each run's cost, and `limit:`, how many tasks run at once", .{example});
     const table_arg = args[0];
     const sizes = args[1];
     // The function comes third, or last, after `limit:`, when it is a
@@ -4060,10 +4205,16 @@ pub fn parPush(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
     const returns = self.ctx.types.get(fn_ty).function.returns;
     const fails = self.ctx.types.get(returns) == .fallible;
     const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id, .set = try waitSet(self, &.{self.ctx.types.get(returns).fallible.set}) } }) else self.t().void_id;
-    const params: []const TypeId = &.{ t_param, sizes_param, try sema.callableOfFn(self.ctx, fn_ty), self.t().int_id };
-    const call: FunctionType = .{ .params = try self.ctx.dupeIds(params[0..args.len]), .returns = result, .is_sub = true };
+    const cost_ty = if (options.cost) |c| (try parCost(self, c, self.t().int_id, shown, "run")) orelse return try CallCheck.skipClosureCall(self, args, f, &.{ run_param, self.t().int_id }, true) else null;
+    var params: ParParams = .{};
+    params.add("t", t_param);
+    params.add("sizes", sizes_param);
+    params.add("f", try sema.callableOfFn(self.ctx, fn_ty));
+    if (cost_ty) |c| params.add("cost", c);
+    if (options.limit) params.add("limit", self.t().int_id);
+    const call: FunctionType = .{ .params = try self.ctx.dupeIds(params.types()), .returns = result, .is_sub = true };
     try noteCallee(self, call);
-    try CallCheck.checkArgs(self, args, call, .{ .names = &.{ "t", "sizes", "f", "limit" } }, shown, pos, .{ .declared = call.params });
+    try CallCheck.checkArgs(self, args, call, .{ .names = try params.names(self) }, shown, pos, .{ .declared = call.params });
     // Every task reads what `f` captures; each run goes to the one
     // task that writes it.
     if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {

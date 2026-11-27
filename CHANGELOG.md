@@ -464,6 +464,26 @@ serve no HTTP.
 
 ### Added
 
+- **`cost:` on `par.map`, `par.each`, `par.workers`, and `par.push`**
+  ([SPEC "Each element on several tasks"](SPEC.md#each-element-on-several-tasks),
+  [std.par](docs/STD.md#stdpar)). It gives each element's cost, an
+  `Int`: a closure, `cost: |f| f.text.len`, or a function's name, which
+  the calling task calls on each element before the tasks start (on
+  each run's index for `par.push`), or the costs themselves, `cost:
+  ?weights`, one for each element, computed once for several calls. A
+  negative cost counts as 0, and listed costs of another length panic
+  ("par.map's `cost:` gives 2 costs for 3 elements: give one for each
+  element"). With it, the runtime sorts the elements costliest first
+  and hands out claims of each task's share of the cost left, about the
+  cost left over four times the tasks, so the giants go out one at a
+  time and cheap elements together at the end; a claim is one atomic
+  add. Results stay in the order of the elements, and each element is
+  still written by one task. Without `cost:`, every call runs as
+  before. A closure that gives anything but an `Int`, or a list of
+  anything else, is rejected: "`cost:` gives an `Int` for each element;
+  this closure gives a `Float`". Six giants among 2,000 small items take
+  27% less time with it, 50.2 ms against 69.0 ms on the Mac
+  ([bench/par](bench/par/README.md)).
 - **`RIG_UNIT_LAUNCHER` runs each unit's compile under a command.** Set
   to a command, split on spaces, it goes before each unit's `zig
   build-obj` in a split build (`--units=N`, N above 1), so `cpuq run --`

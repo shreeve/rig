@@ -33,3 +33,35 @@ reps. A fixed split leaves one state 1,833 units against about 595 for
 the others; pulling heaviest first gives each about 905, and the run
 is about 40% faster. `workers` and the hand-built channel loop are
 within 1% of each other on both machines, which is noise.
+
+## cost.rig: `par.map` with and without `cost:`
+
+`cost.rig` times `par.map` over 2,000 items of 1 to 5 units of work
+each and six giants of 300 units, in three pairs of neighbours, as big
+files sit together in one folder: the giants hold about a quarter of
+the work. One worker per core.
+
+```sh
+tools/low bin/rig build --release bench/par/cost.rig -o /tmp/cost
+tools/low /tmp/cost
+```
+
+| Form | How the items reach the tasks |
+|---|---|
+| `plain` | `par.map(?items, f)`: chunks of the same size, about eight for each task, in order |
+| `cost` | `par.map(?items, f, cost: \|?weights, i\| weights[i])`: the costliest first, each task taking its share of the cost left |
+| `listed` | the same costs given as a list, `cost: ?weights` |
+
+The forms run interleaved, `REPS` times each, and the fastest counts.
+Each prints `NAME US CHECK`; the checks must agree.
+
+| Machine | plain | cost | listed |
+|---|---|---|---|
+| Mac (arm64, 10 cores), 2026-11-26 | 69.0 ms | 50.2 ms | 50.1 ms |
+
+The fastest of three runs of the program, each the fastest of its 15
+reps. Without `cost:`, a chunk of 25 items holds a pair of giants, and
+the task that takes it ends last; with it, the six giants go out first,
+one to a task, and the small items fill in around them: the loop takes
+27% less time. Given as a closure or as a list, the costs time the
+same, within noise.
