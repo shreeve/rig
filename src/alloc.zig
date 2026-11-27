@@ -429,11 +429,13 @@ pub const Heap = struct {
         mustOwn(h);
         if (h.free[c]) |b| {
             h.free[c] = b.next;
+            prefetchNext(b.next);
             return @ptrCast(b);
         }
         if (h.remote[c].load(.monotonic) != null) {
             if (h.remote[c].swap(null, .acquire)) |list| {
                 h.free[c] = list.next;
+                prefetchNext(list.next);
                 return @ptrCast(list);
             }
         }
@@ -2641,7 +2643,12 @@ const vtable: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .r
 noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
     if (fastClass(len, alignment)) |c| if (my_heap().*) |h| if (h.free[c]) |b| {
         if (builtin.is_test) mustOwn(h);
-        h.free[c] = b.next;
+        const next = b.next;
+        h.free[c] = next;
+        // The next block of the class, which the next allocation of it
+        // reads the link of and its caller then writes: its line is
+        // fetched now, so that load does not wait on memory (`prefetchNext`).
+        prefetchNext(next);
         if (counts) h.count(@intCast(classSize(c)), 1);
         return @ptrCast(b);
     };
@@ -2650,6 +2657,14 @@ noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: us
     // may yield here (`sched.settleAt`).
     if (sched.preempting) sched.settleAt(@returnAddress());
     return p;
+}
+
+/// Fetch the line of `next`, a free list's new head, for writing, as
+/// its allocation reads its link and its caller writes it. A list freed
+/// long ago, or taken back from other threads (`Heap.remote`), is cold:
+/// its first load missed in every allocation of the class.
+inline fn prefetchNext(next: ?*Block) void {
+    if (next) |n| @prefetch(n, .{ .rw = .write, .locality = 3, .cache = .data });
 }
 
 /// Give back `memory`, a block `alloc` made with `alignment`.
