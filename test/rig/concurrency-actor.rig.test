@@ -271,15 +271,19 @@ test "actor deadline and cancel", seeds: 20, '''
 '''
   # A call that can fail and has not started is withdrawn when its caller
   # is canceled or its deadline passes. A method that started runs to its
-  # end, and its caller waits for it through a cancel.
+  # end, and its caller waits for it through a cancel. `nap` holds the
+  # actor until `go`, so the calls behind it wait however late `main`
+  # runs.
   use std.time
   use std.task
 
   obj Slow
     n: Int
 
-    fun nap(!@, started: *Cell[Bool]) -> Int!
+    fun nap(!@, started: *Cell[Bool], go: *Cell[Bool]) -> Int!
       !started.set(true)
+      while not go.get()
+        time.sleep(ms: 1)!
       time.sleep(ms: 20)!
       @n += 1
       @n
@@ -294,13 +298,15 @@ test "actor deadline and cancel", seeds: 20, '''
 
   a = *Actor(Slow(n: 0))
   started = *Cell(false)
-  t = (!a).nap(+started)&
+  go = *Cell(false)
+  t = (!a).nap(+started, +go)&
   while not started.get()
     time.sleep(ms: 1) catch print("woke")
   n = time.within(ms: 5, |+a| (!a).later()!) catch -1
   print(n)
   u = (!a).later()&
   print(<u.cancel() catch -2)
+  !go.set(true)
   print(<t.cancel() catch -3)
   print(a.get())
 
