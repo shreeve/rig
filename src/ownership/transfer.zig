@@ -617,8 +617,10 @@ pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
     // Passing a held write view (`w`, `e.t`) passes it on: like `!w`,
     // it is a write view of its holder for as long as the result may
     // keep the view.
-    // A `![]T` passed where a `[]T` is expected is viewed to read.
-    if (sink == .argument and isWriteViewPlace(self, expr)) {
+    // A `![]T` passed where a `[]T` is expected is viewed to read. One
+    // read through for the plain data it reaches is copied where it
+    // stands, as an operand is (Core §6), and passes nothing on.
+    if (sink == .argument and isWriteViewPlace(self, expr) and !sema.copiedOut(self.sema, expr)) {
         if (self_check) expectRole(self, e, .{ .use = .pass_view, .read_only = types.viewsBy(self, expr, .read_only) });
         return walkView(self, e, if (types.viewsBy(self, expr, .read_only)) .read else .write);
     }

@@ -8403,9 +8403,11 @@ ahead, in the order the statement runs ("Evaluation order within a
 call", below): `!v.push(Item(n: x.n))` with `x = ?v[0]`
 reads `x.n` before the push makes its view of `v`, so it is accepted,
 while `f(x, grow(!v))` hands `x` over as a view, which keeps `v`
-read-only until `f` returns. A name a call or an assignment reads where it runs, after a
-later operand (a keyword argument given out of its parameter's order,
-an assigned value read after the target's indexes), is used there.
+read-only until `f` returns. A call's arguments are evaluated in the
+order the call writes them, a keyword argument given out of its
+parameter's order too, and an assignment's value before the target's
+indexes, so a name read in one is used where it is written, a fixed
+view binding (`r =! ?v[0]`) as much as a plain one.
 
 ```rig
 obj Wrap
@@ -8474,8 +8476,10 @@ sub main()
 cannot change `v` while a write view of it is still in use
 ```
 
-**Evaluation order within a call.** A call evaluates its arguments left
-to right and uses them all when it runs, so what an earlier argument
+**Evaluation order within a call.** A call evaluates its self, then its
+arguments in the order the call writes them, never the parameters'
+order, named or positional, fallible or not, and uses them all when it
+runs, so what an earlier argument
 holds is still in use while the later ones are evaluated. A view (`?v`)
 or a slice (`?v[..]`) in an earlier argument keeps its place read-only
 until the call ends. So does an argument that reads a place by value when that

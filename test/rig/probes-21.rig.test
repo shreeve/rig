@@ -623,7 +623,7 @@ fail "review-copies-p23-string-holder-copy-out-text-dropped", "cannot drop `t` w
   <t
   print(c.s)
 
-fail "review-copies-p25-write-view-struct-literal-field", "cannot change `w` while a write view of it is still in use"
+test "review-copies-p25-write-view-struct-literal-field", "1 5"
   # A bare write view of a plain object read as a field value: Core
   # sentence 1 says it reads the value it sees.
   obj P
@@ -640,7 +640,7 @@ fail "review-copies-p25-write-view-struct-literal-field", "cannot change `w` whi
   w.x = 5
   print(q.p.x, a.x)
 
-fail "review-copies-p25b-write-view-int-struct-literal-field", "cannot change `w` while a write view of it is still in use"
+test "review-copies-p25b-write-view-int-struct-literal-field", "1 5"
   obj Q
     p: Int
     o: Int?

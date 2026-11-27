@@ -44,13 +44,6 @@ test/reject/probes/review-payload-view-3-f04b_for_write_break_move.rig main prod
 # alternate.
 test/reject/probes/review-payload-view-4-e15_loop_hold_across.rig main prod-rejects prod-strict `keep = ?r.v[..]` held across passes of `match (!e if i % 2 == 0 else !d)`
 
-# A loop body's defers run as `break` leaves it, after its value is
-# formed, and what that value views is live while they run (Core §7,
-# Defer). The oracle does not keep the `break` value's loans in force
-# there, nor after the loop while the value lives.
-test/reject/ownership/defer_runs_after_its_block's_value.rig Tab.broke prod-rejects ref-gap `defer !@xs.clear()` in a loop body whose `break !@xs[0]` value is returned
-test/reject/ownership/write_view_passed_through_a_binding_stays_in_use.rig Tab.broke prod-rejects ref-gap `defer s = Slot(...)` in a loop body whose `break !s.items[0]` value is returned
-
 # A `for k in ?v` element over a List of handles is a read view of the
 # slot (Core §4); storing it in a binding declared before the loop keeps
 # the loan on `v`, which `v` outlives (Core s6).
@@ -108,13 +101,6 @@ plain.discard.destructure_write run prod-rejects prod-strict `_ = d1` does not r
 array.discard.destructure_write run prod-rejects prod-strict `_ = d1` does not read the value a write view sees
 simd.discard.destructure_write run prod-rejects prod-strict `_ = d1` does not read the value a write view sees
 
-# A bare write view as a constructor's field value is a write view there,
-# so a second field reading the same view is a second write view; Core
-# sentence 1 reads the value a bare write view of a value that copies
-# sees. The same in v0.2.2.
-test/reject/probes/review-copies-p25-write-view-struct-literal-field.rig main prod-rejects prod-strict `Q(p: w, o: w)` with `w: !P` reads `w` twice as write views
-test/reject/probes/review-copies-p25b-write-view-int-struct-literal-field.rig main prod-rejects prod-strict `Q(p: w, o: w)` with `w: !Int` reads `w` twice as write views
-
 # A `catch` whose value is a view is copied out after its handler, at the
 # `catch` itself, where the context expects the value; a `??` fallback
 # and a branch arm are copied out where they stand. So a view of a local
@@ -123,25 +109,6 @@ test/reject/probes/review-copies-p25b-write-view-int-struct-literal-field.rig ma
 # statement's, and lives past the copy.)
 test/reject/probes/review-copies-2-q06a-catch-handler-block-local-copyout.rig main prod-rejects prod-strict a handler block ending in `?loc`, copied out after the block
 test/reject/probes/review-copies-2-q06f-catch-handler-block-int-copyout.rig main prod-rejects prod-strict a handler block ending in `?loc` of an Int, copied out after the block
-
-# A reassigned owner's old value is dropped after the new value is made
-# (INTERNALS "Assignments"): a `drop` that reads what the value changed,
-# a slice of a List it grew among them, reads it changed or freed, which
-# the oracle does not model.
-test/reject/probes/review-arm-temps-2-m21_name_target_old_drop_reads_view.rig main prod-rejects ref-gap `grow(!v)` in the value of `h = match`, whose old value's `drop` reads `v` through a `?List[Int]`
-test/reject/probes/review-arm-temps-2-m33_slice_holder_drop_reads.rig main prod-rejects ref-gap `grow(!v)` in the value of `h = match`, whose old value's `drop` reads a slice of `v`
-test/reject/probes/review-arm-temps-2-m34_slice_holder_drop_reads_plain.rig main prod-rejects ref-gap `h = growh(!v, ?u)`, whose old value's `drop` reads a slice of `v`
-
-# A binding whose type's `drop` reads a view is used by that drop when
-# it is reassigned, so the views its old value holds stay live up to the
-# assignment. The oracle's liveness ends them at the last use by name:
-# it accepts a write or reassignment of what they view in between, whose
-# old value the drop then reads after it was freed.
-test/reject/probes/review-results-f01.rig main prod-rejects ref-gap `b, a = mk()` after `a = Guard(s: ?b, ...)`: the old `a`'s drop reads the old `b`, dropped first
-test/reject/probes/review-results-f04.rig main prod-rejects ref-gap `b, a = mk(?c)` after `a = Guard(s: ?b, ...)`: the old `a`'s drop reads the old `b`, dropped first
-test/reject/probes/review-results-f10.rig main prod-rejects ref-gap `b = String("new")` then `a = Guard(...)` after `a = Guard(s: ?b, ...)`: the old `a`'s drop reads the freed `b`
-test/reject/probes/review-results-z04.rig main prod-rejects ref-gap `g, n = mk(!x, 1)` after `g = Guard(s: ?x, ...)`: `mk` replaces `x`, which the old `g`'s drop then reads
-test/reject/probes/review-results-z05.rig main prod-rejects ref-gap `g = mk(!x, 1)` after `g = Guard(s: ?x, ...)`: `mk` replaces `x`, which the old `g`'s drop then reads
 
 # A `for x in !l` element's write view stores a view of a local of the
 # body into the List, which outlives the iteration; the oracle does not
@@ -285,20 +252,6 @@ test/reject/ownership/type_param_method_stores_argument.rig put prod-rejects ref
 test/reject/ownership/generic_value_from_a_viewed_parameter_through_a_local_into_self.rig Pairs.upd prod-rejects ref-gap `upd` stores a view of `xs` in `@`, which its caller reaches, but its signature does not keep `xs`
 test/behavior/ownership/last_use_of_a_view_held_across_passes_of_a_match_on_a_branch.rig main prod-rejects ref-gap cannot change `e` while a write view of it is still in use
 test/behavior/ownership/last_use_of_a_write_view_re-pointed_while_a_closure_holds_what_it_saw.rig main prod-rejects ref-gap cannot reassign `w` while a write view of it is still in use
-test/reject/ownership/last_use_drop_of_a_reassigned_value_reads_a_reassigned_place.rig main prod-rejects ref-gap cannot reassign `b` while a read view of it is still in use
-test/reject/ownership/last_use_drop_of_a_value_reassigned_with_results_reads_a_reassigned_place.rig main prod-rejects ref-gap cannot reassign `b` while a read view of it is still in use
-test/reject/ownership/last_use_drop_of_a_reassigned_value_reads_what_its_new_value's_call_replaced.rig main prod-rejects ref-gap cannot change `x` while a read view of it is still in use
-test/reject/ownership/last_use_drop_of_a_reassigned_value_reads_a_slice_its_new_value's_call_grew.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
-test/reject/ownership/last_use_drop_of_a_reassigned_value_reads_a_List_a_match_arm_grew.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
-test/reject/ownership/last_use_fixed_read_view_of_an_object_read_after_a_keyword_argument_grows_its_List.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
-test/reject/ownership/last_use_fixed_read_view_of_an_object_read_after_its_index_grows_its_List.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
-test/reject/ownership/last_use_break_value's_write_view_while_the_body's_defer_replaces_its_List.rig Tab.broke prod-rejects ref-gap cannot assign to `@xs` while a write view of it is still in use
-test/reject/ownership/last_keyword_argument_read_after_a_later_one_writes.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
-test/reject/ownership/last_write_view_keyword_argument_read_after_a_later_one_writes.rig main prod-rejects ref-gap cannot change `v` while a write view of it is still in use
-test/reject/ownership/last_hoisted_argument_read_after_a_later_one_writes.rig run prod-rejects ref-gap cannot change `v` while a read view of it is still in use
-test/reject/ownership/last_argument_beside_a_viewed_closure_read_after_a_later_one_writes.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
-test/reject/ownership/last_assigned_value_read_after_its_index_writes.rig main prod-rejects ref-gap cannot change `v` while a read view of it is still in use
-test/reject/ownership/last_compound_assigned_value_read_after_its_index_writes.rig main prod-rejects ref-gap cannot change `v` while a write view of it is still in use
 test/reject/ownership/static_slice_view_keeps_its_place.rig main prod-rejects ref-gap cannot change `l` while a read view of it is still in use
 test/reject/ownership/static_slice_view_origins.rig main prod-rejects ref-gap cannot change `a` while a read view of it is still in use
 test/reject/ownership/once_called_twice.rig twice prod-rejects ref-gap `f` is called at most once (`once`), and it is used up already
