@@ -1226,6 +1226,7 @@ arms.
 
 ### Runtime
 
+- **A trim gives back its pages in one call** (`alloc.Batch`): a sleeping worker's trim of its heap gives back its free spans' pages, its kept blocks' pages and its wholly free class pages together, in one `process_madvise` of the process on Linux (6.15 and later; a `madvise` a range before), where it made a `madvise` a range. Each call that drops pages interrupts every other core running the program to flush its TLB, so the cores still working take one shootdown a trim. On Trig at eight checkers (nuxt) the trims' flushes fall from 190 to 260 a run to the trims' own 8 calls, and the TLB shootdowns the cores take by 8 to 13%; on webpack at four checkers by 21%.
 - **Frees of another thread's small blocks go to their heap a batch at a
   time** (`alloc.Heap.freeSmall`): a block of at most 1 KiB freed on a
   thread whose heap did not make it waits on that thread's heap, in a
