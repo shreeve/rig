@@ -606,9 +606,9 @@ pub const Checker = struct {
     nll: bool = false,
     /// Where the walk is in the flow of the body walked (`live.Flow`):
     /// the point of the expression, step, or statement end it is at.
-    point: u32 = 0,
+    point: live.Loc = .{},
     /// Where the statement being walked ends.
-    stmt_out: u32 = 0,
+    stmt_out: live.Loc = .{},
     /// The innermost statement being walked.
     cur_stmt: Sexp = .nil,
     /// While a `while` loop's step is walked: where it runs, after the
@@ -1105,7 +1105,7 @@ pub const Checker = struct {
 
     /// Leave the current path for point `p`, going on at `resume_at`
     /// (`exitTo`): its state relative to `p`, after going back to `p`.
-    pub fn leave(self: *Checker, p: Point, resume_at: ?u32) Error!State {
+    pub fn leave(self: *Checker, p: Point, resume_at: ?live.Loc) Error!State {
         const s = try exits.exitTo(self, .{ .to = p, .resume_at = resume_at });
         try self.rewind(p);
         return s;
@@ -1113,7 +1113,7 @@ pub const Checker = struct {
 
     /// Make current the join of the current state, which goes on at
     /// `resume_at`, with `states`, all relative to point `p`.
-    pub fn joinAt(self: *Checker, p: Point, states: []const State, resume_at: ?u32) Error!void {
+    pub fn joinAt(self: *Checker, p: Point, states: []const State, resume_at: ?live.Loc) Error!void {
         var out = try self.leave(p, resume_at);
         for (states) |s| out = try self.join(out, s);
         try self.apply(out);

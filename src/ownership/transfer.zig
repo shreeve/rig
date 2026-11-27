@@ -220,7 +220,7 @@ pub fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
             self.cur_stmt = e.node;
             defer self.cur_stmt = saved_stmt;
             result = try walkReturnValueE(self, .{ .node = e.node, .id = e.id }, null);
-            if (live.outOf(self, st.at(i))) |p| self.point = p;
+            self.point = live.outOf(st.at(i));
         } else _ = try walkStmtValueE(self, e, null);
     }
     return result;
@@ -307,9 +307,7 @@ pub fn walkStmtValueE(self: *Checker, e: lowered.Expr, sink: ?Sink) Error!Value 
     const saved_out = self.stmt_out;
     if (out) |o| self.stmt_out = o;
     defer self.stmt_out = saved_out;
-    if (e.r) |r| if (live.inOf(self, r)) |in| {
-        self.point = in;
-    };
+    if (e.r) |r| self.point = live.inOf(r);
     const vars_mark: VarId = @intCast(self.vars.items.len);
     const v = if (sink) |k| try walkConsumedE(self, e, k) else try walkE(self, e);
     // Its temporaries end where it does.
@@ -368,7 +366,7 @@ pub fn walkE(self: *Checker, ex: lowered.Expr) Error!Value {
     const saved_point = self.point;
     if (ex.id) |id| live.atExpr(self, id);
     const own = self.point;
-    defer self.point = @max(saved_point, own);
+    defer self.point = if (saved_point.kind == .expr) saved_point else own;
     // An API object of a read view of plain data, or of a type
     // parameter's value, views a copy, a local of the erasing block
     // (`sema.Erasure.copy`): its loan is on that copy, which keeps
@@ -3501,7 +3499,7 @@ pub fn walkIf(self: *Checker, e: lowered.Expr) Error!Value {
     // The condition is a header, its own statement.
     _ = try walkStmtValueE(self, if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.uncovered(self, cond), null);
     const base = try self.here();
-    const past = live.pt(live.ctlOf(self, node).exit);
+    const past = live.ctlOf(node).exit;
     const v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
     const s1 = try self.leave(base, past);
     const v2 = if (else_b == .nil) Value{} else try walkTailPartE(self, branchOf(self, else_b, lir_if, false), t);
@@ -3530,8 +3528,8 @@ pub fn walkIfBinding(self: *Checker, node: Sexp, lir_if: ?lir.Expr.If, t: ?Tail)
     // A failing part goes on to the `else`, or past the `if`.
     const cond = ir.If.cond(node);
     const cond_e = if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.uncovered(self, cond);
-    const past = live.pt(live.ctlOf(self, node).exit);
-    const fails = try walkConditionParts(self, cond_e, then_b, .{ .to = base, .resume_at = if (lir_if) |i| (if (i.@"else") |r| live.inOf(self, r) else past) else past }, self.loop);
+    const past = live.ctlOf(node).exit;
+    const fails = try walkConditionParts(self, cond_e, then_b, .{ .to = base, .resume_at = if (lir_if) |i| (if (i.@"else") |r| live.inOf(r) else past) else past }, self.loop);
     var v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
     while (self.scopes.items.len > depth) v1 = try self.leaveScope(v1);
     const s1 = try self.leave(base, past);
@@ -3727,7 +3725,7 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
     var value: Value = .{};
     var catch_all = false;
     const arms = ir.Match.arms(match);
-    const past = live.pt(live.ctlOf(self, match).exit);
+    const past = live.ctlOf(match).exit;
     for (arms, 0..) |arm, i| {
         const pattern = ir.Arm.pattern(arm);
         const guard = ir.Arm.guard(arm);
@@ -3740,8 +3738,8 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
         // A guarded arm may not run for the values its pattern
         // matches. The views the guard takes end with it.
         const bound = self.vars.items.len;
-        if (ctrl) |c| if (c == .match and i < c.match.arms.len) if (live.inOf(self, c.match.arms[i])) |p| {
-            self.point = p;
+        if (ctrl) |c| if (c == .match and i < c.match.arms.len) {
+            self.point = live.inOf(c.match.arms[i]);
         };
         if (try bindPattern(self, pattern, info, scrut_value) and guard == .nil) catch_all = true;
         // A binding that views a temporary the subject made would
@@ -3759,7 +3757,7 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
             // A header, its own statement, which its arm's region tests.
             _ = try walkStmtValueE(self, lowered.guardOf(self, ctrl, i, guard), null);
             // A failing guard goes on to the next arm, or past the match.
-            const next: ?u32 = if (ctrl) |c| (if (c == .match and i + 1 < c.match.arms.len) live.inOf(self, c.match.arms[i + 1]) else past) else past;
+            const next: ?live.Loc = if (ctrl) |c| (if (c == .match and i + 1 < c.match.arms.len) live.inOf(c.match.arms[i + 1]) else past) else past;
             failed = try exits.exitTo(self, .{ .to = base, .resume_at = next });
         }
         // The arm is chosen: the subject is read no more.
@@ -4174,7 +4172,7 @@ pub fn walkLabeled(self: *Checker, e: lowered.Expr) Error!Value {
     self.loop = &ctx;
     defer self.loop = ctx.parent;
     _ = try walkStmtValueE(self, lowered.within(self, e, stmt), null);
-    try self.joinAt(ctx.point, ctx.breaks.items, live.pt(live.ctlOf(self, stmt).exit));
+    try self.joinAt(ctx.point, ctx.breaks.items, live.ctlOf(stmt).exit);
     return .{};
 }
 
@@ -4217,7 +4215,7 @@ pub fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
     try self.apply(try joinAll(self, it.exit));
     // A `loop` used as a value yields a `break` value.
     self.loop = ctx.parent;
-    try self.joinAt(ctx.point, ctx.breaks.items, live.pt(live.ctlOf(self, spec.node).exit));
+    try self.joinAt(ctx.point, ctx.breaks.items, live.ctlOf(spec.node).exit);
     return ctx.value;
 }
 
@@ -4235,10 +4233,10 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     // The loop ends when its condition fails: for a binding
     // condition, when a part fails, with the bindings before it gone.
     // A failing part leaves the loop.
-    const at = live.ctlOf(self, spec.node);
+    const at = live.ctlOf(spec.node);
     // Each pass starts at the loop's head.
-    if (live.pt(at.head)) |h| self.point = h;
-    const fail: ExitTo = .{ .to = ctx.point, .resume_at = live.pt(at.exit) };
+    if (at.head) |h| self.point = h;
+    const fail: ExitTo = .{ .to = ctx.point, .resume_at = at.exit };
     var exit: []const State = &.{};
     const lir_cond: ?lir.ExprId = if (spec.lir) |c| (if (c == .loop) c.loop.cond else null) else null;
     if (spec.cond_binds) {
@@ -4269,7 +4267,7 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     _ = try walkStmtValueE(self, if (lir_body) |r| lowered.exprIn(self, spec.body, r) else lowered.uncovered(self, spec.body), null);
     if (step_inside) {
         while (self.scopes.items.len > ctx.step_depth) try self.popScope();
-        if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, live.pt(at.step));
+        if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, at.step);
         ctx.step_point = null;
         try walkStep(self, spec);
     }
@@ -4280,13 +4278,13 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     // condition (which the type checker rejects when the step runs
     // after the body, since it would skip binding what the step
     // reads); a `continue` in the step ends it.
-    if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, live.pt(at.head));
+    if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, at.head);
     if (!step_inside) if (spec.cont != null) {
         ctx.conts.clearRetainingCapacity();
         try walkStep(self, spec);
-        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, live.pt(at.head));
+        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items, at.head);
     };
-    return .{ .back = try exits.exitTo(self, .{ .to = ctx.point, .resume_at = live.pt(at.head) }), .exit = exit };
+    return .{ .back = try exits.exitTo(self, .{ .to = ctx.point, .resume_at = at.head }), .exit = exit };
 }
 
 /// Walk the step of the `while` loop `spec` walks, which runs after

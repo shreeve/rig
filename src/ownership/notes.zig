@@ -711,7 +711,7 @@ pub fn reportTempHolder(self: *Checker, f: Flow, holder: VarId, depth: u32) Erro
 /// point `at` (after the walk's point when null); or, when it is not,
 /// a loan on a statement's temporary that it keeps past its
 /// statement. Each holder is reported once.
-pub fn reportDropped(self: *Checker, depth: u32, at: ?u32) Error!void {
+pub fn reportDropped(self: *Checker, depth: u32, at: ?live.Loc) Error!void {
     if (!self.viewedFrom(depth)) return;
     for (self.flows.items[0..@min(depth, self.flows.items.len)], 0..) |f, holder| {
         if (!hasLoanFrom(f.loans, depth)) continue;
@@ -724,7 +724,7 @@ pub fn reportDropped(self: *Checker, depth: u32, at: ?u32) Error!void {
 /// (after the walk's point when null). Whether it is. `scope` is the
 /// code of a scope that ends as the code falls through, which drops
 /// those vars at its end, `end` (`.nil` for another exit).
-pub fn reportHolder(self: *Checker, f: Flow, holder: VarId, depth: u32, at: ?u32, scope: Sexp, end: ?u32) Error!bool {
+pub fn reportHolder(self: *Checker, f: Flow, holder: VarId, depth: u32, at: ?live.Loc, scope: Sexp, end: ?u32) Error!bool {
     if (!live.holderLive(self, holder, at)) return false;
     // Where the scope that drops them ends, when it ends as the code
     // falls through: worked out only here, for the message.

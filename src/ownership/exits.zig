@@ -69,7 +69,7 @@ pub const ExitTo = struct {
     exit: ?Exit = null,
     /// Where the path goes on, for liveness: a point of the body's
     /// flow, or after the walk's point when null.
-    resume_at: ?u32 = null,
+    resume_at: ?live.Loc = null,
     /// The loans of the value the path leaves with: a result, a
     /// `break` value, a block's value. It is formed before the
     /// defers run and lives after them, so they run while it views

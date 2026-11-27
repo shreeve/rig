@@ -49,9 +49,6 @@ pub const Flow = struct {
     /// Where each region starts and ends.
     r_in: []u32 = &.{},
     r_out: []u32 = &.{},
-    /// The point of each step that is one (a binding's or a store's,
-    /// a jump, a drop), by the step's address.
-    step_pt: sema.FastMap(usize, u32) = .empty,
     /// Where a path goes on once the defers of an exit have run: past a
     /// jump (by its step's address), a failure (`e!`, `e?`, by its
     /// expression, `exit_bit` set), or a scope that ends as the code
@@ -60,14 +57,17 @@ pub const Flow = struct {
     /// Where each `if`, `match`, and loop goes on (`exit`), and a
     /// loop's head and step, by its node's key.
     ctl: sema.FastMap(u64, Ctl) = .empty,
-    /// The points each point goes on to: `to[off[p]..off[p + 1]]`.
+    /// The points that go on to the next one, a bit each; and the other
+    /// points each point goes on to: `to[off[p]..off[p + 1]]`.
+    seq: []const u64 = &.{},
     off: []u32 = &.{},
     to: []u32 = &.{},
+    /// The points that go on to each point: `from[from_off[p]..from_off[p + 1]]`.
+    from_off: []u32 = &.{},
+    from: []u32 = &.{},
     /// The uses and re-pointings of the bindings, by symbol, then point.
     events: []Event = &.{},
     by_sym: sema.FastMap(SymbolId, [2]u32) = .empty,
-    /// The symbols of the body's bindings.
-    own: sema.FastMap(SymbolId, void) = .empty,
     /// Where each binding asked about is live, a bit for each point.
     cache: sema.FastMap(SymbolId, []u64) = .empty,
     arena: std.mem.Allocator,
@@ -80,6 +80,10 @@ pub const Flow = struct {
     /// store that re-points it (`kill`).
     pub const Event = struct { sym: SymbolId, p: u32, pos: u32, kill: bool };
 
+    fn next(fl: *const Flow, p: u32) bool {
+        return p / 64 < fl.seq.len and fl.seq[p / 64] & (@as(u64, 1) << @intCast(p % 64)) != 0;
+    }
+
     fn succ(fl: *const Flow, p: u32) []const u32 {
         return fl.to[fl.off[p]..fl.off[p + 1]];
     }
@@ -88,51 +92,51 @@ pub const Flow = struct {
     /// re-pointed there and live where a path from it goes on.
     fn liveBits(fl: *Flow, sym: SymbolId) Error![]const u64 {
         if (fl.cache.get(sym)) |b| return b;
+        const r = fl.by_sym.get(sym) orelse return &.{};
         const words = (fl.n + 63) / 64;
-        const live = try fl.arena.alloc(u64, words * 3);
-        @memset(live, 0);
-        const bits = live[0..words];
-        const uses = live[words .. 2 * words];
-        const kills = live[2 * words ..];
-        if (fl.by_sym.get(sym)) |r| {
-            for (fl.events[r[0]..r[1]]) |e| {
-                const set = if (e.kill) kills else uses;
-                set[e.p / 64] |= @as(u64, 1) << @intCast(e.p % 64);
+        const bits = try fl.arena.alloc(u64, words * 2);
+        @memset(bits, 0);
+        const live = bits[0..words];
+        const kills = bits[words..];
+        const evs = fl.events[r[0]..r[1]];
+        for (evs) |e| if (e.kill) {
+            kills[e.p / 64] |= @as(u64, 1) << @intCast(e.p % 64);
+        };
+        // Back from each use, through the points that do not re-point it.
+        var work: std.ArrayList(u32) = .empty;
+        for (evs) |e| if (!e.kill) try work.append(fl.arena, e.p);
+        while (work.pop()) |q| {
+            const bit = @as(u64, 1) << @intCast(q % 64);
+            if (live[q / 64] & bit != 0) continue;
+            live[q / 64] |= bit;
+            if (q > 0 and fl.next(q - 1)) {
+                const x = q - 1;
+                const xb = @as(u64, 1) << @intCast(x % 64);
+                if (live[x / 64] & xb == 0 and kills[x / 64] & xb == 0) try work.append(fl.arena, x);
             }
-            var changed = true;
-            while (changed) {
-                changed = false;
-                var p = fl.n;
-                while (p > 0) {
-                    p -= 1;
-                    const w = p / 64;
-                    const bit = @as(u64, 1) << @intCast(p % 64);
-                    if (bits[w] & bit != 0) continue;
-                    const on = uses[w] & bit != 0 or (kills[w] & bit == 0 and for (fl.succ(p)) |q| {
-                        if (bits[q / 64] & (@as(u64, 1) << @intCast(q % 64)) != 0) break true;
-                    } else false);
-                    if (on) {
-                        bits[w] |= bit;
-                        changed = true;
-                    }
-                }
+            for (fl.from[fl.from_off[q]..fl.from_off[q + 1]]) |x| {
+                const xb = @as(u64, 1) << @intCast(x % 64);
+                if (live[x / 64] & xb == 0 and kills[x / 64] & xb == 0) try work.append(fl.arena, x);
             }
         }
-        try fl.cache.put(fl.arena, sym, bits);
-        return bits;
+        work.deinit(fl.arena);
+        try fl.cache.put(fl.arena, sym, live);
+        return live;
     }
 
     /// Whether `sym` is live as point `p` starts.
     pub fn liveAt(fl: *Flow, sym: SymbolId, p: u32) Error!bool {
         if (p >= fl.n) return true;
         const bits = try fl.liveBits(sym);
-        return bits[p / 64] & (@as(u64, 1) << @intCast(p % 64)) != 0;
+        return bits.len > 0 and bits[p / 64] & (@as(u64, 1) << @intCast(p % 64)) != 0;
     }
 
     /// Whether `sym` is live after point `p`: where a path from it goes on.
     pub fn liveAfter(fl: *Flow, sym: SymbolId, p: u32) Error!bool {
         if (p >= fl.n) return true;
         const bits = try fl.liveBits(sym);
+        if (bits.len == 0) return false;
+        if (fl.next(p) and bits[(p + 1) / 64] & (@as(u64, 1) << @intCast((p + 1) % 64)) != 0) return true;
         for (fl.succ(p)) |q| if (bits[q / 64] & (@as(u64, 1) << @intCast(q % 64)) != 0) return true;
         return false;
     }
@@ -146,6 +150,7 @@ pub const Flow = struct {
         const evs = fl.events[r[0]..r[1]];
         var seen = try std.DynamicBitSetUnmanaged.initEmpty(a, fl.n);
         var work: std.ArrayList(u32) = .empty;
+        if (fl.next(p)) try work.append(a, p + 1);
         for (fl.succ(p)) |q| try work.append(a, q);
         while (work.pop()) |q| {
             if (seen.isSet(q)) continue;
@@ -159,13 +164,14 @@ pub const Flow = struct {
                 }
             };
             if (killed and !used) continue;
+            if (fl.next(q)) try work.append(a, q + 1);
             for (fl.succ(q)) |s| try work.append(a, s);
         }
     }
 };
 
 /// Build the flow of body `b`.
-pub fn build(self: *Checker, b: *const lowered.Body, a: std.mem.Allocator) Error!*Flow {
+pub fn build(self: *const Checker, b: *const lowered.Body, a: std.mem.Allocator) Error!*Flow {
     const f = b.f;
     const fl = try a.create(Flow);
     fl.* = .{ .arena = a };
@@ -175,15 +181,19 @@ pub fn build(self: *Checker, b: *const lowered.Body, a: std.mem.Allocator) Error
     @memset(fl.r_in, no_point);
     fl.r_out = try a.alloc(u32, f.regions.items.len);
     @memset(fl.r_out, no_point);
-    for (f.vars.items) |v| switch (v.name) {
-        .binding => |sym| try fl.own.put(a, sym, {}),
-        .hidden => {},
-    };
     var bd: Builder = .{ .c = self, .a = a, .f = f, .b = b, .fl = fl };
     try bd.region(f.body);
     // The function's exit, where a `return` and a failure go.
     const exit = try bd.new();
     for (bd.to_exit.items) |p| try bd.edge(p, exit);
+    fl.seq = bd.seq.items;
+    // A part a region holds first is walked where it is held.
+    if (b.hoisted.len > 0) for (f.exprs.items, 0..) |e, i| switch (e) {
+        .@"var" => |x| if (b.hoisted[x.v] != std.math.maxInt(u32)) {
+            fl.expr_pt[i] = fl.expr_pt[lowered.under(b, @intCast(i))];
+        },
+        else => {},
+    };
 
     // The paths, by the point each starts from.
     fl.off = try a.alloc(u32, fl.n + 1);
@@ -195,6 +205,16 @@ pub fn build(self: *Checker, b: *const lowered.Body, a: std.mem.Allocator) Error
     for (bd.edges.items) |e| {
         fl.to[fill[e[0]]] = e[1];
         fill[e[0]] += 1;
+    }
+    fl.from_off = try a.alloc(u32, fl.n + 1);
+    @memset(fl.from_off, 0);
+    for (bd.edges.items) |e| fl.from_off[e[1] + 1] += 1;
+    for (1..fl.from_off.len) |i| fl.from_off[i] += fl.from_off[i - 1];
+    fl.from = try a.alloc(u32, bd.edges.items.len);
+    @memcpy(fill, fl.from_off[0..fl.n]);
+    for (bd.edges.items) |e| {
+        fl.from[fill[e[1]]] = e[0];
+        fill[e[1]] += 1;
     }
     // The events, by symbol and then point.
     std.mem.sort(Flow.Event, bd.events.items, {}, struct {
@@ -221,6 +241,8 @@ const Builder = struct {
     fl: *Flow,
     /// The point the next one follows, or null where no path goes on.
     prev: ?u32 = null,
+    /// The points that go on to the next (`Flow.seq`), and the other paths.
+    seq: std.ArrayList(u64) = .empty,
     edges: std.ArrayList([2]u32) = .empty,
     events: std.ArrayList(Flow.Event) = .empty,
     /// The regions open around the point being made that run deferred
@@ -246,7 +268,12 @@ const Builder = struct {
     fn new(bd: *Builder) Error!u32 {
         const p = bd.fl.n;
         bd.fl.n += 1;
-        if (bd.prev) |q| try bd.edge(q, p);
+        if (bd.prev) |q| {
+            if (q + 1 == p) {
+                while (bd.seq.items.len <= q / 64) try bd.seq.append(bd.a, 0);
+                bd.seq.items[q / 64] |= @as(u64, 1) << @intCast(q % 64);
+            } else try bd.edge(q, p);
+        }
         bd.prev = p;
         return p;
     }
@@ -267,12 +294,6 @@ const Builder = struct {
         bd.fl.n += 1;
         try bd.edge(l, p);
         try bd.fl.past.put(bd.a, key, p);
-        return p;
-    }
-
-    fn stepPoint(bd: *Builder, s: *const lir.Step) Error!u32 {
-        const p = try bd.new();
-        try bd.fl.step_pt.put(bd.a, @intFromPtr(s), p);
         return p;
     }
 
@@ -348,7 +369,7 @@ const Builder = struct {
         switch (s.*) {
             .bind => |x| {
                 try bd.expr(x.value);
-                _ = try bd.stepPoint(s);
+                _ = try bd.new();
             },
             .store => |x| {
                 // A value read where it runs (`lowering.isPureArg`) is
@@ -360,11 +381,11 @@ const Builder = struct {
                     try bd.expr(x.value);
                     try bd.target(x.node, x.target);
                 }
-                _ = try bd.stepPoint(s);
+                _ = try bd.new();
             },
             .eval => |e| try bd.expr(e),
             .drop => |x| {
-                const p = try bd.stepPoint(s);
+                const p = try bd.new();
                 switch (bd.f.vars.items[x.v].name) {
                     .binding => |sym| try bd.event(sym, p, x.node, false),
                     .hidden => {},
@@ -372,7 +393,7 @@ const Builder = struct {
             },
             .jump => |j| {
                 if (j.value) |v| try bd.expr(v);
-                try bd.jump(j.node, try bd.stepPoint(s), @intFromPtr(s));
+                try bd.jump(j.node, try bd.new(), @intFromPtr(s));
             },
             .region => |sub| {
                 const node = bd.f.regions.items[sub].node;
@@ -543,11 +564,8 @@ const Builder = struct {
                 }
                 break :blk p;
             },
-            .leaf => |l| blk: {
-                const p = try bd.new();
-                if (l == .src) if (bd.c.sema.symbolOf(l)) |sym| if (bd.fl.own.contains(sym)) try bd.event(sym, p, l, false);
-                break :blk p;
-            },
+            // No binding of the body is a leaf.
+            .leaf => try bd.new(),
             .op => |o| try bd.op(id, o),
             .hold => |h| blk: {
                 try bd.expr(h.value);
@@ -667,98 +685,138 @@ fn homePos(self: *const Checker, node: Sexp) u32 {
 // Where the walk is
 // -----------------------------------------------------------------------------
 
-/// The walk is at expression `id`: where it runs, after its operands
-/// (for a part a region holds first, where it is held).
+/// A place in a body's flow, named by what is there, so the flow is
+/// built only where liveness is asked (`resolve`): an expression, a
+/// region's start or end, a store or a binding's declaration, the
+/// point past an exit's defers, or where a construct goes on, its head,
+/// or its step. Where `kind` names nothing in the flow, `alt` does.
+pub const Loc = struct {
+    kind: Kind = .none,
+    id: u64 = 0,
+    alt: Alt = .{},
+
+    pub const Kind = enum(u8) { none, expr, r_in, r_out, step, past, exit, head, step_in };
+    pub const Alt = struct { kind: Kind = .none, id: u64 = 0 };
+
+    fn of(kind: Kind, id: u64) Loc {
+        return .{ .kind = kind, .id = id };
+    }
+};
+
+/// The point `loc` names in flow `fl`, or null.
+fn resolve(fl: *const Flow, loc: Loc) ?u32 {
+    return one(fl, loc.kind, loc.id) orelse one(fl, loc.alt.kind, loc.alt.id);
+}
+
+fn one(fl: *const Flow, kind: Loc.Kind, id: u64) ?u32 {
+    const p: u32 = switch (kind) {
+        .none => return null,
+        .expr => fl.expr_pt[@intCast(id)],
+        .r_in => fl.r_in[@intCast(id)],
+        .r_out => fl.r_out[@intCast(id)],
+        .step => switch (@as(*const lir.Step, @ptrFromInt(@as(usize, @intCast(id)))).*) {
+            .store => |x| (@max(fl.expr_pt[x.target] +% 1, fl.expr_pt[x.value] +% 1) -% 1) +% 1,
+            .bind => |x| fl.expr_pt[x.value] +% 1,
+            else => return null,
+        },
+        .past => fl.past.get(id) orelse return null,
+        .exit, .head, .step_in => blk: {
+            const c = fl.ctl.get(id) orelse return null;
+            break :blk switch (kind) {
+                .exit => c.exit,
+                .head => c.head,
+                else => c.step,
+            };
+        },
+    };
+    return if (p >= fl.n) null else p;
+}
+
+/// The flow of body `b`, built the first time it is asked for.
+fn flowOf(self: *const Checker, b: *lowered.Body) ?*Flow {
+    if (b.flow == null and !b.f.root.isKind(.module)) b.flow = build(self, b, b.arena) catch return null;
+    return b.flow;
+}
+
+/// The walk is at expression `id`: where it runs, after its operands.
 pub fn atExpr(self: *Checker, id: lir.ExprId) void {
-    const b = self.lir_body orelse return;
-    const fl = b.flow orelse return;
-    const p = fl.expr_pt[lowered.under(b, id)];
-    if (p != no_point) self.point = p;
+    self.point = .of(.expr, id);
 }
 
-/// The walk is at step `s` (a store, a binding's declaration, a jump).
+/// The walk is at step `s`, a store or a binding's declaration: the
+/// point after its value and target.
 pub fn atStep(self: *Checker, s: *const lir.Step) void {
-    const fl = (self.lir_body orelse return).flow orelse return;
-    if (fl.step_pt.get(@intFromPtr(s))) |p| self.point = p;
+    self.point = .of(.step, @intFromPtr(s));
 }
 
-/// `p`, or null where no path reaches it.
-pub fn pt(p: u32) ?u32 {
-    return if (p == no_point) null else p;
-}
-
-/// The point expression `e` runs at, after its operands.
-pub fn ptOf(self: *const Checker, e: lowered.Expr) ?u32 {
+/// Where expression `e` runs, after its operands (for a part a region
+/// holds first, where it is held).
+pub fn ptOf(self: *const Checker, e: lowered.Expr) ?Loc {
     const b = self.lir_body orelse return null;
-    const fl = b.flow orelse return null;
-    return pt(fl.expr_pt[lowered.under(b, e.id orelse return null)]);
+    return .of(.expr, lowered.under(b, e.id orelse return null));
 }
 
 /// The walk is past the defers jump `steps` ends with (a `break`,
 /// `continue`, or `return`) runs: where the path goes on.
 pub fn atJump(self: *Checker, steps: []const lir.Step) void {
-    if (steps.len == 0) return;
-    const fl = (self.lir_body orelse return).flow orelse return;
-    if (fl.past.get(@intFromPtr(&steps[steps.len - 1]))) |p| self.point = p;
+    if (steps.len > 0) self.point = .{ .kind = .past, .id = @intFromPtr(&steps[steps.len - 1]), .alt = .{ .kind = self.point.kind, .id = self.point.id } };
 }
 
 /// The walk is past the defers failure `e` (`e!`, `e?`) runs.
 pub fn atFailure(self: *Checker, e: lowered.Expr) void {
     const b = self.lir_body orelse return;
-    const fl = b.flow orelse return;
-    if (fl.past.get(exit_bit | lowered.under(b, e.id orelse return))) |p| self.point = p;
+    self.point = .{ .kind = .past, .id = exit_bit | lowered.under(b, e.id orelse return), .alt = .{ .kind = self.point.kind, .id = self.point.id } };
 }
 
 /// The walk is past the defers of the scope over `node` (null for the
 /// function's body), which ends as the code falls through.
 pub fn atScopeEnd(self: *Checker, node: Sexp) void {
-    const fl = (self.lir_body orelse return).flow orelse return;
     const key = if (node == .nil) scope_bit else scope_bit | ((sema.decisionKeyOf(node) orelse return) & ~(exit_bit | scope_bit));
-    if (fl.past.get(key)) |p| self.point = p;
+    self.point = .{ .kind = .past, .id = key, .alt = .{ .kind = self.point.kind, .id = self.point.id } };
 }
 
-/// The point region `r` ends at.
-pub fn outOf(self: *const Checker, r: lir.RegionId) ?u32 {
-    const fl = (self.lir_body orelse return null).flow orelse return null;
-    const p = fl.r_out[r];
-    return if (p == no_point) null else p;
+/// Where region `r` ends.
+pub fn outOf(r: lir.RegionId) Loc {
+    return .of(.r_out, r);
 }
 
-/// The point region `r` starts at.
-pub fn inOf(self: *const Checker, r: lir.RegionId) ?u32 {
-    const fl = (self.lir_body orelse return null).flow orelse return null;
-    const p = fl.r_in[r];
-    return if (p == no_point) null else p;
+/// Where region `r` starts.
+pub fn inOf(r: lir.RegionId) Loc {
+    return .of(.r_in, r);
 }
 
 /// Where construct `node` (an `if`, a `match`, a loop) goes on, its
 /// head, and its step.
-pub fn ctlOf(self: *const Checker, node: Sexp) Flow.Ctl {
-    const fl = (self.lir_body orelse return .{}).flow orelse return .{};
-    return fl.ctl.get(sema.decisionKeyOf(node) orelse return .{}) orelse .{};
+pub fn ctlOf(node: Sexp) struct { exit: ?Loc, head: ?Loc, step: ?Loc } {
+    const key = sema.decisionKeyOf(node) orelse return .{ .exit = null, .head = null, .step = null };
+    return .{ .exit = .of(.exit, key), .head = .of(.head, key), .step = .of(.step_in, key) };
 }
 
-/// The point statement `e` ends at: its own region's end, or, for a
-/// condition walked as a statement, its expression's point.
-pub fn stmtOut(self: *const Checker, e: lowered.Expr) ?u32 {
+/// Where statement `e` ends: its own region's end, or, for a condition
+/// walked as a statement, where its expression runs.
+pub fn stmtOut(self: *const Checker, e: lowered.Expr) ?Loc {
     const b = self.lir_body orelse return null;
     if (e.r) |r| {
         const reg = &b.f.regions.items[r];
-        if (reg.kind == .stmt and sema.decisionKeyOf(reg.node) == sema.decisionKeyOf(e.node)) return outOf(self, r);
+        if (reg.kind == .stmt and sema.decisionKeyOf(reg.node) == sema.decisionKeyOf(e.node)) return outOf(r);
     }
-    const fl = b.flow orelse return null;
-    const p = fl.expr_pt[lowered.under(b, e.id orelse return null)];
-    return if (p == no_point) null else p;
+    return ptOf(self, e);
 }
 
 /// The flow that holds binding `sym`, and the point the walk is at in
 /// it: the body walked, or one around it whose closure is made there.
-fn flowOf(self: *const Checker, sym: SymbolId) ?struct { fl: *Flow, p: u32 } {
+fn holding(self: *const Checker, sym: SymbolId) ?struct { fl: *Flow, p: ?u32, here: bool } {
     var b = self.lir_body;
-    var p = self.point;
+    var loc = self.point;
     while (b) |body| {
-        if (body.flow) |fl| if (fl.own.contains(sym)) return .{ .fl = fl, .p = p };
-        p = body.outer_point;
+        for (body.f.vars.items) |v| switch (v.name) {
+            .binding => |s| if (s == sym) {
+                const fl = flowOf(self, body) orelse return null;
+                return .{ .fl = fl, .p = resolve(fl, loc), .here = body == self.lir_body.? };
+            },
+            .hidden => {},
+        };
+        loc = body.outer_point;
         b = body.outer;
     }
     return null;
@@ -766,19 +824,18 @@ fn flowOf(self: *const Checker, sym: SymbolId) ?struct { fl: *Flow, p: u32 } {
 
 /// Whether binding `sym` may be used again after the walk's point, or,
 /// at `at`, where a path goes on.
-fn usedAfter(self: *const Checker, sym: SymbolId, at: ?u32) bool {
-    const w = flowOf(self, sym) orelse return true;
-    const here = self.lir_body != null and self.lir_body.?.flow == w.fl;
-    const r = if (at != null and here) w.fl.liveAt(sym, at.?) else w.fl.liveAfter(sym, w.p);
-    return r catch true;
+fn usedAfter(self: *const Checker, sym: SymbolId, at: ?Loc) bool {
+    const w = holding(self, sym) orelse return true;
+    if (at) |x| if (w.here) if (resolve(w.fl, x)) |p| return w.fl.liveAt(sym, p) catch true;
+    return w.fl.liveAfter(sym, w.p orelse return true) catch true;
 }
 
 /// The uses of binding `sym` a path from the walk's point reaches,
 /// where each is written.
 pub fn usesAhead(self: *const Checker, sym: SymbolId) []const Flow.Use {
-    const w = flowOf(self, sym) orelse return &.{};
+    const w = holding(self, sym) orelse return &.{};
     var out: std.ArrayList(Flow.Use) = .empty;
-    w.fl.usesAfter(w.fl.arena, sym, w.p, &out) catch return &.{};
+    w.fl.usesAfter(w.fl.arena, sym, w.p orelse return &.{}, &out) catch return &.{};
     return out.items;
 }
 
@@ -815,11 +872,11 @@ pub fn holdsPastDrop(self: *const Checker, holder: VarId, depth: u8) bool {
 /// (`sema.dropRunsBody`; any other drop only releases memory, and
 /// uses no view), or when a live var or temporary views it in turn.
 /// Otherwise its last use is behind, and its views have ended.
-pub fn holderLive(self: *const Checker, id: VarId, at: ?u32) bool {
+pub fn holderLive(self: *const Checker, id: VarId, at: ?Loc) bool {
     return holderLiveDepth(self, id, at, 0);
 }
 
-pub fn holderLiveDepth(self: *const Checker, id: VarId, at: ?u32, depth: u8) bool {
+pub fn holderLiveDepth(self: *const Checker, id: VarId, at: ?Loc, depth: u8) bool {
     if (!self.nll or depth > 16) return true;
     const ctx = self.sema;
     const v = self.vars.items[id];
@@ -844,7 +901,7 @@ pub fn holderLiveDepth(self: *const Checker, id: VarId, at: ?u32, depth: u8) boo
 }
 
 /// Whether a live var or a temporary views var `id`.
-pub fn viewedByLive(self: *const Checker, id: VarId, at: ?u32, depth: u8) bool {
+pub fn viewedByLive(self: *const Checker, id: VarId, at: ?Loc, depth: u8) bool {
     if (self.isViewed(id)) for (self.flows.items, 0..) |f, j| {
         if (j == id) continue;
         for (f.loans) |l| if (l.root == id and !l.ext) {

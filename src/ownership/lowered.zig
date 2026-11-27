@@ -42,13 +42,14 @@ pub const Body = struct {
     /// The checker var the walk made last for each hidden var, by LIR
     /// var (`noteMade`); empty until it makes one.
     made: []state.VarId = &.{},
-    /// Its points in the order they run, for liveness; null for the
-    /// module's compile-time body.
+    /// Its points in the order they run, built where liveness is first
+    /// asked (`live.Flow`), in `arena`, which lives while the walk does.
     flow: ?*live.Flow = null,
-    /// The body walked around it, and the point there, where a closure
-    /// is made.
+    arena: std.mem.Allocator,
+    /// The body walked around it, and where the walk is there, where a
+    /// closure is made.
     outer: ?*Body = null,
-    outer_point: u32 = 0,
+    outer_point: live.Loc = .{},
 };
 
 /// An expression the walk reaches: its tree node, and, in a lowered
@@ -579,7 +580,7 @@ pub fn enter(self: *Checker, root: Sexp) Error!?*Body {
     // lives until it is walked (`dropConstants`).
     const a = if (root.isKind(.module)) self.const_arena_state.allocator() else self.fn_arena_state.allocator();
     const out = try a.create(Body);
-    out.* = .{ .f = f, .outer = self.lir_body, .outer_point = self.point };
+    out.* = .{ .f = f, .arena = a, .outer = self.lir_body, .outer_point = self.point };
     for (f.regions.items) |r| {
         if (r.kind == .call) if (sema.decisionKeyOf(r.node)) |key| try out.calls.put(a, key, {});
         for (r.steps.items) |s| switch (s) {
@@ -593,7 +594,6 @@ pub fn enter(self: *Checker, root: Sexp) Error!?*Body {
             else => {},
         };
     }
-    if (!root.isKind(.module)) out.flow = try live.build(self, out, a);
     return out;
 }
 
