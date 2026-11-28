@@ -2167,9 +2167,8 @@ code "task local spawns local", ".spawnLocal(peek, "
   t = peek(?n)&
   print(>t)
 
-test "task.workers takes effect only before the first task", seeds: 20, '''
+test "task.workers takes effect before the first task, and never for none", seeds: 20, '''
   true
-  false
   false
   1
 '''
@@ -2178,11 +2177,10 @@ test "task.workers takes effect only before the first task", seeds: 20, '''
     1
   print(task.workers(3))
   t = one()&
-  print(task.workers(2))
   print(task.workers(0))
   print(>t)
 
-test "task.workers raises the workers a program runs on after its first task", "true 8 true false 8"
+test "task.workers raises the workers a program runs on after its first task, and lowers them", "true 8 true true 4"
   use std.task
   fun one() -> Int
     1
