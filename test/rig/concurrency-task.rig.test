@@ -2167,9 +2167,8 @@ code "task local spawns local", ".spawnLocal(peek, "
   t = peek(?n)&
   print(>t)
 
-test "task.workers takes effect only before the first task", seeds: 20, '''
+test "task.workers takes effect before the first task, and never for none", seeds: 20, '''
   true
-  false
   false
   1
 '''
@@ -2178,11 +2177,10 @@ test "task.workers takes effect only before the first task", seeds: 20, '''
     1
   print(task.workers(3))
   t = one()&
-  print(task.workers(2))
   print(task.workers(0))
   print(>t)
 
-test "task.workers raises the workers a program runs on after its first task", "true 8 true false 8"
+test "task.workers raises the workers a program runs on after its first task, and lowers them", "true 8 true true 4"
   use std.task
   fun one() -> Int
     1
@@ -2276,6 +2274,35 @@ fail "task.Cpus fields are read-only outside std.task", "field `cores` of `std.t
 fail "task.fast_cores is gone", "fast_cores"
   use std.task
   print(task.fast_cores())
+
+test "task.workers lowers the count after the workers start, raises it, and lowers it again", "true 4 3599820 true 2 3599820 true 6 3599820 true 1 3599820"
+  use std.task
+  fun spin(n: Int) -> Int
+    s = 0
+    for i in 0..n
+      s += i % 7
+    s
+  fun round() -> Int
+    ts = Tasks[Int]()
+    for _ in 0..60
+      !ts.add(spin(20000)&)
+    total = 0
+    for x in >ts
+      total += x
+    total
+  a = task.workers(4)
+  na = task.worker_count()
+  ra = round()
+  b = task.workers(2)
+  nb = task.worker_count()
+  rb = round()
+  c = task.workers(6)
+  nc = task.worker_count()
+  rc = round()
+  d = task.workers(1)
+  nd = task.worker_count()
+  rd = round()
+  print(a, na, ra, b, nb, rb, c, nc, rc, d, nd, rd)
 
 test "task function value given", seeds: 20, "42 9 4"
   # A function value is a named function's address and holds nothing, so
