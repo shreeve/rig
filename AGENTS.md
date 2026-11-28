@@ -208,10 +208,11 @@ until its rule is built. docs/internals/tests.md has the rest.
    26 projects at 1, 2, 4, and 8 checkers, ending `release-check SHA9
    GREEN` or `RED` (about 21 minutes).
    It also passes loco's light gate:
-   from a loc checkout (`~/Data/Code/loc`, pulled),
-   `rig/tools/light RIG=/path/to/bin/rig` builds loco with that Rig,
-   runs its tests, and compares its output with the Rust loc's on
-   several trees, ending GREEN or RED. A change to tools, tests, or
+   from a loc checkout (`~/Data/Code/loc`, pulled), `cpuq run --driver
+   --label loc:light -t 30m -- rig/tools/light RIG=/path/to/bin/rig`
+   builds loco with that Rig, runs its tests, and compares its output
+   with the Rust loc's on 122 runs over several trees, each a cpuq task,
+   ending GREEN or RED (about two minutes). A change to tools, tests, or
    docs alone needs neither light gate, and its PR says so. A change to the
    runtime or scheduler is also checked on pup (below). A change to the
    compiler, emit, the runtime, or std also shows std.json's numbers in
