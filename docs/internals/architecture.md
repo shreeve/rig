@@ -170,10 +170,16 @@ tests are counted apart. The ledger keeps the scoreboard.
 | ownership | 9,768 | 6,000 |
 | proofs | 2,930 | 2,000 |
 | decide (inlining, returns, units, symbols, words, frames) | about 2,500 | 2,000 |
-| print and type layout (emit, facts) | 14,192 | 8,000 |
-| **these passes** | **about 93,000** | **about 66,000 (29% smaller)** |
+| print and type layout (emit, facts) | 14,192 | about 13,300 |
+| **these passes** | **about 93,000** | **about 71,300 (23% smaller)** |
 | CLI, LSP, editor, frames/BOLT/PGO | about 6,800 | about 6,400 |
 | runtime (runtime, sched, tasks, alloc, tables, net, table, split) | 38,012 | 36,800 (3% smaller) |
+
+Emit and facts' budget is about 13,300, set again from what the
+identity steps measured: once lowering decides each call's form, its
+wrappers, and its arguments (E1 to E4), what is left in emit is how
+each construct is spelled in Zig, which an identity step cannot
+shorten.
 
 The runtime stays nearly flat because its code is measured: the
 scheduler, the allocator, and the tables keep what earned its place.
