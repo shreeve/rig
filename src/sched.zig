@@ -8239,6 +8239,9 @@ test "tasks queued on a worker as it is parked run on the others, and its pinned
         /// On a worker other than the first: make local tasks pinned to
         /// it, park it, and wait for them there.
         fn pinner(_: *Unit) u64 {
+            // Long enough that the others take the rest of the batch.
+            const until = nowReal() + std.time.ns_per_ms;
+            while (nowReal() < until) std.atomic.spinLoopHint();
             const home = me().?;
             if (home.index == 0) return 0;
             var locals: [20]*Job(u64) = undefined;
