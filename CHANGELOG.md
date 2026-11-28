@@ -1256,7 +1256,7 @@ arms.
   release allocator copied every shrink into a new block. `List.fit`
   and `String.fit` (a file read into room it did not fill) so cut a
   large buffer with no copy.
-- **std.text's search compares 32 bytes at a time past a text's first 256 places on x86-64 with AVX2, and 64 with AVX-512BW** (`step_lanes`, one step routine whose width std/text.zig chooses by target from bench/text/sweep.zig's measurements; bench/text/README.md, "The sweep"). Shorter texts and aarch64 run the code they ran. On pup's E-core a 3- or 12-byte search is 9 to 11% faster over 1 KiB, 25 to 30% over a 4 KiB miss, and 21 to 34% over the whole of lib.dom.d.ts; one of 320 bytes is 6 to 13% slower.
+- **std.text's search compares 32 bytes at a time past a text's first 256 places on x86-64 with AVX2, and 64 with AVX-512BW** (`step_lanes`, one step routine whose width std/text.zig chooses by target from bench/text/sweep.zig's measurements; bench/text/README.md, "The sweep"). Shorter texts and aarch64 run the code they ran. `far`'s first step compares 16 bytes, so a match there costs no more than before, and its pair of needle bytes is made in registers once its indexes are chosen. On pup, against 16-byte compares throughout, a search is 10 to 26% faster over 1 KiB, 31 to 35% over a 4 KiB miss, and 12 to 39% over the whole of lib.dom.d.ts; texts of 320 to 384 bytes run from 4% slower (one row, on an E-core) to 11% faster.
 - **An actor's method run from its mailbox is stopped by a signal:** the
   runtime's functions that run a method (`callAs`, `actorCall`, the
   mailbox's `Call.run`, and `actorSpawn`'s task) lie in the program's

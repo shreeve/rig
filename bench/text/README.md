@@ -63,8 +63,16 @@ indicate):
 | pup, Meteor Lake E-core | 4-7 | 8-15 | 16-34 | 35 on | - |
 | pup, Meteor Lake P-core | 4-7 | 8-15 | 16-34 | 35 on | - |
 | burst, Zen 5 | 4-7 | 8-15 | 16-31 | 32-80 | 88 on (10% ahead of 32 at 256-512) |
+| Mac, Apple M5 (3 runs) | 4-7 | 8-18 | 19 on | - | - |
 
-aarch64 keeps the tiers std.text had, 8-byte compares from 8 bytes and 16 from 16.
+On the M5, SWAR never wins either: it takes 1.3 to 2.6 times as long as the
+byte loop below 8 bytes, and 1.3 to 1.7 times as long as 8-byte compares
+above. 8-byte compares lead 16-byte ones by 5 to 20% from 16 to 18 bytes.
+aarch64 keeps std.text's tiers anyway, 8-byte compares from 8 bytes and 16
+from 16, because past 15 bytes `short`'s two 8-byte compares no longer cover
+the text. For a 1-byte needle, `std.mem.findScalar` and the vector ways trade
+places below 32 bytes, all within 0.9 ns, and from 256 bytes on findScalar
+leads by 40 to 60%.
 SWAR never wins on these x86 cores, and a vector way wins as soon as
 its vector fits. A 1-byte needle runs the same tiers to 31 bytes, then
 32-byte compares and `std.mem.findScalar` trade places within noise.
@@ -73,11 +81,16 @@ In std.text itself, on the E-core, 32-byte compares in `many`'s first
 256 places lost to two of 16 below about 80 bytes, and adding them moved
 the code of every shorter search (bench-text, 15 rounds); so `many`
 compares 16 bytes on every target, and only `far`, past the first 256
-places, widens. Against main, on pup's E-core (bench-text and
-guard.rig's rows timed): texts to 288 bytes the same, 320 bytes 6 to
-13% slower, 1 KiB 9 to 11% faster, 4 KiB misses 25 to 30%, and the
-whole of lib.dom.d.ts 21 to 34%; a match at place 256 of 4 KiB with a
-12-byte needle is 26% slower (18 to 23 ns), the cost of entering `far`.
+places, widens. `far`'s first step compares 16 bytes as well: a match
+there found by 32-byte compares cost a fifth more on the E-core. Against
+the search with 16-byte compares throughout, on pup (cycles per search
+on an E-core, counted by `perf`, and time on a P-core, 30 rounds):
+texts to 288 bytes the same, 320 to 384 bytes from 4% slower (one row,
+a 3-byte needle near the end of 320 bytes, on the E-core) to 11%
+faster, 1 KiB 10 to 26% faster, 4 KiB misses 31 to 35%, a match at
+place 256 of 4 KiB 3 to 5%, and the whole of lib.dom.d.ts 12 to 39%. On
+aarch64 the steps stay 16 bytes, and `many` and `far` compile to the
+code they had before the wider steps.
 
 ## Against memchr and Go
 
