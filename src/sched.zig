@@ -28,6 +28,7 @@ const split = rt.split;
 comptime {
     if (split.on and split.main) _ = .{
         workers_len,
+        parked_from,
         connecting,
         zva_64,
         workers_override,
@@ -242,6 +243,8 @@ const Worker = struct {
     next_sleeper: ?*Worker = null,
     searching: bool = false,
     rng: u32 = 1,
+    /// Its place in `all_workers`, against which `parked_from` parks it.
+    index: u32 = 0,
     /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
     /// (`printStats`): fibers it ran, of them pinned ones, fibers it
     /// stole, times it slept, and tasks run inline (`inlined`). The
@@ -345,9 +348,22 @@ fn keptLate() bool {
 }
 
 /// How many of `all_workers` run tasks; set by `runMain`, and raised by
-/// `task.workers` (`growWorkers`).
+/// `task.workers` (`resizeWorkers`).
 var workers_len_var: std.atomic.Value(usize) = .init(0);
 const workers_len = split.cell(&workers_len_var, "sched.workers_len");
+
+/// The first worker `task.workers(n)` parked, asking for fewer than run:
+/// it and those after it take no work (`parkHere`). `none_parked` while
+/// none is. Changed under `grow_lock` (`resizeWorkers`).
+var parked_from_var: std.atomic.Value(usize) = .init(none_parked);
+const parked_from = split.cell(&parked_from_var, "sched.parked_from");
+const none_parked = std.math.maxInt(usize);
+
+/// Whether `w` is parked: past the first `n` of a `task.workers(n)` that
+/// asked for fewer than run.
+inline fn parkedOut(w: *Worker) bool {
+    return w.index >= parked_from.load(.monotonic);
+}
 
 /// The workers, worker 0 first. Their number can grow under a reader, so
 /// a reader calls this once and keeps the slice for its whole walk. A
@@ -4173,6 +4189,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     openDense();
     started.* = false;
     started_ahead.* = false;
+    parked_from.store(none_parked, .seq_cst);
     if (preempt) findCode();
     stopping.store(false, .seq_cst);
     var m: Main = .{ .fiber = .{ .run = Main.start, .done = Main.end }, .arg = arg, .run = run };
@@ -4305,7 +4322,7 @@ fn freeWorkers(all: []Worker) void {
 /// start, which never passes `workerMain`: marked so, it would read as
 /// claimable while it runs fibers, and be counted stopped while it ran.
 fn initWorker(i: usize) void {
-    all_workers.*[i] = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
+    all_workers.*[i] = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1), .index = @intCast(i) };
     if (tears_down and i != 0) all_workers.*[i].poller.parked.raw = .waiting;
 }
 
@@ -4422,8 +4439,7 @@ const workers_asked = split.cell(&workers_asked_var, "sched.workers_asked");
 
 /// `task.workers(n)`: run tasks on `n` workers, at most `max_workers`,
 /// from when they start, as the program makes its first task, or from
-/// now if they have started and `n` is no fewer than run; whether it took
-/// effect. It starts no worker: a program that names it starts them at
+/// now if they have started (`resizeWorkers`); whether it took effect. It starts no worker: a program that names it starts them at
 /// its first task, since it may set the number again before then, and
 /// may make no task at all. A deterministic run keeps to one thread.
 /// Never inlined into the program's own code (`mustNotBeInCode`, through
@@ -4435,7 +4451,7 @@ pub noinline fn askWorkers(n: usize) bool {
         return true;
     }
     if (deterministic.*) return false;
-    return onWorkerStack(growWorkers, .{want});
+    return onWorkerStack(resizeWorkers, .{want});
 }
 
 /// Held across a raise, and as a program's end reads the final workers,
@@ -4443,17 +4459,31 @@ pub noinline fn askWorkers(n: usize) bool {
 var grow_lock_var: SpinLock = .{};
 const grow_lock = split.cell(&grow_lock_var, "sched.grow_lock");
 
-/// Run `n` workers, if that is no fewer than run and the program is not
-/// ending; whether it now runs `n`. The new workers' pollers open before
-/// the length is published, for the walks that touch every published
-/// poller (`kickForInterrupt`, `wakeWorker`); their threads start after
-/// it, so each finds itself among the workers.
-fn growWorkers(n: usize) bool {
+/// Run tasks on `n` workers, unless the program is ending; whether it now
+/// runs `n`. Fewer than have started parks the rest (`parkHere`); more
+/// wakes the parked first, then starts new ones. Each worker whose part
+/// changes is woken, to take it up: one parked hands its queued fibers on
+/// as it wakes, and one unparked looks for work. The new workers' pollers
+/// open before the length is published, for the walks that touch every
+/// published poller (`kickForInterrupt`, `wakeWorker`); their threads
+/// start after it, so each finds itself among the workers.
+fn resizeWorkers(n: usize) bool {
     grow_lock.lock();
     defer grow_lock.unlock();
     const have = workers_len.load(.monotonic);
-    if (n <= have) return n == have;
+    const running = @min(have, parked_from.load(.monotonic));
+    if (n == running) return true;
     if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) return false;
+    parked_from.store(if (n >= have) none_parked else n, .seq_cst);
+    // One asleep that is parked now is taken off the sleepers' list and
+    // woken, as a waker would (`notify`); one awake parks at its loop's
+    // next turn. One parked that runs again is kicked out of its wait.
+    for (all_workers.*[@min(n, running)..@min(@max(n, running), have)]) |*w| {
+        if (n < running) {
+            if (sleepers.remove(w)) wakeWorker(w);
+        } else w.poller.kick();
+    }
+    if (n <= have) return true;
     const fresh = all_workers.*[have..n];
     for (have..n) |i| initWorker(i);
     for (fresh) |*w| w.poller.open();
@@ -4466,7 +4496,7 @@ fn growWorkers(n: usize) bool {
 /// task, without starting them (`startWorkers`): one in a deterministic
 /// run.
 pub fn workerTotal() usize {
-    if (started.*) return workersNow().len;
+    if (started.*) return @min(workersNow().len, parked_from.load(.monotonic));
     if (deterministic.*) return 1;
     return @min(workerCount(), all_workers.*.len);
 }
@@ -4527,6 +4557,11 @@ fn takeFirstSegment() void {
 fn loop(w: *Worker) void {
     while (!stopping.load(.acquire)) {
         if (tears_down and exit_state.phase.load(.acquire) != .idle) stopForExit(w, false);
+        if (parkedOut(w)) {
+            @branchHint(.unlikely);
+            parkHere(w);
+            continue;
+        }
         if (deterministic.*) {
             const f = next(w) orelse {
                 advanceClock();
@@ -4555,6 +4590,57 @@ fn loop(w: *Worker) void {
         if (w.watch_owed) payWatch(w);
         runFiber(w, f);
     }
+}
+
+/// `w` is parked (`task.workers(n)`): it hands the fibers in its ring and
+/// "run next" slots on to the global queue, for the workers that run, and
+/// takes no other work. It runs only its pinned fibers, which no other
+/// may, and wakes the fibers of its own timers and poller. It waits in
+/// its poller, off the sleepers' list, so no maker wakes it for work and
+/// no watch falls to it, and it never trims its heap. A raise wakes it
+/// (`resizeWorkers`), as do `main`'s end and `os.exit`, which claims it in
+/// its poller as any worker waiting there.
+fn parkHere(w: *Worker) void {
+    while (parkedOut(w) and !stopping.load(.acquire) and !(tears_down and exit_state.phase.load(.acquire) != .idle)) {
+        // Woken to look for work: another looks in its place.
+        var pass = false;
+        if (w.searching) {
+            w.searching = false;
+            _ = searching.fetchSub(1, .seq_cst);
+            pass = true;
+        }
+        service(w);
+        if (handOn(w) or pass) notify();
+        if (w.pinned.pop()) |f| {
+            runFiber(w, f);
+            continue;
+        }
+        w.idle.store(1, .seq_cst);
+        // After `idle`: a pinned fiber queued before it kicked no one, and
+        // a raise or an end before it left a kick the wait takes.
+        if (w.pinned.count.load(.seq_cst) == 0 and parkedOut(w) and !stopping.load(.seq_cst)) {
+            const due = w.timers.due.load(.acquire);
+            _ = w.poller.poll(if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0));
+        }
+        w.idle.store(0, .seq_cst);
+    }
+}
+
+/// Hand the fibers in `w`'s "run next" slots and ring on to the global
+/// queue, a pinned one to its own queue; whether it handed any on.
+fn handOn(w: *Worker) bool {
+    var any = false;
+    for (&w.lifo) |*slot| if (slot.swap(null, .seq_cst)) |f| {
+        if (f.home != null) w.pinned.push(f) else {
+            global.push(f);
+            any = true;
+        }
+    };
+    while (w.ring.pop()) |f| {
+        global.push(f);
+        any = true;
+    }
+    return any;
 }
 
 fn runFiber(w: *Worker, f: *Fiber) void {
@@ -4837,7 +4923,9 @@ fn sleep(w: *Worker) void {
     w.idle.store(1, .seq_cst);
     defer w.idle.store(0, .seq_cst);
     sleepers.push(w);
-    if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) {
+    // Parked as it went to sleep: the parker found it awake, or this sees
+    // it parked (`resizeWorkers`), and it parks at its loop's next turn.
+    if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle) or parkedOut(w)) {
         if (!sleepers.remove(w)) waitWoken(w);
         return;
     }
@@ -8055,9 +8143,150 @@ test "askWorkers before any task starts no worker, and sets how many the first t
     try std.testing.expect(Run.again);
     try std.testing.expect(!Run.after_ask);
     try std.testing.expectEqual(@as(usize, 3), Run.len);
-    try std.testing.expect(!Run.fewer);
+    try std.testing.expect(Run.fewer);
     try std.testing.expect(Run.more);
     try std.testing.expectEqual(@as(usize, 4), Run.grown);
+}
+
+test "task.workers lowers the count, raises it, and lowers it again, and every task runs" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var sum: u64 = 0;
+        var past = std.atomic.Value(u32).init(0);
+        var bound: u32 = 0;
+        var answers: [3]bool = @splat(false);
+        var totals: [3]usize = @splat(0);
+        var unparked = false;
+        const Unit = struct {};
+        fn leaf(_: *Unit, i: u64) u64 {
+            var x: u64 = i;
+            for (0..100) |k| x +%= k * i;
+            std.mem.doNotOptimizeAway(x);
+            if (i % 5 == 0) yield();
+            if (me().?.index >= bound) _ = past.fetchAdd(1, .seq_cst);
+            return i;
+        }
+        fn round(n: u64) void {
+            var jobs: [1000]*Job(u64) = undefined;
+            for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{n * 1000 + i}, .{}, false, false, false).job;
+            for (jobs) |j| {
+                sum += j.join();
+                j.free();
+            }
+        }
+        /// Until every worker past the first `n` waits parked.
+        fn settle(n: usize) void {
+            // Off a worker parked: `main` goes on on one that runs.
+            yield();
+            const until = nowReal() + std.time.ns_per_s;
+            for (workersNow()[n..]) |*w| while (!(w.idle.load(.seq_cst) != 0 and w.current == null) and nowReal() < until) sleepNs(std.time.ns_per_ms);
+            sleepNs(5 * std.time.ns_per_ms);
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            bound = 64;
+            round(0);
+            waitStarting();
+            answers[0] = askWorkers(2);
+            totals[0] = workerTotal();
+            settle(2);
+            bound = 2;
+            round(1);
+            answers[1] = askWorkers(4);
+            totals[1] = workerTotal();
+            bound = 64;
+            unparked = !parkedOut(&workersNow()[3]);
+            round(2);
+            answers[2] = askWorkers(1);
+            totals[2] = workerTotal();
+            settle(1);
+            bound = 1;
+            round(3);
+        }
+    };
+    workers_override.* = 4;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u64, 3999 * 4000 / 2), Run.sum);
+    try std.testing.expectEqual([3]bool{ true, true, true }, Run.answers);
+    try std.testing.expectEqual([3]usize{ 2, 4, 1 }, Run.totals);
+    try std.testing.expect(Run.unparked);
+    try std.testing.expectEqual(@as(u32, 0), Run.past.load(.seq_cst));
+}
+
+test "tasks queued on a worker as it is parked run on the others, and its pinned ones stay on it" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var sum: u64 = 0;
+        var moved = std.atomic.Value(u32).init(0);
+        var pinned_parked = std.atomic.Value(bool).init(false);
+        const Unit = struct {};
+        fn leaf(_: *Unit, i: u64) u64 {
+            var x: u64 = i;
+            for (0..2000) |k| x +%= k * i;
+            std.mem.doNotOptimizeAway(x);
+            if (i % 3 == 0) yield();
+            return i;
+        }
+        fn local(_: *Unit, home: *Worker, i: u64) u64 {
+            for (0..3) |_| {
+                yield();
+                if (me().? != home) _ = moved.fetchAdd(1, .seq_cst);
+            }
+            return i;
+        }
+        /// On a worker other than the first: make local tasks pinned to
+        /// it, park it, and wait for them there.
+        fn pinner(_: *Unit) u64 {
+            const home = me().?;
+            if (home.index == 0) return 0;
+            var locals: [20]*Job(u64) = undefined;
+            for (&locals, 0..) |*j, i| j.* = spawn(u64, Unit, local, .{ home, @as(u64, i) }, .{}, true, false, false).job;
+            _ = askWorkers(1);
+            if (parkedOut(home)) pinned_parked.store(true, .seq_cst);
+            var got: u64 = 0;
+            for (locals) |j| {
+                got += j.join();
+                j.free();
+                if (me().? != home) _ = moved.fetchAdd(1, .seq_cst);
+            }
+            _ = askWorkers(4);
+            return got + 1;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            var jobs: [2000]*Job(u64) = undefined;
+            for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false, false).job;
+            _ = askWorkers(1);
+            for (jobs) |j| {
+                sum += j.join();
+                j.free();
+            }
+            _ = askWorkers(4);
+            for (0..1000) |_| {
+                var tries: [8]*Job(u64) = undefined;
+                for (&tries) |*j| j.* = spawn(u64, Unit, pinner, .{}, .{}, false, false, false).job;
+                var done = false;
+                for (tries) |j| {
+                    const got = j.join();
+                    j.free();
+                    if (got != 0 and !done) {
+                        done = true;
+                        sum += got - 1;
+                    }
+                }
+                if (done) break;
+            }
+        }
+    };
+    workers_override.* = 4;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u64, 1999 * 2000 / 2 + 19 * 20 / 2), Run.sum);
+    try std.testing.expect(Run.pinned_parked.load(.seq_cst));
+    try std.testing.expectEqual(@as(u32, 0), Run.moved.load(.seq_cst));
 }
 
 test "a dense stack's guard faults" {

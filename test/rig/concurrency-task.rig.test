@@ -2261,6 +2261,35 @@ test "task.fast_cores needs no task and gives one answer", seeds: 20, "true true
   n = task.fast_cores()
   print(n >= 1, n == task.fast_cores())
 
+test "task.workers lowers the count after the workers start, raises it, and lowers it again", "true 4 3599820 true 2 3599820 true 6 3599820 true 1 3599820"
+  use std.task
+  fun spin(n: Int) -> Int
+    s = 0
+    for i in 0..n
+      s += i % 7
+    s
+  fun round() -> Int
+    ts = Tasks[Int]()
+    for _ in 0..60
+      !ts.add(spin(20000)&)
+    total = 0
+    for x in >ts
+      total += x
+    total
+  a = task.workers(4)
+  na = task.worker_count()
+  ra = round()
+  b = task.workers(2)
+  nb = task.worker_count()
+  rb = round()
+  c = task.workers(6)
+  nc = task.worker_count()
+  rc = round()
+  d = task.workers(1)
+  nd = task.worker_count()
+  rd = round()
+  print(a, na, ra, b, nb, rb, c, nc, rc, d, nd, rd)
+
 test "task function value given", seeds: 20, "42 9 4"
   # A function value is a named function's address and holds nothing, so
   # it goes to a task on any core, alone or inside what is given or viewed.
