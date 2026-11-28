@@ -127,7 +127,7 @@ so a run of more rounds is several drains appending to one
 ```sh
 O=/tmp/bench-mixed; R=$O/raw.jsonl
 cpuq run --label rig:bench-mixed-build -- bench/mixed/bench-mixed --out $O --build-only
-cpuq drain --all --label rig:bench-mixed -- bench/mixed/bench-mixed --out $O --time-only --rounds 5 --raw $R
+cpuq drain -c 8 -t 20m --label rig:bench-mixed -- bench/mixed/bench-mixed --out $O --time-only --rounds 5 --raw $R
 bench/mixed/bench-mixed --summary $R
 ```
 
