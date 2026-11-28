@@ -41,6 +41,8 @@ comptime {
         net,
         fast_alloc,
         cpus_known,
+        placement,
+        placement_state,
         only_task,
         output_lock,
         alloc_lock,
@@ -12126,8 +12128,62 @@ fn linuxCpus() Cpus {
     const quota = cgroupQuota(files);
     var allowed: CpuSet = .empty;
     if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(allowed.masks)), &allowed.masks)) != .SUCCESS) return settleCpus(sameCpus(1), quota);
-    const found = countCpus(&allowed, files) catch sameCpus(allowed.count());
+    const found = countCpus(&allowed, files, null) catch sameCpus(allowed.count());
     return settleCpus(found, quota);
+}
+
+/// One thread of each physical core among a mask, the first of each:
+/// `all` holds every core's, `fast` the fast cores' (`countCpus`).
+pub const CoreThreads = struct { all: CpuSet = .empty, fast: CpuSet = .empty };
+
+/// Where the scheduler's workers run on Linux (`sched.placeWorkers`): the
+/// process's affinity mask as its workers first started, and one thread
+/// of each physical core in it.
+pub const Placement = struct {
+    allowed: CpuSet = .empty,
+    cores: CoreThreads = .{},
+
+    /// The CPUs `n` workers run on: one thread of each fast core while
+    /// there are no more workers than fast cores, of each core while no
+    /// more than cores, so no two workers share a core's threads while a
+    /// core is free; past that, the whole mask. Each worker may run on
+    /// any of them, and the kernel moves it off a busy one.
+    pub fn cpusFor(p: *const Placement, n: usize) *const CpuSet {
+        if (n <= p.cores.fast.count()) return &p.cores.fast;
+        if (n <= p.cores.all.count()) return &p.cores.all;
+        return &p.allowed;
+    }
+};
+
+/// `workerPlacement`'s answer once read: `placement_state` is 0 before,
+/// 1 once read, 2 when it could not be.
+var placement_var: Placement = .{};
+const placement = split.cell(&placement_var, "runtime.placement");
+var placement_state_var: u8 = 0;
+const placement_state = split.cell(&placement_state_var, "runtime.placement_state");
+
+/// The workers' placement, read as the workers first start and kept;
+/// null off Linux, or when the mask or a topology file cannot be read.
+/// Called by one thread at a time (`sched.placeWorkers`, under its lock).
+pub fn workerPlacement() ?*const Placement {
+    if (builtin.os.tag != .linux) return null;
+    if (placement_state.* == 0) {
+        placement_state.* = 2;
+        const linux = std.os.linux;
+        if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(placement.allowed.masks)), &placement.allowed.masks)) == .SUCCESS) {
+            if (countCpus(&placement.allowed, LinuxCpuFiles{}, &placement.cores)) |_| {
+                placement_state.* = 1;
+            } else |_| {}
+        }
+    }
+    return if (placement_state.* == 1) placement else null;
+}
+
+/// Run the thread `tid` (0 for the calling one) on the CPUs `set`; a
+/// failure leaves it where it was.
+pub fn runThreadOn(tid: i32, set: *const CpuSet) void {
+    if (builtin.os.tag != .linux) return;
+    std.os.linux.sched_setaffinity(tid, &set.masks) catch {};
 }
 
 /// The threads and physical cores among `allowed`, and the fast ones:
@@ -12136,7 +12192,7 @@ fn linuxCpus() Cpus {
 /// them, has every core fast, since Linux names none there. A core counts
 /// when any of its threads is allowed. Fails if a file that should be
 /// read cannot be.
-fn countCpus(allowed: *const CpuSet, files: anytype) error{Unreadable}!Cpus {
+fn countCpus(allowed: *const CpuSet, files: anytype, firsts: ?*CoreThreads) error{Unreadable}!Cpus {
     var buffer: [512]u8 = undefined;
     var fast = allowed.*;
     if (files.fast(&buffer)) |text| {
@@ -12157,6 +12213,10 @@ fn countCpus(allowed: *const CpuSet, files: anytype) error{Unreadable}!Cpus {
         counted.setUnion(parseCpuList(text) orelse return error.Unreadable);
         cores += 1;
         if (fast.isSet(cpu)) fast_cores += 1;
+        if (firsts) |f| {
+            f.all.set(cpu);
+            if (fast.isSet(cpu)) f.fast.set(cpu);
+        }
     }
     return .{ .threads = allowed.count(), .cores = cores, .fast_cores = fast_cores, .fast_threads = fast.count() };
 }
@@ -12354,7 +12414,7 @@ fn testCpuSet(text: []const u8) CpuSet {
 /// `threads`, `cores`, `fast_cores`, `fast_threads`, as `countCpus` gives
 /// them for `allowed`.
 fn expectCpus(expected: [4]usize, allowed: []const u8, files: TestCpuFiles) !void {
-    const c = try countCpus(&testCpuSet(allowed), files);
+    const c = try countCpus(&testCpuSet(allowed), files, null);
     try std.testing.expectEqual(expected, [4]usize{ c.threads, c.cores, c.fast_cores, c.fast_threads });
 }
 
@@ -12433,12 +12493,40 @@ test "a fast set that names nothing allowed, or nothing at all, makes every allo
 test "a file that cannot be read gives up" {
     const missing = [_]?[]const u8{ "0", null };
     const files: TestCpuFiles = .{ .cpu_siblings = &missing };
-    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0,1"), files));
+    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0,1"), files, null));
     try expectCpus(.{ 1, 1, 1, 1 }, "0", files);
     const bad = [_]?[]const u8{"zero"};
-    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0"), TestCpuFiles{ .cpu_siblings = &bad }));
-    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0"), TestCpuFiles{ .fast_unreadable = true, .cpu_siblings = &missing }));
-    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0"), TestCpuFiles{ .fast_text = "junk", .cpu_siblings = &missing }));
+    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0"), TestCpuFiles{ .cpu_siblings = &bad }, null));
+    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0"), TestCpuFiles{ .fast_unreadable = true, .cpu_siblings = &missing }, null));
+    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0"), TestCpuFiles{ .fast_text = "junk", .cpu_siblings = &missing }, null));
+}
+
+/// The placement of `n` workers on `allowed` by `files`, as a CPU list.
+fn expectPlaced(expected: []const u8, n: usize, allowed: []const u8, files: TestCpuFiles) !void {
+    var p: Placement = .{ .allowed = testCpuSet(allowed) };
+    _ = try countCpus(&p.allowed, files, &p.cores);
+    try std.testing.expect(std.meta.eql(testCpuSet(expected), p.cpusFor(n).*));
+}
+
+test "workers run on one thread of each fast core, then of each core, then on the whole mask" {
+    // pup: six fast cores of two threads, ten slower cores of one.
+    try expectPlaced("0,1,3,6,8,10", 4, "0-21", test_hybrid);
+    try expectPlaced("0,1,3,6,8,10", 6, "0-21", test_hybrid);
+    try expectPlaced("0,1,3,6,8,10,12-21", 7, "0-21", test_hybrid);
+    try expectPlaced("0,1,3,6,8,10,12-21", 16, "0-21", test_hybrid);
+    try expectPlaced("0-21", 17, "0-21", test_hybrid);
+    // pup's fast cores alone (cpuq drain --cpus 0-11): six, then all twelve.
+    try expectPlaced("0,1,3,6,8,10", 6, "0-11", test_hybrid);
+    try expectPlaced("0-11", 8, "0-11", test_hybrid);
+    // Its slower cores alone are the fast ones there, a thread each.
+    try expectPlaced("12-19", 8, "12-19", test_hybrid);
+    // A core with one thread allowed is placed on it.
+    try expectPlaced("3,5", 2, "5,3,4", test_hybrid);
+    // burst: 48 cores of two threads, `i` and `i + 48`, all fast.
+    try expectPlaced("0-47", 4, "0-95", test_epyc);
+    try expectPlaced("0-47", 48, "0-95", test_epyc);
+    try expectPlaced("0-95", 49, "0-95", test_epyc);
+    try expectPlaced("0-3", 4, "0-3,48-51", test_epyc);
 }
 
 test "every count is at least 1 and in order, and a quota caps them rounded up" {

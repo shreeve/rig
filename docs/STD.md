@@ -1374,7 +1374,10 @@ logical CPUs the process may use.
 
 It is worked out at the first call and kept; a program that never calls
 it pays nothing. The workers do not follow it: there is one per logical
-CPU unless `task.workers(n)` or `RIG_WORKERS` says otherwise. Which count
+CPU unless `task.workers(n)` or `RIG_WORKERS` says otherwise. On Linux,
+while there are no more workers than fast cores, they run on one thread
+of each fast core, and while no more than cores, on one thread of each
+core, so two workers never share a core while one is free. Which count
 to size by is the program's own rule, as one checker per core where no
 two may share a core's threads:
 
