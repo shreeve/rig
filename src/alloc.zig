@@ -44,7 +44,8 @@
 //! `movePages` on macOS), as does a span that grows past 16 MiB on
 //! macOS when it starts on a page.
 //! Segments are never unmapped: memory freed stays for reuse. A worker that has slept a while trims
-//! its heap (`trimIdle`): it gives back the pages of its free spans and
+//! its heap (`trimIdle`), later while another worker runs a task
+//! (`sched.sleep`): it gives back the pages of its free spans and
 //! kept large blocks and, on Linux, each class page whose blocks are all
 //! free, and puts what stays free on its remote lists, where any heap that would
 //! otherwise take a new page may take it (`takeDonated`), so the memory
