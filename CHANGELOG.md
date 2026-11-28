@@ -610,12 +610,16 @@ serve no HTTP.
   build's, not byte for byte, so compare a stripped build with a
   stripped build.
 - **Dense stacks.** `rig build --release` gives a task that cannot need much stack a dense stack, which holds 17.6 KB on the Mac where a large one holds 33.5 KB. A task with recursion, or a call through a pointer, keeps a large stack, as does every task of a debug build or `rig run`.
-- **`task.fast_cores()`** gives how many fast physical cores the
-  program may run on, at least 1: on macOS the performance cores, on
-  Linux the affinity mask's cores, the threads of one core counted once
-  and slower cores left out while a fast one is allowed. The number of
-  workers does not follow it: tasks still run on one worker per logical
-  CPU.
+- **`task.cpus()`** ([STD "The CPUs"](docs/STD.md#the-cpus)) gives a
+  `task.Cpus`, the CPUs the program may run on: `threads`, `cores`,
+  `fast_cores`, `fast_threads`, and the container's `quota` (`Float?`).
+  Every count is within the affinity mask, capped at the quota rounded
+  up (cgroup v2's `cpu.max`, v1's `cpu.cfs_quota_us`), and at least 1:
+  10, 10, 4, 4 on a Mac M5, 22, 16, 6, 12 on a Core Ultra 9 185H, 96,
+  48, 48, 96 on an EPYC 9B45 VM. It is worked out at the first call and
+  kept. The number of workers does not follow it: tasks still run on
+  one worker per logical CPU. It replaces `task.fast_cores()`, which no
+  release had: write `task.cpus().fast_cores`.
 - **Text over several lines** (T1c): `"""` (with escapes) and `'''`
   (raw) open fixed text over several lines, a `Static`, when the opener
   ends its line, and a backtick that ends its line opens a template over

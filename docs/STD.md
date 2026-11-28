@@ -1307,7 +1307,7 @@ same waiting points fail with `Stop.timeout`.
 | `check()!Stop` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, or `Stop.timeout` past its deadline, and otherwise give other tasks a turn |
 | `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. Before the program makes its first task, which starts the workers, it sets how many start; after, it can only raise the number, and gives false for fewer than run. It gives whether it took effect. A program that names `workers` starts its workers at its first task, not as `main` starts; a deterministic run (`rig test`) runs on one thread whatever it asks |
 | `worker_count() -> Int` | the number of workers tasks run on: one per core, `RIG_WORKERS`, or what `workers(n)` set, before the first task starts them or after; 1 in a deterministic run and in a program that makes no task. A program sizes its own work by it, as one task per worker |
-| `fast_cores() -> Int` | how many fast physical cores the program may run on, at least 1 ([below](#the-fast-cores)) |
+| `cpus() -> Cpus` | the CPUs the program may run on, as counts of threads, cores, and fast cores, worked out at the first call and kept ([below](#the-cpus)) |
 | `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results, or nothing when no task gives a value (a `sub`'s); one call does not mix the two. It can fail when any task can, and then the first to fail cancels the others |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `supervise(f, restarts: n, per: s)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `s` seconds, an `Int` or a `Float` (`per: 0.5`); past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
@@ -1341,32 +1341,59 @@ Stop.canceled
 -1
 ```
 
-### The fast cores
+### The CPUs
 
-`task.fast_cores()` tells a program how many tasks can each have a fast
-core to themselves. The threads of one core count once. On macOS it is
-the performance cores (`hw.perflevel0.physicalcpu`), or every physical
-core on a machine without performance levels. On Linux it is the cores
-within the process's affinity mask: the fast set of a hybrid Intel chip
-(`/sys/devices/cpu_core/cpus`), each counted when any of its threads is
-allowed. When the mask holds no fast core it counts the cores the mask
-does hold, so `taskset -c 12-19` on E-cores alone gives 8, never 0. ARM's
-big.LITTLE, which names no fast set, has every core counted. If a file it
-needs cannot be read, and on other systems, it is the logical CPUs the
-process may use. It is worked out at the first call and kept; a program
-that never calls it pays nothing. The workers do not follow it: there is
-one per logical CPU unless `task.workers(n)` or `RIG_WORKERS` says
-otherwise.
+`task.cpus()` gives a `task.Cpus`, five read-only fields that say what
+the program may run on, for sizing its work:
+
+| Field | Meaning | Mac M5 | Core Ultra 9 185H | EPYC 9B45 VM |
+|---|---|---:|---:|---:|
+| `threads: Int` | the hardware threads: logical CPUs, one per thread of each core | 10 | 22 | 96 |
+| `cores: Int` | the physical cores, the threads of one core counted once | 10 | 16 | 48 |
+| `fast_cores: Int` | the cores of the fastest kind it may run on; every core on a machine of one kind | 4 | 6 | 48 |
+| `fast_threads: Int` | the threads of those fast cores | 4 | 12 | 96 |
+| `quota: Float?` | the container's CPU quota in CPUs, `none` outside one | none | none | none |
+
+Every count is within the process's affinity mask, capped at the quota
+rounded up, and at least 1, so `fast_cores <= cores <= threads` and
+`fast_cores <= fast_threads <= threads`. A core counts when any of its
+threads may be used. On macOS the counts are `hw.logicalcpu`,
+`hw.physicalcpu`, and performance level 0's (`hw.perflevel0.physicalcpu`,
+`hw.perflevel0.logicalcpu`), or every core on a machine without
+performance levels; macOS has no masks or quotas. On Linux they are the
+affinity mask's CPUs, each core's `thread_siblings_list`, and the fast
+set of a hybrid Intel chip (`/sys/devices/cpu_core/cpus`). When the mask
+holds no fast core the cores it does hold are the fast ones, so
+`taskset -c 12-19` on the 185H's E-cores gives 8, 8, 8, 8, never a 0.
+A machine that names no fast set (AMD, ARM's big.LITTLE) has every core
+fast. The quota is the smallest that the cgroups on the process's path
+set, cgroup v2's `cpu.max` or v1's `cpu.cfs_quota_us` over
+`cpu.cfs_period_us`: under `docker --cpus=2.5` every count is 3. If a
+file it needs cannot be read, and on other systems, every count is the
+logical CPUs the process may use.
+
+It is worked out at the first call and kept; a program that never calls
+it pays nothing. The workers do not follow it: there is one per logical
+CPU unless `task.workers(n)` or `RIG_WORKERS` says otherwise. Which count
+to size by is the program's own rule, as one checker per core where no
+two may share a core's threads:
 
 ```rig
 use std.task
 
+fun checkers() -> Int
+  c = task.cpus()
+  c.fast_cores if c.fast_threads > c.fast_cores else c.cores
+
 sub main()
-  print(task.fast_cores() >= 1)
+  c = task.cpus()
+  print(c.cores >= c.fast_cores, c.threads >= c.cores)
+  print(c.fast_threads >= c.fast_cores, checkers() >= 1)
 ```
 
 ```output
-true
+true true
+true true
 ```
 
 ## std.par

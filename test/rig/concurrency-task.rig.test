@@ -2246,20 +2246,36 @@ test "task.worker_count is at least one, deterministic runs among them", seeds: 
   _ = >t
   print(before >= 1, task.worker_count() >= 1)
 
-test "task.fast_cores is at least one and at most one per logical core", "true true"
+test "task.cpus counts are at least one, in order, and at most one thread per logical core", "true true true true"
   # A program with a task has one worker per logical core.
   use std.task
   fun one() -> Int
     1
   t = one()&
   _ = >t
-  n = task.fast_cores()
-  print(n >= 1, n <= task.worker_count())
+  c = task.cpus()
+  ordered = 1 <= c.fast_cores and c.fast_cores <= c.cores
+  fast = c.fast_cores <= c.fast_threads and c.fast_threads <= c.threads
+  print(ordered, c.cores <= c.threads, fast, c.threads <= task.worker_count() or c.quota != none)
 
-test "task.fast_cores needs no task and gives one answer", seeds: 20, "true true"
+test "task.cpus needs no task and gives one answer", seeds: 20, "true true"
   use std.task
-  n = task.fast_cores()
-  print(n >= 1, n == task.fast_cores())
+  c = task.cpus()
+  d = task.cpus()
+  print(c.threads >= 1, c.threads == d.threads and c.cores == d.cores and c.fast_cores == d.fast_cores and c.fast_threads == d.fast_threads and c.quota == d.quota)
+
+test "task.cpus has no quota outside a container", "none"
+  use std.task
+  task.cpus().quota
+
+fail "task.Cpus fields are read-only outside std.task", "field `cores` of `std.task.Cpus` is read-only"
+  use std.task
+  c = task.cpus()
+  c.cores = 1
+
+fail "task.fast_cores is gone", "fast_cores"
+  use std.task
+  print(task.fast_cores())
 
 test "task function value given", seeds: 20, "42 9 4"
   # A function value is a named function's address and holds nothing, so
