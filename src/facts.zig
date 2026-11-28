@@ -92,10 +92,8 @@ pub const SelfMode = sema.SelfMode;
 pub const Upgrade = sema.Upgrade;
 pub const Lift = sema.Lift;
 pub const TypedInt = sema.cteval.TypedInt;
-pub const ArgSlot = sema.ArgSlot;
 pub const DurationParts = sema.DurationParts;
 pub const DurationHow = sema.DurationHow;
-pub const slotOf = sema.slotOf;
 pub const Instance = sema.Instance;
 pub const HandsKind = sema.Hands.Kind;
 pub const LeafStep = lir.LeafStep;
@@ -112,7 +110,6 @@ pub const CallTarget = sema.CallTarget;
 pub const Dispatch = sema.Dispatch;
 pub const Witness = sema.Witness;
 pub const Erasure = sema.Erasure;
-pub const OwnerWitnesses = sema.OwnerWitnesses;
 pub const ArgWitness = sema.ArgWitness;
 pub const Conformance = sema.Conformance;
 pub const ApiRef = sema.ApiRef;
@@ -160,7 +157,7 @@ pub const Facts = struct {
     /// record: a method of `SemContext`, or a helper of sema or lowering
     /// over recorded symbols, types, and constants (the test below lists
     /// those), asked with the node and what else it takes:
-    /// `f.node(.viewOf, e)`, `f.node(.callSlotsOf, .{ call })`. Emit
+    /// `f.node(.viewOf, e)`, `f.node(.calleeOf, .{ call })`. Emit
     /// may ask only what `node_facts` lists.
     pub fn node(f: Facts, comptime fact: @EnumLiteral(), args: anytype) Result(@tagName(fact)) {
         comptime listed(&node_facts, @tagName(fact));
@@ -168,24 +165,23 @@ pub const Facts = struct {
     }
 
     pub const node_facts = [_][]const u8{
-        "symbolOf",          "typeOf",         "startOf",         "calleeOf",
-        "callTargetOf",      "ctArgsOf",       "callSlotsOf",     "instanceOf",
-        "genericCallOf",     "elemCallOf",     "builtinOf",       "builtinCallOf",
-        "durationOf",        "provenOf",       "provenIfOf",      "flagOf",
-        "callableOf",        "viewOf",         "viewsTempArray",  "readsThrough",
-        "copiesPayload",     "readsInPlace",   "taskJoinOf",      "isActorMake",
-        "isFrozenMake",      "isActorCall",    "isTypeParamCall", "dispatchOf",
-        "ownerWitnessesOf",  "erasureOf",      "isChanMake",      "isSelect",
-        "isActorSupervised", "isOnceClosure",  "isLocalTask",     "testCheckOf",
-        "writesTemp",        "useOf",          "liftOf",          "takes",
-        "oldIsNone",         "upgradeOf",      "writesThrough",   "copiesElem",
-        "isTypedLiteral",    "isFailingLeaf",  "isMemberTest",    "isErrorMember",
-        "namesErrorMember",  "isTableWrite",   "isEnumText",      "headerOf",
-        "heldBaseOf",        "payloadFieldOf", "payloadBindings", "altsBind",
-        "payloadTests",      "copiesHeader",   "stringCall",      "stringNumOf",
-        "isPrintCall",       "isNoneLeaf",     "isTypeCallee",    "moduleMemberSym",
-        "selfOf",            "heldFirst",      "selfWrites",      "argParams",
-        "lambdaYields",      "matchedType",
+        "symbolOf",        "typeOf",            "startOf",        "calleeOf",
+        "callTargetOf",    "ctArgsOf",          "instanceOf",     "genericCallOf",
+        "elemCallOf",      "builtinOf",         "builtinCallOf",  "durationOf",
+        "provenOf",        "provenIfOf",        "flagOf",         "callableOf",
+        "viewOf",          "viewsTempArray",    "readsThrough",   "copiesPayload",
+        "readsInPlace",    "taskJoinOf",        "isActorMake",    "isFrozenMake",
+        "isTypeParamCall", "dispatchOf",        "erasureOf",      "isChanMake",
+        "isSelect",        "isActorSupervised", "isOnceClosure",  "isLocalTask",
+        "testCheckOf",     "writesTemp",        "useOf",          "liftOf",
+        "takes",           "oldIsNone",         "upgradeOf",      "writesThrough",
+        "copiesElem",      "isTypedLiteral",    "isFailingLeaf",  "isMemberTest",
+        "isErrorMember",   "namesErrorMember",  "isTableWrite",   "isEnumText",
+        "headerOf",        "heldBaseOf",        "payloadFieldOf", "payloadBindings",
+        "altsBind",        "payloadTests",      "copiesHeader",   "stringCall",
+        "stringNumOf",     "isPrintCall",       "isNoneLeaf",     "isTypeCallee",
+        "moduleMemberSym", "selfOf",            "heldFirst",      "selfWrites",
+        "lambdaYields",    "matchedType",
     };
 
     /// How a type or a symbol is spelled and held in Zig: one answer per
@@ -766,8 +762,8 @@ test "a Facts method about a node reads what a checker recorded" {
         "stringCall",       "isNoneLeaf",
         "isTypeCallee",     "moduleMemberSym",
         "selfOf",           "heldFirst",
-        "selfWrites",       "argParams",
-        "lambdaYields",     "matchedType",
+        "selfWrites",       "lambdaYields",
+        "matchedType",
     };
     var seen: [readers.len]bool = @splat(false);
     const begin = std.mem.indexOf(u8, source, "pub const Facts = struct {").?;

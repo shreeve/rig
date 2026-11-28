@@ -290,6 +290,33 @@ pub const Call = struct {
     };
 };
 
+/// How a call passes what it is given, decided by emit's lowering
+/// (`lower.Module.argsOf`): what emit writes, in the order it writes
+/// it, and the parameter each argument fills.
+pub const Args = struct {
+    slots: []const Slot = &.{},
+    /// The parameter each argument fills, by its place as written;
+    /// null where it fills none.
+    params: []const ?sema.TypeId = &.{},
+    /// The callee takes the slot a failure's fields go in, last, where a
+    /// `!` or `catch` gives one: a Rig function or a function value,
+    /// never a method of a built-in type.
+    takes_fail: bool = false,
+
+    pub const Slot = union(enum) {
+        /// A witness a method under bounds takes (`sema.OwnerWitnesses`).
+        witness: sema.Witness,
+        /// The compile-time arguments, one or more.
+        ct,
+        /// Argument `i`, as written.
+        arg: u32,
+        /// A parameter's default, of the parameter's type.
+        default: struct { value: sema.DefaultValue, param: sema.TypeId },
+        /// A duration given by several units' keywords.
+        parts: sema.DurationParts,
+    };
+};
+
 /// How an operation or a step uses an operand, decided once by lowering
 /// (`Lowerer.role`) for each expression: an expression is the operand of
 /// one operation or step, so its role is kept by its id
