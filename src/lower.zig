@@ -1305,8 +1305,6 @@ const Lowerer = struct {
                 l.answer(operand, .drops_when_tested, dropsWhenTested(ctx, operand));
             },
             .call => {
-                l.answer(n, .self_hold, selfHold(ctx, n));
-                l.answer(n, .consumes_self, consumedTemporary(ctx, n) != null);
                 for (ir.Call.args(n)) |a| l.answer(argValue(a), .argument_hold, argumentHold(ctx, argValue(a)));
                 if (ctx.isPrintCall(n) or stringCall(ctx, n) != null) for (ir.Call.args(n)) |a| {
                     l.answer(a, .prints_by_address, printsByAddress(ctx, a));
@@ -2207,10 +2205,9 @@ const Lowerer = struct {
         if (namesType(ctx, callee) or builtinName(ctx, typeOf(ctx, obj))) return null;
         // A self the call holds in storage of its own that lives while it
         // runs is viewed there.
-        if (ctx.elemCallOf(callee) == null and !ctx.isSelect(c) and hoistsArgs(ctx, c)) if (selfHold(ctx, c)) |hold| {
-            const first: HeldFirst = if (hold == .consumed) .{ .node = consumedTemporary(ctx, c).?, .kind = .self } else heldFirst(ctx, c).?;
+        if (ctx.elemCallOf(callee) == null and !ctx.isSelect(c) and hoistsArgs(ctx, c)) if (selfHeld(ctx, c)) |first| {
             const place = viewedPlace(obj);
-            if (first.kind == .self and first.node == .list and place == .list and first.node.list.ptr == place.list.ptr and hold.by(hasStorage(ctx, first.node)) != .pointer) return null;
+            if (first.kind == .self and first.node == .list and place == .list and first.node.list.ptr == place.list.ptr and first.hold.by(hasStorage(ctx, first.node)) != .pointer) return null;
         };
         return obj;
     }
@@ -2341,7 +2338,7 @@ const Lowerer = struct {
         const by_arg = try l.ma.alloc(?TypeId, args.len);
         for (by_arg, 0..) |*p, ai| p.* = argumentParam(ctx, c, ai);
         const rec = try l.ma.create(lir.Args);
-        rec.* = .{ .slots = out.items, .params = by_arg, .takes_fail = takesFailSlot(ctx, c, &l.stack_closures) };
+        rec.* = .{ .slots = out.items, .params = by_arg, .takes_fail = takesFailSlot(ctx, c, &l.stack_closures), .self = selfHeld(ctx, c) };
         try l.module.args.put(l.ma, sema.decisionKeyOf(c) orelse return, rec);
     }
 
@@ -2386,10 +2383,9 @@ const Lowerer = struct {
     /// arguments.
     fn callParts(l: *Lowerer, c: Sexp, life: StorageLife, r: RegionId) Error!void {
         const ctx = l.ctx;
-        if (selfHold(ctx, c)) |hold| {
-            const first: HeldFirst = if (hold == .consumed) .{ .node = consumedTemporary(ctx, c).?, .kind = .self } else heldFirst(ctx, c).?;
-            const by = hold.by(hasStorage(ctx, first.node));
-            const drop = if (hold == .consumed)
+        if (selfHeld(ctx, c)) |first| {
+            const by = first.hold.by(hasStorage(ctx, first.node));
+            const drop = if (first.hold == .consumed)
                 (if (ctx.viewsTempArray(first.node)) null else dropOf(ctx, first.node))
             else if (by == .pointer or isPtrViewExpr(ctx, first.node)) null else dropOf(ctx, first.node);
             try l.hoistVar(first.node, first.kind, by, life, drop, r);
@@ -3255,6 +3251,15 @@ pub fn heldFirst(ctx: *const SemContext, call: Sexp) ?HeldFirst {
     if (callee.isKind(.member) and isTypeCallee(ctx, ir.Member.object(callee))) return null;
     if (fnType(ctx, typeOf(ctx, callee)) == null) return null;
     return .{ .node = callee, .kind = .invoked };
+}
+
+/// What call `c` holds first, before its arguments, and how
+/// (`selfHold`): an owned temporary it consumes as its self, or else
+/// what `heldFirst` gives; null where it holds nothing first.
+fn selfHeld(ctx: *const SemContext, c: Sexp) ?lir.Args.Self {
+    const hold = selfHold(ctx, c) orelse return null;
+    const first: HeldFirst = if (hold == .consumed) .{ .node = consumedTemporary(ctx, c).?, .kind = .self } else heldFirst(ctx, c).?;
+    return .{ .node = first.node, .kind = first.kind, .hold = hold };
 }
 
 /// The part `heldFirst` gives, without its view sigils, and the kind of

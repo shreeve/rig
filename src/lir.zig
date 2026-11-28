@@ -302,6 +302,16 @@ pub const Args = struct {
     /// `!` or `catch` gives one: a Rig function or a function value,
     /// never a method of a built-in type.
     takes_fail: bool = false,
+    /// What it holds first, before its arguments, where its parts are
+    /// held: its self or the callee it evaluates in its place.
+    self: ?Self = null,
+
+    pub const Self = struct {
+        node: Sexp,
+        /// `self` or `invoked`.
+        kind: StorageKind,
+        hold: SelfHold,
+    };
 
     pub const Slot = union(enum) {
         /// A witness a method under bounds takes (`sema.OwnerWitnesses`).
@@ -519,10 +529,6 @@ pub const Answers = struct {
     binds_string_bytes: bool = false,
     /// `return a, b` whose parts are made first.
     hoists_results: bool = false,
-    /// A call: how it holds its self first, and whether it consumes an
-    /// owned temporary as its self.
-    self_hold: ?SelfHold = null,
-    consumes_self: bool = false,
 };
 
 /// What emit's lowering decides of a `match` (`Expr.Choice`).

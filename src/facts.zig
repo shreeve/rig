@@ -180,8 +180,8 @@ pub const Facts = struct {
         "headerOf",        "heldBaseOf",        "payloadFieldOf", "payloadBindings",
         "altsBind",        "payloadTests",      "copiesHeader",   "stringCall",
         "stringNumOf",     "isPrintCall",       "isNoneLeaf",     "isTypeCallee",
-        "moduleMemberSym", "selfOf",            "heldFirst",      "selfWrites",
-        "lambdaYields",    "matchedType",
+        "moduleMemberSym", "selfOf",            "selfWrites",     "lambdaYields",
+        "matchedType",
     };
 
     /// How a type or a symbol is spelled and held in Zig: one answer per
@@ -761,9 +761,8 @@ test "a Facts method about a node reads what a checker recorded" {
         "constIntOf",       "intLimit",
         "stringCall",       "isNoneLeaf",
         "isTypeCallee",     "moduleMemberSym",
-        "selfOf",           "heldFirst",
-        "selfWrites",       "lambdaYields",
-        "matchedType",
+        "selfOf",           "selfWrites",
+        "lambdaYields",     "matchedType",
     };
     var seen: [readers.len]bool = @splat(false);
     const begin = std.mem.indexOf(u8, source, "pub const Facts = struct {").?;

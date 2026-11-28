@@ -44,7 +44,12 @@ budgets"). Updated as steps land.
 | ownership | 9,768 | | 6,000 |
 | proofs | 2,930 | | 2,000 |
 | decide | about 2,500 | | 2,000 |
-| print and type layout | 14,192 | | 8,000 |
+| print and type layout | 14,192 | 13,392 | about 13,300 |
+
+Emit and facts' budget, first 8,000 and then about 12,000, is about
+13,300: the size the identity steps measured once lowering decides
+each call's form, wrappers, and arguments (E1 to E4), the rest of emit
+being how each construct is spelled in Zig.
 
 ## Entries
 
