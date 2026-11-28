@@ -1,0 +1,25 @@
+tools/baseline: building rig at 0764e091f43c (once; then cached in /Users/shreeve/Data/Code/rig/.git/rig-baseline/0764e091f43c77e101c032278d123db4c82728b7)
+# RIGR=/Users/shreeve/Data/Code/rig/.git/rig-baseline/0764e091f43c77e101c032278d123db4c82728b7/rig
+# 00:03:37 bench-build-tasks: cpuq run --label rig:report -t 20m -- python3 bench/tasks/bench-tasks --variants rig-safe --out /Users/shreeve/Data/Code/Claude/rig/rig/rc1-report/mac-bench/tasks --build-only
+# 00:03:48 bench-build-tasks rc=0
+# 00:03:48 bench-build-actors: cpuq run --label rig:report -t 20m -- python3 bench/actors/bench-actors --variants rig-safe --out /Users/shreeve/Data/Code/Claude/rig/rig/rc1-report/mac-bench/actors --build-only
+# 00:04:14 bench-build-actors rc=0
+# 00:04:14 bench-build-net: cpuq run --label rig:report -t 20m -- python3 bench/net/bench-net --variants rig-safe --out /Users/shreeve/Data/Code/Claude/rig/rig/rc1-report/mac-bench/net --build-only
+# 00:04:48 bench-build-net rc=0
+# 00:04:48 bench-build-http: cpuq run --label rig:report -t 20m -- python3 bench/http/bench-http --variants rig-safe --out /Users/shreeve/Data/Code/Claude/rig/rig/rc1-report/mac-bench/http --build-only
+# 00:05:04 bench-build-http rc=0
+# 00:05:04 guard-json-1: cpuq run --label rig:report -t 30m -- python3 bench/json/guard.py
+# 00:06:15 guard-json-1 rc=0
+# 00:06:15 guard-json-2: cpuq run --label rig:report -t 30m -- python3 bench/json/guard.py
+# 00:07:14 guard-json-2 rc=0
+# 00:07:14 guard-hash-1: cpuq run --label rig:report -t 30m -- python3 bench/hash/guard.py
+# 00:07:33 guard-hash-1 rc=0
+# 00:07:33 guard-hash-2: cpuq run --label rig:report -t 30m -- python3 bench/hash/guard.py
+# 00:07:51 guard-hash-2 rc=0
+# 00:07:51 guard-text-1: cpuq run --label rig:report -t 30m -- python3 bench/text/guard.py
+# 00:07:59 guard-text-1 rc=0
+# 00:07:59 guard-text-2: cpuq run --label rig:report -t 30m -- python3 bench/text/guard.py
+# 00:08:08 guard-text-2 rc=0
+# 00:08:08 structure: python3 /Users/shreeve/Data/Code/Claude/rig/rig/rc1-report/cmds/structure.py
+# 00:08:11 structure rc=0
+# 00:08:11 g done

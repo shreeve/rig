@@ -1,0 +1,98 @@
+# Darwin arm64 pop rig rig 0.3.0 load: 8.75 8.70 8.52
+## run 1
+lex and parse    171.717 ms
+resolve          179.918 ms
+typecheck        873.732 ms
+storage          823.622 ms
+ownership        307.741 ms
+proofs            79.540 ms
+inlining          85.574 ms
+other             43.208 ms
+total           2565.051 ms
+        2.58 real         2.33 user         0.20 sys
+           706412544  maximum resident set size
+           699073904  peak memory footprint
+# Darwin arm64 pop rig rig 0.3.0 load: 8.29 8.60 8.49
+## run 1
+lex and parse    162.897 ms
+resolve          166.447 ms
+typecheck        793.159 ms
+storage          735.185 ms
+ownership        286.490 ms
+proofs            67.580 ms
+inlining          79.830 ms
+other             41.622 ms
+total           2333.209 ms
+        2.35 real         2.15 user         0.17 sys
+           706412544  maximum resident set size
+           699057496  peak memory footprint
+# Darwin arm64 pop rig rig 0.3.0 load: 7.95 8.53 8.46
+## run 1
+lex and parse    157.289 ms
+resolve          163.270 ms
+typecheck        809.891 ms
+storage          771.022 ms
+ownership        298.951 ms
+proofs            69.284 ms
+inlining          83.607 ms
+other             40.671 ms
+total           2393.984 ms
+        2.41 real         2.19 user         0.18 sys
+           706412544  maximum resident set size
+           699057496  peak memory footprint
+# Darwin arm64 pop rig rig 0.3.0 load: 7.79 8.48 8.44
+## run 1
+lex and parse    198.069 ms
+resolve          205.620 ms
+typecheck       1022.090 ms
+storage          964.365 ms
+ownership        392.664 ms
+proofs            88.764 ms
+inlining          97.984 ms
+other             50.273 ms
+total           3019.828 ms
+        3.04 real         2.74 user         0.22 sys
+           706412544  maximum resident set size
+           699073904  peak memory footprint
+# Darwin arm64 pop rig rig 0.3.0 load: 7.81 8.48 8.44
+## run 1
+lex and parse    203.669 ms
+resolve          217.129 ms
+typecheck       1036.753 ms
+storage          964.835 ms
+ownership        371.556 ms
+proofs            96.666 ms
+inlining          82.912 ms
+other             50.069 ms
+total           3023.588 ms
+        3.04 real         2.78 user         0.22 sys
+           706412544  maximum resident set size
+           699057496  peak memory footprint
+# Darwin arm64 pop rig rig 0.3.0 load: 7.90 8.48 8.44
+## run 1
+lex and parse    214.116 ms
+resolve          228.630 ms
+typecheck       1191.333 ms
+storage         1067.976 ms
+ownership        397.601 ms
+proofs            91.132 ms
+inlining         109.774 ms
+other             62.324 ms
+total           3362.885 ms
+        3.39 real         3.04 user         0.24 sys
+           706396160  maximum resident set size
+           699041112  peak memory footprint
+# Darwin arm64 pop rig rig 0.3.0 load: 7.67 8.43 8.42
+## run 1
+lex and parse    185.887 ms
+resolve          205.761 ms
+typecheck        988.303 ms
+storage          931.110 ms
+ownership        355.482 ms
+proofs            80.877 ms
+inlining         106.158 ms
+other             49.270 ms
+total           2902.848 ms
+        2.92 real         2.65 user         0.21 sys
+           706412544  maximum resident set size
+           699073904  peak memory footprint

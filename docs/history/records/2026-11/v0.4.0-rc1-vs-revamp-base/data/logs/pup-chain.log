@@ -1,0 +1,56 @@
+# 00:04:56 warm base
+# 00:08:36 warm base rc=0
+# 00:08:36 warm rc1
+# 00:11:57 warm rc1 rc=0
+# 00:11:57 build base 1
+# 00:14:39 build base 1 rc=0
+# 00:14:39 build rc1 1
+# 00:17:51 build rc1 1 rc=0
+# 00:17:51 build base 2
+# 00:20:39 build base 2 rc=0
+# 00:20:39 build rc1 2
+# 00:23:59 build rc1 2 rc=0
+# 00:23:59 bench-build base tasks
+# 00:24:10 bench-build base tasks rc=0
+# 00:24:10 bench-build base actors
+# 00:24:20 bench-build base actors rc=0
+# 00:24:20 bench-build base net
+# 00:24:31 bench-build base net rc=0
+# 00:24:31 bench-build base http
+# 00:24:42 bench-build base http rc=0
+# 00:24:42 bench-build rc1 tasks
+# 00:24:53 bench-build rc1 tasks rc=0
+# 00:24:53 bench-build rc1 actors
+# 00:25:03 bench-build rc1 actors rc=0
+# 00:25:03 bench-build rc1 net
+# 00:25:14 bench-build rc1 net rc=0
+# 00:25:14 bench-build rc1 http
+# 00:25:24 bench-build rc1 http rc=0
+# 00:25:24 check set 1
+# 00:26:00 check set 1 rc=0
+# 00:26:00 check set 2
+# 00:26:36 check set 2 rc=0
+# 00:26:36 bench tasks
+# 00:26:54 bench tasks rc=0
+# 00:26:54 bench actors
+# 00:26:54 bench actors rc=0
+# 00:26:54 bench net
+# 00:27:00 bench net rc=0
+# 00:27:00 bench http
+# 00:27:57 bench http rc=0
+# 00:27:57 trig-build base 1
+# 00:28:12 more tasks
+# 00:31:35 more tasks rc=0
+# 00:31:35 more actors
+# 00:50:32 trig-build base 1 rc=0
+# 00:50:32 trig-build rc1 1
+# 00:54:56 pup-chain.sh stopped before rc1 trig-build 1 started (drain limit too short); pup-trig.sh follows
+# 00:54:56 trig-build rc1 1
+# 00:56:15 more actors rc=0
+# 00:56:15 more net
+# 01:16:38 stopped rc1 trig-build 1: its drain got E-cores 12,14; pup-trig2.sh follows
+# 01:16:49 trig-build pair 2
+# 01:22:05 more net rc=0
+# 01:22:05 more http
+# 01:22:59 withdrawn at the coordinator's request: queued more-http drain (run 565) and pup-trig2.sh round 3; trig pair 2 (E-cores 12-15) left to finish
+# 01:48:19 trig pair 2 stopped: its cpuq drain ended with pup-trig2.sh, leaving the builds outside cpuq

@@ -1,0 +1,4 @@
+         rig-safe    vs rig-safe
+solo     12 ns/call  
+contend  16 ns/call  
+spread   2.0 ns/call 

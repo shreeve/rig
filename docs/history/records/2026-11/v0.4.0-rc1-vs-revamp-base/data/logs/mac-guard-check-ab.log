@@ -1,0 +1,32 @@
+## base 1
+scaling modules   n to 8n: exponent 1.02 (limit 1.15)
+scaling variants  n to 8n: exponent 1.01 (limit 1.15)
+scaling fields    n to 8n: exponent 1.01 (limit 1.15)
+scaling funcs     n to 8n: exponent 1.00 (limit 1.15)
+scaling stmts     n to 8n: exponent 1.01 (limit 1.15)
+instructions 2195055983 (baseline 1780353622, 23.3% more; load 24.4)  REGRESSION, at a load of 24.4: confirm it under 5, where the count reads lowest
+passes: skipped, load 24.4 is 5 or more
+## rc1 1
+scaling modules   n to 8n: exponent 1.03 (limit 1.15)
+scaling variants  n to 8n: exponent 1.02 (limit 1.15)
+scaling fields    n to 8n: exponent 1.00 (limit 1.15)
+scaling funcs     n to 8n: exponent 1.00 (limit 1.15)
+scaling stmts     n to 8n: exponent 1.00 (limit 1.15)
+instructions 1689985565 (baseline 1780353622, 5.1% fewer; load 24.3)
+passes: skipped, load 24.3 is 5 or more
+## base 2
+scaling modules   n to 8n: exponent 1.02 (limit 1.15)
+scaling variants  n to 8n: exponent 1.01 (limit 1.15)
+scaling fields    n to 8n: exponent 1.00 (limit 1.15)
+scaling funcs     n to 8n: exponent 1.00 (limit 1.15)
+scaling stmts     n to 8n: exponent 1.00 (limit 1.15)
+instructions 2196986358 (baseline 1780353622, 23.4% more; load 24.3)  REGRESSION, at a load of 24.3: confirm it under 5, where the count reads lowest
+passes: skipped, load 24.3 is 5 or more
+## rc1 2
+scaling modules   n to 8n: exponent 1.03 (limit 1.15)
+scaling variants  n to 8n: exponent 1.00 (limit 1.15)
+scaling fields    n to 8n: exponent 1.00 (limit 1.15)
+scaling funcs     n to 8n: exponent 1.00 (limit 1.15)
+scaling stmts     n to 8n: exponent 1.00 (limit 1.15)
+instructions 1689863406 (baseline 1780353622, 5.1% fewer; load 23.4)
+passes: skipped, load 23.4 is 5 or more

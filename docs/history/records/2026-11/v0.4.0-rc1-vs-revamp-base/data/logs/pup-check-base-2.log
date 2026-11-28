@@ -1,0 +1,91 @@
+# Linux x86_64 pup rig rig 0.3.0 load: 2.31, 3.32, 3.76
+## run 1
+lex and parse    281.567 ms
+resolve          223.247 ms
+typecheck       1093.343 ms
+storage          958.658 ms
+ownership        397.173 ms
+proofs            98.904 ms
+inlining         118.513 ms
+other             80.250 ms
+total           3251.656 ms
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:03.33
+	Maximum resident set size (kbytes): 624080
+# Linux x86_64 pup rig rig 0.3.0 load: 2.28, 3.30, 3.75
+## run 1
+lex and parse    282.618 ms
+resolve          225.502 ms
+typecheck       1112.284 ms
+storage          994.486 ms
+ownership        405.773 ms
+proofs            99.912 ms
+inlining         116.785 ms
+other             81.382 ms
+total           3318.743 ms
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:03.39
+	Maximum resident set size (kbytes): 624080
+# Linux x86_64 pup rig rig 0.3.0 load: 2.26, 3.28, 3.74
+## run 1
+lex and parse    277.580 ms
+resolve          217.011 ms
+typecheck       1069.814 ms
+storage          946.924 ms
+ownership        395.590 ms
+proofs            97.140 ms
+inlining         119.932 ms
+other             80.147 ms
+total           3204.138 ms
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:03.28
+	Maximum resident set size (kbytes): 624080
+# Linux x86_64 pup rig rig 0.3.0 load: 2.24, 3.26, 3.73
+## run 1
+lex and parse    275.166 ms
+resolve          217.666 ms
+typecheck       1092.503 ms
+storage          974.573 ms
+ownership        400.827 ms
+proofs            97.437 ms
+inlining         119.790 ms
+other             79.341 ms
+total           3257.303 ms
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:03.33
+	Maximum resident set size (kbytes): 624080
+# Linux x86_64 pup rig rig 0.3.0 load: 2.22, 3.24, 3.72
+## run 1
+lex and parse    287.847 ms
+resolve          225.862 ms
+typecheck       1131.964 ms
+storage         1001.302 ms
+ownership        410.376 ms
+proofs           100.075 ms
+inlining         123.680 ms
+other             81.060 ms
+total           3362.166 ms
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:03.44
+	Maximum resident set size (kbytes): 624080
+# Linux x86_64 pup rig rig 0.3.0 load: 2.20, 3.22, 3.71
+## run 1
+lex and parse    286.965 ms
+resolve          228.883 ms
+typecheck       1150.748 ms
+storage         1028.043 ms
+ownership        422.648 ms
+proofs           101.192 ms
+inlining         122.199 ms
+other             81.288 ms
+total           3421.967 ms
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:03.50
+	Maximum resident set size (kbytes): 624080
+# Linux x86_64 pup rig rig 0.3.0 load: 2.25, 3.19, 3.70
+## run 1
+lex and parse    283.430 ms
+resolve          225.887 ms
+typecheck       1135.608 ms
+storage         1027.200 ms
+ownership        417.653 ms
+proofs            99.855 ms
+inlining         119.248 ms
+other             79.424 ms
+total           3388.303 ms
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:03.46
+	Maximum resident set size (kbytes): 624080

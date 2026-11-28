@@ -1,0 +1,2 @@
+                 req/s       p50       p99 per idle conn
+rig-safe        148284     381 us    1429 us      16.7 KiB

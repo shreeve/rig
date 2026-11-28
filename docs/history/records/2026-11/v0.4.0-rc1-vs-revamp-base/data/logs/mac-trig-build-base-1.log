@@ -1,0 +1,2 @@
+# Darwin arm64 pop rig rig 0.3.0 zig 0.17.0 load: 11.94 9.66 8.90
+build 1 rc=0 total_s=878.9 zig_s=868.9 zig_calls=3 trig_bytes=29709424
