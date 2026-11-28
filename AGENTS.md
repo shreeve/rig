@@ -199,6 +199,14 @@ until its rule is built. docs/internals/tests.md has the rest.
    Trig's tools refuse a Rig other than the one in its `tools/rig-pin`
    unless `TRIG_RIG_OVERRIDE=1` says the Rig under test is meant (with
    `PUP_RIG` on pup, or `RIG` on the Mac).
+   The light gate runs a debug Trig, which never uses the release
+   allocator, so a change to `src/alloc.zig`, `src/sched.zig`, or
+   another path only a release build takes also passes a release Trig:
+   from a Trig checkout, `tools/release-check SHA BRANCH` (the full
+   commit and its branch on Rig's origin) builds that Rig on burst,
+   Trig's main in release on it, and checks Trig's output against tsc on
+   26 projects at 1, 2, 4, and 8 checkers, ending `release-check SHA9
+   GREEN` or `RED` (about 21 minutes).
    It also passes loco's light gate:
    from a loc checkout (`~/Data/Code/loc`, pulled),
    `rig/tools/light RIG=/path/to/bin/rig` builds loco with that Rig,

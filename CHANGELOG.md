@@ -1083,6 +1083,12 @@ arms.
 
 ### Tests
 
+- A change to the release allocator, the scheduler, or another path only
+  a release build takes passes a release Trig before it merges (AGENTS.md,
+  "How a change is made"): Trig's `tools/release-check SHA BRANCH` builds
+  Trig in release on the Rig under test and checks its output against
+  tsc on 26 projects. Trig's light gate runs a debug Trig, which never
+  uses the release allocator.
 - The test runner tells a case ended by a signal from one that ran past its limit: "killed by signal SIGABRT (6) after 0.3s", or "timed out after 120s", where both said "timed out".
 
 - `tools/jiff-oracle/` answers generated date, time, and zone cases
