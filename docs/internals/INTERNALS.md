@@ -5013,7 +5013,7 @@ second unit test reads `facts.zig` the same way and fails on such a
 method that calls a function of `storage` or `sema` instead, or on a
 node fact no `SemContext` method answers, but for a listed few that
 combine recorded facts by the node's shape without a classifier of
-their own (`selfOf`, `argParams`, and `selfWrites` read
+their own (`selfOf` and `selfWrites` read
 `callParamsOf`; `isNoneLeaf`, `stringCall`, and `isTypeCallee` read
 symbols); the list only shrinks, and a query that decides more than
 that is a recorded fact.
@@ -5571,7 +5571,13 @@ that is a recorded fact.
   in the order they are written and passed in the order the parameters
   are declared: `f(b: e2, a: e1)` is `{ b = e2; a = e1; f(a, b) }`,
   written `{ a1 = <first written>; a2 = <second written>; f(<declared
-  order>) }`. What the call evaluates before its arguments comes
+  order>) }`. Emit's lowering records how each call passes what it is
+  given (`lir.Args`, `Module.argsOf`): what emit writes, in the order it
+  writes it (the witnesses a method under bounds takes, the
+  compile-time arguments, then the run-time ones in parameter order,
+  with defaults and duration parts), the parameter each argument
+  fills, and whether the callee takes the failure slot; emit writes
+  every call's arguments by one loop over it (`emitArgs`). What the call evaluates before its arguments comes
   first in that block (`lower.heldFirst`, `selfHold`): a method's
   self, an actor's handle, a select arm's channel, or a callee that is
   a value. A callee that copies (a function value, also one a local or
@@ -5820,9 +5826,10 @@ program-wide mode.
   (`openCatchSlot`), and its binding takes code and bytes as an owned
   `ErrorValue` (`ErrorValue.taken`), while a nameless catch drops them
   (`rig.dropFailure`). A call is given the slot only when its callee
-  takes one (`calleeTakesSlot`): a Rig function, a function value, an
-  actor's method, or a type parameter's method; a built-in type's method
-  and the runtime's own calls take none.
+  takes one (`lower.takesFailSlot`, kept in the call's `lir.Args`): a
+  Rig function, a function value, an actor's method, or a type
+  parameter's method; a built-in type's method and the runtime's own
+  calls take none.
 - **Matching.** A `switch` on an error value is on its code; an arm's
   fields are read through its bytes (`fieldsAs`), in place, or taken by
   `match <e`, and a member's set comes from its pattern
