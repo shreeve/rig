@@ -36,6 +36,78 @@ test "vec clear drops", '''
   !w.clear()
   print("ints", w.len, w)
 
+test "vec fit", '''
+  [] 0
+  [5]
+  [0, 1, 2] 3
+  100001 99999 7
+  ["a", "b", "c"]
+  [0, 1, 2, 99] 4
+  [0, 1, 2, 3, 4, 5, 6] 7
+'''
+  # `!v.fit()`: the room past the elements given back; the List keeps
+  # its elements and grows again as before. Empty, already fitted, small,
+  # large, owning elements, and inline room, each pushed to again.
+  e = List[Int]()
+  !e.fit()
+  print(e, e.len)
+  !e.push(5)
+  !e.fit()
+  !e.fit()
+  print(e)
+  small = List[Int]()
+  for i in 0..5
+    !small.push(i)
+  !small.keep(3)
+  !small.fit()
+  print(small, small.len)
+  big = List[Int]()
+  for i in 0..100_000
+    !big.push(i)
+  !big.fit()
+  !big.push(7)
+  print(big.len, big[99_999], big[100_000])
+  names = List[String]()
+  for s in ["a", "b", "c", "d"]
+    !names.push(String(s))
+  !names.keep(3)
+  !names.fit()
+  print(names)
+  t = List[Int, inline: 4]()
+  for i in 0..9
+    !t.push(i)
+  !t.keep(3)
+  !t.fit()
+  !t.push(99)
+  print(t, t.len)
+  u = List[Int, inline: 4]()
+  for i in 0..9
+    !u.push(i)
+  !u.keep(7)
+  !u.fit()
+  print(u, u.len)
+
+test "vec fit gives back room", "true true true true", release: true
+  # A large List fitted gives back the room past its elements where it
+  # lies, as the release allocator counts it, and grows from there; an
+  # empty one gives back its whole buffer.
+  use std.os
+  v = List[Int]()
+  for i in 0..300_000
+    !v.push(i)
+  a = os.memory()
+  !v.fit()
+  b = os.memory()
+  !v.push(1)
+  e = List[Int]()
+  for i in 0..10_000
+    !e.push(i)
+  !e.clear()
+  c = os.memory()
+  !e.fit()
+  d = os.memory()
+  print(a.live - b.live > 500_000, v.len == 300_001, c.live - d.live >= 80_000, e.len == 0)
+
 test "vec for closures", "111"
   # `for cb in ?subs` walks a `List[*sub()]` by viewed slot and calls
   # each closure; all handles and the shared cell are released at scope exit.

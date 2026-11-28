@@ -2695,7 +2695,7 @@ pub fn classifyCall(ctx: *const SemContext, c: Sexp, stack_closures: *const sema
     if (ctx.builtinCallOf(callee) != null) return .builtin_method;
     if (ctx.taskJoinOf(c) != null) return .task_join;
     if (ctx.isActorCall(c)) return .actor_call;
-    if (ctx.isSelect(c)) return if (selectResult(ctx, ty)) .select_value else .select_into;
+    if (ctx.isSelect(c)) return if (ctx.isPoll(c)) .poll_value else if (selectResult(ctx, ty)) .select_value else .select_into;
     if (ctx.selectArmOf(c)) |arm| return switch (arm) {
         .recv => .arm_recv,
         .send => .arm_send,

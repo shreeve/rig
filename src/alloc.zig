@@ -5,9 +5,10 @@
 //! from pages of its own segments; a block freed on the thread whose heap
 //! made it goes back on that heap's list with no atomic operation, and
 //! one freed on another thread (a task's value that moved to another
-//! core) goes on the owning heap's remote list, with one
-//! compare-and-swap, for the owner to take back when its own list runs
-//! out. A large block under 16 MiB (`span_max`) is a span: a run of
+//! core) goes on the owning heap's remote list, for the owner to take
+//! back when its own list runs out: a block of at most 1 KiB waits with
+//! others of its heap and class, and up to 16 go with one
+//! compare-and-swap (`freeSmall`). A large block under 16 MiB (`span_max`) is a span: a run of
 //! 4 KiB units of one of its heap's span segments, 32 MiB of the
 //! segments' region each, so taking one, growing one, and freeing one
 //! map and unmap nothing. A span freed, on any thread, goes back to its
@@ -19,7 +20,10 @@
 //! A span that grows takes the free span after it, or is copied into a
 //! free span whose pages are resident, or takes the units after it at
 //! its segment's end, as a List that is its segment's last span does;
-//! else it is copied into a new block (`remap`). Any thread may free,
+//! else it is copied into a new block (`remap`). A large block that
+//! shrinks and stays large, as a List fitted to its length, keeps its
+//! place and gives back what lies past its new length (`shrinkLarge`).
+//! Any thread may free,
 //! grow, or take a heap's spans, so they are under the one lock a heap
 //! has (`Spans`), which no system call is made under. A heap keeps its
 //! free spans' pages resident while those spans are no more than its
@@ -410,6 +414,10 @@ pub const Heap = struct {
     /// Its large blocks under `span_max` bytes: its span segments' free
     /// spans, which other threads free into and take from (`Spans`).
     spans: Spans = .{},
+    /// Blocks of other heaps its thread freed, by class, that wait to go
+    /// onto their heap's remote list a batch at a time (`freeSmall`):
+    /// its own thread's alone, on lines of their own.
+    outgoing: [out_class + 1]Outgoing align(64) = @splat(.{}),
 
     /// `n` more bytes taken from the system.
     fn took(h: *Heap, n: usize) void {
@@ -429,11 +437,13 @@ pub const Heap = struct {
         mustOwn(h);
         if (h.free[c]) |b| {
             h.free[c] = b.next;
+            prefetchNext(b.next);
             return @ptrCast(b);
         }
         if (h.remote[c].load(.monotonic) != null) {
             if (h.remote[c].swap(null, .acquire)) |list| {
                 h.free[c] = list.next;
+                prefetchNext(list.next);
                 return @ptrCast(list);
             }
         }
@@ -548,24 +558,68 @@ pub const Heap = struct {
         _ = total_peak.fetchMax(now, .monotonic);
     }
 
+    /// Give back `p`, a block of class `c`, on `h`, the running thread's
+    /// heap, read in a frame that switches no fiber before this returns
+    /// (`freeSlow`, `freeRecord`). Its own block goes on its free list.
+    /// Another heap's of at most `small_table_max` bytes waits in
+    /// `h.outgoing[c]` with others of that heap, and they go onto its
+    /// remote list together once `out_batch` wait, when a block of
+    /// another heap takes the slot, or when the thread trims or ends:
+    /// so the frees of a value made on another thread, as a task's
+    /// result dropped where it was taken, cost one compare-and-swap a
+    /// batch, not one a block. A waiting block keeps its page from a
+    /// trim (`trimPages`), as a block handed out does.
     fn freeSmall(h: *Heap, p: [*]u8, c: usize) void {
-        const seg = segmentOf(p);
+        const owner = segmentOf(p).heap;
         const b = blockOf(p);
-        if (seg.heap == h) {
-            mustOwn(h);
+        mustOwn(h);
+        if (owner == h) {
             b.next = h.free[c];
             h.free[c] = b;
             return;
         }
-        // Another thread's block: onto its heap's remote list.
-        const owner = seg.heap;
-        var top = owner.remote[c].load(.monotonic);
-        while (true) {
-            b.next = top;
-            top = owner.remote[c].cmpxchgWeak(top, b, .release, .monotonic) orelse return;
+        if (c > out_class) return pushRemote(owner, c, b, b);
+        const o = &h.outgoing[c];
+        if (o.owner != owner) {
+            o.flush(c);
+            o.* = .{ .owner = owner, .last = b };
         }
+        b.next = o.first;
+        o.first = b;
+        o.count += 1;
+        if (o.count == out_batch) o.flush(c);
     }
 };
+
+/// The blocks from `first` to `last`, linked, onto `owner`'s remote list
+/// of class `c` with one compare-and-swap, on any thread: its release
+/// publishes their links to the owner, which takes the list with acquire.
+fn pushRemote(owner: *Heap, c: usize, first: *Block, last: *Block) void {
+    var top = owner.remote[c].load(.monotonic);
+    while (true) {
+        last.next = top;
+        top = owner.remote[c].cmpxchgWeak(top, first, .release, .monotonic) orelse return;
+    }
+}
+
+/// A heap's waiting blocks of one class, all of `owner`'s: `count` of
+/// them, linked from `first` to `last` (`Heap.freeSmall`).
+const Outgoing = struct {
+    owner: ?*Heap = null,
+    first: ?*Block = null,
+    last: ?*Block = null,
+    count: u8 = 0,
+
+    fn flush(o: *Outgoing, c: usize) void {
+        if (o.first) |f| pushRemote(o.owner.?, c, f, o.last.?);
+        o.* = .{};
+    }
+};
+
+/// The blocks a batch holds, and the largest class batched: a block of
+/// at most `small_table_max` bytes, as the fast paths serve.
+const out_batch = 16;
+const out_class = small_table[small_table_max / 8];
 
 // -----------------------------------------------------------------------------
 // An idle heap
@@ -615,16 +669,20 @@ fn trimGrowth(at_trim: usize) usize {
 
 fn trimHeap(h: *Heap) usize {
     mustOwn(h);
+    for (&h.outgoing, 0..) |*o, c| o.flush(c);
     h.taken_at_trim = h.taken;
+    // Every page the trim gives back goes in one batch (`Batch`), given
+    // back last, with its spans' (`coolSpans`). A kept block is this
+    // heap's alone, so no thread takes it before then.
+    var b: Batch = .{};
     var given: usize = 0;
     while (lastHeld(&h.kept)) |j| {
         const f = unkeep(&h.kept, j, 0).?;
         const p = @intFromPtr(f);
         const len = f.len;
-        given += decommit(p, len);
+        given += b.add(p, len);
         keepPiece(&h.cold, p, len);
     }
-    given += coolSpans(h, true);
     // A big heap's free lists hold millions of blocks, cold, and its
     // worker comes back to work only once the trim is done: it walks
     // each list once, to count its blocks per page on Linux and to find
@@ -644,18 +702,15 @@ fn trimHeap(h: *Heap) usize {
         if (own_tail) |t| t.next = late else h.free[c] = late;
         tails[c] = late_tail orelse own_tail;
     }
-    if (builtin.os.tag == .linux) given += trimPages(h, touched, &tails);
+    if (builtin.os.tag == .linux) given += trimPages(h, touched, &tails, &b);
+    given += coolSpans(h, true, &b);
+    b.flush();
     // What stays free goes on its remote lists, where its own next
     // allocation takes it back, and meanwhile another heap may.
     for (0..class_count) |c| {
         const list = h.free[c] orelse continue;
         h.free[c] = null;
-        const tail = tails[c].?;
-        var top = h.remote[c].load(.monotonic);
-        while (true) {
-            tail.next = top;
-            top = h.remote[c].cmpxchgWeak(top, list, .release, .monotonic) orelse break;
-        }
+        pushRemote(h, c, list, tails[c].?);
     }
     if (!h.donor.load(.monotonic)) {
         h.donor.store(true, .monotonic);
@@ -696,7 +751,9 @@ fn walkFree(h: *Heap, list: ?*Block, c: usize, touched: *?*Segment) ?*Block {
 /// a run of neighbors at a time. A block on the list is free, and those
 /// other threads free meanwhile go to `Heap.remote`, which this leaves
 /// alone, so no page given back holds a block anyone uses or will free.
-fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block) usize {
+/// The pages go in the trim's batch `b`; only this heap's `newPage`
+/// hands them out again, after the trim.
+fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block, b: *Batch) usize {
     // A page is wholly free when its count is every block it was carved
     // into: a page still being carved holds fewer on the list than that.
     // Only the lists of the classes with such a page are walked again.
@@ -738,8 +795,9 @@ fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block) usize {
         while (bits != 0) {
             const first = @ctz(bits);
             const run = @ctz(~(bits >> @intCast(first)));
-            const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(@intFromPtr(s) + first * page_size);
-            std.posix.madvise(at, run * page_size, std.os.linux.MADV.DONTNEED) catch {};
+            // From the byte before the run: `add` takes the pages past
+            // the one that holds its first byte.
+            _ = b.add(@intFromPtr(s) + first * page_size - 1, run * page_size + 1);
             bits &= ~(((@as(u64, 1) << @intCast(run)) - 1) << @intCast(first));
         }
         given += @popCount(whole) * page_size;
@@ -825,6 +883,45 @@ fn innerPages(p: usize, len: usize) ?struct { at: [*]align(std.heap.page_size_mi
 /// macOS's `MADV_FREE_REUSABLE` and `MADV_FREE_REUSE`.
 const madv_free_reusable: u32 = 7;
 const madv_free_reuse: u32 = 8;
+
+/// Pages given back together, as `decommit` gives them back one block
+/// at a time. On Linux each call that drops pages interrupts every other
+/// core running the program to flush its TLB, however few the pages; one
+/// `process_madvise` of the process (`PIDFD_SELF`, Linux 6.15) over many
+/// ranges interrupts them once. A trim of a Trig checker's heap (nuxt,
+/// eight checkers) gave back about 38 ranges, a `madvise` and a
+/// shootdown each, while the last checkers ran. Where Linux refuses,
+/// each range gets a `madvise`; elsewhere each is given back as it is
+/// added.
+const Batch = struct {
+    ranges: [batch_max]std.posix.iovec_const = undefined,
+    count: usize = 0,
+    bytes: usize = 0,
+
+    /// The pages of the `len` bytes at `p` that `decommit` would give
+    /// back. Gives their bytes.
+    fn add(b: *Batch, p: usize, len: usize) usize {
+        if (builtin.os.tag != .linux) return decommit(p, len);
+        const r = innerPages(p, len) orelse return 0;
+        if (b.count == batch_max) b.flush();
+        b.ranges[b.count] = .{ .base = r.at, .len = r.len };
+        b.count += 1;
+        b.bytes += r.len;
+        return r.len;
+    }
+
+    fn flush(b: *Batch) void {
+        const vs = b.ranges[0..b.count];
+        defer b.count = 0;
+        defer b.bytes = 0;
+        if (vs.len == 0) return;
+        const self: usize = @bitCast(@as(isize, -10000));
+        if (std.os.linux.syscall5(.process_madvise, self, @intFromPtr(vs.ptr), vs.len, std.os.linux.MADV.DONTNEED, 0) == b.bytes) return;
+        for (vs) |v| std.posix.madvise(@ptrFromInt(@intFromPtr(v.base)), v.len, std.os.linux.MADV.DONTNEED) catch {};
+    }
+};
+
+const batch_max = 64;
 
 /// The bytes a large block takes: under `span_max`, its length rounded
 /// up to whole `span_unit`s, a span's; from it, its length rounded up to
@@ -930,7 +1027,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, alignment: usize, mapped: ?*bool)
     if (n != 0) if (carveSpan(h, n)) |p| {
         if (mapped) |f| f.* = true;
         h.took(n * span_unit);
-        _ = coolSpans(h, false);
+        _ = coolSpans(h, false, null);
         prefault(h, p, likelyFilled(units - units / 4));
         return @ptrFromInt(p);
     };
@@ -1880,7 +1977,7 @@ fn growSpan(h: *Heap, p: usize, old_size: usize, new_size: usize, fresh: bool) b
         const bytes = carved * span_unit;
         _ = span_spare.fetchSub(bytes, .monotonic);
         h.took(bytes);
-        _ = coolSpans(seg.heap, false);
+        _ = coolSpans(seg.heap, false, null);
         prefault(h, spanAt(seg, next + after), likelyFilled(bytes / 2));
     }
     return true;
@@ -1892,28 +1989,41 @@ fn growSpan(h: *Heap, p: usize, old_size: usize, new_size: usize, fresh: bool) b
 /// the smallest span that alone brings it within, or else the largest,
 /// and again, so it keeps its largest warm. Each is taken from its bin
 /// and reads as handed out while its pages are given back, then is put
-/// back cold. Gives the bytes given back.
-fn coolSpans(o: *Heap, all: bool) usize {
+/// back cold, `batch_max` at a time, their pages in one batch (`Batch`):
+/// `into`'s, a trim's, else its own. Gives the bytes given back.
+fn coolSpans(o: *Heap, all: bool, into: ?*Batch) usize {
     const sp = &o.spans;
+    var own: Batch = .{};
+    const b = into orelse &own;
+    var held: [batch_max]usize = undefined;
     var given: usize = 0;
     while (true) {
-        if (sp.warm.held.load(.monotonic) == 0) return given;
-        sp.lock.lock();
-        const bound = if (all) 0 else spanBound(sp);
-        const p = if (sp.warm.bytes <= bound) null else findSpan(&sp.warm, @min(spanUnits(sp.warm.bytes - bound), span_units)) orelse
-            @intFromPtr(sp.warm.list[63 - @clz(sp.warm.held.raw)].?);
-        const at = p orelse {
+        var n: usize = 0;
+        while (n < batch_max and sp.warm.held.load(.monotonic) != 0) : (n += 1) {
+            sp.lock.lock();
+            const bound = if (all) 0 else spanBound(sp);
+            const p = if (sp.warm.bytes <= bound) null else findSpan(&sp.warm, @min(spanUnits(sp.warm.bytes - bound), span_units)) orelse
+                @intFromPtr(sp.warm.list[63 - @clz(sp.warm.held.raw)].?);
+            const at = p orelse {
+                sp.lock.unlock();
+                break;
+            };
+            const seg = spanSegmentOf(at);
+            const s = spanIndex(seg, at);
+            const units = unlinkSpan(sp, seg, s);
+            handOutSpan(seg, s, units);
             sp.lock.unlock();
-            return given;
-        };
-        const seg = spanSegmentOf(at);
-        const s = spanIndex(seg, at);
-        const n = unlinkSpan(sp, seg, s);
-        handOutSpan(seg, s, n);
-        sp.lock.unlock();
-        given += decommit(at, n * span_unit);
+            given += b.add(at, units * span_unit);
+            held[n] = at;
+        }
+        if (n == 0) return given;
+        b.flush();
         sp.lock.lock();
-        putSpan(sp, seg, s, n, true);
+        for (held[0..n]) |at| {
+            const seg = spanSegmentOf(at);
+            const s = spanIndex(seg, at);
+            putSpan(sp, seg, s, seg.tags[s], true);
+        }
         sp.lock.unlock();
     }
 }
@@ -2065,8 +2175,9 @@ const table_hole_count = split.cell(&table_hole_count_var, "alloc.table_hole_cou
 /// that can be filled, or leaving one that cannot. Test only, so never
 /// in a split build, and a plain variable rather than a cell.
 var table_remap_fails_for_test: enum { no, remap, and_plug } = .no;
-/// Whether any range has asked for huge pages, so a range given back is
-/// advised for small pages again before the next Table takes it.
+/// Whether any range has asked for huge pages, so a Table that takes a
+/// range with no 2 MiB blocks to spare asks for small pages for it
+/// (`reserveTable`).
 var tables_asked_huge_var: std.atomic.Value(bool) = .init(false);
 const tables_asked_huge = split.cell(&tables_asked_huge_var, "alloc.tables_asked_huge");
 /// A Table that has not asked for huge pages yet, and the heap it waits
@@ -2113,7 +2224,17 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
     tables_lock.unlock();
     const at = p orelse return null;
     _ = table_live.fetchAdd(1, .monotonic);
-    if (wants and !waiting and hugeFree()) askTableHuge(at, bytes);
+    if (wants) {
+        const spare = hugeFree();
+        if (!waiting and spare) {
+            askTableHuge(at, bytes);
+        } else if (!spare and tables_asked_huge.load(.monotonic)) {
+            // A range a dropped Table asked huge pages for keeps the
+            // advice (`unreserveTable`): with no 2 MiB blocks to spare,
+            // its faults would compact memory.
+            std.posix.madvise(@ptrFromInt(at + huge_page), len - huge_page, std.os.linux.MADV.NOHUGEPAGE) catch {};
+        }
+    }
     _ = ask(at, huge_page, .small);
     return @ptrFromInt(at);
 }
@@ -2199,8 +2320,13 @@ fn askTableHuge(at: usize, bytes: usize) void {
 }
 
 /// Give back the range of a Table of `bytes` at `p`, if it is one
-/// `reserveTable` handed out: its pages to the system, and the range,
-/// advised for small pages again on Linux, to the next Table. Under
+/// `reserveTable` handed out: its pages to the system, and the range to
+/// the next Table. On Linux the range keeps any advice for huge pages:
+/// advising it again changes the region's mapping, under the lock every
+/// thread's faults in it wait on, as each of Trig's checkers drops its
+/// 46 Tables while the last checkers still run; the next Table there
+/// asks for small pages for its first 2 MiB, and for the rest when no
+/// 2 MiB blocks are spare (`reserveTable`). Under
 /// Linux's `always`, where its first 2 MiB asked for small pages, and on
 /// the Mac, it is mapped afresh, which asks for nothing. A range that
 /// cannot be is not used again: on Linux it is set aside
@@ -2221,7 +2347,6 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     const range: [*]align(huge_page) u8 = @alignCast(p);
     if (builtin.os.tag == .linux and adviceFor(thpMode(), .small) != .small) {
         std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
-        if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
     } else if (!mapTableRangeAfresh(range, len)) {
         if (builtin.os.tag == .linux) loseTableRange(range, len);
         return true;
@@ -2600,6 +2725,7 @@ pub fn wakeIdle() void {
 /// again.
 pub noinline fn threadExit() void {
     const h = my_heap().* orelse return;
+    for (&h.outgoing, 0..) |*o, c| o.flush(c);
     if (counts) h.flush();
     my_heap().* = null;
     spare_lock.lock();
@@ -2641,7 +2767,12 @@ const vtable: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .r
 noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
     if (fastClass(len, alignment)) |c| if (my_heap().*) |h| if (h.free[c]) |b| {
         if (builtin.is_test) mustOwn(h);
-        h.free[c] = b.next;
+        const next = b.next;
+        h.free[c] = next;
+        // The next block of the class, which the next allocation of it
+        // reads the link of and its caller then writes: its line is
+        // fetched now, so that load does not wait on memory (`prefetchNext`).
+        prefetchNext(next);
         if (counts) h.count(@intCast(classSize(c)), 1);
         return @ptrCast(b);
     };
@@ -2650,6 +2781,14 @@ noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: us
     // may yield here (`sched.settleAt`).
     if (sched.preempting) sched.settleAt(@returnAddress());
     return p;
+}
+
+/// Fetch the line of `next`, a free list's new head, for writing, as
+/// its allocation reads its link and its caller writes it. A list freed
+/// long ago, or taken back from other threads (`Heap.remote`), is cold:
+/// its first load missed in every allocation of the class.
+inline fn prefetchNext(next: ?*Block) void {
+    if (next) |n| @prefetch(n, .{ .rw = .write, .locality = 3, .cache = .data });
 }
 
 /// Give back `memory`, a block `alloc` made with `alignment`.
@@ -2771,8 +2910,8 @@ pub fn startSmall() void {
 }
 
 /// Give back `p`, a block of `len` bytes `allocRecord` made with
-/// `alignment`, on any thread: one that did not make it puts it on its
-/// heap's remote list. Its class is found at compile time, as
+/// `alignment`, on any thread: one that did not make it gives it back to
+/// its heap (`Heap.freeSmall`). Its class is found at compile time, as
 /// `allocRecord`'s is.
 pub noinline fn freeRecord(p: [*]u8, comptime len: usize, comptime alignment: std.mem.Alignment) void {
     const h = heap() orelse return;
@@ -3058,16 +3197,17 @@ extern "c" fn mach_vm_remap(target_task: std.c.mach_port_t, target_address: *u64
 /// copied into a kept block that fits, which then keeps the old one in
 /// turn, since a kept block's pages are resident and copying into them
 /// costs less than faulting in fresh ones; else, from `move_large`, it
-/// grows by moving its pages (`mremap` on Linux, `movePages` on macOS). Anything else, or a block that
-/// shrinks, is left to the caller, which copies it into a new block.
+/// grows by moving its pages (`mremap` on Linux, `movePages` on macOS). A large block that
+/// shrinks and stays large shrinks where it lies (`shrinkLarge`).
+/// Anything else is left to the caller, which copies it into a new block.
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
     // A mapped run is not this heap's: the caller copies it into a new
     // block and frees it (`mapRun`).
     if (memory.len >= map_min and isMapped(memory.ptr)) return null;
     if (resize(ctx, memory, alignment, new_len, ret)) return memory.ptr;
     if (classOf(memory.len, alignment) != null or classOf(new_len, alignment) != null) return null;
-    if (new_len < memory.len) return null;
     const h = heap() orelse return null;
+    if (new_len < memory.len) return shrinkLarge(h, memory, new_len);
     const old_size = largeSize(memory.len);
     const new_size = largeSize(new_len);
     if (isSpan(@intFromPtr(memory.ptr))) {
@@ -3152,6 +3292,53 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     return @ptrFromInt(rc);
 }
 
+/// The large block `memory` cut to `new_len` bytes, still large, where
+/// it lies, with no copy: a List or String fitted to its length
+/// (`List.fit`). A span gives its units past the new length back to its
+/// heap as a free span, as `freeSpan` gives back a span freed, joined
+/// with the free span after it; a mapping of its own gives the system
+/// pages past the new length back to the system (`munmap`). On any
+/// thread, as a free is.
+fn shrinkLarge(h: *Heap, memory: []u8, new_len: usize) [*]u8 {
+    const at = @intFromPtr(memory.ptr);
+    const old_size = largeSize(memory.len);
+    const new_size = largeSize(new_len);
+    if (isSpan(at)) {
+        const seg = spanSegmentOf(at);
+        const sp = &seg.heap.spans;
+        const s = spanIndex(seg, at);
+        const n = spanUnits(old_size);
+        const keep = spanUnits(new_size);
+        if (keep < n) {
+            // Cut in two, both handed out, then the tail freed: it reads
+            // as handed out until `freeSpan` takes the lock again, so no
+            // thread takes it meanwhile.
+            sp.lock.lock();
+            if (check_owner and seg.tags[s] != n) {
+                sp.lock.unlock();
+                spanLost();
+            }
+            handOutSpan(seg, s, keep);
+            handOutSpan(seg, s + keep, n - keep);
+            sp.lock.unlock();
+            freeSpan(h, spanAt(seg, s + keep), (n - keep) * span_unit);
+        }
+    } else {
+        const old_pages = mappedSize(memory.len);
+        const new_pages = mappedSize(new_len);
+        if (new_pages < old_pages) {
+            const tail = old_pages - new_pages;
+            unmapLarge(at + new_pages, tail);
+            // As `freeLarge` counts a block freed: what stays handed
+            // out is the settled peak's measure.
+            h.large_live -|= tail;
+            h.large_peak = @max(h.large_peak, h.large_live);
+        }
+    }
+    if (counts) h.count(-@as(isize, @intCast(old_size - new_size)), 0);
+    return memory.ptr;
+}
+
 /// What `free`'s fast path leaves: a block of another thread's heap, a
 /// larger or more aligned one, or a thread with no heap yet.
 noinline fn freeSlow(memory: []u8, alignment: std.mem.Alignment) void {
@@ -3223,6 +3410,115 @@ test "blocks are reused, large ones kept, and a block freed on another thread go
     }
     for (held[0..n]) |p| a.free(p);
     try std.testing.expect(got);
+}
+
+test "a heap's frees of another heap's small blocks go onto its remote list a batch at a time" {
+    var h = testHeap();
+    var a = testHeap();
+    var b = testHeap();
+    const c = classOf(48, .@"8").?;
+    var blocks: [out_batch + 1][*]u8 = undefined;
+    for (&blocks) |*p| p.* = a.alloc(c).?;
+    // A batch but one waits; the last sends the batch.
+    for (blocks[0 .. out_batch - 1]) |p| h.freeSmall(p, c);
+    try std.testing.expectEqual(@as(usize, 0), remoteLen(&a, c));
+    h.freeSmall(blocks[out_batch - 1], c);
+    try std.testing.expectEqual(@as(usize, out_batch), remoteLen(&a, c));
+    // One more waits until a block of another heap takes its slot.
+    h.freeSmall(blocks[out_batch], c);
+    try std.testing.expectEqual(@as(usize, out_batch), remoteLen(&a, c));
+    h.freeSmall(b.alloc(c).?, c);
+    try std.testing.expectEqual(@as(usize, out_batch + 1), remoteLen(&a, c));
+}
+
+/// How many blocks `h`'s remote list of class `c` holds.
+fn remoteLen(h: *Heap, c: usize) usize {
+    var n: usize = 0;
+    var b = h.remote[c].load(.acquire);
+    while (b) |x| : (b = x.next) n += 1;
+    return n;
+}
+
+test "four threads take, write, and free small blocks, most of them one another's, and no block is handed out twice" {
+    const Shared = struct {
+        // Blocks one thread made for another to check and free: an
+        // address and a length, taken with a swap.
+        slots: [256]std.atomic.Value(usize) = @splat(.init(0)),
+        lens: [256]std.atomic.Value(usize) = @splat(.init(0)),
+        bad: std.atomic.Value(usize) = .init(0),
+
+        // Every byte of a block holds its own tag, so a block handed out
+        // twice at once, written by both, fails the check of one.
+        fn tag(b: []u8) u8 {
+            return @truncate((@intFromPtr(b.ptr) >> 3) ^ b.len);
+        }
+
+        fn check(sh: *@This(), b: []u8) void {
+            const want = tag(b);
+            for (b) |x| if (x != want) {
+                _ = sh.bad.fetchAdd(1, .monotonic);
+                return;
+            };
+        }
+
+        // Thread `t` puts its blocks in its quarter of the slots and takes
+        // from the next thread's, so its batches fill with one heap's
+        // blocks, and one time in eight from any thread's.
+        fn run(sh: *@This(), t: usize) void {
+            var rng = std.Random.DefaultPrng.init(t);
+            const r = rng.random();
+            const a = allocator;
+            // Some blocks this thread keeps a while, freed by itself.
+            var own: [32]?[]u8 = @splat(null);
+            const q = sh.slots.len / 4;
+            for (0..60_000) |_| {
+                const from = if (r.uintLessThan(u8, 8) == 0) r.uintLessThan(usize, 4) else (t + 1) % 4;
+                const i = from * q + r.uintLessThan(usize, q);
+                const len = sh.lens[i].swap(0, .acquire);
+                const at = if (len != 0) sh.slots[i].swap(0, .acquire) else 0;
+                if (at != 0) {
+                    const b = @as([*]u8, @ptrFromInt(at))[0..len];
+                    sh.check(b);
+                    a.free(b);
+                }
+                const size = 8 + r.uintLessThan(usize, if (r.uintLessThan(u8, 8) == 0) 4096 else 512);
+                const b = a.alloc(u8, size) catch unreachable;
+                @memset(b, tag(b));
+                const k = r.uintLessThan(usize, own.len);
+                const to = t * q + r.uintLessThan(usize, q);
+                if (r.boolean()) {
+                    if (own[k]) |o| {
+                        sh.check(o);
+                        a.free(o);
+                    }
+                    own[k] = b;
+                } else if (sh.slots[to].cmpxchgStrong(0, @intFromPtr(b.ptr), .release, .monotonic) == null) {
+                    sh.lens[to].store(b.len, .release);
+                } else {
+                    sh.check(b);
+                    a.free(b);
+                }
+            }
+            for (own) |o| if (o) |b| {
+                sh.check(b);
+                a.free(b);
+            };
+            threadExit();
+        }
+    };
+    const sh = try std.testing.allocator.create(Shared);
+    defer std.testing.allocator.destroy(sh);
+    sh.* = .{};
+    var threads: [4]std.Thread = undefined;
+    for (&threads, 0..) |*t, k| t.* = try std.Thread.spawn(.{}, Shared.run, .{ sh, k });
+    for (threads) |t| t.join();
+    try std.testing.expectEqual(@as(usize, 0), sh.bad.load(.monotonic));
+    for (&sh.slots, &sh.lens) |*slot, *len| if (len.load(.monotonic) != 0) {
+        const b = @as([*]u8, @ptrFromInt(slot.load(.monotonic)))[0..len.load(.monotonic)];
+        sh.check(b);
+        allocator.free(b);
+    };
+    try std.testing.expectEqual(@as(usize, 0), sh.bad.load(.monotonic));
 }
 
 test "the heap that does the work faults in ahead, beside a thread that takes little, and two busy heaps fault lazily" {
@@ -3632,6 +3928,48 @@ test "a span grows where it lies: into the free span after it, at its segment's 
     trimAllForTest(h);
 }
 
+test "a large block that shrinks keeps its place and its bytes: a span's units past it serve the next block, a mapping's pages go back to the system" {
+    const a = allocator;
+    const h = heap().?;
+    trimAllForTest(h);
+    const kib: usize = 1 << 10;
+    // A span with one handed out after it: its tail is a free span the
+    // next block takes, and the span grows into it again.
+    const x = try a.alloc(u8, 256 * kib);
+    const y = try a.alloc(u8, 64 * kib);
+    @memset(x, 4);
+    const taken = h.taken;
+    const x2 = a.remap(x, 100 * kib).?;
+    try std.testing.expectEqual(x.ptr, x2.ptr);
+    try std.testing.expectEqual(@as(u8, 4), x2[100 * kib - 1]);
+    const w = try a.alloc(u8, 128 * kib);
+    try std.testing.expectEqual(@intFromPtr(x.ptr) + 100 * kib, @intFromPtr(w.ptr));
+    a.free(w);
+    const x3 = a.remap(x2, 200 * kib).?;
+    try std.testing.expectEqual(x.ptr, x3.ptr);
+    try std.testing.expectEqual(@as(u8, 4), x3[0]);
+    try std.testing.expectEqual(taken, h.taken);
+    // One shrunk to a small block's size is copied, as the caller does.
+    try std.testing.expect(a.remap(x3, 16 * kib) == null);
+    // A shrink within its units changes nothing.
+    try std.testing.expectEqual(x.ptr, a.remap(x3, 200 * kib - 100).?.ptr);
+    a.free(x3[0 .. 200 * kib - 100]);
+    a.free(y);
+    // A mapping of its own gives back its pages past the new length, and
+    // is freed at that length.
+    const mib: usize = 1 << 20;
+    const m = try a.alloc(u8, 40 * mib);
+    try std.testing.expect(!isSpan(@intFromPtr(m.ptr)));
+    @memset(m[0 .. 3 * mib], 6);
+    const unmaps = calls_for_test.munmap;
+    const m2 = a.remap(m, 3 * mib).?;
+    try std.testing.expectEqual(m.ptr, m2.ptr);
+    try std.testing.expectEqual(unmaps + 1, calls_for_test.munmap);
+    try std.testing.expectEqual(@as(u8, 6), m2[3 * mib - 1]);
+    a.free(m2);
+    trimAllForTest(h);
+}
+
 test "a span takes its units and no more, a block aligned to a page is aligned as asked, and one aligned past a page is refused" {
     var h = testHeap();
     h.taken = prefault_big;
@@ -3829,6 +4167,36 @@ test "on Linux a span segment asks for huge pages for all of it while 2 MiB bloc
     }
 }
 
+test "on Linux free spans apart, more than a batch holds, all give their pages back in batches and go back cold, and the spans between them keep theirs" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    var h = testHeap();
+    h.taken = prefault_big;
+    const len: usize = 40 << 10;
+    const pg = std.heap.pageSize();
+    var spans: [2 * batch_max + 10][*]u8 = undefined;
+    for (&spans) |*p| {
+        p.* = allocLarge(&h, len).?;
+        @memset(p.*[0..len], 3);
+    }
+    // Every other span freed: free spans with a span in use between.
+    var freed: usize = 0;
+    for (spans, 0..) |p, i| if (i % 2 == 0) {
+        freeLarge(&h, p, len);
+        freed += 1;
+    };
+    try std.testing.expect(freed > batch_max);
+    try std.testing.expectEqual(freed * len, h.spans.warm.bytes);
+    try std.testing.expectEqual(freed * (len - pg), coolSpans(&h, true, null));
+    try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes);
+    try std.testing.expectEqual(freed * len, h.spans.cold.bytes);
+    for (spans, 0..) |p, i| {
+        try std.testing.expectEqual(if (i % 2 == 0) pg else len, try residentForTest(p, len));
+        if (i % 2 == 1) try std.testing.expectEqual(@as(u8, 3), p[len - 1]);
+    }
+    for (spans, 0..) |p, i| if (i % 2 == 1) freeLarge(&h, p, len);
+    trimAllForTest(&h);
+}
+
 test "on Linux a free span whose pages went back to the system holds one page, and is written whole when taken again" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     var h = testHeap();
@@ -3837,7 +4205,7 @@ test "on Linux a free span whose pages went back to the system holds one page, a
     @memset(p[0 .. 1 << 20], 7);
     freeLarge(&h, p, 1 << 20);
     try std.testing.expectEqual(@as(usize, 1 << 20), try residentForTest(p, 1 << 20));
-    try std.testing.expectEqual((1 << 20) - std.heap.pageSize(), coolSpans(&h, true));
+    try std.testing.expectEqual((1 << 20) - std.heap.pageSize(), coolSpans(&h, true, null));
     try std.testing.expectEqual(std.heap.pageSize(), try residentForTest(p, 1 << 20));
     const q = allocLarge(&h, 1 << 20).?;
     try std.testing.expectEqual(p, q);
@@ -4173,7 +4541,7 @@ test "on Linux a Table's range given back has its pages back with the system, an
     try std.testing.expect(!unreserveTable(&own, own.len));
 }
 
-test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, and keeps small pages once given back" {
+test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, keeps the advice once given back, and asks for small pages again for a Table that takes it with none to spare" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
@@ -4186,9 +4554,10 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     const small = reserveTable(2 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
     try std.testing.expect(unreserveTable(t, 24 * mib));
-    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     useBuddyinfoForTest(buddyinfo_partly);
     const u = reserveTable(24 * mib).?;
+    try std.testing.expectEqual(@intFromPtr(t), @intFromPtr(u));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u) + 2 * mib));
     try std.testing.expect(unreserveTable(u, 24 * mib));
     try std.testing.expect(unreserveTable(small, 2 * mib));
@@ -4678,6 +5047,7 @@ test "an idle heap gives back its kept large blocks' pages and, on Linux, its wh
     const first = @intFromPtr(blocks[0]);
     for (blocks[0 .. 2 * per - 1]) |p| h.freeSmall(p, c);
     other.freeSmall(blocks[2 * per - 1], c);
+    other.outgoing[c].flush(c);
     for (blocks[2 * per + 1 ..]) |p| h.freeSmall(p, c);
     const given = trimHeap(&h);
     try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes);
@@ -4707,6 +5077,7 @@ test "a trim gives away a free list whole, in its order, with the blocks other t
     for (blocks[0..6]) |p| h.freeSmall(p, c);
     _ = trimHeap(&h);
     other.freeSmall(blocks[6], c);
+    other.outgoing[c].flush(c);
     // Its list as the first trim gave it away, with the block another
     // thread freed since on top: the second trim keeps its order, as it
     // rewrites no block's link but a list's last.
@@ -4716,6 +5087,7 @@ test "a trim gives away a free list whole, in its order, with the blocks other t
     // thread freed meanwhile: that block follows the list.
     try std.testing.expectEqual(@intFromPtr(blocks[6]), @intFromPtr(h.alloc(c).?));
     other.freeSmall(blocks[7], c);
+    other.outgoing[c].flush(c);
     _ = trimHeap(&h);
     try expectRemote(&h, c, &blocks, &.{ 5, 4, 3, 2, 1, 0, 7 });
     h.donor.store(false, .monotonic);

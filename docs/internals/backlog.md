@@ -183,13 +183,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   branch folds them (6.89 and 6.86G instructions). Keeping the tables
   in registers without the fold would need them proven uncaptured
   across the String's calls; Zig's fast mode is unaffected.
-- Remote frees batched per owning heap, as Linux 7.4's slab sheaves
-  and snmalloc do. Today each free of a block another heap owns
-  (`src/alloc.zig`) is one compare-and-swap onto that heap's remote
-  list; a batch would gather a chain per owner and push it with one.
-  Measure first, on a multi-checker Trig run: how many frees are
-  remote, and the share of time those compare-and-swaps take. Source:
-  Rig (fork)'s errors-track handoff.
 - Active workers tracked, rather than every worker scanned, as Linux
   7.4's workqueue flush does. `src/sched.zig` walks all workers in
   `earliestDue`, `claimWaiting` and `takeWaiting`, `busyDescriptors`

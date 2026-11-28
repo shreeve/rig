@@ -334,7 +334,7 @@ timing round.
 
 The base compiler comes from `tools/baseline SHA`, which prints the path
 of a `rig` built at that commit. It builds one the first time, in a
-detached worktree in a temp dir, through `tools/heavy`, with Nexus from
+detached worktree in a temp dir, as a `cpuq run` where cpuq is installed, with Nexus from
 `$NEXUS` or the nearest parent directory's `nexus/bin/nexus`, and keeps
 it in `rig-baseline/<full hash>/` in the repository's git directory,
 where every worktree finds it: a comparison never runs a stale

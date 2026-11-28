@@ -2070,10 +2070,12 @@ pub const Facts = struct {
     /// `*Frozen(x)` calls, whose frozen value the runtime makes behind
     /// its first handle.
     frozen_makes: FastMap(u64, void) = .empty,
-    /// `*Chan[T](n)` calls (`Checker.chanMake`), `task.select` calls
-    /// (`Checker.taskSelect`), and their arms, receiving or sending.
+    /// `*Chan[T](n)` calls (`Checker.chanMake`), `task.select` and
+    /// `task.poll` calls (`Checker.taskSelect`, `Checker.taskPoll`), the
+    /// polls again on their own, and their arms, receiving or sending.
     chan_makes: FastMap(u64, void) = .empty,
     select_calls: FastMap(u64, void) = .empty,
+    poll_calls: FastMap(u64, void) = .empty,
     select_arms: FastMap(u64, SelectArm) = .empty,
     /// `*Actor.supervised(f)` calls (`Checker.actorSupervised`).
     actor_supervised: FastMap(u64, void) = .empty,
@@ -2706,7 +2708,8 @@ pub const ElemOp = enum {
     /// or a List of numbers added in order to `start`, `0` by default.
     sum,
     /// `xs.prefetch(i)`: a hint that element `i` of a slice, an array, or
-    /// a List will be read soon, which a program cannot see, for any `i`.
+    /// a List, or byte `i` of text, will be read soon, which a program
+    /// cannot see, for any `i`.
     prefetch,
 
     /// Whether the method is one of a single integer's bits (`bitCall`),
@@ -5685,9 +5688,16 @@ pub const SemContext = struct {
         return self.facts.chan_makes.contains(exprKey(call) orelse return false);
     }
 
-    /// Whether `call` is `task.select` (`Facts.select_calls`).
+    /// Whether `call` is `task.select`, or `task.poll`
+    /// (`Facts.select_calls`).
     pub fn isSelect(self: *const SemContext, call: Sexp) bool {
         return self.facts.select_calls.contains(exprKey(call) orelse return false);
+    }
+
+    /// Whether `call` is `task.poll`, the select that never waits
+    /// (`Facts.poll_calls`).
+    pub fn isPoll(self: *const SemContext, call: Sexp) bool {
+        return self.facts.poll_calls.contains(exprKey(call) orelse return false);
     }
 
     /// The arm `call` is of a `task.select`, if it is one.

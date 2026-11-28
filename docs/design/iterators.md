@@ -68,7 +68,7 @@ items.
 
 Each form summed the squares of 20 million `U64`s, built with `rig
 build --release` on the Mac. Each time is the fastest of eight
-interleaved runs of seven passes each, through `tools/low`. The adapter objects were written by
+interleaved runs of seven passes each, at low priority. The adapter objects were written by
 hand in today's Rig over a slice source (`Elems`, an object of a `[]U64`
 and an index).
 

@@ -1312,6 +1312,7 @@ same waiting points fail with `Stop.timeout`.
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `supervise(f, restarts: n, per: s)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `s` seconds, an `Int` or a `Float` (`per: 0.5`); past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `select(name: arm, ...)` | wait until one arm, `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, `name: ?t.on_end()`, or `name: time.after(ms: 50)`, can complete, commit it alone, and give a value whose variant is the winner's name, matched by `match`: a receive's carries the value as `T?`, none once the channel is closed and empty; a task's end carries nothing, and the body takes the task's result with `>t`, at once ([SPEC §18](../SPEC.md#channels)) |
+| `poll(name: arm, ...)` | a select's arms, but never waiting: commit whichever arm can complete now and give the select's value as an optional, `none` when no arm can, taken out with `if task.poll(...) as r` and matched; a send arm that does not complete drops its value. It is no waiting point, so it cannot fail, and takes no deadline arm ([SPEC §18](../SPEC.md#channels)) |
 
 A long computation calls `task.check()!` where stopping is safe:
 
@@ -2835,7 +2836,10 @@ main.rig:4:3: panic: lost ["a\tb"]
 for `n` more elements without changing the length, so the next `n`
 pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
 first `n` elements and drops the rest, so a List can be rewound to a
-length saved earlier.
+length saved earlier. `!v.fit()` gives back the room past the elements,
+so a List built by pushes into a large buffer is kept at its length
+without a copy: the allocator cuts a large buffer where it lies and
+copies only a small one.
 
 `!v.extend(?ys[a..b])` appends a copy of each element of a slice, an
 array, or a List, growing once and copying them with one `@memcpy`: the
@@ -2882,8 +2886,9 @@ touched and copied for the List when first written, so a large table
 the program loads and only reads costs neither the copy nor the memory
 of the pages it never touches.
 
-`xs.prefetch(i)` asks for element `i` of a List, an array, or a slice
-ahead of its read, and does nothing a program can see: an `i` out of
+`xs.prefetch(i)` asks for element `i` of a List, an array, or a slice,
+or for byte `i` of a `String`, a `?String`, or a `Static`, ahead of its
+read, and does nothing a program can see: an `i` out of
 range is no error ([SPEC](../SPEC.md#slices)). It pays where the core
 cannot overlap the misses on its own, as when each lookup ends in a
 branch on what it read: bench/prefetch measures it.
@@ -3029,6 +3034,26 @@ sub main()
 
 ```output
 7 42 2
+```
+
+A Table read by id before it is written, such as an index kept beside
+the store that gives the ids, is grown first: `!t.grow(k)` pushes `k`
+slots at once, each `T()`, and on Linux a reserved table takes their
+pages for writing then, so a read of one finds a page of its own and
+never the system's shared page of zeros, whose first write copies it.
+
+```rig
+NODES = 1 << 20
+
+sub main()
+  parent: Table[Slot[NODES], NODES] = Table()
+  !parent.grow(4)
+  parent[3] = 1
+  print(parent.len, parent[2], parent[3])
+```
+
+```output
+4 0 1
 ```
 
 Keep one store per owner of many records, such as a parser or a

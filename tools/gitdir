@@ -1,7 +1,8 @@
 #!/bin/bash
 # tools/gitdir [NAME]: print the git directory of the Rig checkout this
-# script is in, the one its worktrees share, where tools/heavy keeps its
-# lock and test/rig.rip and test/matrix.py their build store and caches.
+# script is in, the one its worktrees share, where test/rig.rip and
+# test/matrix.py keep their build store and caches, and tools/baseline
+# its cached builds.
 # Every tool that keeps something there asks this script, never git alone.
 #
 # git looks for a repository from a folder upward, so from a plain copy

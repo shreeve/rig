@@ -5205,3 +5205,5 @@ test/reject/probes/review-results-z05.rig main
 test/reject/ownership/defer_runs_after_its_block's_value.rig Tab.broke
 doc/CORE/025ddb90a0d7 main
 doc/CORE/d08b6d0d33f1 main
+test/reject/concurrency/chan_poll_sends_what_it_moves.rig main
+test/reject/concurrency/chan_poll_arms_hold_their_channels.rig main

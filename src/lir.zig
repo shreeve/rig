@@ -203,13 +203,14 @@ pub const CallKind = enum(u8) {
     /// (`sema.BuiltinCall`).
     builtin_method,
     /// The runtime's calls: `task.all`, an actor's method, `task.select`
-    /// (to a value, or into the slot), its arms, `http.serve`, `reduce`,
+    /// (to a value, or into the slot), `task.poll`, their arms, `http.serve`, `reduce`,
     /// `io.copy`, `task.supervise`, `task.isolate`, the `par` forms, and
     /// the waits of a set and of a task.
     task_join,
     actor_call,
     select_value,
     select_into,
+    poll_value,
     arm_recv,
     arm_send,
     arm_end,

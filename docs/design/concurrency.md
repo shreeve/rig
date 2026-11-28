@@ -593,7 +593,9 @@ restarted by a small parent) remains, as defence in depth.
   whose value's variant is the winner's name, its body run in the enclosing scope),
   and over a task's end, `done: ?t.on_end()`, which makes a view of the task and
   leaves it to its holder, so a race of tasks is a select of their ends
-  (built);
+  (built), and `task.poll(...)`, the same arms committed only if one can
+  complete now, else `none`, which never parks (built; matching its
+  `none =>` beside the arms waits on `match` of an optional);
 - `task.supervise` and `*Actor.supervised`.
 
 **Not planned:** a `Mutex`, which an idle actor already is, and a

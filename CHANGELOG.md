@@ -502,6 +502,41 @@ No script rewrites these; Trig and loco have none.
 
 ### Added
 
+- **`!v.fit()` on a List** ([SPEC "List"](SPEC.md#list)): the buffer
+  cut to the elements the List holds, freed when it holds none, and for
+  a List with inline room moved back into the List when they fit there.
+  A large buffer is cut where it lies with no copy (below); a small one
+  is copied into the smallest block that holds it. A List built in a
+  scratch buffer can so be kept at its length without a clone.
+- **`task.poll(name: arm, ...)`, a select that never waits**
+  ([SPEC "Channels"](SPEC.md#channels), [std.task](docs/STD.md#stdtask)).
+  It takes the named select's receive, send, and task-end arms, commits
+  whichever can complete now, and gives the select's value as an
+  optional, `none` when no arm can: `if task.poll(got: !ch.on_recv()) as
+  r`, then `match r` with arms `.got(v?)` and `.got(none)`. A `match`
+  on the poll itself is rejected with a message that names `none` and
+  says to take the value out first; matching `none =>` beside the arms
+  waits on `match` taking an optional subject. It parks no task, so it is no waiting point and cannot fail:
+  a canceled task's poll takes what is ready, and the task stops at its
+  next waiting point. A deadline arm, which could never complete in a
+  poll, is rejected. The arms are checked as a select's; a send arm
+  that does not complete drops its value. It lowers to `rig.pollValue`,
+  which tries the arms under their channels' locks from a place that
+  turns, as a select does before it would park, and gives an optional
+  of the select's union. A loop takes each result that is ready and
+  does other work between them, as Trig's file loader interns names
+  between results.
+- **`!t.grow(k)` pushes `k` slots of a Table at once**
+  ([SPEC "Table"](SPEC.md#table), [STD "Table and Slot"](docs/STD.md#table-and-slot)),
+  each holding what it reads as, `T()` unless written by slot, and gives
+  nothing. It panics as `push` does when `len + k` would pass `n`
+  ("a table of 4 slots is full"), and on a negative `k`; `k = 0` does
+  nothing. On Linux a reserved table then faults in the grown slots'
+  pages for writing with one `MADV_POPULATE_WRITE` (Linux 5.14; ignored
+  where refused), so a slot read before it is written finds a page of its
+  own rather than the shared zero page, whose first write copies it and
+  flushes every other core's TLB of it. Trig grows its link indexes this
+  way when it makes a checker.
 - **`cost:` on `par.map`, `par.each`, `par.workers`, and `par.push`**
   ([SPEC "Each element on several tasks"](SPEC.md#each-element-on-several-tasks),
   [std.par](docs/STD.md#stdpar)). It gives each element's cost, an
@@ -782,6 +817,8 @@ No script rewrites these; Trig and loco have none.
   source; `src/names.zig` holds a renamed name's mark and the
   `__rig_*` declarations the runtime finds by name. The emitted Zig is
   the same.
+- **`prefetch` asks for a byte of text** ([SPEC "Slices"](SPEC.md#slices)): `s.prefetch(i)` of a `String`, a `?String`, or a `Static` asks for byte `i` by the rules of a List's: one prefetch instruction, no range test, nothing on a target without one. It was rejected ("`prefetch` asks for an element of a List, an array, or a slice, and `Static` is text"); a `String`'s other element methods (`sum`, `fill`, ...) stay unknown.
+- **A signed integer narrowed to an unsigned type is tested once.** `U32(x)` of an `Int` is `@as(u32, @intCast(@as(u64, @bitCast(@as(i64, x)))))`, in place of an `@intCast` to `u64` first: a negative value's bits are above the target's largest value, so the one unsigned compare of the narrowing rejects it, with the same panic ("integer does not fit in destination type"), where the sign was tested apart. `$fromBackingInt` keeps both tests, as an enum's backing type may be as wide as the value. Only those conversions' emitted Zig changes.
 - **A call evaluates its arguments in the order it writes them** (CORE §6, "Evaluation order"; CORE sentence 6 and §7 "Defer" state the drop and the defer orders the checker already kept). A fixed view binding (`r =! ?v[0]`) read as an argument is copied where it stands, as a plain binding is, where emit read it late (`lower.isPureArg` no longer counts it pure), and the checker's rule that read a call's pure arguments after the others is gone, so the checker checks the order emit runs. A held write view read as plain data by a parameter of a plain type is copied there and passes no view on (`sema.copiedOut`). These are accepted now, and run clean: a keyword argument `f(b: r, a: bump(!v))`, a write view one `f(b: w, a: bump(!v))`, a hoisted argument beside a fallible one `g(String("x"), r, bump(!v)!)`, an argument beside a closure literal `apply(r, |x| x + 1, bump(!v))`, an assigned value before its index `xs[bump(!v)] = r`, and a compound one `xs[bump(!v)] += w`, with `r =! ?v[0]` and `w =! !v[0]`; and a held write view given twice as a constructor's plain fields, `Q(p: w, o: w)`. The reference checker drops the old value of a reassigned name whose `drop` body reads views after the new value is made, and keeps a write-view `break` value's loan through the loop body's defers, as the compiler does; nothing is newly rejected.
 - **A view ends at its last use on the paths the code runs** (Core sentences 5 and 6; INTERNALS "Liveness"). The ownership checker finds a binding's last use on its body's LIR, in the order it runs, in place of its source positions: deferred code counts where it runs, at its scope's exits, and not where it is written; a `while` step and a later arm's guard count only on the paths that reach them; a name re-pointed by a store holds its old view only up to the store; a value that fails or is `none` holds no view in its `catch` handler or the right of its `??`, which ends the views it carried and never an equal view another part of the statement holds; an exit that leaves a statement unfinished ends the statement's temporary views before its defers run; and a write view that no result of a call with several results carries ends as the call returns. The checker accepts programs it rejected and nothing it accepted before is rejected; two kinds stay rejected for how emit holds their values (a value with a `drop` body uses its views where it is dropped, a loop's `break` value keeps its views while the body's defers run). The positional machinery (`uses`, `walked`, `late`, `after_value`, `useBranchesAfter`, `defer_used`) is gone. The emitted Zig of every program accepted before is the same.
 - **The storage deciders live in lowering** (`src/lower.zig`), and `src/storage.zig` is gone: the types they answer with, which the LIR records (`StorageKind`, `SetOrder`, `LeafStep`, and the rest), are in `src/lir.zig`, and the checkers ask the deciders they share of `lower.zig`. The emitted Zig is the same.
@@ -1147,6 +1184,12 @@ arms.
   `PATH` (`RIG_NO_CPUQ=1` starts them plain), and a script marked
   `# cpus: N` with N above 1 runs outside the pool.
 
+- A change to the release allocator, the scheduler, or another path only
+  a release build takes passes a release Trig before it merges (AGENTS.md,
+  "How a change is made"): Trig's `tools/release-check SHA BRANCH` builds
+  Trig in release on the Rig under test and checks its output against
+  tsc on 26 projects. Trig's light gate runs a debug Trig, which never
+  uses the release allocator.
 - The test runner tells a case ended by a signal from one that ran past its limit: "killed by signal SIGABRT (6) after 0.3s", or "timed out after 120s", where both said "timed out".
 
 - `tools/jiff-oracle/` answers generated date, time, and zone cases
@@ -1178,23 +1221,15 @@ arms.
   start while the first, which makes no yield check, still runs. It
   replaces `test/cli/spawn_wake.sh`, which required them to start
   within 300 µs, a bound a loaded machine's late threads miss.
-- `tools/mac-claim LABEL CMD` runs one timing job holding the Mac's
-  claim line, with `TRIG_MAC_CLAIMED=1` and `RIG_MAC_CLAIMED=1` set for
-  it, so a tool that waits on the claim does not wait on its own: it waits while another claim holds the Mac or a
-  correctness job holds or waits for a heavy slot, gives up after 45
-  minutes (exit 75), stops the job at its limit (19 minutes, at most 20;
-  exit 124), and clears the line however the job ends
-  (`test/cli/mac_claim.sh`).
-- A timing claim pauses work between jobs, never during one: a job
-  stopped mid-run is killed by its own timeout the moment it resumes.
-  While a live claim holds, `tools/heavy` starts no job but a correctness
-  one, `test/rig.rip` starts no new job (`test/claim.rip`), and
-  `tools/mac-claim` starts its command once every process on the
-  machine together uses under one and a half cores for 30 seconds (a
-  build started outside heavy loads the Mac just the same), giving the
-  claim up after 10 minutes if it never does (exit 75) and naming the
-  busiest processes. A claim line whose mac-claim has died holds
-  no one (`test/cli/claim_gate.sh`, `heavy_class.sh`, `mac_claim.sh`).
+- Builds, Swarm runs, and timing share each machine through cpuq,
+  which replaces `tools/heavy`, `tools/mac-claim`, and `tools/low`
+  (AGENTS.md, "Machine-specific practice"): a build is a `cpuq run`, a
+  suite runs under `cpuq run --driver` with each case a `cpuq run` of
+  its own, and timing on the Mac runs under `cpuq drain`. Every command
+  `test/rig.rip` and `tools/baseline` start runs with none of git's
+  variables that name a repository (`GIT_DIR`, `GIT_WORK_TREE`, and the
+  rest), so a script that makes a scratch repository of its own never
+  writes into Rig's.
 - `pup-slot state` prints `running=R`, the builds not paused, and
   `late=L`, the builds its guard paused after the slot opened, beside
   `paused=K`; a board race with any running is void (decision 14). A
@@ -1212,12 +1247,6 @@ arms.
   gives up after 45 minutes (exit 75); each open and close is a line in
   `/zfs/trig-pup/slot-tools/slots.log` (`test/cli/pup_slot.sh`, which
   runs on Linux).
-- `tools/heavy --class correctness CMD` puts a gate a merge waits on
-  ahead of every other waiter. A waiter names each holder (PID, minutes
-  held, command) after a minute and every ten minutes, and gives up
-  after `RIG_HEAVY_WAIT` seconds (45 minutes) with exit status 75;
-  `tools/heavy --status` shows the holders and the queue and takes no
-  slot (`test/cli/heavy_class.sh`).
 - `test/cli/agree.sh` fails on macOS when `lake` is missing, and says
   it skipped on stderr elsewhere; it fails, too, when fewer programs
   than its floor (22) are in λRig's scope, or when lrig writes a line it
@@ -1308,6 +1337,29 @@ arms.
 
 ### Runtime
 
+- **HashMap's lookups carry no safety test its invariants rule out** (`src/unordered.zig`). The shift is a `u6`, so finding a home group no longer tests that it is below 64. A slot's index from its group and lane, a matched slot's address, the slots' unwrap, and the counts a take lowers go untested in release, as the table's invariants keep each in range; a debug build still tests every invariant. The prelude's entry index reaches the table by a bit cast, which a debug build's index test covers. A take clears its lane by writing its group whole, so the next probe's load of the group is not held up by a byte's store. bench/hash's guard runs 15 to 32% fewer instructions on HashMap's hits, walks and turnover; on an M5 and on pup its hits are 10 to 35% faster and its removes 10 to 50% faster.
+- **A trim gives back its pages in one call** (`alloc.Batch`): a sleeping worker's trim of its heap gives back its free spans' pages, its kept blocks' pages and its wholly free class pages together, in one `process_madvise` of the process on Linux (6.15 and later; a `madvise` a range before), where it made a `madvise` a range. Each call that drops pages interrupts every other core running the program to flush its TLB, so the cores still working take one shootdown a trim. On Trig at eight checkers (nuxt) the trims' flushes fall from 190 to 260 a run to the trims' own 8 calls, and the TLB shootdowns the cores take by 8 to 13%; on webpack at four checkers by 21%.
+- **Frees of another thread's small blocks go to their heap a batch at a
+  time** (`alloc.Heap.freeSmall`): a block of at most 1 KiB freed on a
+  thread whose heap did not make it waits on that thread's heap, in a
+  slot per class, with others of its heap, and up to 16 go onto the
+  owner's remote list with one compare-and-swap, when the slot is full,
+  when a block of another heap takes it, or when the thread trims or
+  ends. A value made on one worker and dropped on another took a
+  compare-and-swap per block. On Trig on pup the remote compare-and-swaps fall by 75% on webpack at
+  four checkers and by 59 to 63% on nuxt at four and eight, and the
+  allocator's cycles on webpack by 21%, with CPU time and peak memory
+  unchanged.
+- **An allocation fetches the line of its class's next free block** (`alloc.prefetchNext`): the free list's new head is prefetched for writing as a block is handed out, so the next allocation of the class does not wait on memory for its link. On Trig at four checkers (pup, P-cores) the allocator's own cycles are 6 to 17% fewer.
+- **A dropped Table's range keeps its advice for huge pages** (`alloc.unreserveTable`): on Linux it is no longer advised for small pages again as it is given back, which changed the region's mapping under the lock every running thread's faults wait on; a Table that takes the range when no 2 MiB blocks are spare asks for small pages then (`reserveTable`). On Trig at eight checkers the advice calls at a drop fall from 380 a run to 2.
+- **A large block that shrinks keeps its place** (`alloc.shrinkLarge`):
+  a span gives the units past its new length back to its heap as a free
+  span, joined with the free span after it, and a mapping of its own
+  gives its pages past the new length back to the system, where the
+  release allocator copied every shrink into a new block. `List.fit`
+  and `String.fit` (a file read into room it did not fill) so cut a
+  large buffer with no copy.
+- **std.text's search compares 32 bytes at a time past a text's first 256 places on x86-64 with AVX2, and 64 with AVX-512BW** (`step_lanes`, one step routine whose width std/text.zig chooses by target from bench/text/sweep.zig's measurements; bench/text/README.md, "The sweep"). Shorter texts and aarch64 run the code they ran. On pup's E-core a 3- or 12-byte search is 9 to 11% faster over 1 KiB, 25 to 30% over a 4 KiB miss, and 21 to 34% over the whole of lib.dom.d.ts; one of 320 bytes is 6 to 13% slower.
 - **An actor's method run from its mailbox is stopped by a signal:** the
   runtime's functions that run a method (`callAs`, `actorCall`, the
   mailbox's `Call.run`, and `actorSpawn`'s task) lie in the program's

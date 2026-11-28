@@ -178,6 +178,15 @@ inline fn isNotOverflowed(pg: *const Group, tag: u8) bool {
     return pg.m[W - 1] & (@as(u8, 1) << @as(u3, @truncate(tag))) == 0;
 }
 
+/// Write lane `lane` of group `pg` as `x`: the group written whole from a
+/// register, so the next probe's load of it takes it from the store,
+/// where a byte's store would stall it until the store is done (bench/hash's
+/// 16-key removes a third faster on an M5).
+inline fn writeLane(pg: *Group, lane: usize, x: u8) void {
+    const ids: VW = std.simd.iota(u8, W);
+    pg.m = @select(u8, ids == @as(VW, @splat(@as(u8, @truncate(lane)))), @as(VW, @splat(x)), load(pg));
+}
+
 inline fn markOverflow(pg: *Group, tag: u8) void {
     pg.m[W - 1] |= @as(u8, 1) << @as(u3, @truncate(tag));
 }
@@ -313,8 +322,9 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// The live entries.
         size: usize = 0,
         /// 64 less the log of the groups: the rotated hash's shift right
-        /// that leaves its home group.
-        shift: u8 = 63,
+        /// that leaves its home group. A `u6`, so the shift needs no test
+        /// that it is below 64: a table has 2 groups at least.
+        shift: u6 = 63,
 
         pub const empty: Self = .{};
         /// Its arguments, for `rt.typeName`.
@@ -355,10 +365,10 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// The home group, the tag and its broadcast, and the tag's class.
         const Home = struct { pos: usize, tag: u8, vtag: VW, class: u3 };
 
-        inline fn homeOf(hash: u64, shift: u8) Home {
+        inline fn homeOf(hash: u64, shift: u6) Home {
             const t = std.math.rotl(u64, hash, 8);
             return .{
-                .pos = @intCast(t >> @intCast(shift)),
+                .pos = @intCast(t >> shift),
                 .tag = reduced_table[@as(u8, @truncate(t))],
                 .vtag = tagVector(@truncate(t)),
                 // From the hash byte, which has the tag's class mod 8, so
@@ -367,7 +377,10 @@ fn Unordered(comptime K: type, comptime V: type) type {
             };
         }
 
-        /// The quadratic probe over groups.
+        /// The quadratic probe over groups. `pos` is at most `mask` and
+        /// `step` at most `mask + 1`, so neither sum can wrap; their tests
+        /// stay, as without them bench/hash's misses and small inserts
+        /// measured 2 to 4% slower on an M5, their instructions fewer.
         const Prober = struct {
             pos: usize,
             step: usize = 0,
@@ -412,7 +425,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
             groups: [*]Group,
             elements: [*]Element,
             mask: usize,
-            shift: u8,
+            shift: u6,
         };
 
         /// New arrays for `n` slots or more, every group free and the
@@ -451,29 +464,62 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// which `rig run` and the suite make, tests that `i` is a slot
         /// and, where `full`, that it holds an entry, so a bug in the
         /// table panics there rather than reading past the slots (the
-        /// panel's decision 10).
+        /// panel's decision 10). The prelude's `Int` index reaches it by
+        /// `@bitCast`, so a negative one is a slot past the slots there.
         inline fn slotAt(self: *const Self, i: usize, comptime full: bool) *Element {
             if (builtin.mode == .debug) {
                 if (i >= self.slotCount()) @panic("unordered: a slot index past the slots");
                 if (full and self.groups[i / NL].m[i % NL] <= sentinel) @panic("unordered: a slot index names a free slot");
             }
-            return &self.elements.?[i];
+            return &self.slots()[i];
+        }
+
+        /// The slots of a table that has them, as one does wherever a
+        /// probe matched a tag (an empty table's groups are `Dummy`'s,
+        /// which match none: no tag is 0 or 1) or a slot was claimed (its
+        /// maximum load is 0). Release builds test nothing; a debug build
+        /// tests that the table has them.
+        inline fn slots(self: *const Self) [*]Element {
+            if (builtin.mode == .debug) {
+                if (self.elements == null) @panic("unordered: an empty table's slots");
+            }
+            @setRuntimeSafety(false);
+            return self.elements.?;
+        }
+
+        /// The index of lane `lane` of group `pos`: below the slots, whose
+        /// count was reckoned when they were made, so it cannot wrap.
+        inline fn slotIndex(pos: usize, lane: usize) usize {
+            return pos *% NL +% lane;
         }
 
         /// The slot of group `pos` at `m`'s first lane. On arm64 a 16-byte
-        /// slot's offset is `ctz << 1`, one shift folded into the address.
+        /// slot's offset is `ctz << 1`, one shift folded into the address:
+        /// `m`'s lanes are bit 0 of their bytes, so the offset is a whole
+        /// number of slots, and aligned (a debug build tests the lanes).
         inline fn slotOf(elements: [*]Element, pos: usize, m: Mask) *Element {
             if (group8 and @sizeOf(Element) == 16) {
-                const base: [*]u8 = @ptrCast(elements + pos * NL);
+                if (builtin.mode == .debug) {
+                    if (m == 0 or m & ~slot_lanes != 0) @panic("unordered: a lane mask with no lane or past the lanes");
+                }
+                const base: [*]u8 = @ptrCast(elements + slotIndex(pos, 0));
+                @setRuntimeSafety(false);
                 return @ptrCast(@alignCast(base + (@as(usize, @ctz(m)) << 1)));
             }
-            return &elements[pos * NL + laneOf(m)];
+            return &elements[slotIndex(pos, laneOf(m))];
         }
 
         /// The index of slot `p`: an exact division, so a caller that
         /// makes the slot's address again from the index gets `p` back
-        /// with no arithmetic.
+        /// with no arithmetic. `p` is a slot of `es`, so the difference
+        /// neither wraps nor leaves a remainder: release builds test
+        /// neither, and a debug build both.
         inline fn indexOf(es: [*]Element, p: *const Element) usize {
+            if (builtin.mode == .debug) {
+                const d = @intFromPtr(p) -% @intFromPtr(es);
+                if (@intFromPtr(p) < @intFromPtr(es) or d % @sizeOf(Element) != 0) @panic("unordered: a slot not of the slots");
+            }
+            @setRuntimeSafety(false);
             return @divExact(@intFromPtr(p) - @intFromPtr(es), @sizeOf(Element));
         }
 
@@ -483,23 +529,27 @@ fn Unordered(comptime K: type, comptime V: type) type {
 
         /// The slot of `k`, whose hash is `hash`. The home group is peeled
         /// from the probe: a hit in its first matching lane takes no loop,
-        /// and the overflow byte is read only on the way to a miss.
+        /// and the overflow byte is read only on the way to a miss. The
+        /// slot's index is made from its group and lane, not divided out of
+        /// its address: with the division untested, LLVM laid the miss
+        /// path out with a second taken branch, and bench/hash's misses ran
+        /// 3 to 11% slower on an M5.
         inline fn locate(self: *const Self, k: KeyView, hash: u64) ?Found {
             const h = homeOf(hash, self.shift);
             const pg = &self.groups[h.pos];
             var m = matchTag(load(pg), h.vtag);
             if (m != 0) {
-                const es = self.elements.?;
-                if (prefetch_slots) @prefetch(@as([*]const u8, @ptrCast(es + h.pos * NL)), .{ .rw = .read, .locality = 3, .cache = .data });
+                const es = self.slots();
+                if (prefetch_slots) @prefetch(@as([*]const u8, @ptrCast(es + slotIndex(h.pos, 0))), .{ .rw = .read, .locality = 3, .cache = .data });
                 const p = slotOf(es, h.pos, m);
                 if (keyMatches(p, k)) {
                     @branchHint(.likely);
-                    return .{ .pg = pg, .lane = laneOf(m), .i = indexOf(es, p), .p = p };
+                    return .{ .pg = pg, .lane = laneOf(m), .i = slotIndex(h.pos, laneOf(m)), .p = p };
                 }
                 m &= m - 1;
                 while (m != 0) : (m &= m - 1) {
                     const q = slotOf(es, h.pos, m);
-                    if (keyMatches(q, k)) return .{ .pg = pg, .lane = laneOf(m), .i = indexOf(es, q), .p = q };
+                    if (keyMatches(q, k)) return .{ .pg = pg, .lane = laneOf(m), .i = slotIndex(h.pos, laneOf(m)), .p = q };
                 }
             }
             if (classClear(pg, h.class)) {
@@ -519,8 +569,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 const pg = &self.groups[pos];
                 var m = matchTag(load(pg), h.vtag);
                 while (m != 0) : (m &= m - 1) {
-                    const p = slotOf(self.elements.?, pos, m);
-                    if (keyMatches(p, k)) return .{ .pg = pg, .lane = laneOf(m), .i = indexOf(self.elements.?, p), .p = p };
+                    const p = slotOf(self.slots(), pos, m);
+                    if (keyMatches(p, k)) return .{ .pg = pg, .lane = laneOf(m), .i = slotIndex(pos, laneOf(m)), .p = p };
                 }
                 if (classClear(pg, h.class)) return null;
             }
@@ -541,7 +591,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                     @branchHint(.likely);
                     const lane = laneOf(free);
                     pg.m[lane] = tag;
-                    return pb.pos * NL + lane;
+                    return slotIndex(pb.pos, lane);
                 } else markOverflow(pg, tag);
             }
         }
@@ -569,8 +619,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 const vec = load(pg);
                 var m = matchTag(vec, h.vtag);
                 while (m != 0) : (m &= m - 1) {
-                    const p = slotOf(self.elements.?, pos, m);
-                    if (keyMatches(p, k)) return .{ .i = indexOf(self.elements.?, p), .new = false };
+                    const p = slotOf(self.slots(), pos, m);
+                    if (keyMatches(p, k)) return .{ .i = indexOf(self.slots(), p), .new = false };
                 }
                 if (free_pg == null) {
                     const f = matchFree(vec);
@@ -591,6 +641,12 @@ fn Unordered(comptime K: type, comptime V: type) type {
             if (free_pg) |pg| {
                 @branchHint(.likely);
                 pg.m[free_lane] = h.tag;
+                // The index keeps its test here, unlike `slotIndex`: an
+                // insert into a small table, whose next probe often loads
+                // the group this byte went to, measured 13% slower on an M5
+                // without it (bench/hash's rnd16 inserts), its instructions
+                // fewer; and written whole, as `writeLane` writes, slower
+                // still.
                 return .{ .i = free_pos * NL + free_lane, .new = true };
             }
             // Every group the find passed is full: the one it stopped at
@@ -616,7 +672,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
             var vec = load(pg);
             var m = matchTag(vec, h.vtag);
             while (m != 0) : (m &= m - 1) {
-                const p = slotOf(self.elements.?, h.pos, m);
+                const p = slotOf(self.slots(), h.pos, m);
                 if (keyMatches(p, k)) return .{ .p = p, .new = false };
             }
             var free_pg: ?*Group = null;
@@ -637,7 +693,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 vec = load(pg);
                 m = matchTag(vec, h.vtag);
                 while (m != 0) : (m &= m - 1) {
-                    const p = slotOf(self.elements.?, pb.pos, m);
+                    const p = slotOf(self.slots(), pb.pos, m);
                     if (keyMatches(p, k)) return .{ .p = p, .new = false };
                 }
             }
@@ -650,14 +706,14 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 if (free_pg) |fpg| {
                     @branchHint(.likely);
                     fpg.m[free_lane] = h.tag;
-                    break :blk free_pos * NL + free_lane;
+                    break :blk slotIndex(free_pos, free_lane);
                 }
                 const a = self.arrays();
                 markOverflow(&a.groups[pb.pos], h.tag);
                 _ = pb.next(a.mask);
                 break :blk emplaceFrom(a, pb, h.tag);
             };
-            return .{ .p = &self.elements.?[i], .new = true };
+            return .{ .p = &self.slots()[i], .new = true };
         }
 
         /// A slot claimed for a key known to be absent.
@@ -682,7 +738,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
         }
 
         inline fn arrays(self: *const Self) Arrays {
-            return .{ .groups = self.groups, .elements = self.elements.?, .mask = self.mask, .shift = self.shift };
+            return .{ .groups = self.groups, .elements = self.slots(), .mask = self.mask, .shift = self.shift };
         }
 
         /// The slots growth makes room for: `(size + size/61 + 1) / max
@@ -708,7 +764,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                     for (0..self.mask + 1) |g| {
                         var m = matchFull(&self.groups[g]);
                         while (m != 0) : (m &= m - 1) {
-                            const e = &es[g * NL + laneOf(m)];
+                            const e = &es[slotIndex(g, laneOf(m))];
                             new.elements[emplace(new, hashOf(e))] = e.*;
                         }
                     }
@@ -730,7 +786,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// (a 16-byte load over a pending 1-byte store waits for it to
         /// commit: bench/hash's 100,000-key inserts 12% slower on pup when
         /// half the entries met it). An entry that overflowed, or whose new
-        /// group is full, is placed by `emplace`, and the counts follow it.
+        /// group is full, is placed by `emplace`, and the counts follow it;
+        /// each counts a group's lanes, so none can wrap.
         /// Groups of 7 on arm64 keep the placement of `emplace`: random
         /// keys alternate between the pair, so the waits there are short
         /// and the M5 hides them, and the counts cost its random-key
@@ -746,7 +803,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 // The last group's last lane holds the sentinel.
                 const odd_lanes: usize = if (pair + 1 == new.mask) NL - 1 else NL;
                 while (m != 0) : (m &= m - 1) {
-                    const e = &es[g * NL + laneOf(m)];
+                    const e = &es[slotIndex(g, laneOf(m))];
                     const hash = hashOf(e);
                     const h = homeOf(hash, new.shift);
                     const is_odd = h.pos & 1 != 0;
@@ -756,14 +813,14 @@ fn Unordered(comptime K: type, comptime V: type) type {
                     if (h.pos >> 1 == g and lane < lanes) {
                         @branchHint(.likely);
                         new.groups[h.pos].m[lane] = h.tag;
-                        slot = h.pos * NL + lane;
-                        even += @intFromBool(!is_odd);
-                        odd += @intFromBool(is_odd);
+                        slot = slotIndex(h.pos, lane);
+                        even +%= @intFromBool(!is_odd);
+                        odd +%= @intFromBool(is_odd);
                     } else {
                         slot = emplace(new, hash);
                         const pos = slot / NL;
-                        if (pos == pair) even += 1;
-                        if (pos == pair + 1) odd += 1;
+                        if (pos == pair) even +%= 1;
+                        if (pos == pair + 1) odd +%= 1;
                     }
                     new.elements[slot] = e.*;
                 }
@@ -772,10 +829,16 @@ fn Unordered(comptime K: type, comptime V: type) type {
 
         /// The slot `p`, whose entry is moved out or dropped, freed; the
         /// maximum load lowered by one where a probe may walk past it.
+        /// The size is at most the maximum load, as every insert finds
+        /// it below and every take lowers both, and at least 1 with an
+        /// entry there: neither count can wrap (a debug build tests it).
         inline fn recover(self: *Self, pg: *Group, lane: usize) void {
-            self.ml -= @intFromBool(!isNotOverflowed(pg, pg.m[lane]));
-            pg.m[lane] = 0;
-            self.size -= 1;
+            if (builtin.mode == .debug) {
+                if (self.size == 0 or self.ml < self.size) @panic("unordered: a take with the counts awry");
+            }
+            self.ml -%= @intFromBool(!isNotOverflowed(pg, pg.m[lane]));
+            writeLane(pg, lane, 0);
+            self.size -%= 1;
         }
 
         // the built-in's members ////////////////////////////////////////////
@@ -817,17 +880,17 @@ fn Unordered(comptime K: type, comptime V: type) type {
 
         /// `key(?@, j: Int) -> ?K`.
         pub inline fn key(self: *const Self, j: i64) KeyView {
-            return rt.readView(&self.slotAt(@intCast(j), true).key);
+            return rt.readView(&self.slotAt(@bitCast(j), true).key);
         }
 
         /// `value(?@, j: Int) -> ?V`.
         pub inline fn value(self: *const Self, j: i64) rt.ReadView(V) {
-            return rt.readView(&self.slotAt(@intCast(j), true).value);
+            return rt.readView(&self.slotAt(@bitCast(j), true).value);
         }
 
         /// `value_mut(!@, j: Int) -> !V`.
         pub inline fn value_mut(self: *Self, j: i64) ValPtr {
-            return &self.slotAt(@intCast(j), true).value;
+            return &self.slotAt(@bitCast(j), true).value;
         }
 
         /// `put(!@, k: K, v: V) -> Bool`: `v` under `k`; a key already
@@ -837,7 +900,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
             var kk = k;
             const h = hashKey(rt.readView(&kk));
             const c = self.claim(rt.readView(&kk), h);
-            const e = &self.elements.?[c.i];
+            const e = &self.slots()[c.i];
             if (!c.new) {
                 rt.dropElement(K, &kk);
                 dropValue(&e.value);
@@ -854,7 +917,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
             var kk = k;
             const h = hashKey(rt.readView(&kk));
             const c = self.claim(rt.readView(&kk), h);
-            const e = &self.elements.?[c.i];
+            const e = &self.slots()[c.i];
             if (!c.new) {
                 rt.dropElement(K, &kk);
                 const old = e.value;
@@ -894,7 +957,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 return &c.p.value;
             }
             c.p.* = makeElement(kk, vv, h);
-            len.* = @intCast(self.size);
+            len.* = @bitCast(self.size);
             return &c.p.value;
         }
 
@@ -908,7 +971,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 rt.dropElement(V, &vv);
                 return c;
             }
-            self.elements.?[c.i] = makeElement(kk, vv, h);
+            self.slots()[c.i] = makeElement(kk, vv, h);
             return c;
         }
 
@@ -919,7 +982,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
             var kk = k;
             const h = hashKey(rt.readView(&kk));
             const i = self.claimNew(h);
-            self.elements.?[i] = makeElement(kk, v, h);
+            self.slots()[i] = makeElement(kk, v, h);
             return @intCast(i);
         }
 
@@ -937,7 +1000,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
 
         /// `count(?@) -> Int`: the live entries.
         pub inline fn count(self: *const Self) i64 {
-            return @intCast(self.size);
+            return @bitCast(self.size);
         }
 
         /// `next_slot(?@, g: !Int, lanes: !Int) -> Int`: the next full
@@ -946,7 +1009,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// not yet given, so a step within a group clears one bit and the
         /// walk's state stays in two words the caller holds.
         pub inline fn next_slot(self: *const Self, g: *i64, lanes: *i64) i64 {
-            const groups: i64 = if (self.elements != null) @intCast(self.mask + 1) else 0;
+            const groups: i64 = if (self.elements != null) @bitCast(self.mask +% 1) else 0;
             var at = g.*;
             var m: Mask = @truncate(@as(u64, @bitCast(lanes.*)));
             while (m == 0) {
@@ -958,10 +1021,10 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 }
                 m = matchFull(&self.groups[@as(usize, @bitCast(at))]);
             }
-            const slot = @as(usize, @bitCast(at)) * NL + laneOf(m);
+            const slot = slotIndex(@bitCast(at), laneOf(m));
             g.* = at;
             lanes.* = @bitCast(@as(u64, m & (m -% 1)));
-            return @intCast(slot);
+            return @bitCast(slot);
         }
 
         /// `update(!@, f: ?sub(?K, !V))`: `f` called with each entry's key
@@ -971,7 +1034,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
             for (0..self.mask + 1) |g| {
                 var m = matchFull(&self.groups[g]);
                 while (m != 0) : (m &= m - 1) {
-                    const entry = &es[g * NL + laneOf(m)];
+                    const entry = &es[slotIndex(g, laneOf(m))];
                     f.call(.{ rt.readView(&entry.key), &entry.value });
                 }
             }
@@ -987,7 +1050,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 var m = matchFull(pg);
                 while (m != 0) : (m &= m - 1) {
                     const lane = laneOf(m);
-                    const e = &es[g * NL + lane];
+                    const e = &es[slotIndex(g, lane)];
                     const keep = if (is_set)
                         f.call(.{rt.readView(&e.key)})
                     else
@@ -1036,7 +1099,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 g -= 1;
                 var m = matchFull(&self.groups[g]);
                 while (m != 0) : (m &= m - 1) {
-                    const e = &es[g * NL + laneOf(m)];
+                    const e = &es[slotIndex(g, laneOf(m))];
                     dropValue(&e.value);
                     dropKey(&e.key);
                 }
@@ -1061,7 +1124,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
             for (0..self.mask + 1) |g| {
                 var m = matchFull(&self.groups[g]);
                 while (m != 0) : (m &= m - 1) {
-                    const e = &es[g * NL + laneOf(m)];
+                    const e = &es[slotIndex(g, laneOf(m))];
                     const h = hashOf(e);
                     a.elements[emplace(a, h)] = makeElement(cloneKey(&e.key), cloneVal(&e.value), h);
                 }
@@ -1101,7 +1164,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 while (m != 0) : (m &= m - 1) {
                     full += 1;
                     const lane = laneOf(m);
-                    const e = &self.elements.?[g * NL + lane];
+                    const e = &self.elements.?[slotIndex(g, lane)];
                     const h = homeOf(hashOf(e), self.shift);
                     if (h.tag != self.groups[g].m[lane]) return error.Corrupt;
                     var pb: Prober = .{ .pos = h.pos };
