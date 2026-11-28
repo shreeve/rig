@@ -126,6 +126,11 @@ backend needs belongs here, if `architecture.md` puts it here.
 The docs revamp, the CHANGELOG, HANDOFF, and the release. A final
 board against `revamp-base`, recorded.
 
+The rebuild closed with v0.4.0. Two passes ended over their budgets:
+emit with facts and ownership, whose remaining lines go to the cleanup
+round; the ledger's entry of 2026-11-26 to 27 gives the numbers and
+what would reach each budget.
+
 ## Two kinds of step
 
 **An identity step** changes how Rig is built, not what it does. Its

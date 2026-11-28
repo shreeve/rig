@@ -48,14 +48,40 @@ A new session, human or agent, takes these steps in order:
 
 ## Current state
 
-- **Release:** `v0.3.0` is the latest release (Zig 0.17.0, Nexus
-  2.0.0). What changed since `v0.2.9`, the renames and removed
-  spellings included, is in [CHANGELOG.md](CHANGELOG.md), and
-  [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md) migrates a 0.2 program.
+- **Release:** `v0.4.0` (2026-11-27) is the latest release (Zig
+  0.17.0, Nexus 2.0.0); its summary is
+  [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md). What changed since
+  `v0.3.0`, with every form 0.3.0 accepted that 0.4.0 rejects, is in
+  [CHANGELOG.md](CHANGELOG.md), and
+  [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md) migrates a 0.2 program
+  to 0.3 and, in its last section, a 0.3.0 program to 0.4.0.
 - **Releases:** every change, fixes included, ships in the current
-  line, `v0.3.x`; an earlier line gets no further releases. Rounds land
-  on `main` untagged until the next tag; its release notes include a
-  migration guide for the renames (`tools/migrate-0.3.py`).
+  line, `v0.4.x`; an earlier line gets no further releases. Rounds land
+  on `main` untagged until the next tag; its release notes list each
+  form the release rejects that the last one accepted, with its
+  migration script.
+- **The compiler rebuild is closed** ([docs/internals/rebuild.md](docs/internals/rebuild.md),
+  its [ledger](docs/history/records/rebuild/ledger.md)): the compiler
+  was rebuilt in place, pass by pass, measured against the tag
+  `revamp-base`. `v0.4.0` carries one type store for the program, names
+  keyed by leaf id, one constant evaluator, sema checking each module
+  once, each module lowered to LIR as it is checked with each
+  operation's kind, call record, operand role, and place decided there
+  (typed operations), the storage deciders in lowering (`storage.zig`
+  is gone), the ownership checker walking each body region by region
+  and ending a view at its last use on the LIR's control flow, the
+  proofs, frame accounts, and inlining on LIR, and emit printing its
+  storage decisions, coercions, and call forms from LIR. `rig check` of
+  Trig took 1.95 s and 397 MB at main 87e9b559a, where it took 3.95 s
+  and 620 MB at `revamp-base` (fastest of 7 on burst, under load); on
+  the Mac it retired 16.41G instructions before typed operations and
+  16.18G after the last-use step. Two passes end over the budgets the
+  rebuild set (typed-ops design): emit with facts is 13,470 lines
+  against about 12,000, reachable only by merging emit's argument path
+  and answers into the call record (families E3 and E4; E5, places in
+  emit, was decided no), and ownership is 11,508 against about 9,000,
+  reachable only by a region-driven transfer, one function per LIR step
+  kind, which needs a design round. Both go to the cleanup round.
 - **Build modes:** debug (the default, leak-checked) and `--release`
   (Zig's safe mode). No mode drops a check; a program opts out only in
   its source, with `+%`, `-%`, `*%`, or a `raw` block. `--release=fast`
@@ -125,20 +151,6 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **CORE review 3** (owner approved the defaults 2026-11-26; branch
-  `core-three`, draft PR): CORE states that a call evaluates its
-  arguments in the order it writes them, that a `drop` body's drop is
-  the last use of the views its value holds, and that what leaves a
-  scope is live through its defers; emit copies a fixed view binding
-  where it stands, and the reference checker models the other two.
-- **Loans end at their last use** (family P of the ownership rebuild;
-  branch `last-use`, draft PR): liveness on each body's LIR flow
-  (`live.Flow`) in place of source positions. The owner reviews the
-  list of programs whose verdict changes before it merges
-  (`~/Data/Code/Claude/rig/rig/rebuild/last-use-verdicts.md`); nothing
-  is newly rejected. Two cases of `ownership-last-use.rig.test` stay
-  `known`: a capture of a write-view binding, and a view whose branch
-  differs in each pass.
 - **Datetime** (owner's design v3, 2026-11-17, amended 2026-11-20 and 2026-11-22;
   [design/datetime.md](docs/design/datetime.md)): phase 0 measured the
   `Duration` layout, generated and checked the zone tables, and built the
@@ -461,7 +473,7 @@ A new session, human or agent, takes these steps in order:
   number is seconds, an `Int` or a `Float`, and `ms:`, `us:`, `ns:`
   name the other units, wherever a duration is taken; `per:` is seconds. It changes what a
   0.3.0 program means, so `tools/migrate-durations.py` rewrites one
-  (MIGRATING-0.3, "From 0.3.0 to 0.3.1"), and Trig and loco get its
+  (MIGRATING-0.3, "From 0.3.0 to 0.4.0"), and Trig and loco get its
   note before it merges.
 - **A ternary's condition binds names** (owner, 2026-11-04), built:
   `v.id if r.decl as v else 0` and `r * r if s matches .circle(r) else
@@ -517,6 +529,17 @@ A new session, human or agent, takes these steps in order:
   on zod3). It lands on Trig's zod3 timing under `--pgo`.
 
 ## Next, in order
+
+1. **The cleanup round** for Rig and Trig, which the rebuild hands
+   on: emit's and ownership's lines (E3 and E4 for emit; a design
+   round for ownership's region-driven transfer), the dead and
+   duplicate code a coverage run finds, and the docs.
+2. **The v1.0 language list,** under review by the owner
+   (`~/Data/Code/Claude/rig/rig/v1-review/SYNTHESIS.md`, not yet
+   approved): did-you-mean errors that name the std function, one
+   spelling each for constructors and membership, `for k, v` over a
+   Map, typed std error sets, checked format specs in templates, and
+   the rest of its list.
 
 The owner's priority is Trig's speed against tsrs; memory counts where
 it buys speed. Trig checks with several checkers in tasks, and its
@@ -656,8 +679,8 @@ The North Star (AGENTS.md) and `docs/CORE.md` are fixed points.
 - **The weak spots and open questions** in
   [docs/internals/weak-spots.md](docs/internals/weak-spots.md), bug
   fixes, docs, tests, and speed.
-- **Language and library work toward `v0.3.1` and Trig,** listed in
-  [docs/ROADMAP.md](docs/ROADMAP.md). Each fits the Core.
+- **Language and library work toward the next release and Trig,**
+  listed in [docs/ROADMAP.md](docs/ROADMAP.md). Each fits the Core.
 
 **Needs the design owner first:**
 

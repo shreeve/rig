@@ -56,7 +56,7 @@ The model of [CONCURRENCY](design/concurrency.md) is built ([SPEC §18](../SPEC.
 
 - **Files and I/O**: a file layer with one `read`/`write` shape for files, sockets, and HTTP bodies; DNS; then TLS and an HTTP client.
 - **Checking the runtime**: the next slices of the model's proofs ([design/concurrency](design/concurrency.md), "Proof obligations"), and model checking (TLA+, GenMC) before more hand proofs.
-- **Tasks as small and as cheap as the best runtimes'** (the owner, 2026-11-04, for v0.3.1; [concurrency-review](history/records/2026-11/concurrency-review/SYNTHESIS.md)), in this order:
+- **Tasks as small and as cheap as the best runtimes'** (the owner, 2026-11-04, for the release after v0.3.0; [concurrency-review](history/records/2026-11/concurrency-review/SYNTHESIS.md)), in this order:
   - measure first: the stack a parked task has live, the page tables `ru_maxrss` does not count, and bench/tasks against Tokio, Rayon, Go, and Swift, scaling over cores too;
   - the cheap fixes (built): the deadlock walk off task stacks, free stacks shared between workers and returned in runs, small-page advice on stacks, and every signal handler on the alternate stack;
   - counted loops strip-mined, with one yield check for each block of turns, for `fanout`;
@@ -88,7 +88,7 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 
 - **The rest of the standard library** ([STD.md](STD.md) lists what exists): collections, strings, I/O, and allocators, written in Rig over small Zig files. Next for the Zig-backed declarations: Zig-backed types (`obj File owns`, with the kinds `copy`, `owns`, and `view`), and generic ones with declared requirement bounds, which a body-less declaration needs since the checker cannot infer them.
   Settled so far: containers of owning values give views of elements as `?v[i]` and `!v[i]`; a generic method call on a `T` is checked at each use; a `[]U8` goes to C as a pointer plus a separate length, and a NUL-terminated copy is made explicitly.
-- **Packages**: depending on another person's Rig code by name and version; today `use` finds modules by path only (SPEC §14). A design round after v0.3.1.
+- **Packages**: depending on another person's Rig code by name and version; today `use` finds modules by path only (SPEC §14). A design round after v0.4.0.
 - **std.json's writer**: std.json reads; it does not yet write.
 - **The rest of std.terminal** ([design/terminal.md](design/terminal.md), "What is not built"): a reading API for a renderer (cells, styles, the cursor, and which rows changed); then OSC (titles, palette and color queries, hyperlinks, the clipboard), then mouse and focus reporting; resize and reflow; and `std.tty` (raw mode, size, PTYs) last. The order is the owner's to choose.
 - **Dates, times and zones** ([design/datetime.md](design/datetime.md), the owner's, 2026-11-17, amended 2026-11-20 and 2026-11-22), in phases: `std.time`'s `Duration` and `Monotonic` (phase 1, built); several unit keywords in one call, `add(hours: 1, minutes: 30)` (1b, built); then `std.datetime`'s `Date`, `Time`, `DateTime` and `Weekday` (2, built), `Instant` and `datetime.now()`, which replaces `time.unix_ns()` (3, built); then "total or visible", no call that panics, with a 16-byte `Duration`, applied to phases 1 to 3 (after error traces and constant arguments, under Language); then `TimeZone` and the embedded zone data (4, built), `ZonedDateTime` (5, built), and `format` and `try_format`, with the journey on dates and times (6, built). `Duration` has no operators.

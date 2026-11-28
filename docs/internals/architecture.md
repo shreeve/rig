@@ -16,8 +16,8 @@ gives the choice and the reason.
 
 ## The one idea
 
-Today four parts of the compiler each model how a function runs, and
-each walks the tree on its own to do it:
+At `revamp-base`, four parts of the compiler each modeled how a
+function runs, and each walked the tree on its own to do it:
 
 - the storage plan (`src/storage.zig`);
 - the proofs' units (`src/proofs.zig`);

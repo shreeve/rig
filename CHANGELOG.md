@@ -2,13 +2,18 @@
 
 What changed in Rig, newest release first. An entry "Unreleased",
 when there is one, lists what `main` carries beyond the last tag; each
-release's notes, its summary, are in [docs/releases/](docs/releases/).
-0.3.0's "Upgrading" section goes with the migration guide,
-[docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md).
+release's notes, its summary, are in [docs/releases/](docs/releases/),
+0.4.0's in [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md). The
+"Upgrading" sections of 0.4.0 and 0.3.0 go with the migration guide,
+[docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), whose last section,
+"From 0.3.0 to 0.4.0", takes a 0.3.0 program to 0.4.0.
 [HANDOFF](HANDOFF.md) says where the work stands, and
 [docs/ROADMAP.md](docs/ROADMAP.md) lists what is planned.
 
-## Unreleased
+## v0.4.0 (2026-11-27)
+
+`v0.4.0` follows `v0.3.0` (Zig 0.17.0, Nexus 2.0.0); its summary is
+[docs/releases/v0.4.0.md](docs/releases/v0.4.0.md).
 
 ### Upgrading from v0.3.0
 
@@ -224,10 +229,10 @@ nanoseconds:** `time.sleep(5)` sleeps five seconds, and 0.3.0's
 `time.sleep(5)` is `time.sleep(ns: 5)`. `tools/migrate-durations.py
 PATH` rewrites a 0.3.0 program's durations so that each means what it
 meant; run it once ([docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md),
-"From 0.3.0 to 0.3.1"). It changes the meaning of every `time.sleep`,
+"From 0.3.0 to 0.4.0"). It changes the meaning of every `time.sleep`,
 `time.after`, `time.within`, `time.Instant.at`, and Instant `add` given
 a bare number, and of `per:` of `task.supervise` and
-`*Actor.supervised`. 0.3.1 rejects these, which 0.3.0 accepted:
+`*Actor.supervised`. 0.4.0 rejects these, which 0.3.0 accepted:
 
 - a bare duration that names one of std.time's constants, which count
   nanoseconds: `time.sleep(5 * time.MS)`, `time.sleep(time.SECOND)`,
@@ -360,6 +365,7 @@ a constant duration from one, `time.duration(D.max)` or `ns: D.inf()`
 for `type D = Float`: "`D.max` seconds is beyond a `Duration`'s range,
 about 292 billion years either way", "a duration is a finite number,
 and `D.inf()` is not". Write a constant that fits. Neither Trig nor loco has an alias of a float type.
+
 **`http.Response`'s `type` is an `http.Type`:** `.text`, `.html`,
 `.json`, `.css`, `.js`, `.csv`, `.xml`, `.svg`, `.png`, `.jpeg`,
 `.gif`, `.webp`, `.pdf`, `.wasm`, `.bytes`, or `.other(text)` for any
@@ -456,6 +462,28 @@ on after a network error pending on one connection (`ENETDOWN`,
 as after a connection its client gave up: one ended `serve`, and
 `listener.accept()` failed with it. No migration script: Trig and loco
 serve no HTTP.
+
+**Four more forms 0.3.0 accepted are rejected,** each described under
+"Compiler" below, with its fix in the message:
+
+- a `for` over a chain whose binding hides a local, `x = 1` then `for x
+  in xs.filter(f)`: "`for` binding `x` shadows the local `x`; use a
+  different name". Rename the loop's binding;
+- `for x in !out` where `out` holds a read view (`out = ?a`, a call
+  that returns one, a `?List` field or element): "cannot write-iterate
+  through a read view (`?T`)". 0.3.0 wrote through the read view, so a
+  String another view still read could be dropped and then read. Write
+  through the owner, `for x in !a`;
+- a name of `as a, b` that is a module-level declaration's, `K = 3`
+  then `if pair() as K, b`: "optional binding `K` has the same name as
+  the module-level declaration `K`". Rename the binding;
+- an object holding a generic of another module whose fields name the
+  generic's parameter as an optional, `w: w.W[Node]` in `Node` where
+  `W[T]` has `kids: List[T?]`, even one never made: "`Node?` in `w` is
+  laid out from `Node`'s layout, which needs `w` first". Hold an
+  optional view, `(?Node)?`, or a box, `^Node?`, as the message says.
+
+No script rewrites these; Trig and loco have none.
 
 ### Removed
 
@@ -736,6 +764,59 @@ serve no HTTP.
 
 ### Compiler
 
+- **The compiler rebuild** ([docs/internals/rebuild.md](docs/internals/rebuild.md),
+  its [ledger](docs/history/records/rebuild/ledger.md)): rebuilt pass
+  by pass, each step's emitted Zig identical or every difference
+  explained. `rig check` of Trig took 1.95 s and 397 MB at main
+  87e9b559a, where it took 3.95 s and 620 MB at the tag `revamp-base`
+  (fastest of 7 on burst, a shared x86-64 Linux VM, under load); on
+  the Mac, Trig's `rig check` retired 16.41G instructions before typed
+  operations and 16.18G after the last-use step. Every module interns in one type
+  store for the program, a type names its symbol by its declaration's
+  ref, and the built-ins are registered once; the facts about a leaf,
+  and the name it binds, are keyed by its leaf id in dense arrays; one
+  evaluator folds every constant; each module is lowered to LIR as it
+  is checked, with each operation's kind, each call's record, and each
+  operand's role decided there once; the ownership checker walks each
+  body region by region and finds a view's last use on its LIR, and
+  the proofs, frame accounts, and the inlining rule read the LIR too;
+  and emit reads every storage decision, coercion, and call form it
+  prints from the LIR. Emit with facts is 13,470 lines and ownership
+  11,508, over the budgets of about 12,000 and 9,000 the rebuild set;
+  both go to the cleanup round. The entries below describe each step.
+- **Lowering records each operation's kind and each call's form**
+  (`lir.OpKind`, `lir.Call`): a call's record holds the first of
+  `lir.CallKind`'s forms it fits, in the order emit's ladder asked, its
+  callee's form, its self's mode, its arguments in the order they are
+  written, and the wrappers emit opens around it; each operand's role
+  (`lir.Operand`: read, move, read view, write view, a held write view
+  passed on, or made, and where a consumed value goes) and each place's
+  path are recorded too, and the answers emit asked of each node
+  (`answerAll`) are fields of the step that owns them. A defer's one
+  statement is a statement of its own, and the checkers' LIR declares
+  each Zig temporary a self view reaches in the region that ends it.
+  Emit writes a call by one `switch` over its kind, and a call with no
+  record is an internal error, never Zig written from a guess; the
+  ownership checker reads a call's callee, self, held parts, and
+  implicit views from the record. The emitted Zig is the same.
+- **The ownership checker walks each body region by region.** A body or
+  block is walked by its LIR statement regions, a statement's set, drop,
+  destructure, return, jump, or defer from its region's steps, and a
+  branch, loop body, or `catch` handler from its region as a statement
+  is; a hidden var ends where its region ends, and a header's or a
+  call's temporaries end by the region their expression is. A node the
+  walk reaches with no LIR is an internal error in every build, the
+  tree walk it fell back to is gone, and so is the hold of an argument
+  as a copy, which lowering never makes. Every program's diagnostics are
+  the same.
+- **The compiler and the runtime share their arithmetic rules and
+  names:** `src/arith.zig`, written beside the runtime, holds the
+  longest length, a shift amount's range and its message, a signed `%`
+  by -1, a `Duration`'s range, and the conversion of seconds to
+  nanoseconds, which cteval, the proofs, sema, and the checker read as
+  source; `src/names.zig` holds a renamed name's mark and the
+  `__rig_*` declarations the runtime finds by name. The emitted Zig is
+  the same.
 - **`prefetch` asks for a byte of text** ([SPEC "Slices"](SPEC.md#slices)): `s.prefetch(i)` of a `String`, a `?String`, or a `Static` asks for byte `i` by the rules of a List's: one prefetch instruction, no range test, nothing on a target without one. It was rejected ("`prefetch` asks for an element of a List, an array, or a slice, and `Static` is text"); a `String`'s other element methods (`sum`, `fill`, ...) stay unknown.
 - **A signed integer narrowed to an unsigned type is tested once.** `U32(x)` of an `Int` is `@as(u32, @intCast(@as(u64, @bitCast(@as(i64, x)))))`, in place of an `@intCast` to `u64` first: a negative value's bits are above the target's largest value, so the one unsigned compare of the narrowing rejects it, with the same panic ("integer does not fit in destination type"), where the sign was tested apart. `$fromBackingInt` keeps both tests, as an enum's backing type may be as wide as the value. Only those conversions' emitted Zig changes.
 - **A call evaluates its arguments in the order it writes them** (CORE §6, "Evaluation order"; CORE sentence 6 and §7 "Defer" state the drop and the defer orders the checker already kept). A fixed view binding (`r =! ?v[0]`) read as an argument is copied where it stands, as a plain binding is, where emit read it late (`lower.isPureArg` no longer counts it pure), and the checker's rule that read a call's pure arguments after the others is gone, so the checker checks the order emit runs. A held write view read as plain data by a parameter of a plain type is copied there and passes no view on (`sema.copiedOut`). These are accepted now, and run clean: a keyword argument `f(b: r, a: bump(!v))`, a write view one `f(b: w, a: bump(!v))`, a hoisted argument beside a fallible one `g(String("x"), r, bump(!v)!)`, an argument beside a closure literal `apply(r, |x| x + 1, bump(!v))`, an assigned value before its index `xs[bump(!v)] = r`, and a compound one `xs[bump(!v)] += w`, with `r =! ?v[0]` and `w =! !v[0]`; and a held write view given twice as a constructor's plain fields, `Q(p: w, o: w)`. The reference checker drops the old value of a reassigned name whose `drop` body reads views after the new value is made, and keeps a write-view `break` value's loan through the loop body's defers, as the compiler does; nothing is newly rejected.
@@ -1083,6 +1164,26 @@ arms.
 
 ### Tests
 
+- **An unlisted difference fails the oracle run.** A compiler
+  rejection the reference checker accepts fails the run unless
+  `test/oracle/differences` lists it, as a listed one that is gone
+  already did; the file lists the 109 that were unlisted (224 in all),
+  each classed `ref-gap`, `prod-strict`, or `core-gap`, and
+  `test/cli/oracle_differences.sh` checks both failures.
+- **`oracle.trig`** checks Trig with the reference checker when `TRIG`
+  names a checkout or `~/Data/Code/trig` exists, held to `differences`
+  and `rejections` under the program name `trig`: it decides 10,275 of
+  Trig's functions and rejects none. A task's waited result narrows
+  the views it holds through a write view, as Core sentence 7 says.
+- **Cases for 18 blocks of `src/emit.zig` no test reached,** found by
+  a coverage run, each clean under `RIG_SANITIZE=1`; and
+  `ownership-last-use.rig.test`, the views that end at their last use
+  and the eight that must stay rejected.
+- **The runners take their parallelism without `$CPUQ_CORES`:** each
+  command a case runs starts as `cpuq run -- CMD` where `cpuq` is on
+  `PATH` (`RIG_NO_CPUQ=1` starts them plain), and a script marked
+  `# cpus: N` with N above 1 runs outside the pool.
+
 - A change to the release allocator, the scheduler, or another path only
   a release build takes passes a release Trig before it merges (AGENTS.md,
   "How a change is made"): Trig's `tools/release-check SHA BRANCH` builds
@@ -1192,6 +1293,10 @@ arms.
 
 ### Docs
 
+- [docs/design/reactivity.md](docs/design/reactivity.md) plans
+  reactivity as a library, `std.signal` (`Signal`, `Computed`,
+  `Effect`), never syntax, and says what must be true before it is
+  built.
 - STD's "Table and Slot" teaches a store of several Tables of one `n`:
   one Table gives each id by `push` and the others are written at it,
   a slot of any of them reads with no test, and their lengths need not

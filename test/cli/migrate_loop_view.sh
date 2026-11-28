@@ -75,7 +75,7 @@ sub main()
     break val(!n)
   print(a, t, k, v)
 EOF
-# The fixtures are 0.3.0 programs, which 0.3.1's loop rules reject
+# The fixtures are 0.3.0 programs, which 0.4.0's loop rules reject
 # (`while true` is `loop`, and only a `loop` gives a value), so they are
 # not checked here: the scan reads their text.
 cp -R tree before

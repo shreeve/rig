@@ -8389,12 +8389,12 @@ A view passed to a call ends when the call returns, so two calls in one
 statement may each make a write view of the same value. A method call
 views its self for the whole call, so `rc.show(<rc)` is rejected. A view
 stored in a binding, or in a view ([below](#second-class-views)), lasts
-until its last use. Every later use counts: a use further on, a use
+until its last use. Every later use on a path the code runs counts: a use further on, a use
 anywhere in a loop around it that the binding was declared outside of
 (the next iteration runs it again), a use in a `while` step, which
 counts after the body, where the step runs ([while](#while)), a closure that captured it (and
 every use of that closure), a binding that views the view in turn,
-deferred code, and the drop at scope exit of a value whose drop runs a
+deferred code, where it runs, at its scope's exits, and the drop at scope exit of a value whose drop runs a
 `drop` body (its own, or one of a value it holds and drops), which could
 read the view. Any other drop only releases memory, so a `List[?T]`, or
 an object holding views without a `drop` body, keeps what they view
