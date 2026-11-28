@@ -73,11 +73,16 @@ In std.text itself, on the E-core, 32-byte compares in `many`'s first
 256 places lost to two of 16 below about 80 bytes, and adding them moved
 the code of every shorter search (bench-text, 15 rounds); so `many`
 compares 16 bytes on every target, and only `far`, past the first 256
-places, widens. Against main, on pup's E-core (bench-text and
-guard.rig's rows timed): texts to 288 bytes the same, 320 bytes 6 to
-13% slower, 1 KiB 9 to 11% faster, 4 KiB misses 25 to 30%, and the
-whole of lib.dom.d.ts 21 to 34%; a match at place 256 of 4 KiB with a
-12-byte needle is 26% slower (18 to 23 ns), the cost of entering `far`.
+places, widens. `far`'s first step compares 16 bytes as well: a match
+there found by 32-byte compares cost a fifth more on the E-core. Against
+the search with 16-byte compares throughout, on pup (cycles per search
+on an E-core, counted by `perf`, and time on a P-core, 30 rounds):
+texts to 288 bytes the same, 320 to 384 bytes from 4% slower (one row,
+a 3-byte needle near the end of 320 bytes, on the E-core) to 11%
+faster, 1 KiB 10 to 26% faster, 4 KiB misses 31 to 35%, a match at
+place 256 of 4 KiB 3 to 5%, and the whole of lib.dom.d.ts 12 to 39%. On
+aarch64 the steps stay 16 bytes, and `many` and `far` compile to the
+code they had before the wider steps.
 
 ## Against memchr and Go
 

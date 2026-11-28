@@ -88,7 +88,8 @@ inline fn countIn(s: []const u8, pat: []const u8) i64 {
 // candidate is confirmed by comparing the whole needle. `many` tests the
 // first 256 places 32 at a time; `far` tests the rest 64 at a time, out
 // of line, with compares of `step_lanes` bytes (32 with AVX2, 64 with
-// AVX-512BW), so a match near the start pays for none of its frame. Each
+// AVX-512BW) after a first step of 16-byte compares, so a match near the
+// start pays for none of its frame. Each
 // asks first whether any place of the step is a candidate, and ends by
 // testing the last 16 places again without those already tested, as
 // `find_any` does. Near the start, and in a text of fewer than 64 KiB, `a`
@@ -246,12 +247,22 @@ noinline fn farApart(h: []const u8, n: []const u8, start: usize) linksection(rig
 }
 
 /// The places from `start` on, 64 at a time, each step taken while its
-/// places are places.
+/// places are places. The pair is made after its indexes are chosen: a
+/// `Pair` chosen from two calls stayed in memory, its fields read
+/// through pointers, and searches of 320 bytes ran 6 to 13% slower on
+/// pup. Where steps are wider than 16 bytes, the first compares 16 at a
+/// time: on a Meteor Lake E-core a match in `far`'s first step costs a
+/// fifth more found by wider compares.
 inline fn farFrom(h: []const u8, n: []const u8, start: usize) ?usize {
     @setRuntimeSafety(rig.proven_checks);
     const places = h.len - n.len + 1;
-    const p = if (places - start >= rare_from) rarest(n) else pairAt(n, 0, n.len - 1);
+    const ab: At = if (places - start >= rare_from) rarest(n) else .{ .a = 0, .b = n.len - 1 };
+    const p = pairAt(n, ab.a, ab.b);
     var i = start;
+    if (step_lanes > 16 and i + 64 <= places) {
+        if (step(h, n, i, 64, 16, p)) |at| return at;
+        i += 64;
+    }
     while (i + 64 <= places) : (i += 64) {
         if (step(h, n, i, 64, step_lanes, p)) |at| return at;
     }
@@ -264,6 +275,9 @@ inline fn farFrom(h: []const u8, n: []const u8, start: usize) ?usize {
 /// The two bytes of the needle a candidate matches: `x`, the byte at
 /// index `a`, and `y`, the byte at index `b`.
 const Pair = struct { a: usize, b: usize, x: Block, y: Block };
+
+/// The indexes of a pair's bytes.
+const At = struct { a: usize, b: usize };
 
 fn pairAt(n: []const u8, a: usize, b: usize) Pair {
     return .{ .a = a, .b = b, .x = @splat(n[a]), .y = @splat(n[b]) };
@@ -305,8 +319,8 @@ inline fn step(h: []const u8, n: []const u8, i: usize, comptime width: usize, co
     var c: [k]@Vector(lanes, bool) = undefined;
     inline for (0..k) |j| {
         const at = i + lanes * j;
-        c[j] = if (lanes == 16) candidates(h, at, p) else (@as(V, h[at + p.a ..][0..lanes].*) == @as(V, @splat(p.x[0]))) &
-            (@as(V, h[at + p.b ..][0..lanes].*) == @as(V, @splat(p.y[0])));
+        c[j] = if (lanes == 16) candidates(h, at, p) else (@as(V, h[at + p.a ..][0..lanes].*) == @as(V, @splat(n[p.a]))) &
+            (@as(V, h[at + p.b ..][0..lanes].*) == @as(V, @splat(n[p.b])));
     }
     if (comptime flat_masks and lanes > 16) {
         var bits: u64 = 0;
@@ -496,7 +510,7 @@ inline fn word(comptime T: type, s: []const u8, i: usize) T {
 }
 
 /// The needle's two rarest bytes by `byte_rank`, at different indexes.
-fn rarest(n: []const u8) Pair {
+fn rarest(n: []const u8) At {
     var a: usize = 0;
     var b: usize = 1;
     if (byte_rank[n[1]] < byte_rank[n[0]]) {
@@ -510,7 +524,7 @@ fn rarest(n: []const u8) Pair {
             a = j;
         } else if (r < byte_rank[n[b]]) b = j;
     }
-    return pairAt(n, a, b);
+    return .{ .a = a, .b = b };
 }
 
 /// Each byte's place among the 256 by how often it occurs in Rig's own
