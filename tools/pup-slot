@@ -19,6 +19,11 @@
 #   2 MiB blocks; otherwise it resumes what it paused and waits.
 # - ab: an A/B between Trig arms. Builds pinned to E-cores 12-19 run on.
 #
+# While a cpuq drain isolates CPUs for the race (cpuq 0.40: `cpuq status
+# --json` lists them in `isolated`), those cores are the race's alone and
+# every other job runs on the rest, so a slot of either kind pauses
+# nothing; it still logs, checks memory, and keeps its window.
+#
 # A slot's own job may build: `PUP_SLOT_OWNER=PID pup-slot open ...`
 # names the process whose descendants the guard never pauses, so a job
 # started under PID (the shell that opens the slot) compiles its arms
@@ -111,8 +116,16 @@ descends() {
     done
     return 1
 }
+# Whether a cpuq drain isolates CPUs now, or one waits to.
+isolating() {
+    command -v cpuq >/dev/null || return 1
+    cpuq status --json 2>/dev/null | python3 -c 'import json, sys
+d = json.load(sys.stdin)
+sys.exit(0 if d.get("isolated") or any(r.get("exclusive") for r in d.get("runs", []) + d.get("waiters", [])) else 1)'
+}
 pause() {
     local kind=$1 owner=${SLOT_OWNER-$(cat "$ST/owner" 2>/dev/null)} p aff
+    isolating && return 0
     for p in $(builds); do
         [[ -n $owner ]] && descends "$p" "$owner" && continue
         if [[ $kind == ab ]]; then
