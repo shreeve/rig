@@ -4830,6 +4830,9 @@ fn wakeWorker(w: *Worker) void {
 /// the fibers whose timers come due on any worker, and those its
 /// poller's events make ready, and goes back to running them.
 fn sleep(w: *Worker) void {
+    // The ranges of Tables dropped while other workers ran are given
+    // back once none does (`alloc.dropTable`).
+    if (rt.fast_alloc.tablesHeld() and !othersRunning()) rt.fast_alloc.releaseTables();
     w.watch_owed = false;
     w.slept.store(w.slept.raw + 1, .monotonic);
     _ = takeWaiting(w);
@@ -4858,7 +4861,8 @@ fn sleep(w: *Worker) void {
     // (`trimIdle`), once a sleep, if its heap has grown since its last
     // trim (`trimWorth`); otherwise it sleeps with no timeout of its own.
     var trim_due = rt.fast_alloc.trimWorth() or (builtin.is_test and trim_worker_for_test.load(.seq_cst) == w);
-    const since = if (trim_due) nowReal() else 0;
+    var since = if (trim_due) nowReal() else 0;
+    var trim_wait = w.trim_wait;
     var trimmed = false;
     defer if (trimmed) rt.fast_alloc.wakeIdle();
     // What its looks and waits make ready, and the timers it fires, until
@@ -4876,7 +4880,7 @@ fn sleep(w: *Worker) void {
             if (Poller.darwin and first and connecting.*.load(.monotonic) != 0) timeout = if (timeout) |t| @min(t, connect_wait) else connect_wait;
             first = false;
             if (trim_due) {
-                const left = @max(since + w.trim_wait - nowReal(), 0);
+                const left = @max(since + trim_wait - nowReal(), 0);
                 timeout = if (timeout) |t| @min(t, left) else left;
             }
             sleepIn(w, timeout);
@@ -4894,16 +4898,25 @@ fn sleep(w: *Worker) void {
                 } else waitWoken(w);
                 return;
             }
-            if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
-                trim_due = false;
-                trimmed = true;
-                // Out of its wait while it trims, so watched as an awake
-                // worker is; asleep again before its last look for work,
-                // which a thread that adds to `pinned` and finds it awake
-                // does not kick it for.
-                leaveWait(w);
-                trimIdle(w);
-                w.idle.store(1, .seq_cst);
+            if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= trim_wait) {
+                if (trim_wait < trim_most and othersRunning()) {
+                    // A trim gives pages back, which stops every core the
+                    // program runs on to flush its TLB: while another
+                    // worker runs a task, it waits twice as long again,
+                    // up to `trim_most`, and then trims.
+                    trim_wait = @min(trim_wait * 2, trim_most);
+                    since = nowReal();
+                } else {
+                    trim_due = false;
+                    trimmed = true;
+                    // Out of its wait while it trims, so watched as an
+                    // awake worker is; asleep again before its last look
+                    // for work, which a thread that adds to `pinned` and
+                    // finds it awake does not kick it for.
+                    leaveWait(w);
+                    trimIdle(w);
+                    w.idle.store(1, .seq_cst);
+                }
             }
             if (!hasOwnWork(w)) continue;
         }
@@ -5245,6 +5258,15 @@ fn tearDownAll() ?[]const u8 {
     // yet awake, takes none, and leaves its free stacks to the kernel.
     while (ex.finished.load(.seq_cst) < ex.total) std.atomic.spinLoopHint();
     return null;
+}
+
+/// Whether a worker other than this thread's runs a fiber: memory is
+/// not given back meanwhile (`sleep`, `alloc.dropTable`).
+pub fn othersRunning() bool {
+    if (!started.* or deterministic.*) return false;
+    const mine = me();
+    for (workersNow()) |*v| if (v != mine and @atomicLoad(?*Fiber, &v.current, .monotonic) != null) return true;
+    return false;
 }
 
 /// Whether a worker other than `w` runs a fiber.

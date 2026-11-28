@@ -119,6 +119,10 @@ comptime {
         table_holes,
         table_hole_count,
         table_live,
+        table_held,
+        table_held_count,
+        table_held_written,
+        table_held_any,
         total_live,
         total_peak,
         total_allocs,
@@ -2196,6 +2200,29 @@ const table_waiting_count = split.cell(&table_waiting_count_var, "alloc.table_wa
 var table_live_var: std.atomic.Value(usize) = .init(0);
 const table_live = split.cell(&table_live_var, "alloc.table_live");
 
+/// The ranges of Tables dropped while other workers ran (`dropTable`),
+/// by address, joined where they touch: dirty, in neither `table_free`
+/// nor a region's rest, so no Table is handed one until it is given
+/// back (`releaseTables`). On Linux `MADV_DONTNEED` flushes the TLB of
+/// every core the program runs on, and so stops each: Trig's checkers
+/// drop 43 Tables each as each checker ends, while the others still
+/// check. They are given back once a worker goes to sleep with no other
+/// running (`sched.sleep`), or else by `os.exit`, which unmaps their
+/// regions whole (`exitRanges`), or by the system as the process ends.
+/// Past `table_held_max` ranges, or once their Tables pushed about
+/// `table_held_most` bytes, a dropped Table's range is given back at once.
+const table_held_max = 256;
+const table_held_most: usize = 256 << 20;
+var table_held_var: [table_held_max]Range = undefined;
+const table_held = split.cell(&table_held_var, "alloc.table_held");
+var table_held_count_var: usize = 0;
+const table_held_count = split.cell(&table_held_count_var, "alloc.table_held_count");
+var table_held_written_var: usize = 0;
+const table_held_written = split.cell(&table_held_written_var, "alloc.table_held_written");
+/// Whether any range is held, read with no lock (`tablesHeld`).
+var table_held_any_var: std.atomic.Value(bool) = .init(false);
+const table_held_any = split.cell(&table_held_any_var, "alloc.table_held_any");
+
 /// Whether Tables take their ranges from the regions here: on Linux and
 /// the Mac.
 const tables_here = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
@@ -2337,9 +2364,7 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     const at = @intFromPtr(p);
     const len = std.mem.alignForward(usize, bytes, huge_page);
     tables_lock.lock();
-    var mine = false;
-    for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
-    for (table_holes[0..table_hole_count.*]) |r| mine = mine and !(r.start <= at and at < r.start + r.len);
+    const mine = ownsTable(at);
     if (mine) stopWaitingTable(at);
     tables_lock.unlock();
     if (!mine) return false;
@@ -2355,6 +2380,75 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     giveTableRange(at, len);
     tables_lock.unlock();
     return true;
+}
+
+/// Whether `at` is in a Tables region and in none of its holes, under
+/// `tables_lock`.
+fn ownsTable(at: usize) bool {
+    var mine = false;
+    for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
+    for (table_holes[0..table_hole_count.*]) |r| mine = mine and !(r.start <= at and at < r.start + r.len);
+    return mine;
+}
+
+/// A Table of `bytes` at `p` dropped, about `written` of them pushed:
+/// on Linux, where `unreserveTable` would give its pages back with
+/// `MADV_DONTNEED`, while another worker runs a task, its range is held,
+/// dirty, to be given back later (`table_held`); otherwise, and once
+/// too many are held, `unreserveTable`.
+pub fn dropTable(p: [*]u8, bytes: usize, written: usize) bool {
+    if (builtin.os.tag != .linux or adviceFor(thpMode(), .small) == .small or !othersRunning()) return unreserveTable(p, bytes);
+    const at = @intFromPtr(p);
+    const len = std.mem.alignForward(usize, bytes, huge_page);
+    tables_lock.lock();
+    const held = ownsTable(at) and table_held_written.* < table_held_most and addRange(table_held, table_held_count, table_held_max, at, len);
+    if (held) {
+        stopWaitingTable(at);
+        table_held_written.* += @min(written, len);
+        table_held_any.store(true, .release);
+    }
+    tables_lock.unlock();
+    if (!held) return unreserveTable(p, bytes);
+    _ = table_live.fetchSub(1, .monotonic);
+    return true;
+}
+
+/// Whether a worker other than this thread's runs a task
+/// (`sched.othersRunning`), or a test says one does.
+fn othersRunning() bool {
+    if (comptime builtin.is_test) if (others_running_for_test) return true;
+    return sched.othersRunning();
+}
+
+/// Test only: whether `dropTable` takes another worker to run a task.
+var others_running_for_test = false;
+
+/// Whether ranges of dropped Tables are held (`dropTable`): a load, for
+/// a worker going to sleep (`sched.sleep`).
+pub fn tablesHeld() bool {
+    return table_held_any.load(.monotonic);
+}
+
+/// Give back the ranges `dropTable` held: each one's pages to the
+/// system, then the range to the next Table, which so reads zeros.
+/// Called as a worker goes to sleep with no other running a task.
+pub fn releaseTables() void {
+    while (true) {
+        tables_lock.lock();
+        const n = table_held_count.*;
+        if (n <= 1) {
+            table_held_written.* = 0;
+            table_held_any.store(false, .monotonic);
+        }
+        if (n != 0) table_held_count.* = n - 1;
+        const r = table_held.*[n -| 1];
+        tables_lock.unlock();
+        if (n == 0) return;
+        std.posix.madvise(@ptrFromInt(r.start), r.len, std.os.linux.MADV.DONTNEED) catch {};
+        tables_lock.lock();
+        giveTableRange(r.start, r.len);
+        tables_lock.unlock();
+    }
 }
 
 /// Map the `len` bytes at `range` afresh (`MAP_FIXED`), which gives its
@@ -2466,25 +2560,33 @@ fn giveTableRange(p: usize, len: usize) void {
         };
         return;
     }
-    // The first free range after `p`.
+    _ = addRange(table_free, table_free_count, table_free_max, p, len);
+}
+
+/// Add `len` bytes at `p` to the `count.*` ranges of `list`, by address,
+/// joined to those they touch; false if they join none and `max` are
+/// there already.
+fn addRange(list: []Range, count: *usize, max: usize, p: usize, len: usize) bool {
+    // The first range after `p`.
     var i: usize = 0;
-    while (i < table_free_count.* and table_free[i].start < p) i += 1;
-    const joins_before = i > 0 and table_free[i - 1].start + table_free[i - 1].len == p;
-    const joins_after = i < table_free_count.* and p + len == table_free[i].start;
+    while (i < count.* and list[i].start < p) i += 1;
+    const joins_before = i > 0 and list[i - 1].start + list[i - 1].len == p;
+    const joins_after = i < count.* and p + len == list[i].start;
     if (joins_before and joins_after) {
-        table_free[i - 1].len += len + table_free[i].len;
-        std.mem.copyForwards(Range, table_free[i .. table_free_count.* - 1], table_free[i + 1 .. table_free_count.*]);
-        table_free_count.* -= 1;
+        list[i - 1].len += len + list[i].len;
+        std.mem.copyForwards(Range, list[i .. count.* - 1], list[i + 1 .. count.*]);
+        count.* -= 1;
     } else if (joins_before) {
-        table_free[i - 1].len += len;
+        list[i - 1].len += len;
     } else if (joins_after) {
-        table_free[i].start = p;
-        table_free[i].len += len;
-    } else if (table_free_count.* < table_free_max) {
-        std.mem.copyBackwards(Range, table_free[i + 1 .. table_free_count.* + 1], table_free[i..table_free_count.*]);
-        table_free[i] = .{ .start = p, .len = len };
-        table_free_count.* += 1;
-    }
+        list[i].start = p;
+        list[i].len += len;
+    } else if (count.* < max) {
+        std.mem.copyBackwards(Range, list[i + 1 .. count.* + 1], list[i..count.*]);
+        list[i] = .{ .start = p, .len = len };
+        count.* += 1;
+    } else return false;
+    return true;
 }
 
 // -----------------------------------------------------------------------------
@@ -4539,6 +4641,52 @@ test "on Linux a Table's range given back has its pages back with the system, an
     // A mapping of its own is not the Tables'.
     var own: [4096]u8 align(4096) = undefined;
     try std.testing.expect(!unreserveTable(&own, own.len));
+}
+
+test "on Linux a Table dropped while another worker runs keeps its pages, and its range from every new Table, until the held ranges are given back, and the next Table to take it then reads zeros" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
+    const mib: usize = 1 << 20;
+    const live = table_live.load(.monotonic);
+    const a = reserveTable(6 * mib).?;
+    const b = reserveTable(4 * mib).?;
+    @memset(a[0 .. 6 * mib], 7);
+    others_running_for_test = true;
+    defer others_running_for_test = false;
+    try std.testing.expect(dropTable(a, 6 * mib, 6 * mib));
+    // Held: dirty, and handed to no Table.
+    try std.testing.expect(tablesHeld());
+    try std.testing.expectEqual(@as(usize, 6 * mib), try residentForTest(a, 6 * mib));
+    const c = reserveTable(5 * mib + 4096).?;
+    try std.testing.expect(c != a);
+    for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    // Two that touch are held as one range.
+    @memset(b[0 .. 4 * mib], 7);
+    try std.testing.expect(dropTable(b, 4 * mib, 4 * mib));
+    try std.testing.expectEqual(@as(usize, 1), table_held_count.*);
+    const d = reserveTable(10 * mib).?;
+    try std.testing.expect(d != a and d != b);
+    // Given back: the pages to the system, and the range to the next.
+    releaseTables();
+    try std.testing.expect(!tablesHeld());
+    try std.testing.expectEqual(@as(usize, 0), try residentForTest(a, 10 * mib));
+    const e = reserveTable(10 * mib).?;
+    try std.testing.expectEqual(a, e);
+    for (e[0 .. 10 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    // Once the held Tables pushed `table_held_most` bytes, the next is
+    // given back at once.
+    const big = reserveTable(table_held_most + mib).?;
+    try std.testing.expect(dropTable(big, table_held_most + mib, table_held_most + mib));
+    @memset(c[0 .. 6 * mib], 7);
+    try std.testing.expect(dropTable(c, 5 * mib + 4096, 6 * mib));
+    try std.testing.expectEqual(@as(usize, 0), try residentForTest(c, 6 * mib));
+    releaseTables();
+    others_running_for_test = false;
+    try std.testing.expect(dropTable(e, 10 * mib, 0));
+    try std.testing.expect(dropTable(d, 10 * mib, 0));
+    try std.testing.expectEqual(live, table_live.load(.monotonic));
+    try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
 }
 
 test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, keeps the advice once given back, and asks for small pages again for a Table that takes it with none to spare" {

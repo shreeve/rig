@@ -152,8 +152,11 @@ fn populate(base: [*]u8, lo: usize, hi: usize) void {
     _ = std.os.linux.madvise(@ptrFromInt(start), stop - start, madv_populate_write);
 }
 
-fn unreserve(p: [*]align(page) u8, bytes: usize) void {
-    if (comptime !leak_checked) if (rt.fast_alloc.unreserveTable(p, bytes)) return;
+/// Give back a reserved table's `bytes` at `p`, about `written` of them
+/// written: the slots pushed. A range of the allocator's may be held
+/// while other workers run (`alloc.zig`, `dropTable`).
+fn unreserve(p: [*]align(page) u8, bytes: usize, written: usize) void {
+    if (comptime !leak_checked) if (rt.fast_alloc.dropTable(p, bytes, written)) return;
     std.posix.munmap(p[0..bytes]);
 }
 
@@ -333,7 +336,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             if (comptime @sizeOf(T) == 0) return;
             switch (how) {
                 .reserved => {
-                    unreserve(@ptrCast(@alignCast(self.slots)), bytes);
+                    unreserve(@ptrCast(@alignCast(self.slots)), bytes, @intCast(@min(@as(u128, self.len) * @sizeOf(T), bytes)));
                     if (comptime leak_checked) rt.freeSlice(u8, self.token[0..1]);
                 },
                 .made => {
