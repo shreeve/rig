@@ -6,7 +6,7 @@ each checked by one of four states, as Trig's checkers check files.
 
 ```sh
 cpuq run --label rig:build -- bin/rig build --release bench/par/workers.rig -o /tmp/workers
-cpuq drain --all --label rig:bench-par -- /tmp/workers
+cpuq drain -c 8 -t 20m --label rig:bench-par -- /tmp/workers
 ```
 
 | Form | How the items reach the states |
@@ -43,7 +43,7 @@ the work. One worker per core.
 
 ```sh
 cpuq run --label rig:build -- bin/rig build --release bench/par/cost.rig -o /tmp/cost
-cpuq drain --all --label rig:bench-par -- /tmp/cost
+cpuq drain -c 8 -t 20m --label rig:bench-par -- /tmp/cost
 ```
 
 | Form | How the items reach the tasks |
