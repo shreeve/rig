@@ -10274,11 +10274,6 @@ pub const Emitter = struct {
         try self.emitBare(arg);
     }
 
-    /// `lower.consumedTemporary`.
-    fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
-        return if ((try self.answers(call)).consumes_self) self.facts.node(.selfOf, call) else null;
-    }
-
     /// Whether an operand tested against `none` or a bare `.variant` is
     /// a value made there that no slot holds, which the test drops. Any
     /// other operand is read where it is.
@@ -10323,10 +10318,9 @@ pub const Emitter = struct {
     /// written: the address of a place, or a temporary value, dropped
     /// after the call. Zig follows a pointer to a struct for a method,
     /// but neither one to a handle nor one to a callee.
-    fn hoistSelf(self: *Emitter, call: Sexp, id: u32) Error!void {
-        const hold = (try self.answers(call)).self_hold orelse return;
+    fn hoistSelf(self: *Emitter, call: Sexp, first: facts.lir.Args.Self, id: u32) Error!void {
+        const hold = first.hold;
         // View sigils on a self are implicit in Zig's method calls.
-        const first = self.facts.node(.heldFirst, call).?;
         const recv = first.node;
         const writes = self.facts.node(.selfWrites, call);
         // Held as written below: an address, a value made here, or a
@@ -10366,7 +10360,7 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
         if (kind == .value or kind == .optional or (writes and !ptr)) try self.poisonAtExit(name);
         // Sema rejects a viewed temporary self that owns a resource
-        // (a consumed one is hoisted by `consumedTemporary`), so only a
+        // (a consumed one is held as an argument is, `hoist`), so only a
         // value holding a type parameter gets here (`@twice()` of a
         // `Wrap[T]`): plain data in every instance sema accepts, dropped
         // like a resource in the generic body.
@@ -10389,15 +10383,15 @@ pub const Emitter = struct {
             for (ir.Call.args(call)) |arm| try self.hoistParts(argValue(arm), self.nextId());
             return;
         }
-        const params = (try self.need(self.lowered.?.argsOf(call), call)).params;
+        const rec = try self.need(self.lowered.?.argsOf(call), call);
         const fields = try self.buildsValue(call);
-        if (try self.consumedTemporary(call)) |recv| {
-            try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .self, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, null, false);
-        } else try self.hoistSelf(call, id);
+        if (rec.self) |s| if (s.hold == .consumed) {
+            try self.hoist(.{ .node = s.node, .name = try self.hiddenStorage(s.node, .self, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, null, false);
+        } else try self.hoistSelf(call, s, id);
         for (ir.Call.args(call), 0..) |a, ai| {
             const value = argValue(a);
             if (self.varOf(value, .argument) == null) continue;
-            try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, params[ai], fields);
+            try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, rec.params[ai], fields);
         }
     }
 
