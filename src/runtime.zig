@@ -40,7 +40,7 @@ comptime {
         sched,
         net,
         fast_alloc,
-        fast_cores_known,
+        cpus_known,
         only_task,
         output_lock,
         alloc_lock,
@@ -12009,34 +12009,95 @@ test "a failure leaving main is shown through the glue, and its fields dropped" 
 }
 
 // -----------------------------------------------------------------
-// the fast physical cores
+// the CPUs the program may run on
 // -----------------------------------------------------------------
 
-var fast_cores_known_var: usize = 0;
-const fast_cores_known = split.cell(&fast_cores_known_var, "runtime.fast_cores_known");
+/// `task.cpus()`: the CPUs this process may run on. Every count is within
+/// its affinity mask, capped at its container's CPU quota rounded up, and
+/// at least 1, with `fast_cores <= cores <= threads` and
+/// `fast_cores <= fast_threads <= threads`.
+pub const Cpus = struct {
+    /// Hardware threads: logical CPUs, one per thread of each core.
+    threads: usize,
+    /// Physical cores, the threads of one core counted once.
+    cores: usize,
+    /// The cores of the fastest kind it may run on: every core on a
+    /// machine with one kind.
+    fast_cores: usize,
+    /// The threads of those cores.
+    fast_threads: usize,
+    /// The container's CPU quota in CPUs, or null outside one.
+    quota: ?f64 = null,
+};
 
-/// `task.fast_cores()`: how many fast physical cores this process may
-/// run on, at least 1. The threads of one core count once, and a slower
-/// core counts only when the process may run on no fast one. Worked out
-/// at the first call and kept, so a program that never calls it pays
-/// nothing; first calls that race each work it out and agree.
-pub fn fastCores() Int {
-    var n = @atomicLoad(usize, fast_cores_known, .monotonic);
-    if (n == 0) {
-        n = detectFastCores();
-        @atomicStore(usize, fast_cores_known, n, .monotonic);
+/// `cpus()`'s answer once it is known: `[0]` is 1, then the four counts
+/// and the quota's bits, 0 for none (a quota is never 0).
+var cpus_known_var: [6]u64 = @splat(0);
+const cpus_known = split.cell(&cpus_known_var, "runtime.cpus_known");
+
+/// The CPUs this process may run on, worked out at the first call and
+/// kept, so a program that never calls it pays nothing; first calls that
+/// race each work it out and agree.
+pub fn cpus() Cpus {
+    if (@atomicLoad(u64, &cpus_known[0], .acquire) == 0) {
+        const found = detectCpus();
+        @atomicStore(u64, &cpus_known[1], found.threads, .monotonic);
+        @atomicStore(u64, &cpus_known[2], found.cores, .monotonic);
+        @atomicStore(u64, &cpus_known[3], found.fast_cores, .monotonic);
+        @atomicStore(u64, &cpus_known[4], found.fast_threads, .monotonic);
+        @atomicStore(u64, &cpus_known[5], if (found.quota) |q| @bitCast(q) else 0, .monotonic);
+        @atomicStore(u64, &cpus_known[0], 1, .release);
+        return found;
     }
-    return @intCast(n);
+    const quota = @atomicLoad(u64, &cpus_known[5], .monotonic);
+    return .{
+        .threads = @intCast(@atomicLoad(u64, &cpus_known[1], .monotonic)),
+        .cores = @intCast(@atomicLoad(u64, &cpus_known[2], .monotonic)),
+        .fast_cores = @intCast(@atomicLoad(u64, &cpus_known[3], .monotonic)),
+        .fast_threads = @intCast(@atomicLoad(u64, &cpus_known[4], .monotonic)),
+        .quota = if (quota == 0) null else @bitCast(quota),
+    };
 }
 
-/// The fast cores by the system's own account, within the logical CPUs
-/// this process may use; those logical CPUs when the system does not say.
-fn detectFastCores() usize {
-    if (builtin.os.tag == .linux) return linuxFastCores();
-    const logical = @max(1, std.Thread.getCpuCount() catch 1);
-    if (builtin.os.tag != .macos) return logical;
-    const found = macPerformanceCores() orelse sysctlCount("hw.physicalcpu") orelse return logical;
-    return @max(1, @min(logical, found));
+/// The CPUs by the system's own account; on a system this does not
+/// read, its logical CPUs, each taken as a fast core of its own.
+fn detectCpus() Cpus {
+    return switch (builtin.os.tag) {
+        .linux => linuxCpus(),
+        .macos => macCpus(),
+        else => sameCpus(std.Thread.getCpuCount() catch 1),
+    };
+}
+
+/// `n` logical CPUs, each taken as a fast core of its own: what a system
+/// that does not say gives.
+fn sameCpus(n: usize) Cpus {
+    const m = @max(1, n);
+    return .{ .threads = m, .cores = m, .fast_cores = m, .fast_threads = m };
+}
+
+/// `c` with every count at least 1 and in order, capped at `quota`
+/// rounded up. Capping `threads` caps the others, which are kept under it.
+fn settleCpus(c: Cpus, quota: ?f64) Cpus {
+    const cap: usize = if (quota) |q| @intFromFloat(@max(1, @min(@ceil(q), 1 << 20))) else std.math.maxInt(usize);
+    const threads = @max(1, @min(c.threads, cap));
+    const cores = std.math.clamp(c.cores, 1, threads);
+    const fast_threads = std.math.clamp(c.fast_threads, 1, threads);
+    const fast_cores = std.math.clamp(c.fast_cores, 1, @min(cores, fast_threads));
+    return .{ .threads = threads, .cores = cores, .fast_cores = fast_cores, .fast_threads = fast_threads, .quota = quota };
+}
+
+/// macOS has no affinity masks and no quotas: its logical CPUs and
+/// physical cores, and its performance cores (level 0) as the fast ones,
+/// or every core on a machine without performance levels.
+fn macCpus() Cpus {
+    const threads = sysctlCount("hw.logicalcpu") orelse return sameCpus(std.Thread.getCpuCount() catch 1);
+    const cores = sysctlCount("hw.physicalcpu") orelse threads;
+    const fast: Cpus = if (macPerformanceCores()) |n|
+        .{ .threads = threads, .cores = cores, .fast_cores = n, .fast_threads = sysctlCount("hw.perflevel0.logicalcpu") orelse n }
+    else
+        .{ .threads = threads, .cores = cores, .fast_cores = cores, .fast_threads = threads };
+    return settleCpus(fast, null);
 }
 
 /// macOS's performance cores, when the machine has performance levels.
@@ -12057,42 +12118,47 @@ fn sysctlCount(name: [*:0]const u8) ?u32 {
 const CpuSet = std.bit_set.Static(1024);
 
 /// The mask's own count stands in for `getCpuCount`, which a mask wider
-/// than `CpuSet` would crash; such a mask gives 1.
-fn linuxFastCores() usize {
+/// than `CpuSet` would crash; such a mask gives 1. A topology file that
+/// cannot be read leaves every allowed CPU a fast core of its own.
+fn linuxCpus() Cpus {
     const linux = std.os.linux;
+    const files: LinuxCpuFiles = .{};
+    const quota = cgroupQuota(files);
     var allowed: CpuSet = .empty;
-    if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(allowed.masks)), &allowed.masks)) != .SUCCESS) return 1;
-    const logical = @max(1, allowed.count());
-    const found = countFastCores(&allowed, LinuxCpuFiles{}) catch return logical;
-    return @max(1, @min(logical, found));
+    if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(allowed.masks)), &allowed.masks)) != .SUCCESS) return settleCpus(sameCpus(1), quota);
+    const found = countCpus(&allowed, files) catch sameCpus(allowed.count());
+    return settleCpus(found, quota);
 }
 
-/// The physical cores among `allowed`: the fast ones, when `files` names
-/// a fast set and `allowed` holds one of them, or else all of them. A
-/// machine with no fast set, ARM's big.LITTLE among them, has every core
-/// counted, since Linux names none there. A core counts when any of its
-/// threads is allowed. Fails if a file that should be read cannot be.
-fn countFastCores(allowed: *const CpuSet, files: anytype) error{Unreadable}!usize {
+/// The threads and physical cores among `allowed`, and the fast ones:
+/// those of the fast set `files` names, when `allowed` holds one of them,
+/// or else all of them. A machine with no fast set, AMD's and ARM's among
+/// them, has every core fast, since Linux names none there. A core counts
+/// when any of its threads is allowed. Fails if a file that should be
+/// read cannot be.
+fn countCpus(allowed: *const CpuSet, files: anytype) error{Unreadable}!Cpus {
     var buffer: [512]u8 = undefined;
-    var wanted = allowed.*;
+    var fast = allowed.*;
     if (files.fast(&buffer)) |text| {
-        var fast = parseCpuList(text) orelse return error.Unreadable;
-        fast.setIntersection(allowed.*);
-        if (fast.count() > 0) wanted = fast;
+        var named = parseCpuList(text) orelse return error.Unreadable;
+        named.setIntersection(allowed.*);
+        if (named.count() > 0) fast = named;
     } else |err| switch (err) {
         error.Absent => {},
         error.Unreadable => return error.Unreadable,
     }
     var counted: CpuSet = .empty;
     var cores: usize = 0;
-    var cpus = wanted.iterator(.{});
-    while (cpus.next()) |cpu| {
+    var fast_cores: usize = 0;
+    var each = allowed.iterator(.{});
+    while (each.next()) |cpu| {
         if (counted.isSet(cpu)) continue;
         const text = files.siblings(cpu, &buffer) catch return error.Unreadable;
         counted.setUnion(parseCpuList(text) orelse return error.Unreadable);
         cores += 1;
+        if (fast.isSet(cpu)) fast_cores += 1;
     }
-    return cores;
+    return .{ .threads = allowed.count(), .cores = cores, .fast_cores = fast_cores, .fast_threads = fast.count() };
 }
 
 /// A list as Linux writes one, `0-3,8-11\n`, or null for anything else.
@@ -12111,10 +12177,103 @@ fn parseCpuList(text: []const u8) ?CpuSet {
     return set;
 }
 
+/// The container's CPU quota in CPUs: the smallest any cgroup on the
+/// process's path sets, from cgroup v2's `cpu.max` or v1's
+/// `cpu.cfs_quota_us` over `cpu.cfs_period_us`, each directory from the
+/// process's own up to the hierarchy's root. Walking up finds the
+/// container's own files where its cgroup is the root it sees. Null when
+/// none sets one, or `/proc/self/cgroup` cannot be read.
+fn cgroupQuota(files: anytype) ?f64 {
+    var buffer: [4096]u8 = undefined;
+    const text = files.read("/proc/self/cgroup", &buffer) catch return null;
+    var quota: ?f64 = null;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        // `ID:CONTROLLERS:PATH`, v2's `0::PATH`.
+        var parts = std.mem.splitScalar(u8, line, ':');
+        const id = parts.next() orelse continue;
+        const controllers = parts.next() orelse continue;
+        const path = parts.rest();
+        if (path.len == 0 or path[0] != '/') continue;
+        if (std.mem.eql(u8, id, "0") and controllers.len == 0) {
+            quota = smallerQuota(quota, walkQuota(files, "/sys/fs/cgroup", path, .v2));
+            continue;
+        }
+        var names = std.mem.splitScalar(u8, controllers, ',');
+        while (names.next()) |name| if (std.mem.eql(u8, name, "cpu")) {
+            quota = smallerQuota(quota, walkQuota(files, "/sys/fs/cgroup/cpu", path, .v1));
+            quota = smallerQuota(quota, walkQuota(files, "/sys/fs/cgroup/cpu,cpuacct", path, .v1));
+        };
+    }
+    return quota;
+}
+
+fn smallerQuota(a: ?f64, b: ?f64) ?f64 {
+    const x = a orelse return b;
+    const y = b orelse return a;
+    return @min(x, y);
+}
+
+const CgroupVersion = enum { v1, v2 };
+
+/// The smallest quota set in `top ++ path` or a directory above it, up
+/// to `top`. A path too long for the buffer gives none.
+fn walkQuota(files: anytype, top: []const u8, path: []const u8, version: CgroupVersion) ?f64 {
+    var dir: [512]u8 = undefined;
+    const name_room = "/cpu.cfs_period_us".len + 1;
+    if (top.len + path.len + name_room > dir.len) return null;
+    @memcpy(dir[0..top.len], top);
+    @memcpy(dir[top.len..][0..path.len], path);
+    var end = top.len + path.len;
+    while (end > top.len and dir[end - 1] == '/') end -= 1;
+    var quota: ?f64 = null;
+    while (true) {
+        quota = smallerQuota(quota, readQuota(files, &dir, end, version));
+        if (end == top.len) return quota;
+        end = top.len + (std.mem.lastIndexOfScalar(u8, dir[top.len..end], '/') orelse 0);
+    }
+}
+
+/// The quota the cgroup directory `dir[0..len]` sets, if any.
+fn readQuota(files: anytype, dir: *[512]u8, end: usize, version: CgroupVersion) ?f64 {
+    var buffer: [64]u8 = undefined;
+    switch (version) {
+        .v2 => {
+            // `QUOTA PERIOD`, or `max PERIOD` for none.
+            const text = files.read(cgroupFile(dir, end, "/cpu.max"), &buffer) catch return null;
+            var words = std.mem.tokenizeAny(u8, text, " \n");
+            const quota = std.fmt.parseInt(u64, words.next() orelse return null, 10) catch return null;
+            const period = std.fmt.parseInt(u64, words.next() orelse return null, 10) catch return null;
+            return quotaOf(quota, period);
+        },
+        .v1 => {
+            // -1 for none.
+            const quota_text = files.read(cgroupFile(dir, end, "/cpu.cfs_quota_us"), &buffer) catch return null;
+            const quota = std.fmt.parseInt(i64, std.mem.trim(u8, quota_text, " \n"), 10) catch return null;
+            if (quota <= 0) return null;
+            const period_text = files.read(cgroupFile(dir, end, "/cpu.cfs_period_us"), &buffer) catch return null;
+            const period = std.fmt.parseInt(u64, std.mem.trim(u8, period_text, " \n"), 10) catch return null;
+            return quotaOf(@intCast(quota), period);
+        },
+    }
+}
+
+fn quotaOf(quota: u64, period: u64) ?f64 {
+    if (quota == 0 or period == 0) return null;
+    return @as(f64, @floatFromInt(quota)) / @as(f64, @floatFromInt(period));
+}
+
+/// `dir[0..len] ++ name` as a path the system takes.
+fn cgroupFile(dir: *[512]u8, end: usize, comptime name: []const u8) [:0]const u8 {
+    @memcpy(dir[end..][0..name.len], name);
+    dir[end + name.len] = 0;
+    return dir[0 .. end + name.len :0];
+}
+
 const CpuFileError = error{ Absent, Unreadable };
 
 /// Where Linux says which CPUs are fast, on Intel's hybrid chips, and
-/// which CPUs are one core's threads.
+/// which CPUs are one core's threads, and any other file by its path.
 const LinuxCpuFiles = struct {
     fn fast(_: LinuxCpuFiles, buffer: []u8) CpuFileError![]const u8 {
         return readCpuFile("/sys/devices/cpu_core/cpus", buffer);
@@ -12124,6 +12283,10 @@ const LinuxCpuFiles = struct {
         var path: [80]u8 = undefined;
         const name = std.fmt.bufPrintSentinel(&path, "/sys/devices/system/cpu/cpu{d}/topology/thread_siblings_list", .{cpu}, 0) catch return error.Unreadable;
         return readCpuFile(name, buffer);
+    }
+
+    fn read(_: LinuxCpuFiles, path: [:0]const u8, buffer: []u8) CpuFileError![]const u8 {
+        return readCpuFile(path, buffer);
     }
 };
 
@@ -12136,7 +12299,7 @@ fn readCpuFile(path: [*:0]const u8, buffer: []u8) CpuFileError![]const u8 {
         switch (linux.errno(rc)) {
             .SUCCESS => break @intCast(rc),
             .INTR => {},
-            .NOENT => return error.Absent,
+            .NOENT, .NOTDIR => return error.Absent,
             else => return error.Unreadable,
         }
     };
@@ -12156,12 +12319,14 @@ fn readCpuFile(path: [*:0]const u8, buffer: []u8) CpuFileError![]const u8 {
 }
 
 /// Linux's files as text: `fast` as `/sys/devices/cpu_core/cpus` holds
-/// it, and each CPU's siblings by `cpu_siblings[cpu]`. A null is a file
-/// that is not there; `unreadable` is one that cannot be read.
+/// it, each CPU's siblings by `cpu_siblings[cpu]`, and any other file by
+/// its path in `paths`. A null, or a path not listed, is a file that is
+/// not there; `unreadable` is one that cannot be read.
 const TestCpuFiles = struct {
     fast_text: ?[]const u8 = null,
     fast_unreadable: bool = false,
-    cpu_siblings: []const ?[]const u8,
+    cpu_siblings: []const ?[]const u8 = &.{},
+    paths: []const [2][]const u8 = &.{},
 
     fn fast(self: TestCpuFiles, buffer: []u8) CpuFileError![]const u8 {
         _ = buffer;
@@ -12174,10 +12339,29 @@ const TestCpuFiles = struct {
         if (cpu >= self.cpu_siblings.len) return error.Absent;
         return self.cpu_siblings[cpu] orelse error.Absent;
     }
+
+    fn read(self: TestCpuFiles, path: [:0]const u8, buffer: []u8) CpuFileError![]const u8 {
+        _ = buffer;
+        for (self.paths) |p| if (std.mem.eql(u8, p[0], path)) return p[1];
+        return error.Absent;
+    }
 };
 
 fn testCpuSet(text: []const u8) CpuSet {
     return parseCpuList(text).?;
+}
+
+/// `threads`, `cores`, `fast_cores`, `fast_threads`, as `countCpus` gives
+/// them for `allowed`.
+fn expectCpus(expected: [4]usize, allowed: []const u8, files: TestCpuFiles) !void {
+    const c = try countCpus(&testCpuSet(allowed), files);
+    try std.testing.expectEqual(expected, [4]usize{ c.threads, c.cores, c.fast_cores, c.fast_threads });
+}
+
+fn expectSettled(expected: [4]usize, c: Cpus, quota: ?f64) !void {
+    const s = settleCpus(c, quota);
+    try std.testing.expectEqual(expected, [4]usize{ s.threads, s.cores, s.fast_cores, s.fast_threads });
+    try std.testing.expectEqual(quota, s.quota);
 }
 
 test "a CPU list is read as Linux writes it" {
@@ -12192,59 +12376,149 @@ test "a CPU list is read as Linux writes it" {
         try std.testing.expect(parseCpuList(bad) == null);
 }
 
-/// A Core Ultra 9 185H: six cores of two threads, 0 and 5 one of them;
-/// ten single-thread slower cores, `cpu_core` naming none of those.
+/// A Core Ultra 9 185H (pup): six cores of two threads, 0 and 5 one of
+/// them; ten single-thread slower cores, `cpu_core` naming none of those.
 const test_hybrid_siblings = [_]?[]const u8{ "0,5", "1-2", "1-2", "3-4", "3-4", "0,5", "6-7", "6-7", "8-9", "8-9", "10-11", "10-11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21" };
 const test_hybrid: TestCpuFiles = .{ .fast_text = "0-11\n", .cpu_siblings = &test_hybrid_siblings };
 
-test "a hybrid machine counts its fast physical cores, each once" {
-    try std.testing.expectEqual(6, try countFastCores(&testCpuSet("0-21"), test_hybrid));
-    try std.testing.expectEqual(6, try countFastCores(&testCpuSet("0-11"), test_hybrid));
-    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("3"), test_hybrid));
+/// An EPYC 9B45 VM (burst): 48 cores of two threads, `i` and `i + 48`,
+/// and no fast set.
+const test_epyc_siblings = siblings: {
+    @setEvalBranchQuota(100_000);
+    var s: [96]?[]const u8 = undefined;
+    for (&s, 0..) |*each, i| each.* = std.fmt.comptimePrint("{d},{d}", .{ i % 48, i % 48 + 48 });
+    break :siblings s;
+};
+const test_epyc: TestCpuFiles = .{ .cpu_siblings = &test_epyc_siblings };
+
+test "a hybrid machine with shared threads counts every core once, and its fast ones" {
+    try expectCpus(.{ 22, 16, 6, 12 }, "0-21", test_hybrid);
+    try expectCpus(.{ 12, 6, 6, 12 }, "0-11", test_hybrid);
+    try expectCpus(.{ 1, 1, 1, 1 }, "3", test_hybrid);
+}
+
+test "a machine of one kind with shared threads has every core fast" {
+    try expectCpus(.{ 96, 48, 48, 96 }, "0-95", test_epyc);
+    try expectCpus(.{ 8, 8, 8, 8 }, "0-7", test_epyc);
+    try expectCpus(.{ 8, 4, 4, 8 }, "0-3,48-51", test_epyc);
 }
 
 test "a core counts when any of its threads is allowed" {
     // 0 and 5 are one core; so are 3 and 4.
-    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("0,5"), test_hybrid));
-    try std.testing.expectEqual(2, try countFastCores(&testCpuSet("5,3"), test_hybrid));
-    try std.testing.expectEqual(3, try countFastCores(&testCpuSet("0,3,5,8"), test_hybrid));
+    try expectCpus(.{ 2, 1, 1, 2 }, "0,5", test_hybrid);
+    try expectCpus(.{ 2, 2, 2, 2 }, "5,3", test_hybrid);
+    try expectCpus(.{ 4, 3, 3, 4 }, "0,3,5,8", test_hybrid);
+    try expectCpus(.{ 3, 2, 1, 2 }, "0,5,12", test_hybrid);
 }
 
-test "a fast core allowed leaves the slower ones uncounted; none allowed counts them" {
-    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("0,12-19"), test_hybrid));
-    try std.testing.expectEqual(8, try countFastCores(&testCpuSet("12-19"), test_hybrid));
-    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("20"), test_hybrid));
+test "a fast core allowed leaves the slower ones out of the fast; none allowed makes them fast" {
+    try expectCpus(.{ 9, 9, 1, 1 }, "0,12-19", test_hybrid);
+    try expectCpus(.{ 8, 8, 8, 8 }, "12-19", test_hybrid);
+    try expectCpus(.{ 1, 1, 1, 1 }, "20", test_hybrid);
 }
 
-test "a machine with no fast set counts every physical core" {
+test "a machine with no fast set has every physical core fast" {
     const siblings = [_]?[]const u8{ "0,4", "1,5", "2,6", "3,7", "0,4", "1,5", "2,6", "3,7" };
     const files: TestCpuFiles = .{ .cpu_siblings = &siblings };
-    try std.testing.expectEqual(4, try countFastCores(&testCpuSet("0-7"), files));
-    try std.testing.expectEqual(2, try countFastCores(&testCpuSet("0,4,1"), files));
+    try expectCpus(.{ 8, 4, 4, 8 }, "0-7", files);
+    try expectCpus(.{ 3, 2, 2, 3 }, "0,4,1", files);
 }
 
-test "a fast set that names nothing allowed, or nothing at all, counts what is allowed" {
+test "a fast set that names nothing allowed, or nothing at all, makes every allowed core fast" {
     const siblings = [_]?[]const u8{ "0", "1", "2", "3" };
-    try std.testing.expectEqual(4, try countFastCores(&testCpuSet("0-3"), TestCpuFiles{ .fast_text = "\n", .cpu_siblings = &siblings }));
-    try std.testing.expectEqual(2, try countFastCores(&testCpuSet("0,1"), TestCpuFiles{ .fast_text = "2-3", .cpu_siblings = &siblings }));
+    try expectCpus(.{ 4, 4, 4, 4 }, "0-3", .{ .fast_text = "\n", .cpu_siblings = &siblings });
+    try expectCpus(.{ 2, 2, 2, 2 }, "0,1", .{ .fast_text = "2-3", .cpu_siblings = &siblings });
 }
 
-test "a file that cannot be read gives up, and a failure is never zero" {
+test "a file that cannot be read gives up" {
     const missing = [_]?[]const u8{ "0", null };
     const files: TestCpuFiles = .{ .cpu_siblings = &missing };
-    try std.testing.expectError(error.Unreadable, countFastCores(&testCpuSet("0,1"), files));
-    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("0"), files));
+    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0,1"), files));
+    try expectCpus(.{ 1, 1, 1, 1 }, "0", files);
     const bad = [_]?[]const u8{"zero"};
-    try std.testing.expectError(error.Unreadable, countFastCores(&testCpuSet("0"), TestCpuFiles{ .cpu_siblings = &bad }));
-    try std.testing.expectError(error.Unreadable, countFastCores(&testCpuSet("0"), TestCpuFiles{ .fast_unreadable = true, .cpu_siblings = &missing }));
-    try std.testing.expectError(error.Unreadable, countFastCores(&testCpuSet("0"), TestCpuFiles{ .fast_text = "junk", .cpu_siblings = &missing }));
+    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0"), TestCpuFiles{ .cpu_siblings = &bad }));
+    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0"), TestCpuFiles{ .fast_unreadable = true, .cpu_siblings = &missing }));
+    try std.testing.expectError(error.Unreadable, countCpus(&testCpuSet("0"), TestCpuFiles{ .fast_text = "junk", .cpu_siblings = &missing }));
 }
 
-test "this machine's fast cores are at least one, at most its logical CPUs, and kept" {
-    const logical = @max(1, std.Thread.getCpuCount() catch 1);
-    const n = fastCores();
-    try std.testing.expect(n >= 1 and n <= logical);
-    try std.testing.expectEqual(n, fastCores());
+test "every count is at least 1 and in order, and a quota caps them rounded up" {
+    const pup: Cpus = .{ .threads = 22, .cores = 16, .fast_cores = 6, .fast_threads = 12 };
+    const burst: Cpus = .{ .threads = 96, .cores = 48, .fast_cores = 48, .fast_threads = 96 };
+    try expectSettled(.{ 22, 16, 6, 12 }, pup, null);
+    try expectSettled(.{ 4, 4, 4, 4 }, burst, 4.0);
+    try expectSettled(.{ 3, 3, 3, 3 }, burst, 2.5);
+    try expectSettled(.{ 2, 2, 2, 2 }, burst, 1.01);
+    try expectSettled(.{ 1, 1, 1, 1 }, burst, 0.5);
+    try expectSettled(.{ 12, 12, 6, 12 }, pup, 12.0);
+    try expectSettled(.{ 22, 16, 6, 12 }, pup, 64.0);
+    try expectSettled(.{ 1, 1, 1, 1 }, .{ .threads = 0, .cores = 0, .fast_cores = 0, .fast_threads = 0 }, null);
+    try expectSettled(.{ 4, 4, 2, 2 }, .{ .threads = 4, .cores = 9, .fast_cores = 3, .fast_threads = 2 }, null);
+}
+
+test "a cgroup v2 quota is read from cpu.max, the smallest on the path" {
+    const whole: TestCpuFiles = .{ .paths = &.{
+        .{ "/proc/self/cgroup", "0::/docker/abc\n" },
+        .{ "/sys/fs/cgroup/docker/abc/cpu.max", "400000 100000\n" },
+    } };
+    try std.testing.expectEqual(@as(?f64, 4.0), cgroupQuota(whole));
+    const fractional: TestCpuFiles = .{ .paths = &.{
+        .{ "/proc/self/cgroup", "0::/kubepods.slice/pod1.slice/cri-1.scope\n" },
+        .{ "/sys/fs/cgroup/kubepods.slice/pod1.slice/cri-1.scope/cpu.max", "max 100000\n" },
+        .{ "/sys/fs/cgroup/kubepods.slice/pod1.slice/cpu.max", "250000 100000\n" },
+        .{ "/sys/fs/cgroup/kubepods.slice/cpu.max", "800000 100000\n" },
+    } };
+    try std.testing.expectEqual(@as(?f64, 2.5), cgroupQuota(fractional));
+    // A container whose own cgroup is the root it sees.
+    const namespaced: TestCpuFiles = .{ .paths = &.{
+        .{ "/proc/self/cgroup", "0::/system.slice/docker-1.scope\n" },
+        .{ "/sys/fs/cgroup/cpu.max", "150000 100000\n" },
+    } };
+    try std.testing.expectEqual(@as(?f64, 1.5), cgroupQuota(namespaced));
+    const at_top: TestCpuFiles = .{ .paths = &.{
+        .{ "/proc/self/cgroup", "0::/\n" },
+        .{ "/sys/fs/cgroup/cpu.max", "50000 100000\n" },
+    } };
+    try std.testing.expectEqual(@as(?f64, 0.5), cgroupQuota(at_top));
+}
+
+test "a cgroup v1 quota is read from cfs_quota_us over cfs_period_us" {
+    const set: TestCpuFiles = .{ .paths = &.{
+        .{ "/proc/self/cgroup", "12:memory:/docker/abc\n4:cpu,cpuacct:/docker/abc\n1:name=systemd:/docker/abc\n" },
+        .{ "/sys/fs/cgroup/cpu,cpuacct/docker/abc/cpu.cfs_quota_us", "300000\n" },
+        .{ "/sys/fs/cgroup/cpu,cpuacct/docker/abc/cpu.cfs_period_us", "100000\n" },
+    } };
+    try std.testing.expectEqual(@as(?f64, 3.0), cgroupQuota(set));
+    const unset: TestCpuFiles = .{ .paths = &.{
+        .{ "/proc/self/cgroup", "4:cpuacct,cpu:/\n" },
+        .{ "/sys/fs/cgroup/cpu/cpu.cfs_quota_us", "-1\n" },
+        .{ "/sys/fs/cgroup/cpu/cpu.cfs_period_us", "100000\n" },
+    } };
+    try std.testing.expectEqual(@as(?f64, null), cgroupQuota(unset));
+}
+
+test "no quota without a cgroup file, a limit, or a readable one" {
+    try std.testing.expectEqual(@as(?f64, null), cgroupQuota(TestCpuFiles{}));
+    const host: TestCpuFiles = .{ .paths = &.{
+        .{ "/proc/self/cgroup", "0::/user.slice/user-1000.slice/session-1.scope\n" },
+        .{ "/sys/fs/cgroup/user.slice/cpu.max", "max 100000\n" },
+    } };
+    try std.testing.expectEqual(@as(?f64, null), cgroupQuota(host));
+    const junk: TestCpuFiles = .{ .paths = &.{
+        .{ "/proc/self/cgroup", "0::/a\nnonsense\n" },
+        .{ "/sys/fs/cgroup/a/cpu.max", "lots 0\n" },
+        .{ "/sys/fs/cgroup/cpu.max", "100000 0\n" },
+    } };
+    try std.testing.expectEqual(@as(?f64, null), cgroupQuota(junk));
+    const long_path = "0::/" ++ @as([600]u8, @splat('a')) ++ "\n";
+    try std.testing.expectEqual(@as(?f64, null), cgroupQuota(TestCpuFiles{ .paths = &.{.{ "/proc/self/cgroup", long_path }} }));
+}
+
+test "this machine's CPUs are each at least one, in order, and kept" {
+    const c = cpus();
+    try std.testing.expect(1 <= c.fast_cores and c.fast_cores <= c.cores and c.cores <= c.threads);
+    try std.testing.expect(c.fast_cores <= c.fast_threads and c.fast_threads <= c.threads);
+    if (c.quota == null) try std.testing.expect(c.threads <= @max(1, std.Thread.getCpuCount() catch 1));
+    try std.testing.expectEqual(c, cpus());
 }
 
 test "orderIsIdentity: an enum's variant with fields counts its fields" {

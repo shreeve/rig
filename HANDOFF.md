@@ -315,9 +315,11 @@ A new session, human or agent, takes these steps in order:
   task falls from 33.5 to 17.6 KB on the Mac and 9.1 to 5.2 KB on pup;
   `chain` and `spawn` cost a little. Packed slots build on it. The owner
   merges.
-- **`task.fast_cores()`** (draft PR, branch `fast-cores`): the fast
-  physical cores within the affinity mask, on macOS and Linux. The name
-  is provisional, the owner's to settle; the worker count is unchanged.
+- **`task.cpus()`** (draft PR, branch `task-cpus`): the threads, cores,
+  fast cores, and fast threads within the affinity mask and the
+  container's quota, on macOS and Linux, in place of `task.fast_cores()`;
+  Trig moves to `task.cpus().fast_cores`. The worker count is unchanged;
+  making it follow `cpus().threads` is its own change.
 - **Language review fixes** (draft PR, branch `language-review-fixes`):
   from the 2026-11-08 language review, nothing is written through a
   `!?T` (an element of `for x in !vv` over a `List[?T]`), a view of a
