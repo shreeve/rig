@@ -1,0 +1,8 @@
+        rig-safe          vs rig-safe
+spawn   108 ns/task       
+chain   50 ns/task        
+fanout  94.4 ms/run       
+yield   9 ns/yield        
+hog     171 ns/step       
+produce 5.7 ms/run        
+memory  4.6 KiB/task      

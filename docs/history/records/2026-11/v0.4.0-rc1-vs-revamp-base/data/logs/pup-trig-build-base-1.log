@@ -1,0 +1,3 @@
+# cpus 1,3
+# Linux x86_64 pup rig rig 0.3.0 zig 0.17.0 load: 2.31, 3.77, 3.95
+build 1 rc=0 total_s=1173.6 zig_s=1169.0 zig_calls=2 trig_bytes=166216440

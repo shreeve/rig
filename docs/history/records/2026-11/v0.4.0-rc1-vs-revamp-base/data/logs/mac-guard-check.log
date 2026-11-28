@@ -1,0 +1,15 @@
+scaling modules   n to 8n: exponent 1.02 (limit 1.15)
+scaling variants  n to 8n: exponent 1.01 (limit 1.15)
+scaling fields    n to 8n: exponent 1.00 (limit 1.15)
+scaling funcs     n to 8n: exponent 1.00 (limit 1.15)
+scaling stmts     n to 8n: exponent 1.01 (limit 1.15)
+instructions 1686019187 (baseline 1780353622, 5.3% fewer; load 7.8)
+passes: skipped, load 7.8 is 5 or more
+## run 2
+scaling modules   n to 8n: exponent 1.02 (limit 1.15)
+scaling variants  n to 8n: exponent 1.00 (limit 1.15)
+scaling fields    n to 8n: exponent 1.00 (limit 1.15)
+scaling funcs     n to 8n: exponent 1.00 (limit 1.15)
+scaling stmts     n to 8n: exponent 1.01 (limit 1.15)
+instructions 1689156717 (baseline 1780353622, 5.1% fewer; load 7.8)
+passes: skipped, load 7.8 is 5 or more

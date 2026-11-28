@@ -1,0 +1,6 @@
+twitter         6.2291 (baseline 6.2299, 0.0% fewer instructions)
+twitterescaped  7.4181 (baseline 7.4059, 0.2% more instructions)
+canada          14.8001 (baseline 14.7808, 0.1% more instructions)
+citm_catalog    6.0363 (baseline 6.0371, 0.0% fewer instructions)
+gsoc-2018       2.9185 (baseline 2.8970, 0.7% more instructions)
+github_events   5.2607 (baseline 5.2556, 0.1% more instructions)
