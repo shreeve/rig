@@ -571,16 +571,14 @@ pub const Checker = struct {
     /// bodies' requirements are checked at self's type
     /// (`checkMethodCalls`).
     method_calls: std.ArrayList(MethodCall) = .empty,
-    /// The current read match arm's hidden var (`Var.arm_of`), made when
-    /// a binding first needs it.
-    arm_var: ?VarId = null,
+    /// The match arm being bound: its read arm's hidden var
+    /// (`Var.arm_of`), made when a binding first needs it; its subject,
+    /// as written; and the owner's name that subject could take instead
+    /// (`Var.arm_take`).
+    arm: struct { hidden: ?VarId = null, subject: []const u8 = "", take: []const u8 = "" } = .{},
     /// The binding each loan on an arm's hidden var stands for, by the
     /// loan's position (`notes.reportArmView`).
     arm_binds: sema.FastMap(u32, SymbolId) = .empty,
-    /// The subject of the match whose arm is being bound, as written.
-    arm_subject: []const u8 = "",
-    /// The owner's name that subject could take instead (`Var.arm_take`).
-    arm_take: []const u8 = "",
     /// The value a header holds for its construct (`Header.held`): the
     /// node that makes it, read as the hidden var `id` holding it.
     held: ?Held = null,

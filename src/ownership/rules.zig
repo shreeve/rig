@@ -15,6 +15,7 @@ const origins = @import("origins.zig");
 const generic = @import("generic.zig");
 const types = @import("types.zig");
 const notes = @import("notes.zig");
+const lowering = @import("../lower.zig");
 const Access = state.Access;
 const Checker = state.Checker;
 const Loan = state.Loan;
@@ -37,11 +38,8 @@ pub fn checkReadable(self: *Checker, id: VarId, place: ?Sexp, pos: u32) Error!vo
     const path = if (place) |e| (if (transfer.resolvePlace(self, e)) |p| (if (p.root == id) p.path else whole_path) else whole_path) else whole_path;
     if (!try checkLivePath(self, id, path, pos)) return;
     if (self.findLoan(id, whole_path, .write, null) == null) return;
-    if (self.findLoan(id, path, .write, null)) |l| {
-        try notes.err(self, pos, "cannot use `{s}` while {s} is still in use", .{ try notes.pathText(self, id, path), try notes.viewOfText(self, l, path) });
-        try notes.noteLoan(self, l);
-        try notes.noteStillUsed(self, l, pos);
-    }
+    if (self.findLoan(id, path, .write, null)) |l|
+        try notes.errLoan(self, pos, l, "cannot use `{s}` while {s} is still in use", .{ try notes.pathText(self, id, path), try notes.viewOfText(self, l, path) });
 }
 
 /// Report a capture of a moved or dropped var. Returns whether it is
@@ -70,9 +68,7 @@ pub fn checkLivePath(self: *Checker, id: VarId, path: PathId, pos: u32) Error!bo
     if (v.once) {
         try notes.err(self, pos, "`{s}` is called at most once (`once`), and it is used up already", .{v.name});
         const f = self.flows.items[id];
-        if (self.loop != null and f.at >= (self.step_at orelse pos) and !self.in_defer) {
-            try notes.note(self, f.at, "`{s}` was used here, in a previous iteration of the loop", .{v.name});
-        } else try notes.note(self, f.at, "`{s}` was used here", .{v.name});
+        try notes.note(self, f.at, "`{s}` was used here{s}", .{ v.name, notes.prevIteration(self, f.at, pos) });
         return false;
     }
     const what = if (self.flows.items[id].status == .dropped) "drop" else "move";
@@ -168,7 +164,7 @@ pub fn checkNoImplicitCopy(self: *Checker, expr: Sexp, sink: Sink, top_return: b
     // it, in the branches of what is read too.
     const saved_reads = self.copy_reads;
     defer self.copy_reads = saved_reads;
-    if (readsValue(self, expr)) self.copy_reads = true;
+    if (self.sema.readsThrough(expr)) self.copy_reads = true;
     switch (expr) {
         .src => {
             const v = self.vars.items[self.find(expr) orelse return];
@@ -247,13 +243,6 @@ pub fn readsThroughWriteView(self: *const Checker, ty: ?TypeId) bool {
     return self.copy_reads and types.refOfType(self, ty) == .write and types.copiedThrough(self, ty);
 }
 
-/// Whether the context of `e` reads the value the view it yields
-/// reaches (`SemContext.readsThrough`).
-pub fn readsValue(self: *const Checker, e: Sexp) bool {
-    const ctx = self.sema;
-    return ctx.readsThrough(e);
-}
-
 /// Whether `e` names a type (`Shape`, `lib.Shape`, `Opt[Int]`) rather
 /// than a value.
 pub fn namesType(self: *const Checker, e: Sexp) bool {
@@ -264,9 +253,7 @@ pub fn namesType(self: *const Checker, e: Sexp) bool {
     if (e.isKind(.member)) {
         // `module.Type`: the module has no value.
         const m = ir.Member.object(e);
-        if (m != .src) return false;
-        const id = ctx.symbolOf(m) orelse return false;
-        return ctx.symbols.items[id].kind == .module;
+        return m == .src and transfer.namesModule(self, m);
     }
     const id = ctx.symbolOf(e) orelse return false;
     return switch (ctx.symbols.items[id].kind) {
@@ -306,9 +293,7 @@ pub fn conflictingLoan(self: *Checker, id: VarId, path: PathId, access: Access, 
     // runs one, so the views two arms make live at once: the fix moves
     // the use out of one.
     if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none) if (notes.selectWith(self, self.cur_stmt, pos, l.pos)) |sel| {
-        try notes.err(self, pos, "cannot change `{s}` while {s} is still in use: `{s}` makes every arm before it runs one, so two arms cannot each hold a write view of `{s}`; let one arm write it, or have each arm give a value and write `{s}` after the {s}", .{ name, view, notes.selectName(self, sel), name, name, if (self.sema.isPoll(sel)) "poll" else "select" });
-        try notes.noteLoan(self, l);
-        try notes.noteStillUsed(self, l, pos);
+        try notes.errLoan(self, pos, l, "cannot change `{s}` while {s} is still in use: `{s}` makes every arm before it runs one, so two arms cannot each hold a write view of `{s}`; let one arm write it, or have each arm give a value and write `{s}` after the {s}", .{ name, view, notes.selectName(self, sel), name, name, if (self.sema.isPoll(sel)) "poll" else "select" });
         return l;
     };
     if (access != .read and l.place_hold)
@@ -317,8 +302,7 @@ pub fn conflictingLoan(self: *Checker, id: VarId, path: PathId, access: Access, 
         try notes.err(self, pos, "cannot {s} `{s}` {s}", .{ verb, name, try notes.heldReadClause(self, l.held_read, viewed) })
     else
         try notes.err(self, pos, "cannot {s} `{s}` while {s} is still in use", .{ verb, name, view });
-    try notes.noteLoan(self, l);
-    try notes.noteStillUsed(self, l, pos);
+    try notes.noteEnds(self, l, pos);
     if (access != .read and l.held_read == .callee) try notes.noteCloneCallee(self, l.pos);
     return l;
 }
@@ -350,11 +334,8 @@ pub fn checkAssignable(self: *Checker, id: VarId, pos: u32) Error!void {
         try notes.err(self, pos, "cannot reassign match binding `{s}`; it views the matched value", .{v.name});
         return;
     }
-    if (self.findLoan(id, whole_path, .any, null)) |l| {
-        try notes.err(self, pos, "cannot reassign `{s}` while {s} is still in use", .{ v.name, try notes.viewOfText(self, l, whole_path) });
-        try notes.noteLoan(self, l);
-        try notes.noteStillUsed(self, l, pos);
-    }
+    if (self.findLoan(id, whole_path, .any, null)) |l|
+        try notes.errLoan(self, pos, l, "cannot reassign `{s}` while {s} is still in use", .{ v.name, try notes.viewOfText(self, l, whole_path) });
 }
 
 // -----------------------------------------------------------------------------
@@ -416,7 +397,7 @@ pub fn onceUses(self: *Checker, node: Sexp) Error![]const OnceUse {
     };
     const params = self.sema.callParamsOf(node);
     for (ir.Call.args(node), 0..) |a, ai| {
-        const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+        const value = lowering.argValue(a);
         if (value != .src) continue;
         const id = onceVar(self, value) orelse continue;
         if (params) |p| if (p.fillsOnce(ai)) {

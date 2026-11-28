@@ -171,31 +171,23 @@ pub fn checkDeferBody(self: *Checker, body: Sexp, r: ?lir.RegionId, report_chang
     if (!report_changes) return;
     // A body that moves an outer binding and assigns it again
     // (`defer x = f(<x)`) leaves it as it was, and still moved it.
-    if (movedInDefer(self, snap)) |m| {
-        if (m.part) {
-            try notes.errAt(self, body, "a `defer` body cannot move a field out of `{s}`; it runs when the scope exits", .{self.vars.items[m.id].name});
-        } else try notes.errAt(self, body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[m.id].name});
-        try self.rewind(snap);
-        return;
-    }
-    const after = try self.leave(snap, null);
-    for (after.changes) |e| {
-        if (e.flow.status != self.flows.items[e.id].status) {
-            try notes.errAt(self, body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
-            break;
-        }
-        if (!partSetEql(e.flow.parts, self.flows.items[e.id].parts)) {
-            try notes.errAt(self, body, "a `defer` body cannot move a field out of `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
-            break;
-        }
-    }
+    const moved = movedInDefer(self, snap);
+    const m: Moved = moved orelse for ((try self.leave(snap, null)).changes) |e| {
+        if (e.flow.status != self.flows.items[e.id].status) break .{ .id = e.id, .part = false };
+        if (!partSetEql(e.flow.parts, self.flows.items[e.id].parts)) break .{ .id = e.id, .part = true };
+    } else return;
+    try notes.errAt(self, body, "a `defer` body cannot {s} `{s}`; it runs when the scope exits", .{ if (m.part) "move a field out of" else "move or drop", self.vars.items[m.id].name });
+    if (moved != null) try self.rewind(snap);
 }
+
+/// A var a `defer` body moved or dropped, or moved a field out of (`part`).
+const Moved = struct { id: VarId, part: bool };
 
 /// The first var in scope at `p` that the code walked since moved,
 /// dropped, or moved a field out of at some point, whatever it
 /// holds now: each change on the trail since `p` records the flow it
 /// replaced, which is compared with the var's flow at `p`.
-pub fn movedInDefer(self: *Checker, p: Point) ?struct { id: VarId, part: bool } {
+pub fn movedInDefer(self: *Checker, p: Point) ?Moved {
     const changes = self.trail.items[p.trail..];
     for (changes, 0..) |c, i| {
         if (c.id >= p.vars) continue;

@@ -329,6 +329,6 @@ pub fn erasesCopy(self: *const Checker, e: Sexp) bool {
 
 /// Whether `e` is viewed by `step` of the view table.
 pub fn viewsBy(self: *const Checker, e: Sexp, step: sema.ViewStep) bool {
-    const view = transfer.viewOf(self, e) orelse return false;
+    const view = self.sema.viewOf(e) orelse return false;
     return view.has(step);
 }

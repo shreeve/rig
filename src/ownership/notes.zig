@@ -62,6 +62,18 @@ pub fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Er
     return errSpan(self, .{ .start = pos, .end = pos }, fmt, args);
 }
 
+/// An error at `pos` that loan `l` blocks, with both its ends.
+pub fn errLoan(self: *Checker, pos: u32, l: Loan, comptime fmt: []const u8, args: anytype) Error!void {
+    try err(self, pos, fmt, args);
+    try noteEnds(self, l, pos);
+}
+
+/// Both ends of loan `l`, which blocks what is done at `pos`.
+pub fn noteEnds(self: *Checker, l: Loan, pos: u32) Error!void {
+    try noteLoan(self, l);
+    try noteStillUsed(self, l, pos);
+}
+
 /// An error about `node`, reported at its span.
 pub fn errAt(self: *Checker, node: Sexp, comptime fmt: []const u8, args: anytype) Error!void {
     return errSpan(self, span(self, node), fmt, args);
@@ -159,13 +171,15 @@ pub fn noteInvalidated(self: *Checker, id: VarId, use_pos: u32) Error!void {
     const waited = f.status != .dropped and f.at > 0 and f.at <= self.source.len and self.source[f.at - 1] == '>' and if (v.ty) |t| sema.isTask(self.sema, t) or sema.isTaskSet(self.sema, t) else false;
     const what = if (f.status == .dropped) "dropped" else if (waited) "waited for" else "moved";
     const why = if (waited) "; a wait takes what it waits for, so it waits once" else "";
-    // Deferred code runs after the code that follows it, and a
-    // loop's step after its body.
-    if (self.loop != null and f.at >= (self.step_at orelse use_pos) and !self.in_defer) {
-        try note(self, f.at, "`{s}` was {s} here, in a previous iteration of the loop{s}", .{ try varText(self, v), what, why });
-    } else {
-        try note(self, f.at, "`{s}` was {s} here{s}", .{ try varText(self, v), what, why });
-    }
+    try note(self, f.at, "`{s}` was {s} here{s}{s}", .{ try varText(self, v), what, prevIteration(self, f.at, use_pos), why });
+}
+
+/// ", in a previous iteration of the loop" where what happened at `at`
+/// is seen at `pos` only on the loop's next pass, else "". Deferred
+/// code runs after the code that follows it, and a loop's step after
+/// its body.
+pub fn prevIteration(self: *const Checker, at: u32, pos: u32) []const u8 {
+    return if (self.loop != null and at >= (self.step_at orelse pos) and !self.in_defer) ", in a previous iteration of the loop" else "";
 }
 
 pub fn noteLoan(self: *Checker, loan: Loan) Error!void {
@@ -244,7 +258,7 @@ pub fn viewedText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
 pub fn noteStillUsed(self: *Checker, l: Loan, at: u32) Error!void {
     if (self.quiet > 0 or !self.last_err_kept) return;
     if (l.place_hold or l.held_read != .none) return;
-    if (holderOf(self, l)) |h| return noteHolderUse(self, h, l, at, null, 0);
+    if (holderOf(self, l)) |h| return noteHolderUse(self, h, l, at, 0);
     return noteStmtUse(self, l, at);
 }
 
@@ -320,9 +334,8 @@ pub fn carrierIn(self: *const Checker, node: Sexp, l: Loan) ?u32 {
 /// `noteStillUsed` for loan `l`, which var `h` holds: the next use of
 /// `h`, the deferred code or the caller that uses it, its drop, the
 /// loop that reads it again, or where what views `h` in turn is
-/// still used. `end` is set where `at` is a scope's end, where the
-/// liveness of `h` is asked (`releaseVarsFrom`).
-pub fn noteHolderUse(self: *Checker, h: VarId, l: Loan, at: u32, end: ?u32, depth: u8) Error!void {
+/// still used.
+pub fn noteHolderUse(self: *Checker, h: VarId, l: Loan, at: u32, depth: u8) Error!void {
     if (depth > 16) return;
     const ctx = self.sema;
     const v = self.vars.items[h];
@@ -367,13 +380,7 @@ pub fn noteHolderUse(self: *Checker, h: VarId, l: Loan, at: u32, end: ?u32, dept
         }
     };
     // Through a live var that views `h`, or the statement in flight.
-    if (self.isViewed(h)) for (self.flows.items, 0..) |f, j| {
-        if (j == h) continue;
-        for (f.loans) |x| if (x.root == h and !x.ext) {
-            if (live.holderLiveDepth(self, @intCast(j), null, depth + 1)) return noteHolderUse(self, @intCast(j), x, at, end, depth + 1);
-            break;
-        };
-    };
+    if (live.liveViewer(self, h, null, depth)) |w| return noteHolderUse(self, w.holder, w.loan, at, depth + 1);
     for (self.temps.items) |x| if (x.root == h) {
         if (x.held_read != .none) return note(self, x.pos, "still used here: {s}", .{heldUse(x.held_read)});
         return noteStmtUse(self, x, at);
@@ -577,7 +584,7 @@ pub fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId, drop: ?struct {
         };
         try err(self, d.at, "`{s}` is dropped here, at the end of its scope, while {s} is still in use", .{ root.name, try viewOfText(self, l, whole_path) });
         try noteLoan(self, l);
-        if (self.quiet == 0 and self.last_err_kept) try noteHolderUse(self, h, l, d.end, d.end, 0);
+        if (self.quiet == 0 and self.last_err_kept) try noteHolderUse(self, h, l, d.end, 0);
         return noteStringViewOfString(self, l, self.vars.items[h].ty);
     };
     try err(self, l.pos, "`{s}` does not live long enough", .{root.name});
