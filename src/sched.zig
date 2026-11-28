@@ -28,6 +28,7 @@ const split = rt.split;
 comptime {
     if (split.on and split.main) _ = .{
         workers_len,
+        placed_for,
         connecting,
         zva_64,
         workers_override,
@@ -242,6 +243,8 @@ const Worker = struct {
     next_sleeper: ?*Worker = null,
     searching: bool = false,
     rng: u32 = 1,
+    /// Its thread's id on Linux once it runs, for `placeWorkers`; 0 before.
+    tid: std.atomic.Value(i32) = .init(0),
     /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
     /// (`printStats`): fibers it ran, of them pinned ones, fibers it
     /// stole, times it slept, and tasks run inline (`inlined`). The
@@ -4179,6 +4182,8 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     m.fiber.state.stack_guard = guard;
     m.fiber.sp = initialFrame(&m.fiber, top);
     me_slot().* = first;
+    if (builtin.os.tag == .linux) first.tid.store(std.os.linux.gettid(), .seq_cst);
+    placed_for.store(0, .seq_cst);
     if (preempt) preOf(first).tid = rt.threadId();
     if (deterministic.*) wake(&m.fiber) else _ = first.ring.push(&m.fiber);
     loop(first);
@@ -4330,6 +4335,7 @@ fn startWorkers() void {
         if (preempt and !deterministic.*) startMonitor();
         return;
     }
+    placeWorkers(n);
     starting.store(1, .monotonic);
     ws[1].thread = std.Thread.spawn(.{}, workerMain, .{ &ws[1], n }) catch rt.oom();
 }
@@ -4458,8 +4464,54 @@ fn growWorkers(n: usize) bool {
     for (have..n) |i| initWorker(i);
     for (fresh) |*w| w.poller.open();
     workers_len.store(n, .release);
+    placeWorkers(n);
     for (fresh) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{ w, 0 }) catch rt.oom();
     return true;
+}
+
+/// How many workers the workers' threads are placed for (`placeWorkers`),
+/// 0 before they are.
+var placed_for_var: std.atomic.Value(usize) = .init(0);
+const placed_for = split.cell(&placed_for_var, "sched.placed_for");
+
+/// On Linux, run every worker's thread on the CPUs `n` workers take
+/// (`rt.Placement.cpusFor`): one thread of each fast core while they are
+/// no more than the fast cores, else one of each core while no more than
+/// the cores, so two workers never share a core's two threads, where the
+/// kernel, placing threads as they wake, at times leaves two on one core
+/// for a whole run, both slowed. Each may run on any CPU of
+/// the set, never one alone, so the kernel still moves a worker off a CPU
+/// another program keeps busy. Past the cores, the whole mask, as before.
+/// As the workers start (`startWorkers`) and each time their number rises
+/// (`growWorkers`); a worker not yet running places itself
+/// (`placeSelf`). The set holds a thread of every core, so a program that
+/// runs on them all keeps them all: only which thread of each changes.
+fn placeWorkers(n: usize) void {
+    if (builtin.os.tag != .linux or deterministic.* or n < 2) return;
+    const p = rt.workerPlacement() orelse return;
+    placed_for.store(n, .seq_cst);
+    const set = p.cpusFor(n);
+    for (workersNow()) |*w| {
+        const tid = w.tid.load(.seq_cst);
+        if (tid != 0) rt.runThreadOn(tid, set);
+    }
+}
+
+/// A worker's thread as it starts: on the CPUs its workers are placed
+/// for, again if their number changed meanwhile. It publishes its id
+/// before it reads the number and the placer stores the number before it
+/// reads the ids, so one of them places it on the latest.
+fn placeSelf(w: *Worker) void {
+    if (builtin.os.tag != .linux) return;
+    w.tid.store(std.os.linux.gettid(), .seq_cst);
+    var n = placed_for.load(.seq_cst);
+    while (n != 0) {
+        const p = rt.workerPlacement() orelse return;
+        rt.runThreadOn(0, p.cpusFor(n));
+        const now = placed_for.load(.seq_cst);
+        if (now == n) return;
+        n = now;
+    }
 }
 
 /// How many workers run tasks, or will once the program makes its first
@@ -4496,6 +4548,7 @@ fn workerMain(w: *Worker, n: usize) void {
     me_slot().* = w;
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
+    placeSelf(w);
     // Claimed by `os.exit` before it ran (`initWorker`): it stops, as one
     // claimed in its poller does, having touched nothing of the program's.
     // Worker 1 first runs `startRest`, which, the program ending, maps and
