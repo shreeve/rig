@@ -290,6 +290,43 @@ pub const Call = struct {
     };
 };
 
+/// How a call passes what it is given, decided by emit's lowering
+/// (`lower.Module.argsOf`): what emit writes, in the order it writes
+/// it, and the parameter each argument fills.
+pub const Args = struct {
+    slots: []const Slot = &.{},
+    /// The parameter each argument fills, by its place as written;
+    /// null where it fills none.
+    params: []const ?sema.TypeId = &.{},
+    /// The callee takes the slot a failure's fields go in, last, where a
+    /// `!` or `catch` gives one: a Rig function or a function value,
+    /// never a method of a built-in type.
+    takes_fail: bool = false,
+    /// What it holds first, before its arguments, where its parts are
+    /// held: its self or the callee it evaluates in its place.
+    self: ?Self = null,
+
+    pub const Self = struct {
+        node: Sexp,
+        /// `self` or `invoked`.
+        kind: StorageKind,
+        hold: SelfHold,
+    };
+
+    pub const Slot = union(enum) {
+        /// A witness a method under bounds takes (`sema.OwnerWitnesses`).
+        witness: sema.Witness,
+        /// The compile-time arguments, one or more.
+        ct,
+        /// Argument `i`, as written.
+        arg: u32,
+        /// A parameter's default, of the parameter's type.
+        default: struct { value: sema.DefaultValue, param: sema.TypeId },
+        /// A duration given by several units' keywords.
+        parts: sema.DurationParts,
+    };
+};
+
 /// How an operation or a step uses an operand, decided once by lowering
 /// (`Lowerer.role`) for each expression: an expression is the operand of
 /// one operation or step, so its role is kept by its id
@@ -492,10 +529,6 @@ pub const Answers = struct {
     binds_string_bytes: bool = false,
     /// `return a, b` whose parts are made first.
     hoists_results: bool = false,
-    /// A call: how it holds its self first, and whether it consumes an
-    /// owned temporary as its self.
-    self_hold: ?SelfHold = null,
-    consumes_self: bool = false,
 };
 
 /// What emit's lowering decides of a `match` (`Expr.Choice`).

@@ -1719,13 +1719,8 @@ pub const Emitter = struct {
         if (!s.self_arg) {
             const recv = self.facts.node(.selfOf, call) orelse return self.unsupported(call, "a call through a witness without its self");
             try self.emitWitnessSelf(recv, s);
-            // `emitArgs` writes the separators between what it writes.
-            const slots = self.facts.node(.callSlotsOf, call);
-            const runtime = if (slots) |sl| sl.len else ir.Call.args(call).len;
-            const slot = if (self.fail_slot) |f| sameNode(f.call, call) else false;
-            if (runtime > 0 or ctArgCount(self.facts.node(.genericCallOf, call), self.facts.node(.ctArgsOf, call)) > 0 or slot) try self.w.writeAll(", ");
-            try self.emitArgs(call);
-        } else try self.emitArgs(call);
+        }
+        try self.emitArgsAfter(call, !s.self_arg);
         try self.w.writeAll(")");
     }
 
@@ -1764,12 +1759,7 @@ pub const Emitter = struct {
             try self.w.writeAll(", ");
         } else if (!direct) try self.w.print("break :__rig_call_{d} ", .{id});
         try self.w.print("{s}.vt.{f}({s}.ptr", .{ name, ident(d.method), name });
-        const skip: usize = @intFromBool(d.self_arg);
-        const slots = self.facts.node(.callSlotsOf, call);
-        const runtime = (if (slots) |sl| sl.len else ir.Call.args(call).len) -| skip;
-        const slot = if (self.fail_slot) |f| sameNode(f.call, call) else false;
-        if (runtime > 0 or slot) try self.w.writeAll(", ");
-        try self.emitArgsFrom(call, skip);
+        try self.emitArgsAfter(call, true);
         if (out) try self.w.print(", &{s}), &{s}", .{ res, res });
         try self.w.writeAll(")");
         if (!direct or out) try self.w.writeAll("; })");
@@ -7637,7 +7627,7 @@ pub const Emitter = struct {
         const first = self.hoisted.items.len;
         for (ir.Array.elems(sexp), 0..) |e, i| {
             if (self.varOf(e, .argument) == null) continue;
-            try self.hoist(.{ .node = e, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, i }) }, .{ .pair = .{ id, @intCast(i) } }, &.{}, 0, true);
+            try self.hoist(.{ .node = e, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, i }) }, .{ .pair = .{ id, @intCast(i) } }, null, true);
         }
         try self.writeIndent(self.indent);
         try self.w.print("break :__rig_array_{d} ", .{id});
@@ -9473,18 +9463,15 @@ pub const Emitter = struct {
             try self.w.writeAll(if (self.facts.node(.isLocalTask, sexp)) ".spawnObjectLocal(" else ".spawnObject(");
             try self.emitExpr(viewedPlace(recv));
             try self.w.print(", \"{s}\", .{{ ", .{d.dynamic.method});
-            try self.emitArgsFrom(sexp, @intFromBool(d.dynamic.self_arg));
+            try self.emitArgs(sexp);
             return self.w.writeAll(" })");
         };
         if (self.facts.node(.dispatchOf, sexp)) |d| if (d == .static) {
             try self.w.writeAll(if (self.facts.node(.isLocalTask, sexp)) ".spawnLocal(" else ".spawn(");
             try self.writeWitnessMethod(d.static);
             try self.w.writeAll(", .{ ");
-            if (!d.static.self_arg) {
-                try self.emitExpr(self.facts.node(.selfOf, sexp) orelse return self.unsupported(sexp, "a call through a witness without its self"));
-                if (ir.Call.args(sexp).len > 0) try self.w.writeAll(", ");
-            }
-            try self.emitArgs(sexp);
+            if (!d.static.self_arg) try self.emitExpr(self.facts.node(.selfOf, sexp) orelse return self.unsupported(sexp, "a call through a witness without its self"));
+            try self.emitArgsAfter(sexp, !d.static.self_arg);
             return self.w.writeAll(" })");
         };
         if (self.facts.node(.selfOf, sexp)) |recv| {
@@ -9987,56 +9974,31 @@ pub const Emitter = struct {
         try self.closeBrace();
     }
 
-    /// A call's arguments in parameter order: its compile-time arguments
-    /// (after a self passed as an argument), then its run-time ones,
-    /// keyword arguments in their parameters' places and defaults for
-    /// omitted ones.
+    /// What a call passes, in the order lowering recorded (`lir.Args`),
+    /// and last the slot its `!` or `catch` gives a call that may fail
+    /// with fields, when the callee takes one.
     fn emitArgs(self: *Emitter, call: Sexp) Error!void {
-        return self.emitArgsFrom(call, 0);
+        return self.emitArgsAfter(call, false);
     }
 
-    /// `emitArgs` from parameter `from` on: a call through an API
-    /// object's table passes its self, the first argument of
-    /// `Shape.area(s)`, apart (`emitObjectCall`).
-    fn emitArgsFrom(self: *Emitter, call: Sexp, from: usize) Error!void {
+    /// `emitArgs`, after something written before them (`lead`), from
+    /// which the first is separated.
+    fn emitArgsAfter(self: *Emitter, call: Sexp, lead: bool) Error!void {
+        const rec = try self.need(self.lowered.?.argsOf(call), call);
         const args = ir.Call.args(call);
-        const params = self.facts.node(.argParams, call);
-        const generic = self.facts.node(.genericCallOf, call);
-        const ct_at: usize = if (generic) |g| @intFromBool(g.self_arg) else 0;
-        const slots = self.facts.node(.callSlotsOf, call);
-        const n = if (slots) |sl| sl.len else args.len;
-        var written: usize = 0;
-        // The witnesses a method under bounds takes come first among its
-        // compile-time arguments, after self.
-        const owner_ws = self.facts.node(.ownerWitnessesOf, call);
-        for (0..n + 1) |i| {
-            if (owner_ws) |ow| if (i == @min(@intFromBool(ow.self_arg), n)) for (ow.witnesses) |w| {
-                if (written > 0) try self.w.writeAll(", ");
-                written += 1;
-                try self.writeWitness(w);
-            };
-            if (i == @min(ct_at, n)) {
-                const ct = self.facts.node(.ctArgsOf, call);
-                if (written > 0 and ctArgCount(generic, ct) > 0) try self.w.writeAll(", ");
-                written += try self.emitCtArgs(generic, ct);
-            }
-            if (i == n) break;
-            if (i < from) continue;
-            if (written > 0) try self.w.writeAll(", ");
-            written += 1;
-            if (slots) |sl| switch (sl[i]) {
-                .arg => |ai| try self.emitArg(args[ai], params, i),
-                .default => |d| try self.emitDefault(self.facts.moduleWithSource(d.source) orelse return self.unsupported(call, "this default argument"), d.expr, if (i < params.len) params[i] else facts.type_invalid, false),
+        var sep = lead;
+        for (rec.slots) |slot| {
+            if (sep) try self.w.writeAll(", ");
+            sep = true;
+            switch (slot) {
+                .witness => |w| try self.writeWitness(w),
+                .ct => try self.emitCtArgs(self.facts.node(.genericCallOf, call), self.facts.node(.ctArgsOf, call)),
+                .arg => |ai| try self.emitArg(args[ai], rec.params[ai]),
+                .default => |d| try self.emitDefault(self.facts.moduleWithSource(d.value.source) orelse return self.unsupported(call, "this default argument"), d.value.expr, d.param, false),
                 .parts => |p| try self.emitDurationParts(args, p),
-            } else try self.emitArg(args[i], params, i);
+            }
         }
-        // The slot its `!` or `catch` gives a call that may fail with
-        // fields, when the callee takes one: a Rig function or a function
-        // value, never a method of a built-in type.
-        if (self.fail_slot) |s| if (sameNode(s.call, call)) {
-            self.fail_slot = null;
-            if (self.calleeTakesSlot(call)) try self.w.print("{s}{s}", .{ if (written > 0) ", " else "", s.expr });
-        };
+        if (self.takeFailSlot(call)) |s| if (rec.takes_fail) try self.w.print("{s}{s}", .{ if (sep) ", " else "", s });
     }
 
     /// A duration given by several units' keywords (`sema.DurationParts`):
@@ -10084,40 +10046,6 @@ pub const Emitter = struct {
         if (how != .folded) return;
         const label = self.fold_label orelse return self.unsupported(node, "a duration form whose failure joins no call");
         try self.w.print(" catch |__rig_fe| break :{s} __rig_fe)", .{label});
-    }
-
-    /// Whether `call`'s callee takes the slot a failure's fields go in:
-    /// a Rig function (`callTargetOf`), or a function value, whose type
-    /// takes it (`emitCallableTy`). A built-in type's method, and a call
-    /// the runtime makes itself, take none.
-    fn calleeTakesSlot(self: *Emitter, call: Sexp) bool {
-        if (self.facts.node(.callTargetOf, call)) |t| if (t == .function) return true;
-        // A witness's method is a Rig method, or a default or an
-        // addition's; an API object's table entry takes the slot of every
-        // fallible method.
-        if (self.facts.node(.dispatchOf, call)) |d| if (d.viaApi()) return true;
-        // An actor's method, which the actor calls with the arguments.
-        if (self.facts.node(.isActorCall, call)) return true;
-        const callee = self.facts.node(.calleeOf, call);
-        // A method of a type parameter's instance, in a generic body: the
-        // instance's own Rig method, as the body requires of it.
-        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |obj_ty| {
-            if (self.facts.types.get(self.peelViews(obj_ty)) == .type_var) return true;
-        };
-        if (callee == .src) if (self.localOf(callee)) |local| if (local.stack_closure) return true;
-        const ty = self.typeOf(callee) orelse return false;
-        if (self.facts.layout(.callableFn, ty) != null or self.facts.layout(.ownedClosureFn, ty) != null) return true;
-        if (self.facts.types.get(self.peelViews(ty)) != .function) return false;
-        // A plain function value, held by a name or a field of an object;
-        // never a method of a built-in type.
-        if (callee == .src) return true;
-        if (!callee.isKind(.member)) return false;
-        const obj_ty = self.typeOf(ir.Member.object(callee)) orelse return false;
-        const name = self.srcText(ir.Member.name(callee));
-        for (self.declFields(self.peelViews(obj_ty))) |f| {
-            if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, name)) return true;
-        }
-        return false;
     }
 
     /// What a `catch |name|` handler starts with: `name` bound to the
@@ -10300,9 +10228,9 @@ pub const Emitter = struct {
         return self.w.print("@import(\"{s}\").{f}", .{ decl.zig_file, ident(rig.leafText(decl.source, e.src)) });
     }
 
-    /// The argument filling parameter slot `i`: a `!T` parameter receives
-    /// a pointer.
-    fn emitArg(self: *Emitter, arg: Sexp, params: []const TypeId, i: usize) Error!void {
+    /// The argument filling a parameter of type `param`: a `!T` parameter
+    /// receives a pointer.
+    fn emitArg(self: *Emitter, arg: Sexp, param: ?TypeId) Error!void {
         const value = argValue(arg);
         // A temporary array viewed as a slice: its address, which lives
         // through the call.
@@ -10312,23 +10240,15 @@ pub const Emitter = struct {
             try self.w.writeAll("&");
             return self.emitBare(value);
         }
-        if (i < params.len and self.isPtrViewTy(params[i])) return self.emitWriteViewPtr(value);
-        try self.emitBareAs(value, if (i < params.len) params[i] else null);
-    }
-
-    /// The number of compile-time arguments a call passes: those `given`
-    /// in its bracket list, or one per compile-time parameter of a
-    /// generic function, whose types may be inferred.
-    fn ctArgCount(generic: ?facts.GenericCall, given: []const Sexp) usize {
-        return if (generic) |g| g.type_args.len else given.len;
+        if (param) |t| if (self.isPtrViewTy(t)) return self.emitWriteViewPtr(value);
+        try self.emitBareAs(value, param);
     }
 
     /// A call's compile-time arguments, `given` in its bracket list: for a
     /// generic function, a type argument (inferred or given) where it
-    /// takes one. Returns how many were written.
-    fn emitCtArgs(self: *Emitter, generic: ?facts.GenericCall, given: []const Sexp) Error!usize {
-        const n = ctArgCount(generic, given);
-        for (0..n) |j| {
+    /// takes one.
+    fn emitCtArgs(self: *Emitter, generic: ?facts.GenericCall, given: []const Sexp) Error!void {
+        for (0..if (generic) |g| g.type_args.len else given.len) |j| {
             if (j > 0) try self.w.writeAll(", ");
             const ty = if (generic) |g| g.type_args[j] else facts.type_invalid;
             // A set parameter takes the set's Zig error set, not its value.
@@ -10344,7 +10264,6 @@ pub const Emitter = struct {
             };
             if (generic) |g| try self.writePlainArgs(g.plain, j);
         }
-        return n;
     }
 
     /// A compile-time argument: a value Zig knows at compile time.
@@ -10353,11 +10272,6 @@ pub const Emitter = struct {
         defer self.keep_comptime = saved;
         self.keep_comptime = true;
         try self.emitBare(arg);
-    }
-
-    /// `lower.consumedTemporary`.
-    fn consumedTemporary(self: *Emitter, call: Sexp) Error!?Sexp {
-        return if ((try self.answers(call)).consumes_self) self.facts.node(.selfOf, call) else null;
     }
 
     /// Whether an operand tested against `none` or a bare `.variant` is
@@ -10404,10 +10318,9 @@ pub const Emitter = struct {
     /// written: the address of a place, or a temporary value, dropped
     /// after the call. Zig follows a pointer to a struct for a method,
     /// but neither one to a handle nor one to a callee.
-    fn hoistSelf(self: *Emitter, call: Sexp, id: u32) Error!void {
-        const hold = (try self.answers(call)).self_hold orelse return;
+    fn hoistSelf(self: *Emitter, call: Sexp, first: facts.lir.Args.Self, id: u32) Error!void {
+        const hold = first.hold;
         // View sigils on a self are implicit in Zig's method calls.
-        const first = self.facts.node(.heldFirst, call).?;
         const recv = first.node;
         const writes = self.facts.node(.selfWrites, call);
         // Held as written below: an address, a value made here, or a
@@ -10447,7 +10360,7 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
         if (kind == .value or kind == .optional or (writes and !ptr)) try self.poisonAtExit(name);
         // Sema rejects a viewed temporary self that owns a resource
-        // (a consumed one is hoisted by `consumedTemporary`), so only a
+        // (a consumed one is held as an argument is, `hoist`), so only a
         // value holding a type parameter gets here (`@twice()` of a
         // `Wrap[T]`): plain data in every instance sema accepts, dropped
         // like a resource in the generic body.
@@ -10470,28 +10383,25 @@ pub const Emitter = struct {
             for (ir.Call.args(call)) |arm| try self.hoistParts(argValue(arm), self.nextId());
             return;
         }
-        const args = ir.Call.args(call);
-        const params = self.facts.node(.argParams, call);
-        const slots = self.facts.node(.callSlotsOf, call);
+        const rec = try self.need(self.lowered.?.argsOf(call), call);
         const fields = try self.buildsValue(call);
-        if (try self.consumedTemporary(call)) |recv| {
-            try self.hoist(.{ .node = recv, .name = try self.hiddenStorage(recv, .self, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, &.{}, 0, false);
-        } else try self.hoistSelf(call, id);
-        for (args, 0..) |a, ai| {
+        if (rec.self) |s| if (s.hold == .consumed) {
+            try self.hoist(.{ .node = s.node, .name = try self.hiddenStorage(s.node, .self, .owned, .{ .id = id }), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, null, null, false);
+        } else try self.hoistSelf(call, s, id);
+        for (ir.Call.args(call), 0..) |a, ai| {
             const value = argValue(a);
             if (self.varOf(value, .argument) == null) continue;
-            const slot: usize = if (slots) |ss| facts.slotOf(ss, ai) orelse ai else ai;
-            try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, params, slot, fields);
+            try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, rec.params[ai], fields);
         }
     }
 
-    /// Evaluate `h.node`, the argument for parameter slot `slot` (or a
-    /// field value when the call `fields` builds a value), into the
+    /// Evaluate `h.node`, the argument for a parameter of type `param` (or
+    /// a field value when the call `fields` builds a value), into the
     /// temporary `h.name`. One that owns a resource is dropped at the end
     /// of the call's block unless the call takes it, clearing `h.flag`.
     /// An argument's storage is named here (`suffix`), held as it is
     /// written: a self the method consumes comes named.
-    fn hoist(self: *Emitter, h_in: Hoisted, suffix: ?StorageSuffix, params: []const TypeId, slot: usize, fields: bool) Error!void {
+    fn hoist(self: *Emitter, h_in: Hoisted, suffix: ?StorageSuffix, param: ?TypeId, fields: bool) Error!void {
         var h = h_in;
         // A consumed self (no suffix: its storage is named) is a value
         // of its own; an argument is held as the plan decided.
@@ -10509,7 +10419,7 @@ pub const Emitter = struct {
         }
         // A duration form is held as what it becomes (`sema.Duration`).
         const ty = if (self.facts.node(.durationOf, h.node)) |d| d.written(self.facts.types.int_id) else self.typeOf(h.node);
-        const ptr = slot < params.len and self.isPtrViewTy(params[slot]);
+        const ptr = if (param) |t| self.isPtrViewTy(t) else false;
         // A value passed as the view its parameter expects is held as that
         // view, of the parameter's type, which owns nothing.
         const viewed = hold == .viewed;
@@ -10524,7 +10434,7 @@ pub const Emitter = struct {
         // the parameter or field takes the value, including from a name,
         // field, or element that holds the view) is read here, in argument
         // order. A value viewed has the parameter's type.
-        const shown: ?TypeId = if (viewed) (if (slot < params.len) params[slot] else null) else ty;
+        const shown: ?TypeId = if (viewed) param else ty;
         // A part of a duration given by several units is an `i128` of
         // nanoseconds (`sema.Duration.part`).
         const part = if (self.facts.node(.durationOf, h.node)) |d| d.part else false;
@@ -10535,7 +10445,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(if (self.facts.node(.readsThrough, h.node) and self.isPtrViewExpr(h.node)) self.peelViews(t) else t);
         };
         try self.w.writeAll(" = ");
-        if (fields) try self.emitStored(h.node) else if (self.facts.node(.viewsTempArray, h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
+        if (fields) try self.emitStored(h.node) else if (self.facts.node(.viewsTempArray, h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, param);
         try self.w.writeAll(";\n");
         if (kind == .value or kind == .optional) try self.poisonAtExit(h.name);
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
