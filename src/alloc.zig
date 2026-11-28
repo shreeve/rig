@@ -4565,6 +4565,8 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     defer useBuddyinfoForTest(null);
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
+    const lead = leadForTest();
+    defer lead.end();
     const mib: usize = 1 << 20;
     const t = reserveTable(24 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
@@ -4625,12 +4627,13 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     try std.testing.expect(unreserveTable(next, 40 * mib));
     try std.testing.expect(unreserveTable(now, 24 * mib));
     // A heap that does the program's work alone asks as it reserves.
-    me.taken = taken_all.load(.monotonic);
+    const lead = leadForTest();
     try std.testing.expect(leads(me));
     const alone = reserveTable(24 * mib).?;
     try std.testing.expect(!me.tables_wait);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(alone) + 2 * mib));
     try std.testing.expect(unreserveTable(alone, 24 * mib));
+    lead.end();
     try std.testing.expect(unreserveTable(t, 24 * mib));
 
     // Memory fragmented when the heap comes to do much: no ask.
@@ -4658,6 +4661,22 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     for (waiting) |w| try std.testing.expect(unreserveTable(w, 3 * mib));
     try std.testing.expect(unreserveTable(over, 3 * mib));
     try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
+}
+
+/// Test only: this thread's heap does the program's work alone
+/// (`leads`) until `end`, so its Tables ask for huge pages as they are
+/// reserved (`tableWaits`).
+fn leadForTest() struct {
+    h: *Heap,
+    was: usize,
+    fn end(l: @This()) void {
+        l.h.taken = l.was;
+    }
+} {
+    const h = heap().?;
+    const was = h.taken;
+    h.taken = @max(was, taken_all.load(.monotonic));
+    return .{ .h = h, .was = was };
 }
 
 /// /sys/kernel/mm/transparent_hugepage/`enabled` and `defrag` for the
@@ -4843,6 +4862,8 @@ test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, s
     freeLarge(&h, span, 8 * mib);
     freeLarge(&h, big, 16 * mib);
     trimAllForTest(&h);
+    const lead = leadForTest();
+    defer lead.end();
     const t = reserveTable(24 * mib).?;
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
