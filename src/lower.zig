@@ -83,6 +83,9 @@ pub const Module = struct {
     /// writes it as, and in a self-checking build what the ownership
     /// checker asserts it decides.
     calls: sema.FastMap(u64, *const lir.Call) = .empty,
+    /// How each call passes what it is given, by the call's key
+    /// (`argsOf`). Kept for emit's lowering alone.
+    args: sema.FastMap(u64, *const lir.Args) = .empty,
     /// The place of each `member` and `index` that reaches one, by its
     /// key, and the body that names its root, for the self-checking
     /// build's asserts (`placeOf`).
@@ -242,6 +245,11 @@ pub const Module = struct {
     /// the checkers', only in a self-checking build.
     pub fn callOf(m: *const Module, node: Sexp) ?*const lir.Call {
         return m.calls.get(sema.decisionKeyOf(node) orelse return null);
+    }
+
+    /// How call `node` passes what it is given; emit's lowering only.
+    pub fn argsOf(m: *const Module, node: Sexp) ?*const lir.Args {
+        return m.args.get(sema.decisionKeyOf(node) orelse return null);
     }
 
     /// The place `member` or `index` node `node` reaches in body `f`;
@@ -1297,8 +1305,6 @@ const Lowerer = struct {
                 l.answer(operand, .drops_when_tested, dropsWhenTested(ctx, operand));
             },
             .call => {
-                l.answer(n, .self_hold, selfHold(ctx, n));
-                l.answer(n, .consumes_self, consumedTemporary(ctx, n) != null);
                 for (ir.Call.args(n)) |a| l.answer(argValue(a), .argument_hold, argumentHold(ctx, argValue(a)));
                 if (ctx.isPrintCall(n) or stringCall(ctx, n) != null) for (ir.Call.args(n)) |a| {
                     l.answer(a, .prints_by_address, printsByAddress(ctx, a));
@@ -1340,6 +1346,7 @@ const Lowerer = struct {
             const rec = try l.ma.create(lir.Call);
             rec.* = l.callRecord(e);
             try l.module.calls.put(l.ma, k, rec);
+            try l.recordArgs(e);
         }
     }
 
@@ -1542,6 +1549,7 @@ const Lowerer = struct {
         if (o.kind == .call) {
             o.aux = @intCast(l.f.calls.items.len);
             try l.f.calls.append(l.a, l.callRecord(e));
+            if (!l.opts.checked) try l.recordArgs(e);
         }
         if (enabled) {
             try l.operandRoles(o, kids);
@@ -2197,10 +2205,9 @@ const Lowerer = struct {
         if (namesType(ctx, callee) or builtinName(ctx, typeOf(ctx, obj))) return null;
         // A self the call holds in storage of its own that lives while it
         // runs is viewed there.
-        if (ctx.elemCallOf(callee) == null and !ctx.isSelect(c) and hoistsArgs(ctx, c)) if (selfHold(ctx, c)) |hold| {
-            const first: HeldFirst = if (hold == .consumed) .{ .node = consumedTemporary(ctx, c).?, .kind = .self } else heldFirst(ctx, c).?;
+        if (ctx.elemCallOf(callee) == null and !ctx.isSelect(c) and hoistsArgs(ctx, c)) if (selfHeld(ctx, c)) |first| {
             const place = viewedPlace(obj);
-            if (first.kind == .self and first.node == .list and place == .list and first.node.list.ptr == place.list.ptr and hold.by(hasStorage(ctx, first.node)) != .pointer) return null;
+            if (first.kind == .self and first.node == .list and place == .list and first.node.list.ptr == place.list.ptr and first.hold.by(hasStorage(ctx, first.node)) != .pointer) return null;
         };
         return obj;
     }
@@ -2298,6 +2305,43 @@ const Lowerer = struct {
         return rec;
     }
 
+    /// How call `c` passes what it is given (`lir.Args`), in the order
+    /// emit writes it: the witnesses a method under bounds takes and its
+    /// compile-time arguments, after a self passed as an argument, then
+    /// its run-time ones in parameter order, keyword arguments in their
+    /// parameters' places and defaults for omitted ones. A call through
+    /// an API object's table passes its self, the first argument of
+    /// `Shape.area(s)`, apart.
+    fn recordArgs(l: *Lowerer, c: Sexp) std.mem.Allocator.Error!void {
+        const ctx = l.ctx;
+        const args = ir.Call.args(c);
+        const params = argParams(ctx, c);
+        const generic = ctx.genericCallOf(c);
+        const ct_at: usize = if (generic) |g| @intFromBool(g.self_arg) else 0;
+        const ct_count = if (generic) |g| g.type_args.len else ctx.ctArgsOf(c).len;
+        const slots = ctx.callSlotsOf(c);
+        const n = if (slots) |sl| sl.len else args.len;
+        const from: usize = if (ctx.dispatchOf(c)) |d| @intFromBool(d == .dynamic and d.dynamic.self_arg) else 0;
+        const owner_ws = ctx.ownerWitnessesOf(c);
+        var out: std.ArrayList(lir.Args.Slot) = .empty;
+        for (0..n + 1) |i| {
+            if (owner_ws) |ow| if (i == @min(@intFromBool(ow.self_arg), n)) for (ow.witnesses) |w| try out.append(l.ma, .{ .witness = w });
+            if (i == @min(ct_at, n) and ct_count > 0) try out.append(l.ma, .ct);
+            if (i == n) break;
+            if (i < from) continue;
+            try out.append(l.ma, if (slots) |sl| switch (sl[i]) {
+                .arg => |ai| .{ .arg = ai },
+                .default => |d| .{ .default = .{ .value = d, .param = if (i < params.len) params[i] else sema.type_invalid } },
+                .parts => |p| .{ .parts = p },
+            } else .{ .arg = @intCast(i) });
+        }
+        const by_arg = try l.ma.alloc(?TypeId, args.len);
+        for (by_arg, 0..) |*p, ai| p.* = argumentParam(ctx, c, ai);
+        const rec = try l.ma.create(lir.Args);
+        rec.* = .{ .slots = out.items, .params = by_arg, .takes_fail = takesFailSlot(ctx, c, &l.stack_closures), .self = selfHeld(ctx, c) };
+        try l.module.args.put(l.ma, sema.decisionKeyOf(c) orelse return, rec);
+    }
+
     /// The region that evaluates the parts call `c` (lowered to `id`)
     /// holds first: `c` becomes a value block that yields the call.
     fn callBlock(l: *Lowerer, c: Sexp, id: ExprId) Error!RegionId {
@@ -2339,10 +2383,9 @@ const Lowerer = struct {
     /// arguments.
     fn callParts(l: *Lowerer, c: Sexp, life: StorageLife, r: RegionId) Error!void {
         const ctx = l.ctx;
-        if (selfHold(ctx, c)) |hold| {
-            const first: HeldFirst = if (hold == .consumed) .{ .node = consumedTemporary(ctx, c).?, .kind = .self } else heldFirst(ctx, c).?;
-            const by = hold.by(hasStorage(ctx, first.node));
-            const drop = if (hold == .consumed)
+        if (selfHeld(ctx, c)) |first| {
+            const by = first.hold.by(hasStorage(ctx, first.node));
+            const drop = if (first.hold == .consumed)
                 (if (ctx.viewsTempArray(first.node)) null else dropOf(ctx, first.node))
             else if (by == .pointer or isPtrViewExpr(ctx, first.node)) null else dropOf(ctx, first.node);
             try l.hoistVar(first.node, first.kind, by, life, drop, r);
@@ -2815,6 +2858,42 @@ fn builtinName(ctx: *const SemContext, ty: ?TypeId) bool {
     };
 }
 
+/// Whether `call`'s callee takes the slot a failure's fields go in: a
+/// Rig function (`callTargetOf`), or a function value, whose type takes
+/// it (`emitCallableTy`). A built-in type's method, and a call the
+/// runtime makes itself, take none. `stack_closures` are the locals a
+/// closure literal is bound to.
+fn takesFailSlot(ctx: *const SemContext, call: Sexp, stack_closures: *const sema.FastMap(SymbolId, void)) bool {
+    if (ctx.callTargetOf(call)) |t| if (t == .function) return true;
+    // A witness's method is a Rig method, or a default or an addition's;
+    // an API object's table entry takes the slot of every fallible
+    // method.
+    if (ctx.dispatchOf(call)) |d| if (d.viaApi()) return true;
+    // An actor's method, which the actor calls with the arguments.
+    if (ctx.isActorCall(call)) return true;
+    const callee = ctx.calleeOf(call);
+    // A method of a type parameter's instance, in a generic body: the
+    // instance's own Rig method, as the body requires of it.
+    if (callee.isKind(.member)) if (typeOf(ctx, ir.Member.object(callee))) |obj_ty| {
+        if (ctx.types.get(sema.unwrapViews(ctx, obj_ty)) == .type_var) return true;
+    };
+    if (callee == .src) if (ctx.symbolOf(callee)) |sym| if (stack_closures.contains(sym)) return true;
+    const ty = typeOf(ctx, callee) orelse return false;
+    if (sema.callableFn(ctx, ty) != null or sema.ownedClosureFn(ctx, ty) != null) return true;
+    if (ctx.types.get(sema.unwrapViews(ctx, ty)) != .function) return false;
+    // A plain function value, held by a name or a field of an object;
+    // never a method of a built-in type.
+    if (callee == .src) return true;
+    if (!callee.isKind(.member)) return false;
+    const obj_ty = typeOf(ctx, ir.Member.object(callee)) orelse return false;
+    const decl = sema.nominalDecl(ctx, sema.unwrapViews(ctx, obj_ty)) orelse return false;
+    const name = rig.leafText(ctx.source, ir.Member.name(callee).src);
+    for (decl.symbol().fields orelse &.{}) |f| {
+        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, name)) return true;
+    }
+    return false;
+}
+
 /// Whether a duration form of call `c` joins its failure
 /// (`sema.DurationHow.folded`).
 fn callFolds(ctx: *const SemContext, c: Sexp) bool {
@@ -3172,6 +3251,15 @@ pub fn heldFirst(ctx: *const SemContext, call: Sexp) ?HeldFirst {
     if (callee.isKind(.member) and isTypeCallee(ctx, ir.Member.object(callee))) return null;
     if (fnType(ctx, typeOf(ctx, callee)) == null) return null;
     return .{ .node = callee, .kind = .invoked };
+}
+
+/// What call `c` holds first, before its arguments, and how
+/// (`selfHold`): an owned temporary it consumes as its self, or else
+/// what `heldFirst` gives; null where it holds nothing first.
+fn selfHeld(ctx: *const SemContext, c: Sexp) ?lir.Args.Self {
+    const hold = selfHold(ctx, c) orelse return null;
+    const first: HeldFirst = if (hold == .consumed) .{ .node = consumedTemporary(ctx, c).?, .kind = .self } else heldFirst(ctx, c).?;
+    return .{ .node = first.node, .kind = first.kind, .hold = hold };
 }
 
 /// The part `heldFirst` gives, without its view sigils, and the kind of

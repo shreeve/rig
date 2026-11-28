@@ -459,7 +459,7 @@ put = (path, text) ->
 
 # A zig build's -j: inside a cpuq task, one (it holds one CPU, and zig build
 # would otherwise start a thread for every CPU); elsewhere, Zig's own.
-zigJobs = -> if process.env.CPUQ_CPU then ["-j1"] else []
+zigJobs = -> if process.env.CPUQ_OP then ["-j1"] else []
 
 # This runner's hash: what it writes changes with it.
 runner = Bun.CryptoHasher.new('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
@@ -543,12 +543,22 @@ setup = ->
   listed = mirror(parsed)
   started = Date.now()
   timer = setTimeout((-> process.stdout.write("building rig and rig-oracle (zig build)...\n")), 1000)
+  # Where cpuq is installed (and the runner is not inside a task already),
+  # each step builds as a `cpuq run` of its own at -j1, the three side by
+  # side, so the line sees every CPU the build takes.
+  buildPool = if process.env.RIG_NO_CPUQ or process.env.CPUQ_OP then null else Bun.which('cpuq')
   zigBuild = (steps) ->
-    zb = Bun.spawn({ cmd: ['zig', 'build', '-Dself-check=true', ...zigJobs(), ...steps], cwd: root, stdout: 'pipe', stderr: 'pipe' })
+    cmd = ['zig', 'build', '-Dself-check=true', ...zigJobs(), ...steps]
+    cmd = [buildPool, 'run', '--label', 'rig:build', '-t', '30m', '--', ...cmd, '-j1'] if buildPool
+    zb = Bun.spawn({ cmd, cwd: root, stdout: 'pipe', stderr: 'pipe' })
     text = await Response.new(zb.stderr).text()
     { code: await zb.exited, text }
-  zb = await zigBuild(['install', 'oracle', ...(if wanted('unit') then ['test'] else [])])
-  zb = await zigBuild(['install', 'oracle']) if zb.code isnt 0 and wanted('unit')
+  if buildPool
+    [zi, zo] = await Promise.all([zigBuild(['install']), zigBuild(['oracle']), (if wanted('unit') then zigBuild(['test']) else Promise.resolve({ code: 0, text: '' }))])
+    zb = if zi.code isnt 0 then zi else zo
+  else
+    zb = await zigBuild(['install', 'oracle', ...(if wanted('unit') then ['test'] else [])])
+    zb = await zigBuild(['install', 'oracle']) if zb.code isnt 0 and wanted('unit')
   clearTimeout(timer)
   throw Error.new("zig build failed:\n#{zb.text}") unless zb.code is 0
   process.stdout.write("rig.rip: built rig and rig-oracle in #{Math.round((Date.now() - started) / 1000)} s\n") if Date.now() - started > 1000
