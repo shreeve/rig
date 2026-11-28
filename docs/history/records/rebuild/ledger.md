@@ -28,7 +28,9 @@ as it lands. Newest entries first.
 ## Line scoreboard
 
 Lines at `revamp-base`, now, and the budget (architecture.md, "Line
-budgets"). Updated as steps land.
+budgets"). Updated as steps land. Ownership's budget is about 11,400,
+what the identity steps reached: an identity rebuild keeps Core's per-operation transfer, liveness, and
+every message form, and the owner kept the message forms.
 
 | Pass | revamp-base | Now | Budget |
 |---|---:|---:|---:|
@@ -41,13 +43,13 @@ budgets"). Updated as steps land.
 | cteval | 2,175 | | 2,000 |
 | LIR | 0 | | 1,000 |
 | lower (storage at base) | 2,774 | | 6,000 |
-| ownership | 9,768 | | 6,000 |
+| ownership | 9,768 | 11,409 | about 11,400 (was 6,000) |
 | proofs | 2,930 | | 2,000 |
 | decide | about 2,500 | | 2,000 |
-| print and type layout | 14,192 | 13,392 | about 13,300 |
+| print and type layout | 14,192 | 13,392 | about 13,400 (was 8,000) |
 
 Emit and facts' budget, first 8,000 and then about 12,000, is about
-13,300: the size the identity steps measured once lowering decides
+13,400: the size the identity steps measured once lowering decides
 each call's form, wrappers, and arguments (E1 to E4), the rest of emit
 being how each construct is spelled in Zig.
 

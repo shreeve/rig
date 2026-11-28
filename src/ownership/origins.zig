@@ -18,6 +18,7 @@ const rules = @import("rules.zig");
 const generic = @import("generic.zig");
 const types = @import("types.zig");
 const notes = @import("notes.zig");
+const lowering = @import("../lower.zig");
 const Checker = state.Checker;
 const Loan = state.Loan;
 const LoanKind = state.LoanKind;
@@ -176,7 +177,7 @@ pub fn walkThroughView(self: *Checker, ex: lowered.Expr) Error!Value {
 /// that can hold a view.
 pub fn keepsCallable(self: *const Checker, call: Sexp, arg: Sexp) bool {
     const ctx = self.sema;
-    const value = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
+    const value = lowering.argValue(arg);
     const fn_ty = ctx.callableOf(value) orelse blk: {
         const ty = types.exprType(self, value) orelse return true;
         if (sema.callableFn(ctx, ty) == null) return true;
@@ -207,7 +208,7 @@ pub fn storesNothing(self: *const Checker, callee: Sexp) bool {
 /// (`sema.copiedThrough`): what it views is not stored.
 pub fn readsPlainValue(self: *const Checker, e: Sexp) bool {
     const ctx = self.sema;
-    const arg = if (e.isKind(.kwarg)) ir.Kwarg.value(e) else e;
+    const arg = lowering.argValue(e);
     const value = sema.copiedThrough(ctx, types.exprType(self, arg) orelse return false) orelse return false;
     return !types.mayCarryLoan(self, value);
 }
@@ -233,17 +234,7 @@ pub fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, vi
 pub fn absorbThroughViews(self: *Checker, v: Value, stored: Value, views: []const Loan, pos: u32, via: ?[]const u8, depth: ?u32) Error!void {
     var level: std.ArrayList(VarId) = .empty;
     try appendWriteRoots(self, &level, v, &.{});
-    const d = depth orelse {
-        for (level.items) |r| {
-            // Only a value that can hold a view can have one stored in it.
-            if (!types.mayCarryLoan(self, types.pointee(self, self.vars.items[r].ty))) {
-                try generic.genericStoreIn(self, r, stored, pos, 0);
-                continue;
-            }
-            try absorbLoans(self, r, stored, pos, level.items, via, true, views);
-        }
-        return;
-    };
+    const d = depth orelse return absorbEach(self, level.items, stored, pos, via, true, views);
     // The values reached, found before any of them takes the loans.
     var seen: std.ArrayList(VarId) = .empty;
     var remaining = d;
@@ -270,12 +261,17 @@ pub fn absorbThroughViews(self: *Checker, v: Value, stored: Value, views: []cons
     var through_views: std.ArrayList(Loan) = .empty;
     try through_views.appendSlice(self.arena(), views);
     for (seen.items) |r| for (live.varValue(self, r).loans) |l| if (l.kind == .write) try through_views.append(self.arena(), l);
-    for (seen.items) |r| {
-        if (!types.mayCarryLoan(self, types.pointee(self, self.vars.items[r].ty))) {
-            try generic.genericStoreIn(self, r, stored, pos, 0);
-            continue;
-        }
-        try absorbLoans(self, r, stored, pos, seen.items, via, false, through_views.items);
+    return absorbEach(self, seen.items, stored, pos, via, false, through_views.items);
+}
+
+/// Each value of `reached` takes the loans `stored` carries
+/// (`absorbLoans`); only a value that can hold a view can have one
+/// stored in it.
+fn absorbEach(self: *Checker, reached: []const VarId, stored: Value, pos: u32, via: ?[]const u8, deeper: bool, views: []const Loan) Error!void {
+    for (reached) |r| {
+        if (types.mayCarryLoan(self, types.pointee(self, self.vars.items[r].ty))) {
+            try absorbLoans(self, r, stored, pos, reached, via, deeper, views);
+        } else try generic.genericStoreIn(self, r, stored, pos, 0);
     }
 }
 

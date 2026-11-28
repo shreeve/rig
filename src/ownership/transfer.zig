@@ -62,10 +62,6 @@ pub fn resultsCall(value: Sexp) Sexp {
     };
 }
 
-pub fn isLambda(s: Sexp) bool {
-    return s.isKind(.lambda);
-}
-
 pub fn hasLoanOn(loans: []const Loan, root: VarId) bool {
     for (loans) |l| if (l.root == root) return true;
     return false;
@@ -429,7 +425,7 @@ pub fn walkUnerased(self: *Checker, e: lowered.Expr) Error!Value {
 /// type parameter's type, which an instance's may hold, and no arm
 /// of `task.select`, which views until its select returns.
 pub fn carriesNoLoan(self: *const Checker, e: Sexp) bool {
-    if (isLambda(e)) return false;
+    if (e.isKind(.lambda)) return false;
     const ty = types.exprType(self, e) orelse return false;
     if (types.mayCarryLoan(self, ty) or generic.genericType(self, ty)) return false;
     const ctx = self.sema;
@@ -594,7 +590,7 @@ pub fn walkConsumedE(self: *Checker, e: lowered.Expr, sink: Sink) Error!Value {
         if (self_check) expectRole(self, e, .{ .use = .read_view, .implicit = true, .elems = viewsElements(self, expr) });
         return walkImplicitView(self, e, view);
     }
-    if (isLambda(expr)) {
+    if (expr.isKind(.lambda)) {
         if (self_check) expectRole(self, e, .{ .use = .made });
         // A closure literal given to a call as a callable view
         // lives for the call; anywhere else it is reported by
@@ -1060,7 +1056,7 @@ pub fn walkTemplateSlots(self: *Checker, t: lowered.Expr) Error!void {
 
 pub fn walkReadArgE(self: *Checker, e: lowered.Expr) Error!void {
     const a = e.node;
-    if (viewOf(self, a)) |view| if (view.implicit) {
+    if (self.sema.viewOf(a)) |view| if (view.implicit) {
         _ = try walkImplicitView(self, e, view);
         return;
     };
@@ -1084,11 +1080,6 @@ pub const MoveVerb = enum {
     }
 };
 
-/// What `<e` does to its source (`sema.moveSource`).
-pub fn moveSource(self: *const Checker, inner: Sexp) sema.MoveSource {
-    return sema.moveSource(self.sema, inner);
-}
-
 /// `<e`: a binding is ended, an optional part emptied (`walkTake`,
 /// where typecheck recorded the take), and any other source is
 /// rejected: `<` would leave it as it was, or move what its owner
@@ -1096,7 +1087,7 @@ pub fn moveSource(self: *const Checker, inner: Sexp) sema.MoveSource {
 /// leaf by leaf.
 pub fn walkMove(self: *Checker, ie: lowered.Expr) Error!Value {
     const inner = ie.node;
-    switch (moveSource(self, inner)) {
+    switch (sema.moveSource(self.sema, inner)) {
         .binding => {
             const place = resolvePlace(self, inner) orelse return walkE(self, ie);
             return moveVar(self, place.root, notes.startOf(self, inner), .move);
@@ -1478,12 +1469,8 @@ pub fn walkDrop(self: *Checker, e: lowered.Expr) Error!void {
         if (!self.flowLive(id)) try self.markInvalid(id, .dropped, pos);
         return;
     }
-    if (self.findLoan(id, whole_path, .any, null)) |l| {
-        try notes.err(self, pos, "cannot drop `{s}` while {s} is still in use", .{ name, try notes.viewOfText(self, l, whole_path) });
-        try notes.noteLoan(self, l);
-        try notes.noteStillUsed(self, l, pos);
-        return;
-    }
+    if (self.findLoan(id, whole_path, .any, null)) |l|
+        return notes.errLoan(self, pos, l, "cannot drop `{s}` while {s} is still in use", .{ name, try notes.viewOfText(self, l, whole_path) });
     try self.markInvalid(id, .dropped, pos);
 }
 
@@ -1500,18 +1487,11 @@ pub fn loanOf(self: *const Checker, e: Sexp) LoanKind {
     };
 }
 
-/// How `e` is viewed where a view of another type is expected
-/// (`SemContext.viewOf`).
-pub fn viewOf(self: *const Checker, e: Sexp) ?sema.View {
-    const ctx = self.sema;
-    return ctx.viewOf(e);
-}
-
 /// Whether `e`, a view written here, views the elements of its
 /// operand (an array's or a List's, or a String's bytes) rather than a
 /// view of the operand or of what it holds.
 pub fn viewsElements(self: *const Checker, e: Sexp) bool {
-    const view = viewOf(self, e) orelse return false;
+    const view = self.sema.viewOf(e) orelse return false;
     for (view.steps()) |step| switch (step) {
         .lift => {},
         .elems, .text => return true,
@@ -1904,14 +1884,14 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
         };
         var steps: Steps = .{ .c = self, .set = node, .placed = resolvePlace(self, target) != null, .value_e = value_e };
         try steps.step(.{ .role = .value });
-        try steps.path(if (target_id) |id| lowered.stepOperand(self, target, id) else lowered.uncovered(self, target));
+        try steps.path(lowered.exprFor(self, target, target_id orelse lowered.uncovered(self, target)));
         if (set_steps.len > 0) live.atStep(self, &set_steps[set_steps.len - 1]);
         return walkFieldAssign(self, node, target, steps.value, steps.base, steps.base_node);
     }
 
     const pos = target.src.pos;
     const name = types.text(self, target);
-    const is_lambda = isLambda(expr);
+    const is_lambda = expr.isKind(.lambda);
     // A write-view local re-pointed by a view its right side does not
     // read, and cannot leave early, never uses its old view again:
     // that view's loans end here (Core sentence 6), before the right
@@ -2129,10 +2109,7 @@ pub fn walkFieldAssign(self: *Checker, set: Sexp, target: Sexp, value: Value, ba
         const shown = try notes.placeText(self, target);
         const viewed = try notes.pathText(self, l.root, l.path);
         const of = if (std.mem.eql(u8, shown, viewed)) "it" else try self.arena().print("`{s}`", .{viewed});
-        try notes.err(self, pos, "cannot assign to `{s}` while a {s} view of {s} is still in use", .{ shown, notes.viewWord(self, l), of });
-        try notes.noteLoan(self, l);
-        try notes.noteStillUsed(self, l, pos);
-        return;
+        return notes.errLoan(self, pos, l, "cannot assign to `{s}` while a {s} view of {s} is still in use", .{ shown, notes.viewWord(self, l), of });
     }
     // An element of a Cell's List, or a field of one, is stored in
     // the Cell, which every handle to it reaches: it may hold no loan.
@@ -2565,6 +2542,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     defer self.arg_call = saved_call;
     self.arg_call = node;
     for (args, arg_values, 0..) |a, *v, i| {
+        const av = lowering.argValue(a);
         self.in_rejected_call = types.rejected(self, node);
         const found = self.errors_found;
         if (self_check) expectRole(self, lowered.operand(self, call, first_arg + i), .{ .sink = .argument });
@@ -2581,15 +2559,14 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         // A send arm stores its value, its first argument, alone.
         if (extends and i == 0) try generic.requireNoView(self, notes.startOf(self, a), types.exprType(self, a), .list_extend);
         const stores_arg = cell != null and (arm == null or i == 0);
-        if (stores_arg) try generic.requireNoView(self, notes.startOf(self, a), types.exprType(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a), if (std.mem.eql(u8, cell.?, "Chan")) .channel else if (std.mem.eql(u8, cell.?, "Signal")) .signal else .cell);
-        if (stores_arg and v.loans.len > 0 and !types.rejected(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
+        if (stores_arg) try generic.requireNoView(self, notes.startOf(self, a), types.exprType(self, av), if (std.mem.eql(u8, cell.?, "Chan")) .channel else if (std.mem.eql(u8, cell.?, "Signal")) .signal else .cell);
+        if (stores_arg and v.loans.len > 0 and !types.rejected(self, av)) {
             const held = v.*;
             v.* = .{};
             if (origins.readsPlainValue(self, a)) continue;
             // A view of a `?String` stores the `?String` it reaches: what
             // it views, not the view.
-            const arg_ty = types.exprType(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a);
-            const loans = (try origins.carry(self, types.reachedType(self, arg_ty), held)).loans;
+            const loans = (try origins.carry(self, types.reachedType(self, types.exprType(self, av)), held)).loans;
             if (loans.len == 0) continue;
             try notes.errAt(self, a, "cannot store a view of `{s}` in a `{s}`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one{s}", .{ self.vars.items[loans[0].root].name, cell.?, staticParamHint(loans[0]) });
             continue;
@@ -2600,7 +2577,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         // on what holds them (Core sentence 7).
         if (params == null or params.?.stores(i)) {
             stored = try self.valueUnion(stored, if (origins.copiedElem(self, callee)) |elem| try origins.carry(self, elem, v.*) else v.*);
-            if (generic.holdsGeneric(self, types.exprType(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) stores_generic = true;
+            if (generic.holdsGeneric(self, types.exprType(self, av))) stores_generic = true;
         }
         if (params == null or carry_all or params.?.resultCarries(i)) carried = try self.valueUnion(carried, v.*);
     }
@@ -2609,7 +2586,7 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
     // A table's `update` and `retain` give views of their own entries
     // to the function value they are given (`Field.views_entries`).
     if (callee.isKind(.member) and !field_call and generic.viewsEntries(self, callee)) for (args) |a| {
-        const t = types.exprType(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a) orelse continue;
+        const t = types.exprType(self, lowering.argValue(a)) orelse continue;
         const ctx = self.sema;
         if (sema.calledFn(ctx, t) != null) try generic.requireCallable(self, notes.startOf(self, node), t, false);
     };
@@ -2657,14 +2634,14 @@ pub fn walkCallBody(self: *Checker, call: lowered.Expr) Error!Value {
         // theirs, not views it is given (`heldStore`).
         var passed_fns: Value = .{};
         if (value_ty != null) for (args, arg_values) |a, v| {
-            const t = types.exprType(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a) orelse continue;
+            const t = types.exprType(self, lowering.argValue(a)) orelse continue;
             const ctx = self.sema;
             if (sema.calledFn(ctx, t) != null) {
                 passed_fns = try self.valueUnion(passed_fns, v);
             }
         };
         for (args, arg_values) |a, v| {
-            if (!types.mayWrite(self, types.exprType(self, if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) continue;
+            if (!types.mayWrite(self, types.exprType(self, lowering.argValue(a)))) continue;
             const saved_held = self.held_store;
             defer self.held_store = saved_held;
             self.held_store = if (value_ty) |t| .{ .callable = t, .pos = notes.startOf(self, node), .own = (try self.valueUnion(v, passed_fns)).loans } else null;
@@ -2780,11 +2757,11 @@ pub fn walkDestructure(self: *Checker, e: lowered.Expr) Error!void {
     // The value as the statement binds it to the results it holds.
     const steps = lowered.stepsIn(self, e);
     const value_e: lowered.Expr = for (steps) |step| switch (step) {
-        .bind => |x| break lowered.stepOperand(self, value, x.value),
+        .bind => |x| break lowered.exprFor(self, value, x.value),
         else => {},
     } else lowered.uncovered(self, value);
     // Each target's steps are a stretch of its targets' region's.
-    const target_steps = lowered.stepsIn(self, .{ .node = node, .r = if (steps.len > 0 and steps[steps.len - 1] == .region) steps[steps.len - 1].region else null });
+    const target_steps = lowered.stepsIn(self, .{ .node = node, .r = lowered.lastRegion(steps) });
     if (self_check) expectRole(self, value_e, .{ .sink = .binding });
     const whole = try walkConsumedE(self, value_e, .binding);
     if (!self.reachable) return;
@@ -2871,13 +2848,21 @@ pub fn pendingView(self: *Checker, set: Sexp, targets: []const Sexp, parts: []co
 /// of it or move it. Plain data is copied whole when it is read, and what a
 /// read view reaches is covered by its own loans.
 pub fn holdRead(self: *Checker, operand: Sexp, reader: Reader) Error!void {
-    const ctx = self.sema;
-    const e = if (operand.isKind(.kwarg)) ir.Kwarg.value(operand) else operand;
+    const e = lowering.argValue(operand);
     const place = resolvePlace(self, e) orelse return holdBranchReads(self, e, reader);
+    return holdPlace(self, e, place, reader, true);
+}
+
+/// `holdRead`'s hold of `e`, which is `place`: through a write view
+/// (`through_write`), of what the view reaches.
+fn holdPlace(self: *Checker, e: Sexp, place: Place, reader: Reader, through_write: bool) Error!void {
+    const ctx = self.sema;
     const v = self.vars.items[place.root];
     if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
     var ty = types.exprType(self, e) orelse return;
-    while (ctx.types.get(ty) == .write_view) ty = ctx.types.get(ty).write_view;
+    if (through_write) while (ctx.types.get(ty) == .write_view) {
+        ty = ctx.types.get(ty).write_view;
+    };
     if (!sema.readByAddress(ctx, ty)) return;
     try live.addTemp(self, .{ .root = place.root, .path = place.path, .kind = .read, .pos = notes.startOf(self, e), .held_read = reader });
 }
@@ -2900,7 +2885,7 @@ pub fn holdBranchReads(self: *Checker, e: Sexp, reader: Reader) Error!void {
     var leaves: std.ArrayList(Sexp) = .empty;
     try sema.valueLeaves(self.arena(), e, &leaves);
     for (leaves.items) |leaf| {
-        if (isPartOfNoPlace(self, leaf)) try holdBranchReads(self, leaf, reader) else try holdBranchLeaf(self, leaf, reader);
+        if (isPartOfNoPlace(self, leaf)) try holdBranchReads(self, leaf, reader) else if (resolvePlace(self, leaf)) |p| try holdPlace(self, leaf, p, reader, false);
     }
 }
 
@@ -2952,16 +2937,6 @@ pub fn selfLeaves(self: *Checker, obj: Sexp, kind: LoanKind) Error!Value {
 pub fn isPartOfNoPlace(self: *Checker, e: Sexp) bool {
     if (!e.isKind(.member) and !e.isKind(.index)) return false;
     return resolvePlace(self, e) == null and !rig.isRangeIndex(e);
-}
-
-pub fn holdBranchLeaf(self: *Checker, leaf: Sexp, reader: Reader) Error!void {
-    const ctx = self.sema;
-    const place = resolvePlace(self, leaf) orelse return;
-    const v = self.vars.items[place.root];
-    if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
-    const ty = types.exprType(self, leaf) orelse return;
-    if (!sema.readByAddress(ctx, ty)) return;
-    try live.addTemp(self, .{ .root = place.root, .path = place.path, .kind = .read, .pos = notes.startOf(self, leaf), .held_read = reader });
 }
 
 /// Walk `earlier`, then `later` while what `earlier` reads in place is
@@ -3077,7 +3052,7 @@ pub fn walkShare(self: *Checker, ex: lowered.Expr) Error!Value {
     const node = ex.node;
     const inner = ir.Share.operand(node);
     // `*|...| body`: an owned closure.
-    if (isLambda(inner)) {
+    if (inner.isKind(.lambda)) {
         self.lambda_ok = true;
         return walkLambda(self, lowered.operand(self, ex, 0), true);
     }
@@ -3237,9 +3212,7 @@ pub fn applyCapture(self: *Checker, cap: Sexp, value: lowered.Expr) Error!Value 
     if (mode == .cap_read or mode == .cap_write) return (try viewVar(self, id, whole_path, if (mode == .cap_read) .read else .write, pos)) orelse .{};
     if (!try rules.checkCapturable(self, id, pos)) return .{};
     if (self.findLoan(id, whole_path, .write, null)) |l| {
-        try notes.err(self, pos, "cannot capture `{s}` while {s} is still in use", .{ name, try notes.viewOfText(self, l, whole_path) });
-        try notes.noteLoan(self, l);
-        try notes.noteStillUsed(self, l, pos);
+        try notes.errLoan(self, pos, l, "cannot capture `{s}` while {s} is still in use", .{ name, try notes.viewOfText(self, l, whole_path) });
         return .{};
     }
     // `|+x|` through a view captures a copy or a clone of what the
@@ -3327,7 +3300,7 @@ pub fn walkCatch(self: *Checker, ex: lowered.Expr) Error!Value {
     if (name != .nil) {
         _ = try self.addVar(.{ .name = types.text(self, name), .decl = name.src.pos, .sym = self.bindingOf(name), .ty = types.symType(self, name) }, .{});
     }
-    var v2 = try walkTailPartE(self, if (lowered.argRegion(self, ex, 1)) |h| lowered.exprIn(self, handler, h) else lowered.uncovered(self, handler), t);
+    var v2 = try walkTailPartE(self, lowered.exprIn(self, handler, lowered.argRegion(self, ex, 1) orelse lowered.uncovered(self, handler)), t);
     v2 = try self.leaveScope(v2);
     const s = try self.leave(base, live.ptOf(self, ex));
     try self.apply(try self.join(stateAt(base), s));
@@ -3428,7 +3401,7 @@ pub fn walkReturnValueE(self: *Checker, e: lowered.Expr, part: ?TypeId) Error!Va
                 }
             }
         }
-    } else if (isValue(self, expr)) {
+    } else if (sema.yieldsValue(self.source, expr)) {
         try rules.checkNoImplicitCopy(self, expr, .ret, true);
         setTail(self, expr, .ret);
         value = try walkE(self, e);
@@ -3500,12 +3473,12 @@ pub fn walkIf(self: *Checker, e: lowered.Expr) Error!Value {
     const node = e.node;
     const t = takeTail(self, node);
     const cond = ir.If.cond(node);
-    const lir_if: ?lir.Expr.If = if (lowered.controlOf(self, e)) |c| (if (c == .@"if") c.@"if" else null) else null;
+    const lir_if = lowered.controlAs(self, e, .@"if");
     if (rig.isAsPart(cond) or rig.isConditionJoin(cond)) return walkIfBinding(self, node, lir_if, t);
     const then_b = ir.If.then(node);
     const else_b = ir.If.@"else"(node);
     // The condition is a header, its own statement.
-    _ = try walkStmtValueE(self, if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.uncovered(self, cond), null);
+    _ = try walkStmtValueE(self, lowered.exprFor(self, cond, lir_if.cond), null);
     const base = try self.here();
     const past = live.ctlOf(node).exit;
     const v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
@@ -3518,26 +3491,24 @@ pub fn walkIf(self: *Checker, e: lowered.Expr) Error!Value {
 
 /// Branch `b` of an `if` (`then` or else), from the region LIR made
 /// for it.
-fn branchOf(self: *const Checker, b: Sexp, lir_if: ?lir.Expr.If, then: bool) lowered.Expr {
-    const i = lir_if orelse return lowered.uncovered(self, b);
-    const r = if (then) i.then else i.@"else" orelse return lowered.uncovered(self, b);
-    return lowered.exprIn(self, b, r);
+fn branchOf(self: *const Checker, b: Sexp, i: lir.Expr.If, then: bool) lowered.Expr {
+    return lowered.exprIn(self, b, if (then) i.then else i.@"else" orelse lowered.uncovered(self, b));
 }
 
 /// `if a as x` and `if a as x and ...`: the parts run in order, each
 /// binding in a scope over the rest and the then-branch. The `else`
 /// runs when a part fails, so it starts from the join of the states
 /// after each part, with their bindings gone.
-pub fn walkIfBinding(self: *Checker, node: Sexp, lir_if: ?lir.Expr.If, t: ?Tail) Error!Value {
+pub fn walkIfBinding(self: *Checker, node: Sexp, lir_if: lir.Expr.If, t: ?Tail) Error!Value {
     const then_b = ir.If.then(node);
     const else_b = ir.If.@"else"(node);
     const base = try self.here();
     const depth = self.scopes.items.len;
     // A failing part goes on to the `else`, or past the `if`.
     const cond = ir.If.cond(node);
-    const cond_e = if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.uncovered(self, cond);
+    const cond_e = lowered.exprFor(self, cond, lir_if.cond);
     const past = live.ctlOf(node).exit;
-    const fails = try walkConditionParts(self, cond_e, then_b, .{ .to = base, .resume_at = if (lir_if) |i| (if (i.@"else") |r| live.inOf(r) else past) else past }, self.loop);
+    const fails = try walkConditionParts(self, cond_e, then_b, .{ .to = base, .resume_at = if (lir_if.@"else") |r| live.inOf(r) else past }, self.loop);
     var v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
     while (self.scopes.items.len > depth) v1 = try self.leaveScope(v1);
     const s1 = try self.leave(base, past);
@@ -3605,7 +3576,7 @@ pub fn walkConditionPart(self: *Checker, ce: lowered.Expr, body: Sexp) Error!voi
     // made value in a hidden var the `if` holds, in a scope the
     // caller ends with the body's (docs/internals/INTERNALS.md, "Header
     // subjects").
-    const header = headerOf(self, cond);
+    const header = self.sema.headerOf(cond);
     const saved_held = self.held;
     defer self.held = saved_held;
     const value = lowered.operand(self, ce, 0);
@@ -3635,12 +3606,6 @@ pub fn walkMayRun(self: *Checker, part: lowered.Expr, t: ?Tail, e: lowered.Expr,
     return v;
 }
 
-/// How the header `node` has its bare subject (`SemContext.headerOf`).
-pub fn headerOf(self: *const Checker, node: Sexp) ?sema.Header {
-    const ctx = self.sema;
-    return ctx.headerOf(node);
-}
-
 /// Hold the value the header `node` makes of which its subject is a
 /// part (`SemContext.heldBaseOf`) in a hidden var of a scope opened
 /// for the construct: `var _h = <base`, whose part the construct
@@ -3660,13 +3625,6 @@ pub fn heldPath(self: *const Checker, e: Sexp) bool {
     const h = self.held orelse return false;
     const base = sema.pathRoot(e);
     return base == .list and base.list.ptr == h.base.list.ptr;
-}
-
-/// Whether `match` takes its subject, and its bindings own what they
-/// bind: `match <x`, or a value made there (`lower.matchMode`).
-pub fn takesSubject(self: *const Checker, match: Sexp) bool {
-    const ctx = self.sema;
-    return lowering.matchMode(ctx, match) == .consume;
 }
 
 pub const Scrutinee = struct {
@@ -3701,19 +3659,15 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
     const match = me.node;
     const tail_ctx = takeTail(self, match);
     const scrut = ir.Match.subject(match);
-    const saved_arm = .{ self.arm_var, self.arm_subject, self.arm_take };
-    defer {
-        self.arm_var = saved_arm[0];
-        self.arm_subject = saved_arm[1];
-        self.arm_take = saved_arm[2];
-    }
+    const saved_arm = self.arm;
+    defer self.arm = saved_arm;
     // A bare place is matched as `match ?p`; a part of a made value
     // in a hidden var the match holds (docs/internals/INTERNALS.md, "Header
     // subjects").
     const saved_held = self.held;
     defer self.held = saved_held;
-    const ctrl = lowered.controlOf(self, me);
-    const scrut_e = if (ctrl) |c| (if (c == .match) lowered.exprFor(self, scrut, c.match.subject) else lowered.uncovered(self, scrut)) else lowered.uncovered(self, scrut);
+    const ctrl = lowered.controlAs(self, me, .match);
+    const scrut_e = lowered.exprFor(self, scrut, ctrl.subject);
     const subject = try walkSubject(self, match, scrut_e, "match");
     const info, const scrut_value, const header_temps = .{ subject.info, subject.value, subject.header_temps };
     var outlived = false;
@@ -3740,32 +3694,24 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
         const body = ir.Arm.body(arm);
         try self.apply(start);
         try self.pushScopeFor(.block, arm);
-        self.arm_var = null;
-        self.arm_subject = notes.spanText(self, scrut);
-        self.arm_take = notes.takeableSubject(self, scrut);
+        self.arm = .{ .subject = notes.spanText(self, scrut), .take = notes.takeableSubject(self, scrut) };
         // A guarded arm may not run for the values its pattern
         // matches. The views the guard takes end with it.
         const bound = self.vars.items.len;
-        if (ctrl) |c| if (c == .match and i < c.match.arms.len) {
-            self.point = live.inOf(c.match.arms[i]);
-        };
+        self.point = live.inOf(ctrl.arms[i]);
         if (try bindPattern(self, pattern, info, scrut_value) and guard == .nil) catch_all = true;
         // A binding that views a temporary the subject made would
         // outlive it.
-        if (!outlived) for (bound..self.vars.items.len) |id| {
-            for (self.flows.items[id].loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null and live.holderLive(self, @intCast(id), null)) {
-                try notes.reportTempOutlived(self, l, @intCast(id));
-                outlived = true;
-                break;
-            };
-            if (outlived) break;
+        if (!outlived) if (tempOutlived(self, bound, header_temps)) |o| {
+            try notes.reportTempOutlived(self, o.l, o.id);
+            outlived = true;
         };
         var failed: ?State = null;
         if (guard != .nil) {
             // A header, its own statement, which its arm's region tests.
             _ = try walkStmtValueE(self, lowered.guardOf(self, ctrl, i, guard), null);
             // A failing guard goes on to the next arm, or past the match.
-            const next: ?live.Loc = if (ctrl) |c| (if (c == .match and i + 1 < c.match.arms.len) live.inOf(c.match.arms[i + 1]) else past) else past;
+            const next: ?live.Loc = if (i + 1 < ctrl.arms.len) live.inOf(ctrl.arms[i + 1]) else past;
             failed = try exits.exitTo(self, .{ .to = base, .resume_at = next });
         }
         // The arm is chosen: the subject is read no more.
@@ -3784,7 +3730,7 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
     try self.apply(acc orelse start);
     if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
     // The value the match held ends with it.
-    if (headerOf(self, match) == .held) value = try self.leaveScope(value);
+    if (self.sema.headerOf(match) == .held) value = try self.leaveScope(value);
     return value;
 }
 
@@ -3798,12 +3744,8 @@ pub fn walkAsMatch(self: *Checker, pe: lowered.Expr, body: Sexp) Error!void {
     const match = rig.asMatchOf(part);
     const scrut = ir.Match.subject(match);
     const pattern = ir.Arm.pattern(rig.asMatchArm(part));
-    const saved_arm = .{ self.arm_var, self.arm_subject, self.arm_take };
-    defer {
-        self.arm_var = saved_arm[0];
-        self.arm_subject = saved_arm[1];
-        self.arm_take = saved_arm[2];
-    }
+    const saved_arm = self.arm;
+    defer self.arm = saved_arm;
     // A part of a made value in a hidden var the condition holds, in
     // a scope the caller ends with the body's.
     const saved_held = self.held;
@@ -3811,18 +3753,22 @@ pub fn walkAsMatch(self: *Checker, pe: lowered.Expr, body: Sexp) Error!void {
     const subject = try walkSubject(self, match, lowered.asMatchSubject(self, pe, match, scrut), "as");
     const info, const scrut_value, const header_temps = .{ subject.info, subject.value, subject.header_temps };
     try self.pushScopeFor(.block, body);
-    self.arm_var = null;
-    self.arm_subject = notes.spanText(self, scrut);
-    self.arm_take = notes.takeableSubject(self, scrut);
+    self.arm = .{ .subject = notes.spanText(self, scrut), .take = notes.takeableSubject(self, scrut) };
     const bound = self.vars.items.len;
     _ = try bindPattern(self, pattern, info, scrut_value);
     // A binding that views a temporary the subject made would outlive
     // it.
-    for (bound..self.vars.items.len) |id| {
-        for (self.flows.items[id].loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null and live.holderLive(self, @intCast(id), null)) {
-            return notes.reportTempOutlived(self, l, @intCast(id));
-        };
-    }
+    if (tempOutlived(self, bound, header_temps)) |o| return notes.reportTempOutlived(self, o.l, o.id);
+}
+
+/// The first loan a binding made since var `bound` holds on one of
+/// `temps`, a header's temporaries, while the binding is live: it
+/// would outlive them.
+fn tempOutlived(self: *const Checker, bound: usize, temps: []const VarId) ?struct { l: Loan, id: VarId } {
+    for (bound..self.vars.items.len) |id| for (self.flows.items[id].loans) |l| {
+        if (std.mem.findScalar(VarId, temps, l.root) != null and live.holderLive(self, @intCast(id), null)) return .{ .l = l, .id = @intCast(id) };
+    };
+    return null;
 }
 
 /// A `match`'s subject, or an `as` match's, as its arms see it.
@@ -3836,7 +3782,7 @@ const Subject = struct { info: Scrutinee, value: Value, header_temps: []const Va
 /// for what the arms' bindings hold on what they view.
 fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const u8) Error!Subject {
     const scrut = ir.Match.subject(match);
-    const header = headerOf(self, match);
+    const header = self.sema.headerOf(match);
     if (header == .held) try holdBase(self, match, scrut_e);
     var info: Scrutinee = .{};
     var node = scrut;
@@ -3856,8 +3802,8 @@ fn walkSubject(self: *Checker, match: Sexp, scrut_e: lowered.Expr, word: []const
             info.via = .shared;
         };
         if (!p.whole) info.path = try notes.placeText(self, node);
-        if (!takesSubject(self, match) and !scrut.isKind(.write)) info.read_place = notes.spanText(self, node);
-    } else if (!takesSubject(self, match) and readsInPlace(self, scrut)) {
+        if (lowering.matchMode(self.sema, match) != .consume and !scrut.isKind(.write)) info.read_place = notes.spanText(self, node);
+    } else if (lowering.matchMode(self.sema, match) != .consume and readsInPlace(self, scrut)) {
         // A value no var holds, which the match reads where it is:
         // its bindings view it, as they view a place.
         info.via = .viewed;
@@ -3977,9 +3923,9 @@ pub fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Val
     // (docs/internals/INTERNALS.md, "Header subjects").
     const ctx = self.sema;
     if (v.sym) |sym| if (ctx.symbols.items[sym].flags.arm_view) {
-        const arm = self.arm_var orelse blk: {
-            const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm_subject, .arm_take = self.arm_take }, .{});
-            self.arm_var = id;
+        const arm = self.arm.hidden orelse blk: {
+            const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm.subject, .arm_take = self.arm.take }, .{});
+            self.arm.hidden = id;
             break :blk id;
         };
         try self.arm_binds.put(self.gpa, pos, sym);
@@ -3995,8 +3941,10 @@ pub fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Val
 pub const LoopSpec = struct {
     /// The `while` or `for` node.
     node: Sexp,
-    /// Its step in the LIR, where found.
-    lir: ?lowered.Control = null,
+    /// Its LIR: the body's region, and a `while`'s condition and step.
+    lir_body: lir.RegionId,
+    lir_cond: ?lir.ExprId = null,
+    lir_step: ?lir.RegionId = null,
     cond: ?Sexp = null,
     cond_always_true: bool = false,
     /// `while a as x` or `while a as x and ...`: a condition of parts
@@ -4059,18 +4007,16 @@ pub fn walkResultsBinding(self: *Checker, ce: lowered.Expr, body: Sexp) Error!vo
     try endTemps(self, try lowered.endsAt(self, value_e, vars_mark, .header));
 }
 
-/// A statement that gives a value (`sema.yieldsValue`).
-pub fn isValue(self: *const Checker, e: Sexp) bool {
-    return sema.yieldsValue(self.source, e);
-}
-
 pub fn walkWhile(self: *Checker, e: lowered.Expr) Error!Value {
     const node = e.node;
     const cond = ir.While.cond(node);
     const step = ir.While.step(node);
+    const l = lowered.controlAs(self, e, .loop);
     return walkLoop(self, .{
         .node = node,
-        .lir = lowered.controlOf(self, e),
+        .lir_body = l.body,
+        .lir_cond = l.cond,
+        .lir_step = l.step,
         .cond = cond,
         .cond_binds = rig.isAsPart(cond) or rig.isConditionJoin(cond),
         .cond_always_true = cond == .src and std.mem.eql(u8, types.text(self, cond), "true"),
@@ -4083,11 +4029,11 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
     const node = e.node;
     const mode = ir.For.mode(node).tag;
     const source = ir.For.source(node);
-    const ctrl = lowered.controlOf(self, e);
-    const source_e = if (ctrl) |c| (if (c == .each) lowered.exprFor(self, source, c.each.source) else lowered.uncovered(self, source)) else lowered.uncovered(self, source);
+    const each = lowered.controlAs(self, e, .each);
+    const source_e = lowered.exprFor(self, source, each.source);
     var spec: LoopSpec = .{
         .node = node,
-        .lir = ctrl,
+        .lir_body = each.body,
         .body = ir.For.body(node),
         .elem1 = ir.For.@"var"(node),
         .elem2 = ir.For.index(node),
@@ -4095,7 +4041,7 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
     // A bare place is walked as `for x in ?p`, an array made here as
     // `for x in <e`, and a part of a made value in a hidden var the
     // loop holds (docs/internals/INTERNALS.md, "Header subjects").
-    const header = headerOf(self, node);
+    const header = self.sema.headerOf(node);
     const saved_held = self.held;
     defer self.held = saved_held;
     if (header == .held) try holdBase(self, node, source_e);
@@ -4171,7 +4117,7 @@ pub fn walkLabeled(self: *Checker, e: lowered.Expr) Error!Value {
     const node = e.node;
     const stmt = ir.Labeled.stmt(node);
     if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
-        self.pending_reads = rules.readsValue(self, node);
+        self.pending_reads = self.sema.readsThrough(node);
         const v = try walkE(self, lowered.within(self, e, stmt));
         self.pending_reads = false;
         return v;
@@ -4185,7 +4131,7 @@ pub fn walkLabeled(self: *Checker, e: lowered.Expr) Error!Value {
 }
 
 pub fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
-    var ctx: LoopCtx = .{ .node = spec.node, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .reads = self.pending_reads or rules.readsValue(self, spec.node) };
+    var ctx: LoopCtx = .{ .node = spec.node, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .reads = self.pending_reads or self.sema.readsThrough(spec.node) };
     self.pending_reads = false;
     self.loop = &ctx;
     defer self.loop = ctx.parent;
@@ -4246,12 +4192,10 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     if (at.head) |h| self.point = h;
     const fail: ExitTo = .{ .to = ctx.point, .resume_at = at.exit };
     var exit: []const State = &.{};
-    const lir_cond: ?lir.ExprId = if (spec.lir) |c| (if (c == .loop) c.loop.cond else null) else null;
     if (spec.cond_binds) {
-        const c = spec.cond.?;
-        exit = try walkConditionParts(self, if (lir_cond) |id| lowered.exprFor(self, c, id) else lowered.uncovered(self, c), spec.body, fail, ctx.parent);
+        exit = try walkConditionParts(self, lowered.exprFor(self, spec.cond.?, spec.lir_cond.?), spec.body, fail, ctx.parent);
     } else {
-        if (spec.cond) |c| _ = try walkStmtValueE(self, if (lir_cond) |id| lowered.exprFor(self, c, id) else lowered.uncovered(self, c), null);
+        if (spec.cond) |c| _ = try walkStmtValueE(self, lowered.exprFor(self, c, spec.lir_cond.?), null);
         if (!spec.cond_always_true) exit = try self.arena().dupe(State, &.{try exits.exitTo(self, fail)});
     }
     // The loop is `loop { x = a or break; body: { body }; step }`
@@ -4267,12 +4211,7 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     }
     try self.pushScopeFor(.block, spec.body);
     try bindLoopElems(self, spec);
-    const lir_body: ?lir.RegionId = if (spec.lir) |c| switch (c) {
-        .loop => |x| x.body,
-        .each => |x| x.body,
-        else => null,
-    } else null;
-    _ = try walkStmtValueE(self, if (lir_body) |r| lowered.exprIn(self, spec.body, r) else lowered.uncovered(self, spec.body), null);
+    _ = try walkStmtValueE(self, lowered.exprIn(self, spec.body, spec.lir_body), null);
     if (step_inside) {
         while (self.scopes.items.len > ctx.step_depth) try self.popScope();
         if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, at.step);
@@ -4302,8 +4241,7 @@ pub fn walkStep(self: *Checker, spec: LoopSpec) Error!void {
     defer self.step_at = saved;
     if (saved == null) self.step_at = notes.stepAt(self, spec.node);
     const step = spec.cont.?;
-    const r = if (spec.lir) |c| (if (c == .loop) c.loop.step else null) else null;
-    _ = try walkStmtValueE(self, if (r) |sr| lowered.bodyStmt(self, step, sr) else lowered.uncovered(self, step), null);
+    _ = try walkStmtValueE(self, lowered.bodyStmt(self, step, spec.lir_step orelse lowered.uncovered(self, step)), null);
 }
 
 pub fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {

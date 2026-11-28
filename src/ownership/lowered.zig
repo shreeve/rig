@@ -3,7 +3,7 @@
 //! (`stmtsOf`), the operands of a statement from its steps (`stepsIn`,
 //! `stepValue`), and the operands of an expression from its LIR
 //! operation (`Expr`, `operand`); an `if`, a loop, or a `match` is its
-//! LIR step (`controlOf`), and each of its parts the region made for it
+//! LIR step (`controlAs`), and each of its parts the region made for it
 //! (`exprIn`). Liveness reads the LIR's flow (`live.Flow`).
 //! The checkers' lowering lowers every body the checker walks
 //! (`lower.Options.checked`), so a node the walk reaches with no LIR
@@ -166,18 +166,15 @@ fn endsHere(self: *const Checker, b: *const Body, lv: lir.VarId, mark: state.Var
 /// that is a range, each bound's, the last one's first.
 pub fn endsAt(self: *Checker, e: Expr, mark: state.VarId, kind: lir.Region.Kind) Error![]const state.VarId {
     const b = self.lir_body orelse return &.{};
-    var id = e.id orelse return &.{};
+    var id = under(b, e.id orelse return &.{});
     while (true) switch (b.f.exprs.items[id]) {
-        .coerce => |c| id = c.value,
-        .hold => |h| id = h.value,
-        .@"var" => |x| id = hoistedOf(b, x.v) orelse return &.{},
         .block => |r| {
             const reg = &b.f.regions.items[r];
             if (reg.kind == kind or (kind == .call and reg.kind == .value)) return endsOf(self, r, mark, kind == .call);
-            id = reg.value orelse return &.{};
+            id = under(b, reg.value orelse return &.{});
         },
         .op => |o| if (o.kind == .view and o.args.len == 1) {
-            id = o.args[0];
+            id = under(b, o.args[0]);
         } else if (kind == .header and o.node.isKind(.@"..")) {
             var out: std.ArrayList(state.VarId) = .empty;
             var i = o.args.len;
@@ -219,7 +216,7 @@ pub fn stmtAt(self: *const Checker, r: lir.RegionId) Expr {
 /// statement, a branch, an arm's or a loop's body): with the expression
 /// `r` yields, or evaluates last, where that is `node`'s; else with
 /// none, for a statement whose steps say what it does (`stepsIn`), a
-/// block, or a construct `r` runs (`controlOf`).
+/// block, or a construct `r` runs (`controlAs`).
 pub fn exprIn(self: *const Checker, node: Sexp, r: lir.RegionId) Expr {
     const b = self.lir_body.?;
     const reg = &b.f.regions.items[r];
@@ -275,9 +272,8 @@ pub fn blockOf(self: *const Checker, e: Expr) ?lir.RegionId {
     while (true) {
         const reg = &b.f.regions.items[r];
         if (reg.kind == .block and (r == e.r or sema.decisionKeyOf(reg.node) == key)) return r;
-        const steps = reg.steps.items;
-        if (steps.len > 0 and steps[steps.len - 1] == .region) {
-            r = steps[steps.len - 1].region;
+        if (lastRegion(reg.steps.items)) |sub| {
+            r = sub;
         } else switch (b.f.exprs.items[reg.value orelse return null]) {
             .block => |sub| r = sub,
             else => return null,
@@ -295,11 +291,9 @@ pub fn bodyStmt(self: *const Checker, node: Sexp, b: lir.RegionId) Expr {
     return stmtAt(self, st.at(0));
 }
 
-/// The body of arm `i` of the match `c` controls, `body` in the tree.
-pub fn armBody(self: *const Checker, c: ?Control, i: usize, body: Sexp) Expr {
-    const m = c orelse return uncovered(self, body);
-    if (m != .match or i >= m.match.arms.len) return uncovered(self, body);
-    const steps = self.lir_body.?.f.regions.items[m.match.arms[i]].steps.items;
+/// The body of arm `i` of match `m`, `body` in the tree.
+pub fn armBody(self: *const Checker, m: lir.Expr.Choice, i: usize, body: Sexp) Expr {
+    const steps = self.lir_body.?.f.regions.items[m.arms[i]].steps.items;
     if (steps.len == 0) return uncovered(self, body);
     return bodyStmt(self, body, switch (steps[steps.len - 1]) {
         .region => |r| r,
@@ -308,22 +302,27 @@ pub fn armBody(self: *const Checker, c: ?Control, i: usize, body: Sexp) Expr {
     });
 }
 
-/// Guard `guard` of arm `i` of the match `c` controls, as the arm's
-/// region tests it before its body.
-pub fn guardOf(self: *const Checker, c: ?Control, i: usize, guard: Sexp) Expr {
-    const b = self.lir_body orelse return uncovered(self, guard);
-    const m = c orelse return uncovered(self, guard);
-    if (m != .match or i >= m.match.arms.len) return uncovered(self, guard);
-    const steps = b.f.regions.items[m.match.arms[i]].steps.items;
+/// Guard `guard` of arm `i` of match `m`, as the arm's region tests it
+/// before its body.
+pub fn guardOf(self: *const Checker, m: lir.Expr.Choice, i: usize, guard: Sexp) Expr {
+    const steps = self.lir_body.?.f.regions.items[m.arms[i]].steps.items;
     if (steps.len == 0 or steps[steps.len - 1] != .@"if") return uncovered(self, guard);
     return exprFor(self, guard, steps[steps.len - 1].@"if".cond);
 }
 
-/// The control step of construct `e` (an `if`, `while`, `for`, or
-/// `match`): where `e` is a value, the branch or choice its expression
-/// is; else the last step of its statement's region, or of the region
-/// that step runs, whose node is `e`'s. Null where neither is found.
-pub fn controlOf(self: *const Checker, e: Expr) ?Control {
+/// The control step `tag` of construct `e` (an `if`, `while`, `for`,
+/// or `match`; `controlOf`).
+pub fn controlAs(self: *const Checker, e: Expr, comptime tag: std.meta.Tag(Control)) @FieldType(Control, @tagName(tag)) {
+    const c = controlOf(self, e) orelse uncovered(self, e.node);
+    if (c != tag) uncovered(self, e.node);
+    return @field(c, @tagName(tag));
+}
+
+/// The control step of construct `e`: where `e` is a value, the branch
+/// or choice its expression is; else the last step of its statement's
+/// region, or of the region that step runs, whose node is `e`'s. Null
+/// where neither is found.
+fn controlOf(self: *const Checker, e: Expr) ?Control {
     const b = self.lir_body orelse return null;
     const key = sema.decisionKeyOf(e.node) orelse return null;
     if (e.id) |start| {
@@ -353,8 +352,8 @@ fn controlFrom(b: *const Body, start: lir.RegionId, key: u64) ?Control {
             },
             .@"if" => |x| .{ .@"if" = x },
             .match => |x| .{ .match = x },
-            .loop => |x| .{ .loop = .{ .node = x.node, .cond = x.cond, .body = x.body, .step = x.step } },
-            .each => |x| .{ .each = .{ .node = x.node, .source = x.source, .body = x.body } },
+            .loop => |x| .{ .loop = x },
+            .each => |x| .{ .each = x },
             else => return null,
         };
         return if (sema.decisionKeyOf(c.node()) == key) c else null;
@@ -364,8 +363,8 @@ fn controlFrom(b: *const Body, start: lir.RegionId, key: u64) ?Control {
 pub const Control = union(enum) {
     @"if": lir.Expr.If,
     match: lir.Expr.Choice,
-    loop: struct { node: Sexp, cond: lir.ExprId, body: lir.RegionId, step: ?lir.RegionId },
-    each: struct { node: Sexp, source: lir.ExprId, body: lir.RegionId },
+    loop: @FieldType(lir.Step, "loop"),
+    each: @FieldType(lir.Step, "each"),
 
     fn node(c: Control) Sexp {
         return switch (c) {
@@ -390,8 +389,7 @@ pub fn captureOf(self: *const Checker, e: Expr, i: usize, value: Sexp) Expr {
 pub fn asMatchSubject(self: *const Checker, e: Expr, match: Sexp, scrut: Sexp) Expr {
     const o = opOf(self, e) orelse return uncovered(self, scrut);
     if (o.args.len == 0) return uncovered(self, scrut);
-    const c = controlOf(self, .{ .node = match, .id = o.args[0] }) orelse return uncovered(self, scrut);
-    return if (c == .match) exprFor(self, scrut, c.match.subject) else uncovered(self, scrut);
+    return exprFor(self, scrut, controlAs(self, .{ .node = match, .id = o.args[0] }, .match).subject);
 }
 
 /// The value a header holds for its construct, `base` in the tree: the
@@ -412,12 +410,14 @@ pub fn baseOf(self: *const Checker, e: Expr, base: Sexp) Expr {
 pub fn within(self: *const Checker, e: Expr, inner: Sexp) Expr {
     const b = self.lir_body orelse return uncovered(self, inner);
     const r = e.r orelse return .{ .node = inner, .id = e.id };
-    const steps = b.f.regions.items[r].steps.items;
-    if (steps.len > 0 and steps[steps.len - 1] == .region) {
-        const sub = steps[steps.len - 1].region;
+    if (lastRegion(b.f.regions.items[r].steps.items)) |sub|
         if (b.f.regions.items[sub].kind == .stmt and sema.decisionKeyOf(b.f.regions.items[sub].node) == sema.decisionKeyOf(inner)) return stmtAt(self, sub);
-    }
     return .{ .node = inner, .r = r };
+}
+
+/// The region the last of `steps` runs in place, if it is one.
+pub fn lastRegion(steps: []const lir.Step) ?lir.RegionId {
+    return if (steps.len > 0 and steps[steps.len - 1] == .region) steps[steps.len - 1].region else null;
 }
 
 /// The region operand `i` of operation `e` is, where it is one.
@@ -457,15 +457,12 @@ pub fn nodeOf(b: *const Body, id: lir.ExprId) Sexp {
 /// ends its temporaries; null for any other expression.
 pub fn opOf(self: *const Checker, e: Expr) ?lir.Expr.Op {
     const b = self.lir_body orelse return null;
-    var id = e.id orelse return null;
+    var id = under(b, e.id orelse return null);
     while (true) switch (b.f.exprs.items[id]) {
-        .coerce => |c| id = c.value,
-        .hold => |h| id = h.value,
-        .@"var" => |x| id = hoistedOf(b, x.v) orelse return null,
         .block => |r| {
             const reg = &b.f.regions.items[r];
             switch (reg.kind) {
-                .call, .header, .value => id = reg.value orelse return null,
+                .call, .header, .value => id = under(b, reg.value orelse return null),
                 else => return null,
             }
         },
@@ -587,10 +584,10 @@ pub fn stepsIn(self: *const Checker, e: Expr) []const lir.Step {
 pub fn stepValue(self: *const Checker, steps: []const lir.Step, node: Sexp) Expr {
     if (node == .nil) return .{ .node = .nil };
     if (steps.len > 0) switch (steps[steps.len - 1]) {
-        .store => |x| return stepOperand(self, node, x.value),
-        .bind => |x| return stepOperand(self, node, x.value),
-        .eval => |x| return stepOperand(self, node, x),
-        .jump => |j| if (j.value) |id| return stepOperand(self, node, id),
+        .store => |x| return exprFor(self, node, x.value),
+        .bind => |x| return exprFor(self, node, x.value),
+        .eval => |x| return exprFor(self, node, x),
+        .jump => |j| if (j.value) |id| return exprFor(self, node, id),
         else => {},
     };
     return uncovered(self, node);
@@ -614,14 +611,3 @@ pub fn targetSteps(self: *const Checker, steps: []const lir.Step, targets: []con
     return &.{};
 }
 
-/// Statement operand `node` (the value an assignment stores, a jump
-/// leaves with, or a drop takes) as step expression `id` holds it.
-/// A self-checking build panics where the step's expression is not
-/// the node's.
-pub fn stepOperand(self: *const Checker, node: Sexp, id: lir.ExprId) Expr {
-    if (self_check) {
-        const n = nodeOf(self.lir_body.?, id);
-        if (sema.decisionKeyOf(n) != sema.decisionKeyOf(node)) std.debug.panic("internal error: a lowered statement's operand is not its tree's (`{s}` for `{s}`)", .{ @tagName(n.kind() orelse .module), @tagName(node.kind() orelse .module) });
-    }
-    return .{ .node = node, .id = id };
-}

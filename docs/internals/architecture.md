@@ -167,19 +167,22 @@ tests are counted apart. The ledger keeps the scoreboard.
 | cteval | 2,175 plus three evaluators | 2,000 |
 | LIR (definition, verifier, text form) | 0 | 1,000 |
 | lower | 2,774 (storage), plus logic from typecheck, sema, emit | 6,000 |
-| ownership | 9,768 | 6,000 |
+| ownership | 9,768 | about 11,400 |
 | proofs | 2,930 | 2,000 |
 | decide (inlining, returns, units, symbols, words, frames) | about 2,500 | 2,000 |
-| print and type layout (emit, facts) | 14,192 | about 13,300 |
-| **these passes** | **about 93,000** | **about 71,300 (23% smaller)** |
+| print and type layout (emit, facts) | 14,192 | about 13,400 |
+| **these passes** | **about 93,000** | **about 76,800 (17% smaller)** |
 | CLI, LSP, editor, frames/BOLT/PGO | about 6,800 | about 6,400 |
 | runtime (runtime, sched, tasks, alloc, tables, net, table, split) | 38,012 | 36,800 (3% smaller) |
 
-Emit and facts' budget is about 13,300, set again from what the
-identity steps measured: once lowering decides each call's form, its
-wrappers, and its arguments (E1 to E4), what is left in emit is how
-each construct is spelled in Zig, which an identity step cannot
-shorten.
+Ownership's budget is about 11,400 and emit and facts' about 13,400,
+each set again from what the identity steps measured. In ownership,
+what remains after the region-driven walk is Core's transfer for each
+operation, the unstored loans, liveness, and the message forms, which
+stay as they are, so a smaller checker would change what Rig reports.
+In emit, once lowering decides each call's form, its wrappers, and its
+arguments (E1 to E4), what is left is how each construct is spelled in
+Zig, which an identity step cannot shorten.
 
 The runtime stays nearly flat because its code is measured: the
 scheduler, the allocator, and the tables keep what earned its place.

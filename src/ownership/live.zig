@@ -35,6 +35,11 @@ pub const no_point = std.math.maxInt(u32);
 const exit_bit: u64 = 1 << 63;
 const scope_bit: u64 = 1 << 62;
 
+/// The key of the point where the scope of `node` ends (`Flow.past`).
+fn scopeKey(node: Sexp) ?u64 {
+    return scope_bit | ((sema.decisionKeyOf(node) orelse return null) & ~(exit_bit | scope_bit));
+}
+
 // -----------------------------------------------------------------------------
 // The flow of a body: its points in the order they run
 // -----------------------------------------------------------------------------
@@ -344,7 +349,7 @@ const Builder = struct {
         if (scope) {
             const defers = bd.scopes.pop().?;
             if (bd.prev != null) {
-                const key = if (reg.kind == .body) scope_bit else scope_bit | ((sema.decisionKeyOf(reg.node) orelse 0) & ~(exit_bit | scope_bit));
+                const key = if (reg.kind == .body) scope_bit else scopeKey(reg.node) orelse scope_bit;
                 bd.prev = try bd.past(try bd.chain(out, defers.items, false), key);
             }
         }
@@ -409,7 +414,10 @@ const Builder = struct {
             },
             .@"if" => |x| _ = try bd.branch(x),
             .loop => |x| try bd.loop(x.node, x.cond, x.body, x.step),
-            .each => |x| try bd.each(x.node, x.source, x.body),
+            .each => |x| {
+                try bd.expr(x.source);
+                try bd.loop(x.node, null, x.body, null);
+            },
             .match => |x| _ = try bd.choice(x),
         }
     }
@@ -510,11 +518,12 @@ const Builder = struct {
 
     /// `while cond: step`: the head, the condition, the body, the step,
     /// and back to the head; the loop ends where the condition fails.
-    fn loop(bd: *Builder, node: Sexp, cond: lir.ExprId, body: lir.RegionId, st: ?lir.RegionId) Error!void {
+    /// A `for` is one with no condition or step, after its source.
+    fn loop(bd: *Builder, node: Sexp, cond: ?lir.ExprId, body: lir.RegionId, st: ?lir.RegionId) Error!void {
         try bd.pushTarget(node);
         const head = try bd.new();
         bd.targets.items[bd.targets.items.len - 1].head = head;
-        try bd.expr(cond);
+        if (cond) |cd| try bd.expr(cd);
         const c = bd.prev;
         try bd.region(body);
         var step_in: u32 = no_point;
@@ -530,24 +539,6 @@ const Builder = struct {
         if (c) |p| try bd.edge(p, exit);
         for (t.exits.items) |p| try bd.edge(p, exit);
         try bd.putCtl(node, .{ .head = head, .exit = exit, .step = step_in });
-    }
-
-    /// `for x in source`: the source, then the head, which runs the body
-    /// again or ends the loop.
-    fn each(bd: *Builder, node: Sexp, source: lir.ExprId, body: lir.RegionId) Error!void {
-        try bd.expr(source);
-        try bd.pushTarget(node);
-        const head = try bd.new();
-        bd.targets.items[bd.targets.items.len - 1].head = head;
-        try bd.region(body);
-        if (bd.prev) |p| try bd.edge(p, head);
-        const t = bd.targets.pop().?;
-        for (t.steps.items) |p| try bd.edge(p, head);
-        bd.prev = null;
-        const exit = try bd.new();
-        try bd.edge(head, exit);
-        for (t.exits.items) |p| try bd.edge(p, exit);
-        try bd.putCtl(node, .{ .head = head, .exit = exit });
     }
 
     fn putCtl(bd: *Builder, node: Sexp, c: Flow.Ctl) Error!void {
@@ -749,7 +740,7 @@ pub fn atFailure(self: *Checker, e: lowered.Expr) void {
 /// The walk is past the defers of the scope over `node` (null for the
 /// function's body), which ends as the code falls through.
 pub fn atScopeEnd(self: *Checker, node: Sexp) void {
-    const key = if (node == .nil) scope_bit else scope_bit | ((sema.decisionKeyOf(node) orelse return) & ~(exit_bit | scope_bit));
+    const key = if (node == .nil) scope_bit else scopeKey(node) orelse return;
     self.point = .{ .kind = .past, .id = key, .alt = .{ .kind = self.point.kind, .id = self.point.id } };
 }
 
@@ -880,15 +871,23 @@ pub fn holderLiveDepth(self: *const Checker, id: VarId, at: ?Loc, depth: u8) boo
 
 /// Whether a live var or a temporary views var `id`.
 pub fn viewedByLive(self: *const Checker, id: VarId, at: ?Loc, depth: u8) bool {
-    if (self.isViewed(id)) for (self.flows.items, 0..) |f, j| {
-        if (j == id) continue;
-        for (f.loans) |l| if (l.root == id and !l.ext) {
-            if (holderLiveDepth(self, @intCast(j), at, depth + 1)) return true;
-            break;
-        };
-    };
+    if (liveViewer(self, id, at, depth) != null) return true;
     for (self.temps.items) |l| if (l.root == id) return true;
     return false;
+}
+
+/// The first var but `id` whose first loan on `id` of its own (no
+/// caller's) is held while the var is live: a view of `id` in use.
+pub fn liveViewer(self: *const Checker, id: VarId, at: ?Loc, depth: u8) ?struct { holder: VarId, loan: Loan } {
+    if (!self.isViewed(id)) return null;
+    for (self.flows.items, 0..) |f, j| {
+        if (j == id) continue;
+        for (f.loans) |l| if (l.root == id and !l.ext) {
+            if (holderLiveDepth(self, @intCast(j), at, depth + 1)) return .{ .holder = @intCast(j), .loan = l };
+            break;
+        };
+    }
+    return null;
 }
 
 pub fn addTemp(self: *Checker, l: Loan) Error!void {
