@@ -149,8 +149,7 @@ pub fn dropPendingHolds(self: *Checker, to: ?Point) Error!?[]const Loan {
 pub fn walkDefer(self: *Checker, e: lowered.Expr) Error!void {
     const node = e.node;
     const body = ir.get(node, .body);
-    const steps = lowered.stepsIn(self, e);
-    const r: ?lir.RegionId = if (steps.len > 0 and steps[steps.len - 1] == .region) steps[steps.len - 1].region else null;
+    const r = lowered.lastRegion(lowered.stepsIn(self, e));
     try checkDeferBody(self, body, r, true);
     try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, .{ .body = body, .r = r, .vars = @intCast(self.vars.items.len), .err_only = node.isKind(.@"errdefer") });
 }
@@ -165,7 +164,7 @@ pub fn checkDeferBody(self: *Checker, body: Sexp, r: ?lir.RegionId, report_chang
     const saved_point = self.point;
     self.loop = null;
     self.in_defer = true;
-    _ = try transfer.walkStmtValueE(self, if (r) |dr| lowered.bodyStmt(self, body, dr) else lowered.uncovered(self, body), null);
+    _ = try transfer.walkStmtValueE(self, lowered.bodyStmt(self, body, r orelse lowered.uncovered(self, body)), null);
     self.point = saved_point;
     self.loop = saved_loop;
     self.in_defer = saved_in_defer;

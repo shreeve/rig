@@ -1904,7 +1904,7 @@ pub fn walkSet(self: *Checker, node: Sexp, set_steps: []const lir.Step) Error!vo
         };
         var steps: Steps = .{ .c = self, .set = node, .placed = resolvePlace(self, target) != null, .value_e = value_e };
         try steps.step(.{ .role = .value });
-        try steps.path(if (target_id) |id| lowered.stepOperand(self, target, id) else lowered.uncovered(self, target));
+        try steps.path(lowered.exprFor(self, target, target_id orelse lowered.uncovered(self, target)));
         if (set_steps.len > 0) live.atStep(self, &set_steps[set_steps.len - 1]);
         return walkFieldAssign(self, node, target, steps.value, steps.base, steps.base_node);
     }
@@ -2780,11 +2780,11 @@ pub fn walkDestructure(self: *Checker, e: lowered.Expr) Error!void {
     // The value as the statement binds it to the results it holds.
     const steps = lowered.stepsIn(self, e);
     const value_e: lowered.Expr = for (steps) |step| switch (step) {
-        .bind => |x| break lowered.stepOperand(self, value, x.value),
+        .bind => |x| break lowered.exprFor(self, value, x.value),
         else => {},
     } else lowered.uncovered(self, value);
     // Each target's steps are a stretch of its targets' region's.
-    const target_steps = lowered.stepsIn(self, .{ .node = node, .r = if (steps.len > 0 and steps[steps.len - 1] == .region) steps[steps.len - 1].region else null });
+    const target_steps = lowered.stepsIn(self, .{ .node = node, .r = lowered.lastRegion(steps) });
     if (self_check) expectRole(self, value_e, .{ .sink = .binding });
     const whole = try walkConsumedE(self, value_e, .binding);
     if (!self.reachable) return;
@@ -3327,7 +3327,7 @@ pub fn walkCatch(self: *Checker, ex: lowered.Expr) Error!Value {
     if (name != .nil) {
         _ = try self.addVar(.{ .name = types.text(self, name), .decl = name.src.pos, .sym = self.bindingOf(name), .ty = types.symType(self, name) }, .{});
     }
-    var v2 = try walkTailPartE(self, if (lowered.argRegion(self, ex, 1)) |h| lowered.exprIn(self, handler, h) else lowered.uncovered(self, handler), t);
+    var v2 = try walkTailPartE(self, lowered.exprIn(self, handler, lowered.argRegion(self, ex, 1) orelse lowered.uncovered(self, handler)), t);
     v2 = try self.leaveScope(v2);
     const s = try self.leave(base, live.ptOf(self, ex));
     try self.apply(try self.join(stateAt(base), s));
@@ -3500,12 +3500,12 @@ pub fn walkIf(self: *Checker, e: lowered.Expr) Error!Value {
     const node = e.node;
     const t = takeTail(self, node);
     const cond = ir.If.cond(node);
-    const lir_if: ?lir.Expr.If = if (lowered.controlOf(self, e)) |c| (if (c == .@"if") c.@"if" else null) else null;
+    const lir_if = lowered.controlAs(self, e, .@"if");
     if (rig.isAsPart(cond) or rig.isConditionJoin(cond)) return walkIfBinding(self, node, lir_if, t);
     const then_b = ir.If.then(node);
     const else_b = ir.If.@"else"(node);
     // The condition is a header, its own statement.
-    _ = try walkStmtValueE(self, if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.uncovered(self, cond), null);
+    _ = try walkStmtValueE(self, lowered.exprFor(self, cond, lir_if.cond), null);
     const base = try self.here();
     const past = live.ctlOf(node).exit;
     const v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
@@ -3518,26 +3518,24 @@ pub fn walkIf(self: *Checker, e: lowered.Expr) Error!Value {
 
 /// Branch `b` of an `if` (`then` or else), from the region LIR made
 /// for it.
-fn branchOf(self: *const Checker, b: Sexp, lir_if: ?lir.Expr.If, then: bool) lowered.Expr {
-    const i = lir_if orelse return lowered.uncovered(self, b);
-    const r = if (then) i.then else i.@"else" orelse return lowered.uncovered(self, b);
-    return lowered.exprIn(self, b, r);
+fn branchOf(self: *const Checker, b: Sexp, i: lir.Expr.If, then: bool) lowered.Expr {
+    return lowered.exprIn(self, b, if (then) i.then else i.@"else" orelse lowered.uncovered(self, b));
 }
 
 /// `if a as x` and `if a as x and ...`: the parts run in order, each
 /// binding in a scope over the rest and the then-branch. The `else`
 /// runs when a part fails, so it starts from the join of the states
 /// after each part, with their bindings gone.
-pub fn walkIfBinding(self: *Checker, node: Sexp, lir_if: ?lir.Expr.If, t: ?Tail) Error!Value {
+pub fn walkIfBinding(self: *Checker, node: Sexp, lir_if: lir.Expr.If, t: ?Tail) Error!Value {
     const then_b = ir.If.then(node);
     const else_b = ir.If.@"else"(node);
     const base = try self.here();
     const depth = self.scopes.items.len;
     // A failing part goes on to the `else`, or past the `if`.
     const cond = ir.If.cond(node);
-    const cond_e = if (lir_if) |i| lowered.exprFor(self, cond, i.cond) else lowered.uncovered(self, cond);
+    const cond_e = lowered.exprFor(self, cond, lir_if.cond);
     const past = live.ctlOf(node).exit;
-    const fails = try walkConditionParts(self, cond_e, then_b, .{ .to = base, .resume_at = if (lir_if) |i| (if (i.@"else") |r| live.inOf(r) else past) else past }, self.loop);
+    const fails = try walkConditionParts(self, cond_e, then_b, .{ .to = base, .resume_at = if (lir_if.@"else") |r| live.inOf(r) else past }, self.loop);
     var v1 = try walkTailPartE(self, branchOf(self, then_b, lir_if, true), t);
     while (self.scopes.items.len > depth) v1 = try self.leaveScope(v1);
     const s1 = try self.leave(base, past);
@@ -3712,8 +3710,8 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
     // subjects").
     const saved_held = self.held;
     defer self.held = saved_held;
-    const ctrl = lowered.controlOf(self, me);
-    const scrut_e = if (ctrl) |c| (if (c == .match) lowered.exprFor(self, scrut, c.match.subject) else lowered.uncovered(self, scrut)) else lowered.uncovered(self, scrut);
+    const ctrl = lowered.controlAs(self, me, .match);
+    const scrut_e = lowered.exprFor(self, scrut, ctrl.subject);
     const subject = try walkSubject(self, match, scrut_e, "match");
     const info, const scrut_value, const header_temps = .{ subject.info, subject.value, subject.header_temps };
     var outlived = false;
@@ -3746,9 +3744,7 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
         // A guarded arm may not run for the values its pattern
         // matches. The views the guard takes end with it.
         const bound = self.vars.items.len;
-        if (ctrl) |c| if (c == .match and i < c.match.arms.len) {
-            self.point = live.inOf(c.match.arms[i]);
-        };
+        self.point = live.inOf(ctrl.arms[i]);
         if (try bindPattern(self, pattern, info, scrut_value) and guard == .nil) catch_all = true;
         // A binding that views a temporary the subject made would
         // outlive it.
@@ -3765,7 +3761,7 @@ pub fn walkMatch(self: *Checker, me: lowered.Expr) Error!Value {
             // A header, its own statement, which its arm's region tests.
             _ = try walkStmtValueE(self, lowered.guardOf(self, ctrl, i, guard), null);
             // A failing guard goes on to the next arm, or past the match.
-            const next: ?live.Loc = if (ctrl) |c| (if (c == .match and i + 1 < c.match.arms.len) live.inOf(c.match.arms[i + 1]) else past) else past;
+            const next: ?live.Loc = if (i + 1 < ctrl.arms.len) live.inOf(ctrl.arms[i + 1]) else past;
             failed = try exits.exitTo(self, .{ .to = base, .resume_at = next });
         }
         // The arm is chosen: the subject is read no more.
@@ -3995,8 +3991,10 @@ pub fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Val
 pub const LoopSpec = struct {
     /// The `while` or `for` node.
     node: Sexp,
-    /// Its step in the LIR, where found.
-    lir: ?lowered.Control = null,
+    /// Its LIR: the body's region, and a `while`'s condition and step.
+    lir_body: lir.RegionId,
+    lir_cond: ?lir.ExprId = null,
+    lir_step: ?lir.RegionId = null,
     cond: ?Sexp = null,
     cond_always_true: bool = false,
     /// `while a as x` or `while a as x and ...`: a condition of parts
@@ -4068,9 +4066,12 @@ pub fn walkWhile(self: *Checker, e: lowered.Expr) Error!Value {
     const node = e.node;
     const cond = ir.While.cond(node);
     const step = ir.While.step(node);
+    const l = lowered.controlAs(self, e, .loop);
     return walkLoop(self, .{
         .node = node,
-        .lir = lowered.controlOf(self, e),
+        .lir_body = l.body,
+        .lir_cond = l.cond,
+        .lir_step = l.step,
         .cond = cond,
         .cond_binds = rig.isAsPart(cond) or rig.isConditionJoin(cond),
         .cond_always_true = cond == .src and std.mem.eql(u8, types.text(self, cond), "true"),
@@ -4083,11 +4084,11 @@ pub fn walkFor(self: *Checker, e: lowered.Expr) Error!Value {
     const node = e.node;
     const mode = ir.For.mode(node).tag;
     const source = ir.For.source(node);
-    const ctrl = lowered.controlOf(self, e);
-    const source_e = if (ctrl) |c| (if (c == .each) lowered.exprFor(self, source, c.each.source) else lowered.uncovered(self, source)) else lowered.uncovered(self, source);
+    const each = lowered.controlAs(self, e, .each);
+    const source_e = lowered.exprFor(self, source, each.source);
     var spec: LoopSpec = .{
         .node = node,
-        .lir = ctrl,
+        .lir_body = each.body,
         .body = ir.For.body(node),
         .elem1 = ir.For.@"var"(node),
         .elem2 = ir.For.index(node),
@@ -4246,12 +4247,10 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     if (at.head) |h| self.point = h;
     const fail: ExitTo = .{ .to = ctx.point, .resume_at = at.exit };
     var exit: []const State = &.{};
-    const lir_cond: ?lir.ExprId = if (spec.lir) |c| (if (c == .loop) c.loop.cond else null) else null;
     if (spec.cond_binds) {
-        const c = spec.cond.?;
-        exit = try walkConditionParts(self, if (lir_cond) |id| lowered.exprFor(self, c, id) else lowered.uncovered(self, c), spec.body, fail, ctx.parent);
+        exit = try walkConditionParts(self, lowered.exprFor(self, spec.cond.?, spec.lir_cond.?), spec.body, fail, ctx.parent);
     } else {
-        if (spec.cond) |c| _ = try walkStmtValueE(self, if (lir_cond) |id| lowered.exprFor(self, c, id) else lowered.uncovered(self, c), null);
+        if (spec.cond) |c| _ = try walkStmtValueE(self, lowered.exprFor(self, c, spec.lir_cond.?), null);
         if (!spec.cond_always_true) exit = try self.arena().dupe(State, &.{try exits.exitTo(self, fail)});
     }
     // The loop is `loop { x = a or break; body: { body }; step }`
@@ -4267,12 +4266,7 @@ pub fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!Iterat
     }
     try self.pushScopeFor(.block, spec.body);
     try bindLoopElems(self, spec);
-    const lir_body: ?lir.RegionId = if (spec.lir) |c| switch (c) {
-        .loop => |x| x.body,
-        .each => |x| x.body,
-        else => null,
-    } else null;
-    _ = try walkStmtValueE(self, if (lir_body) |r| lowered.exprIn(self, spec.body, r) else lowered.uncovered(self, spec.body), null);
+    _ = try walkStmtValueE(self, lowered.exprIn(self, spec.body, spec.lir_body), null);
     if (step_inside) {
         while (self.scopes.items.len > ctx.step_depth) try self.popScope();
         if (ctx.step_conts.items.len > 0) try self.joinAt(ctx.step_point.?, ctx.step_conts.items, at.step);
@@ -4302,8 +4296,7 @@ pub fn walkStep(self: *Checker, spec: LoopSpec) Error!void {
     defer self.step_at = saved;
     if (saved == null) self.step_at = notes.stepAt(self, spec.node);
     const step = spec.cont.?;
-    const r = if (spec.lir) |c| (if (c == .loop) c.loop.step else null) else null;
-    _ = try walkStmtValueE(self, if (r) |sr| lowered.bodyStmt(self, step, sr) else lowered.uncovered(self, step), null);
+    _ = try walkStmtValueE(self, lowered.bodyStmt(self, step, spec.lir_step orelse lowered.uncovered(self, step)), null);
 }
 
 pub fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
