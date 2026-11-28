@@ -897,13 +897,16 @@ const Batch = struct {
     ranges: [batch_max]std.posix.iovec_const = undefined,
     count: usize = 0,
     bytes: usize = 0,
+    /// What the ranges are advised: given back, or on Linux asked for
+    /// huge pages (`askWaitingTables`).
+    advice: u32 = if (builtin.os.tag == .linux) std.os.linux.MADV.DONTNEED else 0,
 
     /// The pages of the `len` bytes at `p` that `decommit` would give
     /// back. Gives their bytes.
     fn add(b: *Batch, p: usize, len: usize) usize {
         if (builtin.os.tag != .linux) return decommit(p, len);
         const r = innerPages(p, len) orelse return 0;
-        if (b.count == batch_max) b.flush();
+        if (b.count == batch_max or b.bytes + r.len > batch_bytes_max) b.flush();
         b.ranges[b.count] = .{ .base = r.at, .len = r.len };
         b.count += 1;
         b.bytes += r.len;
@@ -916,12 +919,15 @@ const Batch = struct {
         defer b.bytes = 0;
         if (vs.len == 0) return;
         const self: usize = @bitCast(@as(isize, -10000));
-        if (std.os.linux.syscall5(.process_madvise, self, @intFromPtr(vs.ptr), vs.len, std.os.linux.MADV.DONTNEED, 0) == b.bytes) return;
-        for (vs) |v| std.posix.madvise(@ptrFromInt(@intFromPtr(v.base)), v.len, std.os.linux.MADV.DONTNEED) catch {};
+        if (vs.len > 1 and std.os.linux.syscall5(.process_madvise, self, @intFromPtr(vs.ptr), vs.len, b.advice, 0) == b.bytes) return;
+        for (vs) |v| std.posix.madvise(@ptrFromInt(@intFromPtr(v.base)), v.len, b.advice) catch {};
     }
 };
 
 const batch_max = 64;
+/// The most bytes one `process_madvise` advises (Linux's `MAX_RW_COUNT`):
+/// a batch past them is two, and a range past them alone is a `madvise`.
+const batch_bytes_max: usize = 0x7fff_f000;
 
 /// The bytes a large block takes: under `span_max`, its length rounded
 /// up to whole `span_unit`s, a span's; from it, its length rounded up to
@@ -2240,11 +2246,14 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
 }
 
 /// The heap a Table reserved now waits on before it asks for huge pages,
-/// or null if it asks at once: the running thread's heap, while that
-/// heap does not fault in ahead (`faultsAhead`) and asking is how a range
-/// gets huge pages (`adviceFor`). Asking is a system call that splits a
-/// mapping, and a program's Tables are reserved in a burst, one per
-/// Table on every worker at once. A Table most often stays inside the
+/// or null if it asks at once: the running thread's heap, unless it does
+/// the program's work alone (`leads`), while asking is how a range gets
+/// huge pages (`adviceFor`). Asking is a system call that splits a
+/// mapping under the lock every thread's faults in it wait on, and a
+/// program's Tables are reserved in a burst, one per Table on every
+/// worker at once: Trig's four checkers asked 208 times as they were
+/// made. A heap that faults in ahead asks for its waiting Tables at its
+/// next take from the system, together (`askWaitingTables`). A Table most often stays inside the
 /// first 2 MiB, which never ask, on a worker with little to do: Trig on
 /// its smallest projects at 8 checkers asked 306 times for 2 huge pages,
 /// and ran 4 to 5% slower for it. A worker with much to do comes to
@@ -2252,7 +2261,7 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
 /// (`askWaitingTables`), before most of them have left their first 2 MiB.
 fn tableWaits() ?*Heap {
     const h = heap() orelse return null;
-    if (faultsAhead(h)) return null;
+    if (leads(h)) return null;
     return switch (adviceFor(thpMode(), .huge)) {
         .huge, .huge_if_free => h,
         .nothing, .small => null,
@@ -2270,20 +2279,29 @@ fn addWaitingTable(h: *Heap, at: usize, bytes: usize) bool {
 }
 
 /// The Tables waiting on `h` now ask for huge pages, while the system
-/// has free 2 MiB blocks to spare, tested once for them all. A Table
+/// has free 2 MiB blocks to spare, tested once for them all, in one
+/// batch (`Batch`), which on Linux 6.13 and later takes the lock their
+/// mappings change under once a call, not once a Table. A Table
 /// dropped on another thread as this runs may have its range advised
 /// after it was given back, which costs its next Table's first 2 MiB
 /// their small pages and no more.
 fn askWaitingTables(h: *Heap) void {
     @branchHint(.cold);
     h.tables_wait = false;
+    if (builtin.os.tag != .linux) return;
     const blocks_spare = hugeFree();
+    var b: Batch = .{ .advice = std.os.linux.MADV.HUGEPAGE };
+    defer b.flush();
     while (true) {
         tables_lock.lock();
         const t = takeWaitingTable(h);
         tables_lock.unlock();
         const w = t orelse return;
-        if (blocks_spare) askTableHuge(w.start, w.bytes);
+        if (!blocks_spare) continue;
+        tables_asked_huge.store(true, .monotonic);
+        // From the byte before its second 2 MiB: `add` takes the pages
+        // past the one that holds its first byte.
+        _ = b.add(w.start + huge_page - 1, w.bytes - huge_page + 1);
     }
 }
 
@@ -4547,6 +4565,8 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     defer useBuddyinfoForTest(null);
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
+    const lead = leadForTest();
+    defer lead.end();
     const mib: usize = 1 << 20;
     const t = reserveTable(24 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
@@ -4591,11 +4611,29 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(gone) + 2 * mib));
-    // The heap now does much, so a new Table asks as it is reserved.
+    // The heap now does much, beside others that do too: new Tables wait
+    // for its next take from the system, and ask together.
+    _ = taken_all.fetchAdd(prefault_big, .monotonic);
+    try std.testing.expect(faultsAhead(me) and !leads(me));
     const now = reserveTable(24 * mib).?;
+    const next = reserveTable(40 * mib).?;
+    try std.testing.expect(me.tables_wait);
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(now) + 2 * mib));
+    me.took(segment_size);
     try std.testing.expect(!me.tables_wait);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(now) + 2 * mib));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(next) + 39 * mib));
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(next)));
+    try std.testing.expect(unreserveTable(next, 40 * mib));
     try std.testing.expect(unreserveTable(now, 24 * mib));
+    // A heap that does the program's work alone asks as it reserves.
+    const lead = leadForTest();
+    try std.testing.expect(leads(me));
+    const alone = reserveTable(24 * mib).?;
+    try std.testing.expect(!me.tables_wait);
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(alone) + 2 * mib));
+    try std.testing.expect(unreserveTable(alone, 24 * mib));
+    lead.end();
     try std.testing.expect(unreserveTable(t, 24 * mib));
 
     // Memory fragmented when the heap comes to do much: no ask.
@@ -4623,6 +4661,22 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     for (waiting) |w| try std.testing.expect(unreserveTable(w, 3 * mib));
     try std.testing.expect(unreserveTable(over, 3 * mib));
     try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
+}
+
+/// Test only: this thread's heap does the program's work alone
+/// (`leads`) until `end`, so its Tables ask for huge pages as they are
+/// reserved (`tableWaits`).
+fn leadForTest() struct {
+    h: *Heap,
+    was: usize,
+    fn end(l: @This()) void {
+        l.h.taken = l.was;
+    }
+} {
+    const h = heap().?;
+    const was = h.taken;
+    h.taken = @max(was, taken_all.load(.monotonic));
+    return .{ .h = h, .was = was };
 }
 
 /// /sys/kernel/mm/transparent_hugepage/`enabled` and `defrag` for the
@@ -4808,6 +4862,8 @@ test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, s
     freeLarge(&h, span, 8 * mib);
     freeLarge(&h, big, 16 * mib);
     trimAllForTest(&h);
+    const lead = leadForTest();
+    defer lead.end();
     const t = reserveTable(24 * mib).?;
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
