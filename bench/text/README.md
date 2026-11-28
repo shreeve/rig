@@ -63,8 +63,16 @@ indicate):
 | pup, Meteor Lake E-core | 4-7 | 8-15 | 16-34 | 35 on | - |
 | pup, Meteor Lake P-core | 4-7 | 8-15 | 16-34 | 35 on | - |
 | burst, Zen 5 | 4-7 | 8-15 | 16-31 | 32-80 | 88 on (10% ahead of 32 at 256-512) |
+| Mac, Apple M5 (3 runs) | 4-7 | 8-18 | 19 on | - | - |
 
-aarch64 keeps the tiers std.text had, 8-byte compares from 8 bytes and 16 from 16.
+On the M5, SWAR never wins either: it takes 1.3 to 2.6 times as long as the
+byte loop below 8 bytes, and 1.3 to 1.7 times as long as 8-byte compares
+above. 8-byte compares lead 16-byte ones by 5 to 20% from 16 to 18 bytes.
+aarch64 keeps std.text's tiers anyway, 8-byte compares from 8 bytes and 16
+from 16, because past 15 bytes `short`'s two 8-byte compares no longer cover
+the text. For a 1-byte needle, `std.mem.findScalar` and the vector ways trade
+places below 32 bytes, all within 0.9 ns, and from 256 bytes on findScalar
+leads by 40 to 60%.
 SWAR never wins on these x86 cores, and a vector way wins as soon as
 its vector fits. A 1-byte needle runs the same tiers to 31 bytes, then
 32-byte compares and `std.mem.findScalar` trade places within noise.
